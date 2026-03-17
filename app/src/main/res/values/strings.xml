@@ -459,7 +459,7 @@
     <string name="layout_no_backdrop_image">Don\'t Show Backdrop Image in Expanded Card</string>
     <string name="layout_no_backdrop_image_sub">When card is expanded, only the trailer is shown.</string>
     <string name="layout_trailer_allow_letterboxing">Allow Letterboxing</string>
-    <string name="layout_trailer_allow_letterboxing_sub">Disable Trailer Overscan in Hero Media</string>
+    <string name="layout_trailer_allow_letterboxing_sub">Disable Trailer Overscan in Hero Media.</string>
     <string name="layout_section_card_style">Poster Card Style</string>
     <string name="layout_section_card_style_desc">Tune card width and corner radius.</string>
     <string name="layout_open">Open</string>
