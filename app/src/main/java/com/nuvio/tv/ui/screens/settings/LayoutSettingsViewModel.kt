@@ -36,6 +36,8 @@ data class LayoutSettingsUiState(
     val focusedPosterBackdropTrailerMuted: Boolean = true,
     val focusedPosterBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget =
         FocusedPosterTrailerPlaybackTarget.HERO_MEDIA,
+    val focusedPosterNoBackdropImage: Boolean = false,
+    val heroTrailerAllowLetterboxing: Boolean = false,
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
@@ -76,6 +78,8 @@ sealed class LayoutSettingsEvent {
     data class SetDetailPageTrailerButtonEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetPreferExternalMetaAddonDetail(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetHideUnreleasedContent(val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetFocusedPosterNoBackdropImage(val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetHeroTrailerAllowLetterboxing(val enabled: Boolean) : LayoutSettingsEvent()
     data object ResetPosterCardStyle : LayoutSettingsEvent()
 }
 
@@ -185,6 +189,16 @@ class LayoutSettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            layoutPreferenceDataStore.focusedPosterNoBackdropImage.distinctUntilChanged().collectLatest { enabled ->
+                updateUiStateIfChanged { it.copy(focusedPosterNoBackdropImage = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.heroTrailerAllowLetterboxing.distinctUntilChanged().collectLatest { enabled ->
+                updateUiStateIfChanged { it.copy(heroTrailerAllowLetterboxing = enabled) }
+            }
+        }
+        viewModelScope.launch {
             layoutPreferenceDataStore.posterCardWidthDp.distinctUntilChanged().collectLatest { widthDp ->
                 updateUiStateIfChanged { it.copy(posterCardWidthDp = widthDp) }
             }
@@ -247,6 +261,8 @@ class LayoutSettingsViewModel @Inject constructor(
             is LayoutSettingsEvent.SetDetailPageTrailerButtonEnabled -> setDetailPageTrailerButtonEnabled(event.enabled)
             is LayoutSettingsEvent.SetPreferExternalMetaAddonDetail -> setPreferExternalMetaAddonDetail(event.enabled)
             is LayoutSettingsEvent.SetHideUnreleasedContent -> setHideUnreleasedContent(event.enabled)
+            is LayoutSettingsEvent.SetFocusedPosterNoBackdropImage -> setFocusedPosterNoBackdropImage(event.enabled)
+            is LayoutSettingsEvent.SetHeroTrailerAllowLetterboxing -> setHeroTrailerAllowLetterboxing(event.enabled)
             LayoutSettingsEvent.ResetPosterCardStyle -> resetPosterCardStyle()
         }
     }
@@ -409,6 +425,20 @@ class LayoutSettingsViewModel @Inject constructor(
         if (_uiState.value.hideUnreleasedContent == enabled) return
         viewModelScope.launch {
             layoutPreferenceDataStore.setHideUnreleasedContent(enabled)
+        }
+    }
+
+    private fun setFocusedPosterNoBackdropImage(enabled: Boolean) {
+        if (_uiState.value.focusedPosterNoBackdropImage == enabled) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setFocusedPosterNoBackdropImage(enabled)
+        }
+    }
+
+    private fun setHeroTrailerAllowLetterboxing(enabled: Boolean) {
+        if (_uiState.value.heroTrailerAllowLetterboxing == enabled) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setHeroTrailerAllowLetterboxing(enabled)
         }
     }
 

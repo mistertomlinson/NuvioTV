@@ -536,6 +536,52 @@ fun LayoutSettingsContent(
                             onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
                         )
                     }
+
+                    // Allow Letterboxing — Modern UI only, shown when trailer plays in Hero Media
+                    if (
+                        isModern &&
+                        showAutoplayRow &&
+                        uiState.focusedPosterBackdropTrailerEnabled &&
+                        uiState.focusedPosterBackdropTrailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
+                    ) {
+                        CompactToggleRow(
+                            title = stringResource(R.string.layout_trailer_allow_letterboxing),
+                            subtitle = stringResource(R.string.layout_trailer_allow_letterboxing_sub),
+                            checked = uiState.heroTrailerAllowLetterboxing,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetHeroTrailerAllowLetterboxing(
+                                        !uiState.heroTrailerAllowLetterboxing
+                                    )
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
+                        )
+                    }
+
+                    // Hide Backdrop on Trailer — both UIs, shown when trailer plays in expanded card
+                    if (
+                        showAutoplayRow &&
+                        uiState.focusedPosterBackdropTrailerEnabled &&
+                        (
+                            !isModern ||
+                            uiState.focusedPosterBackdropTrailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+                        )
+                    ) {
+                        CompactToggleRow(
+                            title = stringResource(R.string.layout_no_backdrop_image),
+                            subtitle = stringResource(R.string.layout_no_backdrop_image_sub),
+                            checked = uiState.focusedPosterNoBackdropImage,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetFocusedPosterNoBackdropImage(
+                                        !uiState.focusedPosterNoBackdropImage
+                                    )
+                                )
+                            },
+                            onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
+                        )
+                    }
                 }
             }
             }

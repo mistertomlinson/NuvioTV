@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.components
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
@@ -56,6 +57,7 @@ import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
 import coil.compose.AsyncImage
+import coil.imageLoader
 import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 
@@ -75,6 +77,7 @@ fun ContentCard(
     focusedPosterBackdropExpandDelaySeconds: Int = 3,
     focusedPosterBackdropTrailerEnabled: Boolean = false,
     focusedPosterBackdropTrailerMuted: Boolean = true,
+    focusedPosterNoBackdropImage: Boolean = false,
     trailerPreviewUrl: String? = null,
     trailerPreviewAudioUrl: String? = null,
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
@@ -100,7 +103,33 @@ fun ContentCard(
     var longPressTriggered by remember { mutableStateOf(false) }
     var interactionNonce by remember { mutableIntStateOf(0) }
     var isBackdropExpanded by remember { mutableStateOf(false) }
-    var trailerFirstFrameRendered by remember(trailerPreviewUrl) { mutableStateOf(false) }
+    // In noBackdropImage mode: reset trailerFirstFrameRendered when backdrop collapses too.
+    var trailerFirstFrameRendered by remember(
+        trailerPreviewUrl,
+        if (focusedPosterNoBackdropImage) isBackdropExpanded else null
+    ) { mutableStateOf(false) }
+
+    // In noBackdropImage mode: card only visually expands once trailer has its first frame.
+    val effectiveIsExpanded = if (focusedPosterNoBackdropImage && focusedPosterBackdropTrailerEnabled) {
+        isBackdropExpanded && trailerFirstFrameRendered
+    } else {
+        isBackdropExpanded
+    }
+
+    // Black overlay phase for noBackdropImage: 0=off, 1=opaque, 2=transparent
+    var blackOverlayPhase by remember(trailerPreviewUrl, isBackdropExpanded) { mutableStateOf(0) }
+
+    LaunchedEffect(effectiveIsExpanded, focusedPosterNoBackdropImage, focusedPosterBackdropTrailerEnabled) {
+        if (focusedPosterNoBackdropImage && focusedPosterBackdropTrailerEnabled && effectiveIsExpanded) {
+            blackOverlayPhase = 1
+            delay(500)
+            blackOverlayPhase = 2
+        } else {
+            blackOverlayPhase = 0
+        }
+    }
+
+    val blackOverlayAlpha = if (blackOverlayPhase == 1) 1f else 0f
 
 
     val needsFocusState = focusedPosterBackdropExpandEnabled || focusedPosterBackdropTrailerEnabled
@@ -147,14 +176,14 @@ fun ContentCard(
     // Unfocused cards snap directly to baseCardWidth — no animation state overhead.
     val animatedCardWidth = when {
         !focusedPosterBackdropExpandEnabled -> baseCardWidth
-        !isFocused && !isBackdropExpanded -> baseCardWidth
+        !isFocused && !effectiveIsExpanded -> baseCardWidth
         else -> {
-            val targetCardWidth = if (isBackdropExpanded) expandedCardWidth else baseCardWidth
+            val targetCardWidth = if (effectiveIsExpanded) expandedCardWidth else baseCardWidth
             val width by animateDpAsState(targetValue = targetCardWidth, label = "contentCardWidth")
             width
         }
     }
-    val metaTokens = if (isBackdropExpanded) {
+    val metaTokens = if (effectiveIsExpanded) {
         remember(item.type, item.genres, item.releaseInfo, item.imdbRating) {
             buildList {
                 add(
@@ -189,7 +218,20 @@ fun ContentCard(
         val requestHeightPx = remember(baseCardHeight, density) {
             with(density) { baseCardHeight.roundToPx() }
         }
-        val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
+        if (focusedPosterBackdropExpandEnabled && !focusedPosterNoBackdropImage) {
+            val backdropPrefetchUrl = item.backdropUrl
+            LaunchedEffect(isFocused, backdropPrefetchUrl) {
+                if (!isFocused || backdropPrefetchUrl.isNullOrBlank()) return@LaunchedEffect
+                val request = ImageRequest.Builder(context)
+                    .data(backdropPrefetchUrl)
+                    .memoryCacheKey("${backdropPrefetchUrl}_${requestWidthPx}x${requestHeightPx}")
+                    .size(width = requestWidthPx, height = requestHeightPx)
+                    .build()
+                context.imageLoader.enqueue(request)
+            }
+        }
+
+        val imageUrl = if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded && !focusedPosterNoBackdropImage) {
             item.backdropUrl ?: item.poster
         } else {
             item.poster
@@ -334,6 +376,11 @@ fun ContentCard(
                     0f
                 }
 
+                // Black backdrop behind trailer — only once trailer is painting
+                if (shouldPlayTrailerPreview && trailerFirstFrameRendered) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+                }
+
                 if (shouldPlayTrailerPreview) {
                     TrailerPlayer(
                         trailerUrl = trailerPreviewUrl,
@@ -343,9 +390,7 @@ fun ContentCard(
                             trailerFirstFrameRendered = false
                             isBackdropExpanded = false
                         },
-                        onFirstFrameRendered = {
-                            trailerFirstFrameRendered = true
-                        },
+                        onFirstFrameRendered = { trailerFirstFrameRendered = true },
                         modifier = Modifier.fillMaxSize(),
                         muted = focusedPosterBackdropTrailerMuted
                     )
@@ -355,14 +400,17 @@ fun ContentCard(
                     AsyncImage(
                         model = imageModel,
                         contentDescription = null,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer { alpha = trailerCoverAlpha },
+                        modifier = Modifier.fillMaxSize().graphicsLayer { alpha = trailerCoverAlpha },
                         contentScale = ContentScale.Crop
                     )
                 }
 
-                if (isBackdropExpanded) {
+                // noBackdropImage black expand overlay — snaps in when trailer first frame arrives
+                if (focusedPosterNoBackdropImage && blackOverlayAlpha > 0f) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+                }
+
+                if (effectiveIsExpanded) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)

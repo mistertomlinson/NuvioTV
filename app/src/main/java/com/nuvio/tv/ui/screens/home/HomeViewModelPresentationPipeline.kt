@@ -38,7 +38,9 @@ private data class FocusedBackdropPrefs(
     val expandDelaySeconds: Int,
     val trailerEnabled: Boolean,
     val trailerMuted: Boolean,
-    val trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget
+    val trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
+    val noBackdropImage: Boolean,
+    val heroTrailerAllowLetterboxing: Boolean
 )
 
 private data class LayoutUiPrefs(
@@ -55,6 +57,8 @@ private data class LayoutUiPrefs(
     val focusedBackdropTrailerEnabled: Boolean,
     val focusedBackdropTrailerMuted: Boolean,
     val focusedBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
+    val focusedBackdropNoBackdropImage: Boolean,
+    val focusedBackdropHeroTrailerAllowLetterboxing: Boolean,
     val posterCardWidthDp: Int,
     val posterCardHeightDp: Int,
     val posterCardCornerRadiusDp: Int
@@ -101,8 +105,14 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             expandDelaySeconds = expandDelaySeconds,
             trailerEnabled = trailerEnabled,
             trailerMuted = trailerMuted,
-            trailerPlaybackTarget = trailerPlaybackTarget
+            trailerPlaybackTarget = trailerPlaybackTarget,
+            noBackdropImage = false,
+            heroTrailerAllowLetterboxing = false
         )
+    }.combine(layoutPreferenceDataStore.focusedPosterNoBackdropImage) { prefs, noBackdrop ->
+        prefs.copy(noBackdropImage = noBackdrop)
+    }.combine(layoutPreferenceDataStore.heroTrailerAllowLetterboxing) { prefs, allowLetterboxing ->
+        prefs.copy(heroTrailerAllowLetterboxing = allowLetterboxing)
     }
 
     val modernLayoutPrefsFlow = layoutPreferenceDataStore.modernLandscapePostersEnabled
@@ -128,6 +138,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             focusedBackdropTrailerEnabled = focusedBackdropPrefs.trailerEnabled,
             focusedBackdropTrailerMuted = focusedBackdropPrefs.trailerMuted,
             focusedBackdropTrailerPlaybackTarget = focusedBackdropPrefs.trailerPlaybackTarget,
+            focusedBackdropNoBackdropImage = focusedBackdropPrefs.noBackdropImage,
+            focusedBackdropHeroTrailerAllowLetterboxing = focusedBackdropPrefs.heroTrailerAllowLetterboxing,
             posterCardWidthDp = posterCardWidthDp,
             posterCardHeightDp = posterCardHeightDp,
             posterCardCornerRadiusDp = posterCardCornerRadiusDp
@@ -173,6 +185,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         focusedPosterBackdropTrailerEnabled = prefs.focusedBackdropTrailerEnabled,
                         focusedPosterBackdropTrailerMuted = prefs.focusedBackdropTrailerMuted,
                         focusedPosterBackdropTrailerPlaybackTarget = prefs.focusedBackdropTrailerPlaybackTarget,
+                        focusedPosterNoBackdropImage = prefs.focusedBackdropNoBackdropImage,
+                        heroTrailerAllowLetterboxing = prefs.focusedBackdropHeroTrailerAllowLetterboxing,
                         posterCardWidthDp = prefs.posterCardWidthDp,
                         posterCardHeightDp = prefs.posterCardHeightDp,
                         posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp

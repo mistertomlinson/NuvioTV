@@ -8,6 +8,7 @@ package com.nuvio.tv.ui.screens.home
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -658,10 +659,39 @@ fun ModernHomeContent(
         }
         var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
         LaunchedEffect(shouldPlayHeroTrailer) {
-            if (!shouldPlayHeroTrailer) {
-                heroTrailerFirstFrameRendered = false
+            if (!shouldPlayHeroTrailer) heroTrailerFirstFrameRendered = false
+        }
+        val heroTransitionTarget = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f
+        val heroTransitionProgress by animateFloatAsState(
+            targetValue = heroTransitionTarget,
+            animationSpec = if (heroTransitionTarget == 1f) tween(durationMillis = 480) else tween(durationMillis = 150),
+            label = "heroBackdropTrailerCrossfadeProgress"
+        )
+        val heroBackdropAlpha = 1f - heroTransitionProgress
+        val heroTrailerAlpha = heroTransitionProgress
+        var lbGradientVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
+        var lbTrailerVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
+        LaunchedEffect(heroTrailerFirstFrameRendered, uiState.heroTrailerAllowLetterboxing) {
+            if (heroTrailerFirstFrameRendered && uiState.heroTrailerAllowLetterboxing) {
+                delay(480)
+                lbGradientVisible = true
+                lbTrailerVisible = true
+            } else {
+                lbGradientVisible = false
+                lbTrailerVisible = false
             }
         }
+        val heroGradientProgress = if (uiState.heroTrailerAllowLetterboxing) {
+            if (lbGradientVisible) 1f else 0f
+        } else {
+            heroTransitionProgress
+        }
+        val lbTrailerProgress by animateFloatAsState(
+            targetValue = if (uiState.heroTrailerAllowLetterboxing && lbTrailerVisible) 1f else 0f,
+            animationSpec = if (lbTrailerVisible) tween(durationMillis = 150) else snap(),
+            label = "lbTrailerProgress"
+        )
+        val lbTrailerAlpha = if (uiState.heroTrailerAllowLetterboxing) lbTrailerProgress else heroTrailerAlpha
         val catalogBottomPadding = 0.dp
         val heroToCatalogGap = 16.dp
         val rowTitleBottom = 14.dp
@@ -724,10 +754,12 @@ fun ModernHomeContent(
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
             enrichmentActive = enrichmentActive,
-            shouldPlayHeroTrailer = shouldPlayHeroTrailer,
+            shouldPlayHeroTrailer = shouldPlayHeroTrailer && !uiState.heroTrailerAllowLetterboxing,
             heroTrailerFirstFrameRendered = heroTrailerFirstFrameRendered,
             heroTrailerUrl = heroTrailerUrl,
             heroTrailerAudioUrl = heroTrailerAudioUrl,
+            heroBackdropAlpha = heroBackdropAlpha,
+            heroTrailerAlpha = heroTrailerAlpha,
             muted = uiState.focusedPosterBackdropTrailerMuted,
             onTrailerEnded = { expandedCatalogFocusKey = null },
             onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
@@ -735,8 +767,31 @@ fun ModernHomeContent(
             requestWidthPx = heroMediaWidthPx,
             requestHeightPx = heroMediaHeightPx
         )
+        if (shouldPlayHeroTrailer && uiState.heroTrailerAllowLetterboxing) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .width(maxWidth * 0.60f)
+                    .height(heroBackdropHeight)
+                    .graphicsLayer { alpha = lbTrailerAlpha }
+            ) {
+                TrailerPlayer(
+                    trailerUrl = heroTrailerUrl,
+                    trailerAudioUrl = heroTrailerAudioUrl,
+                    isPlaying = true,
+                    onEnded = { expandedCatalogFocusKey = null },
+                    onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
+                    muted = uiState.focusedPosterBackdropTrailerMuted,
+                    cropToFill = true,
+                    overscanZoom = 1f,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
         ModernHeroGradientLayer(
             bgColor = bgColor,
+            allowLetterboxing = uiState.heroTrailerAllowLetterboxing,
+            trailerTransitionProgress = heroGradientProgress,
             modifier = heroMediaModifier
         )
         HeroTitleBlock(
@@ -817,6 +872,29 @@ fun ModernHomeContent(
                             }
                         }
                     }
+                    val stableOnCatalogSelectionFocused = remember(Unit) {
+                        { selection: FocusedCatalogSelection ->
+                            if (focusedCatalogSelection != selection) {
+                                focusedCatalogSelection = selection
+                            }
+                        }
+                    }
+                    val stableOnPendingRowFocusCleared = remember(Unit) {
+                        { pendingRowFocusKey = null; pendingRowFocusIndex = null; Unit }
+                    }
+                    val stableOnBackdropInteraction = remember(Unit) {
+                        { expansionInteractionNonce++; Unit }
+                    }
+                    val stableOnExpandedCatalogFocusKeyChange = remember(Unit) {
+                        { key: String? -> expandedCatalogFocusKey = key }
+                    }
+                    val rowExpandedFocusKey = expandedCatalogFocusKey
+                    val rowHasExpanded by remember(row.key) {
+                        derivedStateOf {
+                            expandedCatalogFocusKey != null &&
+                                row.items.any { (it.payload as? ModernPayload.Catalog)?.focusKey == expandedCatalogFocusKey }
+                        }
+                    }
                     ModernRowSection(
                         row = row,
                         rowTitleBottom = rowTitleBottom,
@@ -828,23 +906,19 @@ fun ModernHomeContent(
                         pendingRowFocusKey = pendingRowFocusKey,
                         pendingRowFocusIndex = pendingRowFocusIndex,
                         pendingRowFocusNonce = pendingRowFocusNonce,
-                        onPendingRowFocusCleared = remember(Unit) {
-                            {
-                                pendingRowFocusKey = null
-                                pendingRowFocusIndex = null
-                            }
-                        },
+                        onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
                         onRowItemFocused = stableOnRowItemFocused,
                         useLandscapePosters = useLandscapePosters,
                         showLabels = uiState.posterLabelsEnabled,
                         posterCardCornerRadius = posterCardCornerRadius,
                         focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                        noBackdropImage = uiState.focusedPosterNoBackdropImage,
                         effectiveExpandEnabled = effectiveExpandEnabled,
                         effectiveAutoplayEnabled = effectiveAutoplayEnabled,
                         trailerPlaybackTarget = trailerPlaybackTarget,
-                        expandedCatalogFocusKey = expandedCatalogFocusKey,
-                        expandedTrailerPreviewUrl = expandedCatalogTrailerUrl,
-                        expandedTrailerPreviewAudioUrl = expandedCatalogTrailerAudioUrl,
+                        expandedCatalogFocusKey = rowExpandedFocusKey,
+                        expandedTrailerPreviewUrl = if (rowHasExpanded) expandedCatalogTrailerUrl else null,
+                        expandedTrailerPreviewAudioUrl = if (rowHasExpanded) expandedCatalogTrailerAudioUrl else null,
                         modernCatalogCardWidth = modernCatalogCardWidth,
                         modernCatalogCardHeight = modernCatalogCardHeight,
                         continueWatchingCardWidth = continueWatchingCardWidth,
@@ -855,17 +929,11 @@ fun ModernHomeContent(
                         onCatalogItemLongPress = onCatalogItemLongPress,
                         onItemFocus = onItemFocus,
                         onPreloadAdjacentItem = onPreloadAdjacentItem,
-                        onCatalogSelectionFocused = remember(Unit) {
-                            { selection: FocusedCatalogSelection ->
-                                if (focusedCatalogSelection != selection) {
-                                    focusedCatalogSelection = selection
-                                }
-                            }
-                        },
+                        onCatalogSelectionFocused = stableOnCatalogSelectionFocused,
                         onNavigateToDetail = onNavigateToDetail,
                         onLoadMoreCatalog = onLoadMoreCatalog,
-                        onBackdropInteraction = remember(Unit) { { expansionInteractionNonce++ } },
-                        onExpandedCatalogFocusKeyChange = remember(Unit) { { expandedCatalogFocusKey = it } }
+                        onBackdropInteraction = stableOnBackdropInteraction,
+                        onExpandedCatalogFocusKeyChange = stableOnExpandedCatalogFocusKeyChange
                     )
                 }
             }

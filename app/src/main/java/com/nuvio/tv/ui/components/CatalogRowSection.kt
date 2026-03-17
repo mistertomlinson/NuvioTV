@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -66,6 +67,7 @@ fun CatalogRowSection(
     focusedPosterBackdropExpandDelaySeconds: Int = 3,
     focusedPosterBackdropTrailerEnabled: Boolean = false,
     focusedPosterBackdropTrailerMuted: Boolean = true,
+    focusedPosterNoBackdropImage: Boolean = false,
     trailerPreviewUrls: Map<String, String> = emptyMap(),
     trailerPreviewAudioUrls: Map<String, String> = emptyMap(),
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
@@ -199,6 +201,30 @@ fun CatalogRowSection(
                 },
                 contentType = { _, _ -> "content_card" }
             ) { index, item ->
+                val trailerPreviewUrl by remember(item.id) {
+                    derivedStateOf { trailerPreviewUrls[item.id] }
+                }
+                val trailerPreviewAudioUrl by remember(item.id) {
+                    derivedStateOf { trailerPreviewAudioUrls[item.id] }
+                }
+                val isWatched by remember(item.id) {
+                    derivedStateOf { isItemWatched(item) }
+                }
+                val onFocusItem: (MetaPreview) -> Unit = remember(item.id) {
+                    { focusedItem ->
+                        currentOnItemFocus(focusedItem)
+                        if (lastFocusedItemIndex != index) {
+                            lastFocusedItemIndex = index
+                            currentOnItemFocused(index)
+                        }
+                    }
+                }
+                val onClickItem: () -> Unit = remember(item.id, catalogRow.addonBaseUrl) {
+                    { onItemClick(item.id, item.apiType, catalogRow.addonBaseUrl) }
+                }
+                val onLongPressItem: () -> Unit = remember(item.id, catalogRow.addonBaseUrl) {
+                    { onItemLongPress(item, catalogRow.addonBaseUrl) }
+                }
                 ContentCard(
                     item = item,
                     posterCardStyle = posterCardStyle,
@@ -207,19 +233,14 @@ fun CatalogRowSection(
                     focusedPosterBackdropExpandDelaySeconds = focusedPosterBackdropExpandDelaySeconds,
                     focusedPosterBackdropTrailerEnabled = focusedPosterBackdropTrailerEnabled,
                     focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
-                    trailerPreviewUrl = trailerPreviewUrls[item.id],
-                    trailerPreviewAudioUrl = trailerPreviewAudioUrls[item.id],
+                    focusedPosterNoBackdropImage = focusedPosterNoBackdropImage,
+                    trailerPreviewUrl = trailerPreviewUrl,
+                    trailerPreviewAudioUrl = trailerPreviewAudioUrl,
                     onRequestTrailerPreview = onRequestTrailerPreview,
-                    isWatched = isItemWatched(item),
-                    onFocus = { focusedItem ->
-                        currentOnItemFocus(focusedItem)
-                        if (lastFocusedItemIndex != index) {
-                            lastFocusedItemIndex = index
-                            currentOnItemFocused(index)
-                        }
-                    },
-                    onClick = { onItemClick(item.id, item.apiType, catalogRow.addonBaseUrl) },
-                    onLongPress = { onItemLongPress(item, catalogRow.addonBaseUrl) },
+                    isWatched = isWatched,
+                    onFocus = onFocusItem,
+                    onClick = onClickItem,
+                    onLongPress = onLongPressItem,
                     modifier = Modifier.then(directionalFocusModifier),
                     focusRequester = itemFocusRequestersByKey.getOrPut(
                         rowItemFocusKey(index, item)

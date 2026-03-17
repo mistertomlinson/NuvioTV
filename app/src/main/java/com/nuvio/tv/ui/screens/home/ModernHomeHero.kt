@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -55,6 +56,7 @@ private data class ModernHeroSecondaryMeta(
     val details: List<String>
 )
 
+
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
@@ -63,6 +65,8 @@ internal fun ModernHeroMediaLayer(
     heroTrailerFirstFrameRendered: Boolean,
     heroTrailerUrl: String?,
     heroTrailerAudioUrl: String?,
+    heroBackdropAlpha: Float,
+    heroTrailerAlpha: Float,
     muted: Boolean,
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit,
@@ -70,18 +74,9 @@ internal fun ModernHeroMediaLayer(
     requestWidthPx: Int,
     requestHeightPx: Int
 ) {
-    val transitionProgressState = animateFloatAsState(
-        targetValue = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f,
-        animationSpec = tween(durationMillis = 480),
-        label = "heroBackdropTrailerCrossfadeProgress"
-    )
     val localContext = LocalContext.current
-
-    // Freeze the backdrop URL while enrichment is active — only update when enrichment ends
-    // so Coil crossfade starts with the final URL, not an intermediate one.
     var stableBackdrop by remember { mutableStateOf(heroBackdrop) }
     if (!enrichmentActive) stableBackdrop = heroBackdrop
-
     val imageModel = remember(localContext, stableBackdrop, requestWidthPx, requestHeightPx) {
         ImageRequest.Builder(localContext)
             .data(stableBackdrop)
@@ -89,7 +84,6 @@ internal fun ModernHeroMediaLayer(
             .size(width = requestWidthPx, height = requestHeightPx)
             .build()
     }
-
     Box(modifier = modifier) {
         AsyncImage(
             model = imageModel,
@@ -97,13 +91,12 @@ internal fun ModernHeroMediaLayer(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
-                    alpha = 1f - transitionProgressState.value
+                    alpha = heroBackdropAlpha
                     compositingStrategy = CompositingStrategy.Offscreen
                 },
             contentScale = ContentScale.Crop,
             alignment = Alignment.TopEnd
         )
-
         if (shouldPlayHeroTrailer) {
             TrailerPlayer(
                 trailerUrl = heroTrailerUrl,
@@ -117,9 +110,9 @@ internal fun ModernHeroMediaLayer(
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                    alpha = transitionProgressState.value
-                    compositingStrategy = CompositingStrategy.Offscreen
-                }
+                        alpha = heroTrailerAlpha
+                        compositingStrategy = CompositingStrategy.Offscreen
+                    }
             )
         }
     }
@@ -128,66 +121,129 @@ internal fun ModernHeroMediaLayer(
 @Composable
 internal fun ModernHeroGradientLayer(
     bgColor: Color,
+    allowLetterboxing: Boolean,
+    trailerTransitionProgress: Float,
     modifier: Modifier
 ) {
-    Box(
-        modifier = modifier
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-            .drawWithCache {
-                val leftBlendSolidWidth = size.width * 0.018f
-                val horizontalGradientStartX = leftBlendSolidWidth
-                val horizontalFadeEndX = horizontalGradientStartX + (size.width * 0.42f)
-                val horizontalGradient = Brush.horizontalGradient(
-                    colorStops = arrayOf(
-                        0.0f to bgColor,
-                        0.22f to bgColor.copy(alpha = 0.86f),
-                        0.46f to bgColor.copy(alpha = 0.56f),
-                        0.76f to bgColor.copy(alpha = 0.16f),
-                        1.0f to Color.Transparent
-                    ),
-                    startX = horizontalGradientStartX,
-                    endX = horizontalFadeEndX
-                )
-                val topContourGradient = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.0f to bgColor.copy(alpha = 0.28f),
-                        0.38f to bgColor.copy(alpha = 0.14f),
-                        0.72f to bgColor.copy(alpha = 0.05f),
-                        1.0f to Color.Transparent
-                    ),
-                    start = Offset(0f, 0f),
-                    end = Offset(size.width * 0.24f, size.height * 0.40f)
-                )
-                val bottomContourGradient = Brush.linearGradient(
-                    colorStops = arrayOf(
-                        0.0f to bgColor.copy(alpha = 0.24f),
-                        0.42f to bgColor.copy(alpha = 0.12f),
-                        0.74f to bgColor.copy(alpha = 0.05f),
-                        1.0f to Color.Transparent
-                    ),
-                    start = Offset(0f, size.height),
-                    end = Offset(size.width * 0.24f, size.height * 0.61f)
-                )
-                val verticalGradient = Brush.verticalGradient(
-                    0.89f to Color.Transparent,
-                    0.93f to bgColor.copy(alpha = 0.14f),
-                    0.965f to bgColor.copy(alpha = 0.52f),
-                    0.99f to bgColor.copy(alpha = 0.92f),
-                    1.0f to bgColor
-                )
-                onDrawBehind {
+    Canvas(modifier = modifier) {
+        val leftBlendSolidWidth = size.width * 0.018f
+        val horizontalGradientStartX = leftBlendSolidWidth
+        val horizontalFadeEndX = horizontalGradientStartX + (size.width * 0.42f)
+        val topContourGradient = Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to bgColor.copy(alpha = 0.28f),
+                0.38f to bgColor.copy(alpha = 0.14f),
+                0.72f to bgColor.copy(alpha = 0.05f),
+                1.0f to Color.Transparent
+            ),
+            start = Offset(0f, 0f),
+            end = Offset(size.width * 0.24f, size.height * 0.40f)
+        )
+        val bottomContourGradient = Brush.linearGradient(
+            colorStops = arrayOf(
+                0.0f to bgColor.copy(alpha = 0.24f),
+                0.42f to bgColor.copy(alpha = 0.12f),
+                0.74f to bgColor.copy(alpha = 0.05f),
+                1.0f to Color.Transparent
+            ),
+            start = Offset(0f, size.height),
+            end = Offset(size.width * 0.24f, size.height * 0.61f)
+        )
+        val verticalGradient = Brush.verticalGradient(
+            0.89f to Color.Transparent,
+            0.93f to bgColor.copy(alpha = 0.14f),
+            0.965f to bgColor.copy(alpha = 0.52f),
+            0.99f to bgColor.copy(alpha = 0.92f),
+            1.0f to bgColor
+        )
+        val defaultAlpha = if (allowLetterboxing) 1f - trailerTransitionProgress else 1f
+        val lbAlpha = if (allowLetterboxing) trailerTransitionProgress else 0f
+        if (defaultAlpha > 0f) {
+            val horizontalGradient = Brush.horizontalGradient(
+                colorStops = arrayOf(
+                    0.0f to bgColor,
+                    0.22f to bgColor.copy(alpha = 0.86f * defaultAlpha),
+                    0.46f to bgColor.copy(alpha = 0.56f * defaultAlpha),
+                    0.76f to bgColor.copy(alpha = 0.16f * defaultAlpha),
+                    1.0f to Color.Transparent
+                ),
+                startX = horizontalGradientStartX,
+                endX = horizontalFadeEndX
+            )
+            drawRect(color = bgColor.copy(alpha = defaultAlpha), size = androidx.compose.ui.geometry.Size(leftBlendSolidWidth, size.height))
+            drawRect(brush = horizontalGradient, size = size)
+            drawRect(brush = topContourGradient, size = size)
+            drawRect(brush = bottomContourGradient, size = size)
+        }
+        if (lbAlpha > 0f) {
+            val lbSolidWidth = size.width * 0.097f
+            val lbGradient = Brush.horizontalGradient(
+                colorStops = arrayOf(
+                    0.0f   to bgColor,
+                    0.097f to bgColor.copy(alpha = 1.00f * lbAlpha),
+                    0.101f to bgColor.copy(alpha = 0.97f * lbAlpha),
+                    0.105f to bgColor.copy(alpha = 0.93f * lbAlpha),
+                    0.109f to bgColor.copy(alpha = 0.88f * lbAlpha),
+                    0.113f to bgColor.copy(alpha = 0.83f * lbAlpha),
+                    0.117f to bgColor.copy(alpha = 0.77f * lbAlpha),
+                    0.121f to bgColor.copy(alpha = 0.71f * lbAlpha),
+                    0.125f to bgColor.copy(alpha = 0.64f * lbAlpha),
+                    0.129f to bgColor.copy(alpha = 0.57f * lbAlpha),
+                    0.133f to bgColor.copy(alpha = 0.50f * lbAlpha),
+                    0.137f to bgColor.copy(alpha = 0.43f * lbAlpha),
+                    0.141f to bgColor.copy(alpha = 0.36f * lbAlpha),
+                    0.145f to bgColor.copy(alpha = 0.29f * lbAlpha),
+                    0.149f to bgColor.copy(alpha = 0.23f * lbAlpha),
+                    0.153f to bgColor.copy(alpha = 0.17f * lbAlpha),
+                    0.157f to bgColor.copy(alpha = 0.13f * lbAlpha),
+                    0.161f to bgColor.copy(alpha = 0.10f * lbAlpha),
+                    0.167f to bgColor.copy(alpha = 0.08f * lbAlpha),
+                    0.178f to bgColor.copy(alpha = 0.06f * lbAlpha),
+                    0.194f to bgColor.copy(alpha = 0.05f * lbAlpha),
+                    0.222f to bgColor.copy(alpha = 0.04f * lbAlpha),
+                    0.260f to bgColor.copy(alpha = 0.03f * lbAlpha),
+                    0.306f to bgColor.copy(alpha = 0.02f * lbAlpha),
+                    0.360f to bgColor.copy(alpha = 0.01f * lbAlpha),
+                    0.420f to bgColor.copy(alpha = 0.005f * lbAlpha),
+                    0.444f to Color.Transparent,
+                    1.0f   to Color.Transparent
+                ),
+                startX = 0f,
+                endX = size.width
+            )
+            drawRect(color = bgColor.copy(alpha = lbAlpha), size = androidx.compose.ui.geometry.Size(lbSolidWidth, size.height))
+            drawRect(brush = lbGradient, size = size)
+            val fadeStart = size.width * 0.097f
+            val edgeEnd = size.width * 0.500f
+            val ditherRange = edgeEnd - fadeStart
+            var seed = 1234567891L
+            var x = fadeStart
+            while (x < edgeEnd) {
+                seed = seed * 1664525L + 1013904223L
+                val randX = ((seed ushr 33) and 0xFFL).toFloat() / 255f
+                seed = seed * 1664525L + 1013904223L
+                val randY = ((seed ushr 33) and 0xFFL).toFloat() / 255f
+                seed = seed * 1664525L + 1013904223L
+                val randA = ((seed ushr 33) and 0xFFL).toFloat() / 255f
+                val pos = (x - fadeStart) / ditherRange
+                val baseAlpha = (1f - pos).coerceIn(0f, 1f)
+                val maxNoise = if (pos < 0.55f) baseAlpha * 0.12f else baseAlpha * 0.07f
+                val noiseAlpha = (randA - 0.5f) * maxNoise * lbAlpha
+                val finalAlpha = noiseAlpha.coerceIn(0f, 1f)
+                if (finalAlpha > 0.003f) {
                     drawRect(
-                        color = bgColor,
-                        size = Size(leftBlendSolidWidth, size.height)
+                        color = bgColor.copy(alpha = finalAlpha),
+                        topLeft = Offset(x, randY * size.height),
+                        size = androidx.compose.ui.geometry.Size(2f, 2f)
                     )
-                    drawRect(brush = horizontalGradient, size = size)
-                    drawRect(brush = topContourGradient, size = size)
-                    drawRect(brush = bottomContourGradient, size = size)
-                    drawRect(brush = verticalGradient, size = size)
                 }
+                x += 3f + randX * 3f
             }
-    )
+        }
+        drawRect(brush = verticalGradient, size = size)
+    }
 }
+
 
 @Composable
 internal fun HeroTitleBlock(

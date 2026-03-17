@@ -63,6 +63,8 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val detailPageTrailerButtonEnabledKey = booleanPreferencesKey("detail_page_trailer_button_enabled")
     private val preferExternalMetaAddonDetailKey = booleanPreferencesKey("prefer_external_meta_addon_detail")
     private val hideUnreleasedContentKey = booleanPreferencesKey("hide_unreleased_content")
+    private val focusedPosterNoBackdropImageKey = booleanPreferencesKey("focused_poster_no_backdrop_image")
+    private val heroTrailerAllowLetterboxingKey = booleanPreferencesKey("hero_trailer_allow_letterboxing")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -203,6 +205,14 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[hideUnreleasedContentKey] ?: false
     }
 
+    val focusedPosterNoBackdropImage: Flow<Boolean> = profileFlow { prefs ->
+        prefs[focusedPosterNoBackdropImageKey] ?: false
+    }
+
+    val heroTrailerAllowLetterboxing: Flow<Boolean> = profileFlow { prefs ->
+        prefs[heroTrailerAllowLetterboxingKey] ?: false
+    }
+
     suspend fun setLayout(layout: HomeLayout) {
         store().edit { prefs ->
             val hadChosenLayout = prefs[hasChosenKey] ?: false
@@ -340,6 +350,7 @@ class LayoutPreferenceDataStore @Inject constructor(
             prefs[focusedPosterBackdropTrailerEnabledKey] = enabled
             if (!enabled) {
                 prefs[focusedPosterBackdropTrailerMutedKey] = true
+                prefs[focusedPosterNoBackdropImageKey] = false
             }
         }
     }
@@ -397,6 +408,18 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setHideUnreleasedContent(enabled: Boolean) {
         store().edit { prefs ->
             prefs[hideUnreleasedContentKey] = enabled
+        }
+    }
+
+    suspend fun setFocusedPosterNoBackdropImage(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[focusedPosterNoBackdropImageKey] = enabled
+        }
+    }
+
+    suspend fun setHeroTrailerAllowLetterboxing(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[heroTrailerAllowLetterboxingKey] = enabled
         }
     }
 

@@ -6,6 +6,8 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.ui.draw.alpha
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -84,7 +86,9 @@ import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.abs
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val MODERN_HORIZONTAL_FOCUS_DEBOUNCE_MS = 140L
@@ -147,6 +151,7 @@ private fun ModernCatalogRowItem(
     modernCatalogCardHeight: Dp,
     focusedPosterBackdropTrailerMuted: Boolean,
     effectiveExpandEnabled: Boolean,
+    noBackdropImage: Boolean = false,
     effectiveAutoplayEnabled: Boolean,
     trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     isBackdropExpanded: Boolean,
@@ -221,6 +226,7 @@ private fun ModernCatalogRowItem(
         isBackdropExpanded = effectiveBackdropExpanded,
         playTrailerInExpandedCard = playTrailerInExpandedCard,
         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
+        noBackdropImage = noBackdropImage,
         trailerPreviewUrl = trailerPreviewUrl,
         trailerPreviewAudioUrl = trailerPreviewAudioUrl,
         isWatched = isWatched,
@@ -263,6 +269,7 @@ internal fun ModernRowSection(
     focusedPosterBackdropTrailerMuted: Boolean,
     effectiveExpandEnabled: Boolean,
     effectiveAutoplayEnabled: Boolean,
+    noBackdropImage: Boolean = false,
     trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     expandedCatalogFocusKey: String?,
     expandedTrailerPreviewUrl: String?,
@@ -525,8 +532,10 @@ internal fun ModernRowSection(
                         is ModernPayload.Catalog -> {
                             val nextCatalogItem = row.items.getOrNull(index + 1)?.metaPreview
                             val metaPreview = item.metaPreview ?: return@itemsIndexed
-                            val isWatched = remember(metaPreview) { isCatalogItemWatched(metaPreview) }
-                            val onLongPress: () -> Unit = remember(metaPreview, payload.addonBaseUrl) {
+                            val isWatched by remember(metaPreview.id) {
+                                derivedStateOf { isCatalogItemWatched(metaPreview) }
+                            }
+                            val onLongPress: () -> Unit = remember(metaPreview.id, payload.addonBaseUrl) {
                                 {
                                     onCatalogItemLongPress(metaPreview, payload.addonBaseUrl)
                                     Unit
@@ -542,6 +551,7 @@ internal fun ModernRowSection(
                                 modernCatalogCardWidth = modernCatalogCardWidth,
                                 modernCatalogCardHeight = modernCatalogCardHeight,
                                 focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
+                                noBackdropImage = noBackdropImage,
                                 effectiveExpandEnabled = effectiveExpandEnabled,
                                 effectiveAutoplayEnabled = effectiveAutoplayEnabled,
                                 trailerPlaybackTarget = trailerPlaybackTarget,
@@ -583,6 +593,7 @@ private fun ModernCarouselCard(
     isBackdropExpanded: Boolean,
     playTrailerInExpandedCard: Boolean,
     focusedPosterBackdropTrailerMuted: Boolean,
+    noBackdropImage: Boolean = false,
     trailerPreviewUrl: String?,
     trailerPreviewAudioUrl: String?,
     isWatched: Boolean,
@@ -598,28 +609,37 @@ private fun ModernCarouselCard(
     val cardShape = remember(cardCornerRadius) { RoundedCornerShape(cardCornerRadius) }
     val context = LocalContext.current
     val density = LocalDensity.current
-    val expandedCardWidth = cardHeight * (16f / 9f)
-    val targetCardWidth = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
+    val expandedCardWidth = remember(cardHeight) { cardHeight * (16f / 9f) }
+    val isSidebarExpanded = LocalSidebarExpanded.current
+
+    // noBackdropImage: card expansion gated on trailer first frame
+    var trailerFirstFrameRendered by remember(
+        if (noBackdropImage) trailerPreviewUrl else null,
+        if (noBackdropImage) isBackdropExpanded else null
+    ) { mutableStateOf(false) }
+
+    val effectiveIsExpanded = if (noBackdropImage && playTrailerInExpandedCard) {
+        isBackdropExpanded && trailerFirstFrameRendered && !isSidebarExpanded
+    } else {
+        isBackdropExpanded && !isSidebarExpanded
+    }
+
+    val targetCardWidth = if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded) {
         expandedCardWidth
     } else {
         cardWidth
     }
-    val animatedCardWidthState = if (focusedPosterBackdropExpandEnabled) {
-        animateDpAsState(
-            targetValue = targetCardWidth,
-            label = "modernCardWidth"
-        )
+    val animatedCardWidth by if (focusedPosterBackdropExpandEnabled) {
+        animateDpAsState(targetValue = targetCardWidth, label = "modernCardWidth")
     } else {
         rememberUpdatedState(cardWidth)
     }
-    val animatedCardWidth by animatedCardWidthState
-    val imageUrl = if (focusedPosterBackdropExpandEnabled && isBackdropExpanded) {
-        item.heroPreview.backdrop ?: item.imageUrl ?: item.heroPreview.poster
-    } else {
-        item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
-    }
-    // Keep decode target stable across expand/collapse to avoid recreating image requests/painters
-    // purely due to animated width changes.
+
+    // noBackdropImage: never switch to backdrop; poster stays as-is
+    val posterUrl = item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
+    val backdropUrl = if (noBackdropImage && playTrailerInExpandedCard) null
+                     else item.heroPreview.backdrop ?: item.imageUrl ?: item.heroPreview.poster
+    val imageUrl = posterUrl // kept for hasImage check below
     val maxRequestCardWidth = if (focusedPosterBackdropExpandEnabled) {
         maxOf(cardWidth, expandedCardWidth)
     } else {
@@ -631,8 +651,8 @@ private fun ModernCarouselCard(
     val requestHeightPx = remember(cardHeight, density) {
         with(density) { cardHeight.roundToPx() }
     }
-    val imageModel = remember(context, imageUrl, requestWidthPx, requestHeightPx) {
-        imageUrl?.let {
+    val posterModel = remember(context, posterUrl, requestWidthPx, requestHeightPx) {
+        posterUrl?.let {
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(false)
@@ -641,7 +661,17 @@ private fun ModernCarouselCard(
                 .build()
         }
     }
-    val logoHeight = cardHeight * 0.34f
+    val backdropModel = remember(context, backdropUrl, requestWidthPx, requestHeightPx) {
+        backdropUrl?.let {
+            ImageRequest.Builder(context)
+                .data(it)
+                .crossfade(false)
+                .memoryCacheKey("${it}_${requestWidthPx}x${requestHeightPx}")
+                .size(width = requestWidthPx, height = requestHeightPx)
+                .build()
+        }
+    }
+    val logoHeight = remember(cardHeight) { cardHeight * 0.34f }
     val logoHeightPx = remember(logoHeight, density) {
         with(density) { logoHeight.roundToPx() }
     }
@@ -659,39 +689,46 @@ private fun ModernCarouselCard(
         }
     }
     var landscapeLogoLoadFailed by remember(item.heroPreview.logo) { mutableStateOf(false) }
-    val shouldPlayTrailerInCard = playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
-    val hasImage = !imageUrl.isNullOrBlank()
-    val hasLandscapeLogo =
-        (useLandscapePosters || isBackdropExpanded) &&
-            !item.heroPreview.logo.isNullOrBlank() &&
-            !landscapeLogoLoadFailed
+    val shouldPlayTrailerInCard = remember(playTrailerInExpandedCard, trailerPreviewUrl) {
+        playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
+    }
+    val hasImage = posterUrl != null
+    val hasLandscapeLogo = remember(useLandscapePosters, item.heroPreview.logo, landscapeLogoLoadFailed) {
+        useLandscapePosters && !item.heroPreview.logo.isNullOrBlank() && !landscapeLogoLoadFailed
+    }
     var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
     val titleMedium = MaterialTheme.typography.titleMedium
     val focusedBorder = remember(cardShape, focusRingColor) {
-        Border(
-            border = BorderStroke(2.dp, focusRingColor),
-            shape = cardShape
-        )
+        Border(border = BorderStroke(2.dp, focusRingColor), shape = cardShape)
     }
-    val titleStyle = remember(titleMedium) {
-        titleMedium.copy(fontWeight = FontWeight.Medium)
-    }
+    val titleStyle = remember(titleMedium) { titleMedium.copy(fontWeight = FontWeight.Medium) }
 
-    Column(
-        modifier = modifier.width(animatedCardWidth),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
+    // Overlay state for noBackdropImage transitions
+    var blackOverlayPhase by remember(trailerPreviewUrl, isBackdropExpanded) { mutableStateOf(0) }
+    var collapseOverlayVisible by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    fun triggerCollapseOverlay(holdMs: Long = 300L) {
+        scope.launch { collapseOverlayVisible = true; delay(holdMs); collapseOverlayVisible = false }
+    }
+    LaunchedEffect(effectiveIsExpanded, noBackdropImage, playTrailerInExpandedCard) {
+        if (noBackdropImage && playTrailerInExpandedCard && effectiveIsExpanded) {
+            blackOverlayPhase = 1; delay(500); blackOverlayPhase = 2
+        } else if (noBackdropImage) { blackOverlayPhase = 0 }
+    }
+    LaunchedEffect(isSidebarExpanded) {
+        if (noBackdropImage && isSidebarExpanded && trailerFirstFrameRendered) triggerCollapseOverlay(300L)
+    }
+    val blackOverlayAlpha = if (blackOverlayPhase == 1) 1f else 0f
+    val topOverlayAlpha = if (noBackdropImage) {
+        when { isSidebarExpanded && trailerFirstFrameRendered -> 1f; collapseOverlayVisible -> 1f; else -> 0f }
+    } else 0f
+
+    Column(modifier = modifier.width(animatedCardWidth), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Card(
-            onClick = {
-                if (longPressTriggered) {
-                    longPressTriggered = false
-                } else {
-                    onClick()
-                }
-            },
+            onClick = { if (longPressTriggered) { longPressTriggered = false } else { onClick() } },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(cardHeight)
@@ -699,87 +736,68 @@ private fun ModernCarouselCard(
                 .onFocusChanged {
                     isFocused = it.isFocused
                     onFocusStateChanged(it.isFocused)
-                    if (it.isFocused) {
-                        onFocused()
-                    }
+                    if (it.isFocused) { onFocused() }
                 }
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
                     if (native.action == AndroidKeyEvent.ACTION_DOWN) {
-                        if (focusedPosterBackdropExpandEnabled && shouldResetBackdropTimer(event.key)) {
-                            onBackdropInteraction()
-                        }
-                        if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
-                            longPressTriggered = true
-                            onLongPress()
-                            return@onPreviewKeyEvent true
-                        }
+                        if (focusedPosterBackdropExpandEnabled && shouldResetBackdropTimer(event.key)) { onBackdropInteraction() }
+                        if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) { longPressTriggered = true; onLongPress(); return@onPreviewKeyEvent true }
                         val isLongPress = native.isLongPress || native.repeatCount > 0
-                        if (isLongPress && isSelectKey(native.keyCode)) {
-                            longPressTriggered = true
-                            onLongPress()
-                            return@onPreviewKeyEvent true
-                        }
+                        if (isLongPress && isSelectKey(native.keyCode)) { longPressTriggered = true; onLongPress(); return@onPreviewKeyEvent true }
                     }
-                    if (native.action == AndroidKeyEvent.ACTION_UP &&
-                        longPressTriggered &&
-                        isSelectKey(native.keyCode)
-                    ) {
-                        longPressTriggered = false
-                        return@onPreviewKeyEvent true
-                    }
+                    if (native.action == AndroidKeyEvent.ACTION_UP && longPressTriggered && isSelectKey(native.keyCode)) { longPressTriggered = false; return@onPreviewKeyEvent true }
                     false
                 },
             shape = CardDefaults.shape(shape = cardShape),
-            colors = CardDefaults.colors(
-                containerColor = backgroundCardColor,
-                focusedContainerColor = backgroundCardColor
-            ),
-            border = CardDefaults.border(
-                focusedBorder = focusedBorder
-            ),
+            colors = CardDefaults.colors(containerColor = backgroundCardColor, focusedContainerColor = backgroundCardColor),
+            border = CardDefaults.border(focusedBorder = focusedBorder),
             scale = CardDefaults.scale(focusedScale = 1f)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
                 val mediaLayerModifier = remember(hasLandscapeLogo) {
-                    if (hasLandscapeLogo) {
-                        Modifier
-                            .fillMaxSize()
-                            .drawWithCache {
-                                onDrawWithContent {
-                                    drawContent()
-                                    drawRect(brush = MODERN_LANDSCAPE_LOGO_GRADIENT, size = size)
-                                }
-                            }
-                    } else {
-                        Modifier.fillMaxSize()
+                    if (hasLandscapeLogo) Modifier.fillMaxSize().drawWithCache { onDrawWithContent { drawContent(); drawRect(brush = MODERN_LANDSCAPE_LOGO_GRADIENT, size = size) } }
+                    else Modifier.fillMaxSize()
+                }
+
+                // Layer 1: poster (hidden when collapse overlay fully opaque)
+                val posterAlpha = if (noBackdropImage && topOverlayAlpha == 1f) 0f else 1f
+                Box(modifier = mediaLayerModifier.alpha(posterAlpha)) {
+                    if (hasImage) {
+                        AsyncImage(model = posterModel, contentDescription = item.title, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    } else { MonochromePosterPlaceholder() }
+                    // Backdrop renders instantly on top — no transition
+                    if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded && backdropModel != null) {
+                        AsyncImage(model = backdropModel, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     }
                 }
 
-                Box(modifier = mediaLayerModifier) {
-                    if (hasImage) {
-                        AsyncImage(
-                            model = imageModel,
-                            contentDescription = item.title,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    } else {
-                        MonochromePosterPlaceholder()
-                    }
+                // Layer 2: black behind trailer — only once first frame is rendered
+                if (shouldPlayTrailerInCard && trailerFirstFrameRendered) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+                }
 
-                    if (shouldPlayTrailerInCard) {
-                        TrailerPlayer(
-                            trailerUrl = trailerPreviewUrl,
-                            trailerAudioUrl = trailerPreviewAudioUrl,
-                            isPlaying = true,
-                            onEnded = onTrailerEnded,
-                            muted = focusedPosterBackdropTrailerMuted,
-                            cropToFill = true,
-                            overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    }
+                // Layer 3: trailer (no overscan — letterbox)
+                if (shouldPlayTrailerInCard) {
+                    TrailerPlayer(
+                        trailerUrl = trailerPreviewUrl,
+                        trailerAudioUrl = trailerPreviewAudioUrl,
+                        isPlaying = !isSidebarExpanded,
+                        onEnded = { trailerFirstFrameRendered = false; blackOverlayPhase = 0; onTrailerEnded() },
+                        muted = focusedPosterBackdropTrailerMuted,
+                        onFirstFrameRendered = { trailerFirstFrameRendered = true },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                // Layer 4: black expand overlay for noBackdropImage
+                if (noBackdropImage && blackOverlayAlpha > 0f) {
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Black))
+                }
+
+                // Layer 5: collapse overlay
+                if (noBackdropImage && topOverlayAlpha > 0f) {
+                    Box(modifier = Modifier.fillMaxSize().alpha(topOverlayAlpha).background(Color.Black))
                 }
 
                 if (hasLandscapeLogo) {
@@ -787,15 +805,11 @@ private fun ModernCarouselCard(
                         model = logoModel,
                         contentDescription = item.title,
                         onError = { landscapeLogoLoadFailed = true },
-                        modifier = Modifier
-                            .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.62f)
-                            .height(cardHeight * 0.34f)
-                            .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
+                        modifier = Modifier.align(Alignment.BottomStart).fillMaxWidth(0.62f).height(cardHeight * 0.34f).padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
                         contentScale = ContentScale.Fit,
                         alignment = Alignment.CenterStart
                     )
-                } else if (useLandscapePosters || isBackdropExpanded) {
+                } else if (useLandscapePosters) {
                     Text(
                         text = item.title,
                         style = titleStyle,

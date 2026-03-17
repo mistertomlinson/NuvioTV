@@ -270,21 +270,18 @@ fun ClassicHomeContent(
                 focusedPosterBackdropExpandDelaySeconds = uiState.focusedPosterBackdropExpandDelaySeconds,
                 focusedPosterBackdropTrailerEnabled = uiState.focusedPosterBackdropTrailerEnabled,
                 focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
+                focusedPosterNoBackdropImage = uiState.focusedPosterNoBackdropImage,
                 trailerPreviewUrls = trailerPreviewUrls,
                 trailerPreviewAudioUrls = trailerPreviewAudioUrls,
                 onRequestTrailerPreview = onRequestTrailerPreview,
                 onItemFocus = onItemFocus,
                 isItemWatched = isCatalogItemWatched,
                 onItemLongPress = onCatalogItemLongPress,
-                onItemClick = { id, type, addonBaseUrl ->
-                    onNavigateToDetail(id, type, addonBaseUrl)
+                onItemClick = remember(catalogRow.addonBaseUrl) {
+                    { id, type, addonBaseUrl -> onNavigateToDetail(id, type, addonBaseUrl) }
                 },
-                onSeeAll = {
-                    onNavigateToCatalogSeeAll(
-                        catalogRow.catalogId,
-                        catalogRow.addonId,
-                        catalogRow.apiType
-                    )
+                onSeeAll = remember(catalogRow.catalogId, catalogRow.addonId, catalogRow.apiType) {
+                    { onNavigateToCatalogSeeAll(catalogRow.catalogId, catalogRow.addonId, catalogRow.apiType) }
                 },
                 rowFocusRequester = rowFocusRequester,
                 listState = listState,
