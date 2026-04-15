@@ -30,6 +30,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MergingMediaSource
+import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.data.trailer.YoutubeChunkedDataSourceFactory
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
@@ -59,7 +60,8 @@ fun TrailerPlayer(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val currentIsPlaying by rememberUpdatedState(isPlaying)
+    val appInForeground = LocalAppInForeground.current
+    val currentIsPlaying by rememberUpdatedState(isPlaying && appInForeground)
     val currentTrailerUrl by rememberUpdatedState(trailerUrl)
     val currentTrailerAudioUrl by rememberUpdatedState(trailerAudioUrl)
     val currentOnEnded by rememberUpdatedState(onEnded)

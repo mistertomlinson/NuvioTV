@@ -229,6 +229,7 @@ fun ContinueWatchingCard(
     var longPressTriggered by remember { mutableStateOf(false) }
 
     val progress = remember(item) { (item as? ContinueWatchingItem.InProgress)?.progress }
+    val episodeThumbnail = remember(item) { (item as? ContinueWatchingItem.InProgress)?.episodeThumbnail }
     val nextUp = remember(item) { (item as? ContinueWatchingItem.NextUp)?.info }
     val episodeStr = remember(progress, nextUp) {
         progress?.episodeDisplayString ?: nextUp?.let { "S${it.season}E${it.episode}" }
@@ -272,6 +273,7 @@ fun ContinueWatchingCard(
                 progress?.poster
             )
             else -> firstNonBlank(
+                episodeThumbnail,
                 nextUp?.thumbnail,
                 progress?.backdrop,
                 progress?.poster,

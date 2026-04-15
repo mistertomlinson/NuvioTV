@@ -468,9 +468,13 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private suspend fun applyMetaWithEnrichment(meta: Meta) {
+        // Preserve the original addon backdrop before TMDB enrichment can overwrite it.
+        val metaWithOriginal = meta.copy(originalBackground = meta.originalBackground ?: meta.background)
+        android.util.Log.d("BackdropDebug", "name=${meta.name} originalBackground=${metaWithOriginal.originalBackground} background=${meta.background}")
         // Fire all independent async jobs immediately — they run in parallel.
-        loadMoreLikeThisAsync(meta)
-        val enriched = enrichMeta(meta)
+        loadMoreLikeThisAsync(metaWithOriginal)
+        val enriched = enrichMeta(metaWithOriginal)
+        android.util.Log.d("BackdropDebug", "after enrichment: background=${enriched.background} detailBackdrop=${enriched.detailBackdrop} originalBackground=${enriched.originalBackground}")
         applyMeta(enriched)
         // Episode ratings and MDBList are independent — launch both without waiting.
         loadEpisodeRatingsAsync(enriched)
@@ -707,8 +711,16 @@ class MetaDetailsViewModel @Inject constructor(
 
         if (enrichment != null && settings.useArtwork) {
             updated = updated.copy(
+                originalBackground = updated.originalBackground ?: updated.background,
                 background = enrichment.backdrop ?: updated.background,
                 logo = enrichment.logo ?: updated.logo
+            )
+        }
+
+        // Always apply detailBackdrop when TMDB is enabled, regardless of artwork toggle
+        if (enrichment != null) {
+            updated = updated.copy(
+                detailBackdrop = enrichment.detailBackdrop ?: updated.detailBackdrop
             )
         }
 

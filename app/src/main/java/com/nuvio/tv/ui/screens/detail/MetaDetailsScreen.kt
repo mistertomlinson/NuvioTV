@@ -1049,13 +1049,13 @@ private fun MetaDetailsContent(
     }
     val backdropRequest = remember(
         localContext,
-        meta.backdropUrl,
+        meta.detailBackdrop ?: meta.originalBackground ?: meta.backdropUrl,
         meta.poster,
         backdropWidthPx,
         backdropHeightPx
     ) {
         ImageRequest.Builder(localContext)
-            .data(meta.backdropUrl ?: meta.poster)
+            .data(meta.detailBackdrop ?: meta.originalBackground ?: meta.backdropUrl ?: meta.poster)
             .crossfade(true)
             .size(width = backdropWidthPx, height = backdropHeightPx)
             .build()

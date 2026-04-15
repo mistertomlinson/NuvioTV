@@ -94,7 +94,8 @@ interface TraktApi {
         @Header("Authorization") authorization: String,
         @Path("type") type: String,
         @Query("start_at") startAt: String? = null,
-        @Query("end_at") endAt: String? = null
+        @Query("end_at") endAt: String? = null,
+        @Query("limit") limit: Int = 100
     ): Response<List<TraktPlaybackItemDto>>
 
     @GET("sync/watched/{type}")

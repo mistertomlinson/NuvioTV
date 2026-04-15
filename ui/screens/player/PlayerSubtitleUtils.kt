@@ -1,0 +1,88 @@
+package com.nuvio.tv.ui.screens.player
+
+import androidx.media3.common.MimeTypes
+import com.nuvio.tv.ui.util.LANGUAGE_OVERRIDES
+
+internal object PlayerSubtitleUtils {
+    fun normalizeLanguageCode(lang: String): String {
+        val code = lang.trim().lowercase()
+        if (code.isBlank()) return ""
+
+        val normalizedCode = code.replace('_', '-')
+        val tokenized = normalizedCode
+            .replace('-', ' ')
+            .replace('.', ' ')
+            .replace('/', ' ')
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        fun containsAny(vararg values: String): Boolean = values.any { value ->
+            tokenized.contains(value)
+        }
+
+        if (containsAny("portuguese", "portugues")) {
+            if (containsAny("brazil", "brasil", "brazilian", "brasileiro", "pt br", "ptbr", "pob")) {
+                return "pt-br"
+            }
+            if (containsAny("portugal", "european", "europeu", "iberian", "pt pt", "ptpt")) {
+                return "pt"
+            }
+            return "pt"
+        }
+
+        // LANGUAGE_OVERRIDES uses pt-BR (mixed case) — normalize to lowercase for consistency
+        return LANGUAGE_OVERRIDES[code]?.lowercase() ?: normalizedCode
+    }
+
+    fun matchesLanguageCode(language: String?, target: String): Boolean {
+        if (language.isNullOrBlank()) return false
+        val normalizedLanguage = normalizeLanguageCode(language)
+        val normalizedTarget = normalizeLanguageCode(target)
+        if (matchesNormalizedLanguage(normalizedLanguage, normalizedTarget)) {
+            return true
+        }
+
+        val subtags = language.trim().lowercase()
+            .replace('_', '-')
+            .split('-', '.', '/', ' ')
+            .map { it.trim() }
+            .filter { it.isNotBlank() }
+        if (subtags.size <= 1) {
+            return false
+        }
+        for (subtag in subtags.drop(1)) {
+            if (subtag.length != 3) continue
+            val normalizedSubtag = normalizeLanguageCode(subtag)
+            if (matchesNormalizedLanguage(normalizedSubtag, normalizedTarget)) {
+                return true
+            }
+        }
+        return false
+    }
+
+    private fun matchesNormalizedLanguage(
+        normalizedLanguage: String,
+        normalizedTarget: String
+    ): Boolean {
+        if (normalizedTarget == "pt") {
+            return normalizedLanguage == "pt"
+        }
+        return normalizedLanguage == normalizedTarget ||
+            normalizedLanguage.startsWith("$normalizedTarget-") ||
+            normalizedLanguage.startsWith("${normalizedTarget}_")
+    }
+
+    fun mimeTypeFromUrl(url: String, format: String? = null): String {
+        val resolvedFormat = format
+        if (!resolvedFormat.isNullOrBlank()) {
+            return when (resolvedFormat.trim().lowercase()) {
+                "ass", "ssa", "text/x-ssa" -> MimeTypes.TEXT_SSA
+                "srt", "application/x-subrip" -> MimeTypes.APPLICATION_SUBRIP
+                "vtt", "webvtt", "text/vtt" -> MimeTypes.TEXT_VTT
+                "ttml", "dfxp" -> MimeTypes.APPLICATION_TTML
+                else -> MimeTypes.APPLICATION_SUBRIP
+            }
+        }
+        return MimeTypes.APPLICATION_SUBRIP
+    }
+}

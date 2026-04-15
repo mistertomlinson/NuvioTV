@@ -13,6 +13,8 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.formatContinueWatchingProgressLabel
 
+enum class NumberStyle { OFF, SOLID, OUTLINE }
+
 internal val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
 internal const val MODERN_HERO_TEXT_WIDTH_FRACTION = 0.42f
 internal const val MODERN_HERO_MEDIA_WIDTH_FRACTION = 0.72f
@@ -37,7 +39,6 @@ internal data class HeroPreview(
     val yearText: String?,
     val runtimeText: String? = null,
     val secondaryHighlightText: String? = null,
-    val imdbText: String?,
     val ageRatingText: String? = null,
     val statusText: String? = null,
     val countryText: String? = null,
@@ -45,7 +46,8 @@ internal data class HeroPreview(
     val genres: List<String>,
     val poster: String?,
     val backdrop: String?,
-    val imageUrl: String?
+    val imageUrl: String?,
+    val imdbText: String? = null
 )
 
 @Immutable
@@ -90,7 +92,8 @@ internal data class HeroCarouselRow(
     val apiType: String? = null,
     val supportsSkip: Boolean = false,
     val hasMore: Boolean = false,
-    val isLoading: Boolean = false
+    val isLoading: Boolean = false,
+    val numberStyle: NumberStyle = NumberStyle.OFF
 )
 
 @Immutable
@@ -189,7 +192,6 @@ internal fun buildContinueWatchingItem(
                 isSeries = isSeries,
                 yearText = extractYear(item.releaseInfo),
                 secondaryHighlightText = secondaryHighlightText,
-                imdbText = item.episodeImdbRating?.let { String.format("%.1f", it) },
                 genres = item.genres,
                 poster = item.progress.poster,
                 backdrop = item.progress.backdrop,
@@ -214,7 +216,6 @@ internal fun buildContinueWatchingItem(
                 isSeries = true,
                 yearText = extractYear(item.info.releaseInfo),
                 secondaryHighlightText = secondaryHighlightText,
-                imdbText = item.info.imdbRating?.let { String.format("%.1f", it) },
                 genres = item.info.genres,
                 poster = item.info.poster,
                 backdrop = item.info.backdrop,
@@ -295,7 +296,6 @@ internal fun buildCatalogItem(
         isSeries = isSeriesType(item.apiType),
         yearText = extractYear(item.releaseInfo),
         runtimeText = formatHeroRuntime(item.runtime),
-        imdbText = item.imdbRating?.let { String.format("%.1f", it) },
         ageRatingText = item.ageRating,
         statusText = item.status,
         countryText = item.country,
@@ -307,7 +307,8 @@ internal fun buildCatalogItem(
             item.backdropUrl ?: item.poster
         } else {
             item.poster ?: item.backdropUrl
-        }
+        },
+        imdbText = item.imdbRating?.takeIf { it > 0f }?.let { "%.1f".format(it) }
     )
 
     return ModernCarouselItem(
@@ -423,4 +424,23 @@ internal fun ContinueWatchingItem.episode(): Int? {
         is ContinueWatchingItem.InProgress -> progress.episode
         is ContinueWatchingItem.NextUp -> info.episode
     }
+}
+
+private val PLATFORM_KEYWORDS = listOf(
+    "netflix"   to "netflix",
+    "disney"    to "disney",
+    "hbo"       to "hbo",
+    "max"       to "hbo",
+    "hulu"      to "hulu",
+    "amazon"    to "amazon",
+    "prime"     to "amazon",
+    "apple"     to "apple",
+    "paramount" to "paramount",
+    "peacock"   to "peacock",
+    "criterion" to "criterion"
+)
+
+internal fun inferPlatformId(title: String): String? {
+    val lower = title.lowercase()
+    return PLATFORM_KEYWORDS.firstOrNull { (keyword, _) -> keyword in lower }?.second
 }

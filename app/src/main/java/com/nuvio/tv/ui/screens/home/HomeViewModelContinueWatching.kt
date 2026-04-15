@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.util.Log
+import com.nuvio.tv.data.local.InProgressEnrichmentEntry
+import com.nuvio.tv.core.homechannel.HomeScreenChannelWorker
+import com.nuvio.tv.core.homechannel.HomeScreenChannelManager
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -34,6 +37,7 @@ import java.util.Locale
 private const val CW_MAX_RECENT_PROGRESS_ITEMS = 300
 private const val CW_MAX_NEXT_UP_LOOKUPS = 24
 private const val CW_MAX_NEXT_UP_CONCURRENCY = 4
+
 
 private data class ContinueWatchingSettingsSnapshot(
     val items: List<WatchProgress>,
@@ -93,13 +97,23 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
 
             Log.d("HomeViewModel", "allProgress emitted=${items.size} recentWindow=${recentItems.size}")
 
+            val existingInProgressMap = _uiState.value.continueWatchingItems
+                .filterIsInstance<ContinueWatchingItem.InProgress>()
+                .associateBy { it.progress.contentId + "_" + it.progress.season + "_" + it.progress.episode }
             val inProgressOnly = buildList {
                 deduplicateInProgress(
                     recentItems.filter { shouldTreatAsInProgressForContinueWatching(it) }
                 ).forEach { progress ->
+                    val key = progress.contentId + "_" + progress.season + "_" + progress.episode
+                    val existing = existingInProgressMap[key]
                     add(
                         ContinueWatchingItem.InProgress(
-                            progress = progress
+                            progress = progress,
+                            episodeDescription = existing?.episodeDescription,
+                            episodeThumbnail = existing?.episodeThumbnail,
+                            episodeImdbRating = existing?.episodeImdbRating,
+                            genres = existing?.genres ?: emptyList(),
+                            releaseInfo = existing?.releaseInfo
                         )
                     )
                 }
@@ -107,9 +121,33 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
 
             Log.d("HomeViewModel", "inProgressOnly: ${inProgressOnly.size} items after filter+dedup")
 
+            // Optimistic UI: show cached NextUp AND enrichment data immediately
+            val cachedNextUp = watchProgressPreferences.loadNextUpCache()
+                .filter { cached -> inProgressOnly.none { ip -> ip.progress.contentId == cached.contentId } }
+                .map { ContinueWatchingItem.NextUp(it) }
+
+            // Apply cached enrichment data to inProgressOnly before first render
+            val enrichmentCache = watchProgressPreferences.loadInProgressEnrichmentCache()
+                .associateBy { entry -> entry.contentId + "_" + entry.season + "_" + entry.episode }
+            val inProgressWithCachedEnrichment = inProgressOnly.map { item ->
+                val key = item.progress.contentId + "_" + item.progress.season + "_" + item.progress.episode
+                val cached = enrichmentCache[key]
+                if (cached != null) {
+                    item.copy(
+                        episodeDescription = cached.episodeDescription,
+                        episodeThumbnail = cached.episodeThumbnail,
+                        episodeImdbRating = cached.episodeImdbRating,
+                        genres = cached.genres,
+                        releaseInfo = cached.releaseInfo,
+                        progress = cached.logo?.takeIf { it.isNotBlank() && item.progress.logo.isNullOrBlank() }
+                            ?.let { logo -> item.progress.copy(logo = logo) } ?: item.progress
+                    )
+                } else item
+            }
+
             _uiState.update { state ->
-                val immediateItems = if (inProgressOnly.isNotEmpty()) {
-                    inProgressOnly
+                val immediateItems = if (inProgressWithCachedEnrichment.isNotEmpty() || cachedNextUp.isNotEmpty()) {
+                    inProgressWithCachedEnrichment + cachedNextUp
                 } else {
                     val existingNextUp = state.continueWatchingItems
                         .filterIsInstance<ContinueWatchingItem.NextUp>()
@@ -128,11 +166,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             // Then enrich Next Up and item details in background.
             enrichContinueWatchingProgressively(
                 allProgress = recentItems,
-                inProgressItems = inProgressOnly,
+                inProgressItems = inProgressWithCachedEnrichment,
                 dismissedNextUp = dismissedNextUp,
                 showUnairedNextUp = showUnairedNextUp
             )
-            enrichInProgressEpisodeDetailsProgressively(inProgressOnly)
+            enrichInProgressEpisodeDetailsProgressively(inProgressWithCachedEnrichment)
         }
     }
 }
@@ -219,6 +257,15 @@ private suspend fun HomeViewModel.resolveCurrentReleaseInfo(
 ): String? {
     val meta = resolveMetaForProgress(progress, metaCache) ?: return null
     return meta.releaseInfo?.takeIf { it.isNotBlank() }
+}
+
+private suspend fun HomeViewModel.resolveCurrentLogo(
+    progress: WatchProgress,
+    metaCache: MutableMap<String, Meta?>
+): String? {
+    if (!progress.logo.isNullOrBlank()) return progress.logo
+    val meta = resolveMetaForProgress(progress, metaCache) ?: return null
+    return meta.logo?.takeIf { it.isNotBlank() }
 }
 
 private fun resolveVideoForProgress(progress: WatchProgress, meta: Meta): Video? {
@@ -320,7 +367,7 @@ private suspend fun HomeViewModel.enrichContinueWatchingProgressively(
                 ) ?: return@withPermit
                 mergeMutex.withLock {
                     nextUpByContent[progress.contentId] = nextUp
-                    if (nextUpByContent.size - lastEmittedNextUpCount >= 2) {
+                    if (nextUpByContent.size - lastEmittedNextUpCount >= 1) {
                         val nextUpItems = nextUpByContent.values.toList()
                         _uiState.update {
                             val mergedItems = mergeContinueWatchingItems(
@@ -357,6 +404,7 @@ private suspend fun HomeViewModel.enrichContinueWatchingProgressively(
             }
         }
     }
+    // Channel refresh happens after enrichment completes (see enrichInProgressEpisodeDetailsProgressively)
 }
 
 private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
@@ -374,12 +422,14 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
         val imdbRating = resolveCurrentEpisodeImdbRating(item.progress, metaCache)
         val genres = resolveCurrentGenres(item.progress, metaCache)
         val releaseInfo = resolveCurrentReleaseInfo(item.progress, metaCache)
+        val logo = resolveCurrentLogo(item.progress, metaCache)
         val enrichedItem = item.copy(
             episodeDescription = description,
             episodeThumbnail = thumbnail,
             episodeImdbRating = imdbRating,
             genres = genres,
-            releaseInfo = releaseInfo
+            releaseInfo = releaseInfo,
+            progress = if (logo != null && item.progress.logo.isNullOrBlank()) item.progress.copy(logo = logo) else item.progress
         )
 
         if (enrichedItem != item) {
@@ -393,6 +443,38 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
 
     if (enrichedByProgress.isNotEmpty() && enrichedByProgress.size != lastAppliedCount) {
         applyInProgressEpisodeDetailEnrichment(enrichedByProgress)
+    }
+    // Save NextUp cache for optimistic UI on next launch
+    val nextUpItems = _uiState.value.continueWatchingItems
+        .filterIsInstance<ContinueWatchingItem.NextUp>()
+        .map { it.info }
+    if (nextUpItems.isNotEmpty()) {
+        watchProgressPreferences.saveNextUpCache(nextUpItems)
+    }
+    // Save InProgress enrichment cache so thumbnails/descriptions survive ViewModel recreation
+    val enrichmentEntries = _uiState.value.continueWatchingItems
+        .filterIsInstance<ContinueWatchingItem.InProgress>()
+        .filter { it.episodeThumbnail != null || it.episodeDescription != null || it.genres.isNotEmpty() }
+        .map { item ->
+            InProgressEnrichmentEntry(
+                contentId = item.progress.contentId,
+                season = item.progress.season,
+                episode = item.progress.episode,
+                episodeDescription = item.episodeDescription,
+                episodeThumbnail = item.episodeThumbnail,
+                episodeImdbRating = item.episodeImdbRating,
+                genres = item.genres,
+                releaseInfo = item.releaseInfo,
+                logo = item.progress.logo?.takeIf { it.isNotBlank() }
+            )
+        }
+    if (enrichmentEntries.isNotEmpty()) {
+        watchProgressPreferences.saveInProgressEnrichmentCache(enrichmentEntries)
+    }
+    // Refresh home screen channel after enrichment (logos now available)
+    val finalItems = _uiState.value.continueWatchingItems
+    if (finalItems.isNotEmpty()) {
+        homeScreenChannelManager.refreshFromItems(finalItems)
     }
 }
 

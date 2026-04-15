@@ -9,6 +9,7 @@ import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.ui.screens.home.NextUpInfo
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -31,6 +32,40 @@ class WatchProgressPreferences @Inject constructor(
 
     private val gson = Gson()
     private val watchProgressKey = stringPreferencesKey("watch_progress_map")
+    private val nextUpCacheKey = stringPreferencesKey("next_up_cache")
+    private val inProgressEnrichmentCacheKey = stringPreferencesKey("in_progress_enrichment_cache")
+
+    suspend fun saveInProgressEnrichmentCache(items: List<InProgressEnrichmentEntry>) {
+        store().edit { preferences ->
+            preferences[inProgressEnrichmentCacheKey] = gson.toJson(items)
+        }
+    }
+
+    suspend fun loadInProgressEnrichmentCache(): List<InProgressEnrichmentEntry> {
+        return try {
+            val json = store().data.first()[inProgressEnrichmentCacheKey] ?: return emptyList()
+            val type = object : TypeToken<List<InProgressEnrichmentEntry>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun saveNextUpCache(items: List<NextUpInfo>) {
+        store().edit { preferences ->
+            preferences[nextUpCacheKey] = gson.toJson(items)
+        }
+    }
+
+    suspend fun loadNextUpCache(): List<NextUpInfo> {
+        return try {
+            val json = store().data.first()[nextUpCacheKey] ?: return emptyList()
+            val type = object : TypeToken<List<NextUpInfo>>() {}.type
+            gson.fromJson(json, type) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
 
     // Maximum items to keep in continue watching
     private val maxItems = 50

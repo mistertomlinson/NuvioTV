@@ -36,6 +36,17 @@ data class HomeScreenFocusState(
     val catalogRowScrollStates: Map<String, Int> = emptyMap(),
 
     /**
+     * The key of the catalog row that had focus when navigating away.
+     * Takes priority over focusedRowIndex when present.
+     */
+    val focusedRowKey: String? = null,
+
+    /**
+     * The platform filter that was active when navigating away.
+     */
+    val selectedPlatformId: String = "home",
+
+    /**
      * Whether focus state has been explicitly saved (vs still at defaults).
      */
     val hasSavedFocus: Boolean = false

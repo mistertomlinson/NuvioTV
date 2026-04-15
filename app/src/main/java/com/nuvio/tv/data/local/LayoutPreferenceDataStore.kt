@@ -40,6 +40,9 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val heroCatalogKeysKey = stringPreferencesKey("hero_catalog_keys")
     private val homeCatalogOrderKeysKey = stringPreferencesKey("home_catalog_order_keys")
     private val disabledHomeCatalogKeysKey = stringPreferencesKey("disabled_home_catalog_keys")
+    private val numberedHomeCatalogKeysKey = stringPreferencesKey("numbered_home_catalog_keys")
+    private val outlineNumberedHomeCatalogKeysKey = stringPreferencesKey("outline_numbered_home_catalog_keys")
+    private val useThemeColorForNumbersKey = booleanPreferencesKey("use_theme_color_for_numbers")
     private val sidebarCollapsedKey = booleanPreferencesKey("sidebar_collapsed_by_default")
     private val modernSidebarEnabledKey = booleanPreferencesKey("modern_sidebar_enabled")
     private val legacyModernSidebarEnabledKey = booleanPreferencesKey("glass_sidepanel_enabled")
@@ -65,6 +68,9 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val hideUnreleasedContentKey = booleanPreferencesKey("hide_unreleased_content")
     private val focusedPosterNoBackdropImageKey = booleanPreferencesKey("focused_poster_no_backdrop_image")
     private val heroTrailerAllowLetterboxingKey = booleanPreferencesKey("hero_trailer_allow_letterboxing")
+    private val aggregateStreamingPlatformsKey = booleanPreferencesKey("aggregate_streaming_platforms")
+    private val showAllCatalogsOnHomeKey = booleanPreferencesKey("show_all_catalogs_on_home")
+    private val cachedVisiblePlatformIdsKey = stringPreferencesKey("cached_visible_platform_ids")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -107,6 +113,18 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val disabledHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
         parseCatalogKeys(prefs[disabledHomeCatalogKeysKey])
+    }
+
+    val numberedHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
+        parseCatalogKeys(prefs[numberedHomeCatalogKeysKey])
+    }
+
+    val useThemeColorForNumbers: Flow<Boolean> = profileFlow { prefs ->
+        prefs[useThemeColorForNumbersKey] ?: false
+    }
+
+    val outlineNumberedHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
+        parseCatalogKeys(prefs[outlineNumberedHomeCatalogKeysKey])
     }
 
     val sidebarCollapsedByDefault: Flow<Boolean> = profileFlow { prefs ->
@@ -213,6 +231,10 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[heroTrailerAllowLetterboxingKey] ?: false
     }
 
+    val aggregateStreamingPlatformsEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[aggregateStreamingPlatformsKey] ?: false
+    }
+
     suspend fun setLayout(layout: HomeLayout) {
         store().edit { prefs ->
             val hadChosenLayout = prefs[hasChosenKey] ?: false
@@ -264,6 +286,34 @@ class LayoutPreferenceDataStore @Inject constructor(
                 prefs.remove(disabledHomeCatalogKeysKey)
             } else {
                 prefs[disabledHomeCatalogKeysKey] = gson.toJson(normalizedKeys)
+            }
+        }
+    }
+
+    suspend fun setNumberedHomeCatalogKeys(keys: List<String>) {
+        val normalizedKeys = normalizeCatalogOrderKeys(keys)
+        store().edit { prefs ->
+            if (normalizedKeys.isEmpty()) {
+                prefs.remove(numberedHomeCatalogKeysKey)
+            } else {
+                prefs[numberedHomeCatalogKeysKey] = gson.toJson(normalizedKeys)
+            }
+        }
+    }
+
+    suspend fun setUseThemeColorForNumbers(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[useThemeColorForNumbersKey] = enabled
+        }
+    }
+
+    suspend fun setOutlineNumberedHomeCatalogKeys(keys: List<String>) {
+        val normalizedKeys = normalizeCatalogOrderKeys(keys)
+        store().edit { prefs ->
+            if (normalizedKeys.isEmpty()) {
+                prefs.remove(outlineNumberedHomeCatalogKeysKey)
+            } else {
+                prefs[outlineNumberedHomeCatalogKeysKey] = gson.toJson(normalizedKeys)
             }
         }
     }
@@ -420,6 +470,37 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setHeroTrailerAllowLetterboxing(enabled: Boolean) {
         store().edit { prefs ->
             prefs[heroTrailerAllowLetterboxingKey] = enabled
+        }
+    }
+
+    suspend fun setAggregateStreamingPlatformsEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[aggregateStreamingPlatformsKey] = enabled
+        }
+    }
+
+    val showAllCatalogsOnHome: Flow<Boolean> = profileFlow { prefs ->
+        prefs[showAllCatalogsOnHomeKey] ?: false
+    }
+
+    suspend fun setShowAllCatalogsOnHome(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[showAllCatalogsOnHomeKey] = enabled
+        }
+    }
+
+    val cachedVisiblePlatformIds: Flow<Set<String>> = profileFlow { prefs ->
+        val json = prefs[cachedVisiblePlatformIdsKey]
+        if (json.isNullOrBlank()) emptySet()
+        else try {
+            val type = object : TypeToken<List<String>>() {}.type
+            gson.fromJson<List<String>>(json, type).orEmpty().toSet()
+        } catch (_: Exception) { emptySet() }
+    }
+
+    suspend fun setCachedVisiblePlatformIds(ids: Set<String>) {
+        store().edit { prefs ->
+            prefs[cachedVisiblePlatformIdsKey] = gson.toJson(ids.toList())
         }
     }
 

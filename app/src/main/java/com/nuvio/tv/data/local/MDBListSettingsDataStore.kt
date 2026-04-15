@@ -84,4 +84,6 @@ class MDBListSettingsDataStore @Inject constructor(
     suspend fun setShowMetacritic(enabled: Boolean) {
         store().edit { it[showMetacriticKey] = enabled }
     }
+
+
 }

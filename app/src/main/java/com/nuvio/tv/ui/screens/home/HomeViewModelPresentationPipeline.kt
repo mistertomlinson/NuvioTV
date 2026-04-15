@@ -11,6 +11,7 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.TmdbSettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -111,8 +112,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
         )
     }.combine(layoutPreferenceDataStore.focusedPosterNoBackdropImage) { prefs, noBackdrop ->
         prefs.copy(noBackdropImage = noBackdrop)
-    }.combine(layoutPreferenceDataStore.heroTrailerAllowLetterboxing) { prefs, allowLetterboxing ->
-        prefs.copy(heroTrailerAllowLetterboxing = allowLetterboxing)
+    }.combine(layoutPreferenceDataStore.heroTrailerAllowLetterboxing) { prefs, heroTrailerAllowLetterboxing ->
+        prefs.copy(heroTrailerAllowLetterboxing = heroTrailerAllowLetterboxing)
     }
 
     val modernLayoutPrefsFlow = layoutPreferenceDataStore.modernLandscapePostersEnabled
@@ -149,15 +150,15 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
     viewModelScope.launch {
         combine(
             baseLayoutUiPrefsFlow,
-            modernLayoutPrefsFlow
-        ) { basePrefs, modernPrefs ->
-            basePrefs.copy(
-                modernLandscapePostersEnabled = modernPrefs
-            )
+            modernLayoutPrefsFlow,
+            layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
+            layoutPreferenceDataStore.showAllCatalogsOnHome
+        ) { basePrefs, modernPrefs, aggregatePlatforms, showAllOnHome ->
+            Triple(basePrefs.copy(modernLandscapePostersEnabled = modernPrefs), aggregatePlatforms, showAllOnHome)
         }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { prefs ->
+            .collectLatest { (prefs, aggregateStreamingPlatforms, showAllCatalogsOnHome) ->
                 val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
                     false
                 } else {
@@ -189,7 +190,9 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         heroTrailerAllowLetterboxing = prefs.focusedBackdropHeroTrailerAllowLetterboxing,
                         posterCardWidthDp = prefs.posterCardWidthDp,
                         posterCardHeightDp = prefs.posterCardHeightDp,
-                        posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp
+                        posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp,
+                        aggregateStreamingPlatformsEnabled = aggregateStreamingPlatforms,
+                        showAllCatalogsOnHome = showAllCatalogsOnHome
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {
@@ -315,7 +318,6 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     }
 
     val willEnrich = currentTmdbSettings.enabled || externalMetaPrefetchEnabled
-
     if (willEnrich) setEnrichingItemId(item.id)
 
     pendingTmdbEnrichItemId = item.id
@@ -640,3 +642,4 @@ internal fun HomeViewModel.heroEnrichmentSignaturePipeline(
         append(itemSignature)
     }
 }
+

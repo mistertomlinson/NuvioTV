@@ -136,6 +136,14 @@ class TmdbMetadataService @Inject constructor(
                     }
                 val poster = buildImageUrl(details?.posterPath, size = "w500")
                 val backdrop = buildImageUrl(details?.backdropPath, size = "w1280")
+                val detailBackdropPath = images?.backdrops
+                    ?.filter { it.filePath != null && it.filePath != details?.backdropPath && it.iso6391 == null }
+                    ?.sortedByDescending { it.voteAverage ?: 0.0 }
+                    ?.firstOrNull()
+                    ?.filePath
+                // Only use detailBackdrop if we found a language-tag-free image.
+                // If none exist, leave it null so the detail screen reuses the home screen backdrop.
+                val detailBackdrop = if (detailBackdropPath != null) buildImageUrl(detailBackdropPath, size = "w1280") else null
                 
                 val collectionId = details?.belongsToCollection?.id
                 val collectionName = details?.belongsToCollection?.name
@@ -291,7 +299,8 @@ class TmdbMetadataService @Inject constructor(
                     countries = countries,
                     language = language,
                     collectionId = collectionId,
-                    collectionName = collectionName
+                    collectionName = collectionName,
+                    detailBackdrop = detailBackdrop
                 )
                 enrichmentCache[cacheKey] = enrichment
                 enrichment
@@ -799,7 +808,8 @@ data class TmdbEnrichment(
     val countries: List<String>?,
     val language: String?,
     val collectionId: Int?,
-    val collectionName: String?
+    val collectionName: String?,
+    val detailBackdrop: String? = null
 )
 
 data class TmdbEpisodeEnrichment(

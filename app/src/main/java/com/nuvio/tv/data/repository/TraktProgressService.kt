@@ -186,7 +186,7 @@ class TraktProgressService @Inject constructor(
             }
         }
         scope.launch {
-            refreshEvents().collectLatest {
+            refreshEvents().collect {
                 val success = try {
                     refreshRemoteSnapshot()
                     true
@@ -648,6 +648,7 @@ class TraktProgressService @Inject constructor(
         }
 
         val snapshot = fetchAllProgressSnapshot(force = force)
+        android.util.Log.d("TraktDebug", "snapshot force=$force count=${snapshot.size} titles=${snapshot.take(8).map { it.name }}")
         remoteProgress.value = snapshot
         hasLoadedRemoteProgress.value = true
         reconcileOptimistic(snapshot)
@@ -876,8 +877,10 @@ class TraktProgressService @Inject constructor(
         val playbackStartAt = recentWatchWindowMs()?.let { windowMs ->
             toTraktUtcDateTime(System.currentTimeMillis() - windowMs)
         }
-        val inProgressMovies = getPlayback("movies", force = force, startAt = playbackStartAt).mapNotNull { mapPlaybackMovie(it) }
-        val inProgressEpisodes = getPlayback("episodes", force = force, startAt = playbackStartAt).mapNotNull { mapPlaybackEpisode(it) }
+        // Movies: don't pass startAt — Trakt's playback endpoint ignores/breaks date filtering for movies
+        val inProgressMovies = getPlayback("movies", force = force).mapNotNull { mapPlaybackMovie(it) }
+        // Episodes: don't pass startAt either — Trakt ignores/limits results with date filter
+        val inProgressEpisodes = getPlayback("episodes", force = force).mapNotNull { mapPlaybackEpisode(it) }
 
         val mergedByKey = linkedMapOf<String, WatchProgress>()
 
@@ -1057,11 +1060,13 @@ class TraktProgressService @Inject constructor(
                 authorization = authHeader,
                 type = type,
                 startAt = startAt,
-                endAt = endAt
+                endAt = endAt,
+                limit = 100
             )
         } ?: return emptyList()
 
         val value = if (response.isSuccessful) response.body().orEmpty() else emptyList()
+        android.util.Log.d("TraktDebug", "getPlayback type=$type code=${response.code()} items=${value.size} titles=${value.take(5).map { it.movie?.title ?: it.show?.title }}")
         if (startAt == null && endAt == null) {
             cacheMutex.withLock {
                 val timed = TimedCache(value = value, updatedAtMs = now)

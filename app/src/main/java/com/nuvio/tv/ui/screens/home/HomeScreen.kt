@@ -5,10 +5,13 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.alpha
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -16,10 +19,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Divider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,7 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -37,6 +40,7 @@ import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.LocalNoBackdropImage
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
@@ -48,8 +52,9 @@ import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
-import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.LocalCarouselFocusRequester
+import com.nuvio.tv.LocalContentFocusRequester
 import kotlin.math.roundToInt
 
 private data class HomePosterOptionsTarget(
@@ -87,17 +92,6 @@ fun HomeScreen(
     var hasEnteredCatalogContent by rememberSaveable { mutableStateOf(false) }
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
     var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
-
-    // Stable lambdas — captured via rememberUpdatedState so they never cause
-    // downstream recomposition when uiState changes.
-    val latestMovieWatchedStatus by rememberUpdatedState(uiState.movieWatchedStatus)
-    val latestPosterOptionsTarget by rememberUpdatedState(posterOptionsTarget)
-    val isCatalogItemWatched: (MetaPreview) -> Boolean = remember(Unit) {
-        { item -> latestMovieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true }
-    }
-    val onCatalogItemLongPress: (MetaPreview, String) -> Unit = remember(Unit) {
-        { item, addonBaseUrl -> posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl) }
-    }
 
     LaunchedEffect(hasCatalogContent) {
         if (hasCatalogContent) {
@@ -176,7 +170,7 @@ fun HomeScreen(
                 LaunchedEffect(shouldShowLoadingGate) {
                     if (shouldShowLoadingGate) {
                         showHomeContentWithAnimation = false
-                    } else {
+                    } else if (!showHomeContentWithAnimation) {
                         // Flip on the next frame so AnimatedVisibility can run enter transition.
                         kotlinx.coroutines.yield()
                         showHomeContentWithAnimation = true
@@ -209,8 +203,12 @@ fun HomeScreen(
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManually,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
-                                isCatalogItemWatched = isCatalogItemWatched,
-                                onCatalogItemLongPress = onCatalogItemLongPress
+                                isCatalogItemWatched = { item ->
+                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+                                },
+                                onCatalogItemLongPress = { item, addonBaseUrl ->
+                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                                }
                             )
 
                             HomeLayout.GRID -> GridHomeRoute(
@@ -223,8 +221,12 @@ fun HomeScreen(
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManually,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
-                                isCatalogItemWatched = isCatalogItemWatched,
-                                onCatalogItemLongPress = onCatalogItemLongPress
+                                isCatalogItemWatched = { item ->
+                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+                                },
+                                onCatalogItemLongPress = { item, addonBaseUrl ->
+                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                                }
                             )
 
                             HomeLayout.MODERN -> ModernHomeRoute(
@@ -235,35 +237,16 @@ fun HomeScreen(
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManually,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
-                                isCatalogItemWatched = isCatalogItemWatched,
-                                onCatalogItemLongPress = onCatalogItemLongPress
+                                isCatalogItemWatched = { item ->
+                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+                                },
+                                onCatalogItemLongPress = { item, addonBaseUrl ->
+                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                                }
                             )
                         }
                     }
                 }
-            }
-        }
-
-        val startupAuthNotice = uiState.startupAuthNotice
-        if (startupAuthNotice != null) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 24.dp)
-                    .background(
-                        color = Color(0xFF5A1C1C),
-                        shape = RoundedCornerShape(10.dp)
-                    )
-                    .padding(horizontal = 18.dp, vertical = 10.dp)
-            ) {
-                Text(
-                    text = when (startupAuthNotice) {
-                        StartupAuthNotice.NUVIO -> stringResource(R.string.auth_notice_nuvio_logged_out)
-                        StartupAuthNotice.TRAKT -> stringResource(R.string.auth_notice_trakt_logged_out)
-                    },
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = NuvioColors.TextPrimary
-                )
             }
         }
     }
@@ -330,6 +313,9 @@ private fun ClassicHomeRoute(
     onCatalogItemLongPress: (MetaPreview, String) -> Unit
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
+    CompositionLocalProvider(
+        LocalNoBackdropImage provides uiState.focusedPosterNoBackdropImage
+    ) {
     ClassicHomeContent(
         uiState = uiState,
         posterCardStyle = posterCardStyle,
@@ -357,6 +343,7 @@ private fun ClassicHomeRoute(
             viewModel.saveFocusState(vi, vo, ri, ii, m)
         }
     )
+    }
 }
 
 @Composable
@@ -412,6 +399,9 @@ private fun ModernHomeRoute(
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
+    val numberedCatalogKeys by viewModel._numberedCatalogKeysSet.collectAsStateWithLifecycle()
+    val outlineNumberedCatalogKeys by viewModel._outlineNumberedCatalogKeysSet.collectAsStateWithLifecycle()
+    val useThemeColorForNumbers by viewModel._useThemeColorForNumbers.collectAsStateWithLifecycle()
     val requestTrailerPreview = remember(viewModel) {
         { itemId: String, title: String, releaseInfo: String?, apiType: String ->
             viewModel.requestTrailerPreview(itemId, title, releaseInfo, apiType)
@@ -428,8 +418,8 @@ private fun ModernHomeRoute(
         }
     }
     val saveModernFocusState = remember(viewModel) {
-        { vi: Int, vo: Int, ri: Int, ii: Int, m: Map<String, Int> ->
-            viewModel.saveFocusState(vi, vo, ri, ii, m)
+        { vi: Int, vo: Int, ri: Int, ii: Int, m: Map<String, Int>, rk: String?, pid: String ->
+            viewModel.saveFocusState(vi, vo, ri, ii, m, rk, pid)
         }
     }
     val preloadAdjacentItem = remember(viewModel) {
@@ -437,6 +427,43 @@ private fun ModernHomeRoute(
             viewModel.preloadAdjacentItem(item)
         }
     }
+    var selectedPlatformId by remember { mutableStateOf(focusState.selectedPlatformId) }
+    var isCarouselFocused by remember { mutableStateOf(false) }
+    val aggregatePlatformsEnabled = uiState.aggregateStreamingPlatformsEnabled
+    var isAtTop by remember { mutableStateOf(true) }
+    val carouselFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    // Load cached platform ids so carousel shows instantly on cold launch
+    val cachedPlatformIds by viewModel.getCachedVisiblePlatformIds()
+        .collectAsStateWithLifecycle(initialValue = emptySet())
+    // Use stable set from ViewModel (set once when loading completes), fall back to cache
+    val stablePlatformIds = if (uiState.stableVisiblePlatformIds.isNotEmpty())
+        uiState.stableVisiblePlatformIds else cachedPlatformIds
+    var carouselReady by rememberSaveable { mutableStateOf(false) }
+    var isHeroTrailerPlaying by remember { mutableStateOf(false) }
+    // Show carousel as soon as we have any platform ids — from cache or live
+    LaunchedEffect(stablePlatformIds) {
+        if (stablePlatformIds.isNotEmpty() && !carouselReady) {
+            carouselReady = true
+        }
+    }
+    // Save to cache whenever live data is ready
+    LaunchedEffect(uiState.stableVisiblePlatformIds) {
+        if (uiState.stableVisiblePlatformIds.isNotEmpty()) {
+            viewModel.saveCachedVisiblePlatformIds(uiState.stableVisiblePlatformIds)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+    val carouselAlpha by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (carouselReady && aggregatePlatformsEnabled && !isHeroTrailerPlaying) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(400),
+        label = "carouselFade"
+    )
+
+    CompositionLocalProvider(
+        LocalNoBackdropImage provides uiState.focusedPosterNoBackdropImage,
+        LocalCarouselFocusRequester provides carouselFocusRequester
+    ) {
     ModernHomeContent(
         uiState = uiState,
         focusState = focusState,
@@ -451,14 +478,45 @@ private fun ModernHomeRoute(
         onRequestTrailerPreview = requestTrailerPreview,
         onLoadMoreCatalog = loadMoreCatalog,
         onRemoveContinueWatching = removeContinueWatching,
+        numberedCatalogKeys = numberedCatalogKeys,
+        outlineNumberedCatalogKeys = outlineNumberedCatalogKeys,
+        useThemeColorForNumbers = useThemeColorForNumbers,
         isCatalogItemWatched = isCatalogItemWatched,
         onCatalogItemLongPress = onCatalogItemLongPress,
-        onItemFocus = remember(viewModel) {
-            { item -> viewModel.onItemFocus(item) }
+        onItemFocus = { item ->
+            viewModel.onItemFocus(item)
         },
         onPreloadAdjacentItem = preloadAdjacentItem,
-        onSaveFocusState = saveModernFocusState
+        onSaveFocusState = saveModernFocusState,
+        onAtTopChanged = { isAtTop = it },
+        onCarouselOpenRequested = { isCarouselFocused = true },
+        isCarouselFocused = isCarouselFocused,
+        selectedPlatformId = selectedPlatformId,
+        aggregatePlatformsEnabled = aggregatePlatformsEnabled,
+        showAllCatalogsOnHome = uiState.showAllCatalogsOnHome,
+        carouselGradientAlpha = carouselAlpha,
+        onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it }
     )
+    }
+
+    // Carousel slides in from top once ready, then stays visible always
+    // Streaming platform carousel overlay
+    StreamingPlatformCarousel(
+        selectedPlatformId = selectedPlatformId,
+        visiblePlatformIds = if (aggregatePlatformsEnabled) stablePlatformIds else emptySet(),
+        isCarouselFocused = isCarouselFocused,
+        onCarouselFocusChanged = { isCarouselFocused = it },
+        onPlatformSelected = {
+            selectedPlatformId = it
+        },
+        focusRequester = carouselFocusRequester,
+        modifier = Modifier
+            .align(Alignment.TopEnd)
+            .fillMaxWidth(0.55f)
+            .padding(top = 8.dp, end = 20.dp)
+            .graphicsLayer { alpha = carouselAlpha }
+    )
+    } // end Box
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)

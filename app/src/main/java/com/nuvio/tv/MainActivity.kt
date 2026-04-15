@@ -115,6 +115,7 @@ import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
+import com.nuvio.tv.core.homechannel.DeepLinkHandler
 import com.nuvio.tv.ui.navigation.NuvioNavHost
 import com.nuvio.tv.ui.navigation.Screen
 import com.nuvio.tv.ui.components.NuvioScrollDefaults
@@ -140,7 +141,10 @@ import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
 val LocalSidebarExpanded = compositionLocalOf { false }
+val LocalAppInForeground = compositionLocalOf { true }
+val LocalNoBackdropImage = compositionLocalOf { false }
 val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
+val LocalCarouselFocusRequester = compositionLocalOf { FocusRequester.Default }
 
 data class DrawerItem(
     val route: String,
@@ -210,8 +214,12 @@ class MainActivity : ComponentActivity() {
 
     @OptIn(ExperimentalFoundationApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
-        super.onCreate(savedInstanceState)
+        val splashScreen = installSplashScreen()
+        if (intent?.data?.scheme == "nuvio") {
+            splashScreen.setKeepOnScreenCondition { false }
+        }
+        val effectiveBundle = if (intent?.data?.scheme == "nuvio") null else savedInstanceState
+        super.onCreate(effectiveBundle)
         setContent {
             var hasSelectedProfileThisSession by remember { mutableStateOf(false) }
             var onboardingCompletedThisSession by remember { mutableStateOf(false) }
@@ -365,10 +373,37 @@ class MainActivity : ComponentActivity() {
                     val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
                     val updateState by updateViewModel.uiState.collectAsState()
 
-                    val startDestination = if (layoutChosen) Screen.Home.route else Screen.LayoutSelection.route
+                    val intentDeepLinkRoute = run {
+                        val uri = intent?.data ?: return@run null
+                        if (uri.scheme != "nuvio") return@run null
+                        val host = uri.host ?: return@run null
+                        val path = uri.path?.trimStart('/') ?: ""
+                        val fullPath = if (path.isBlank()) host else "$host/$path"
+                        if (fullPath.startsWith("detail/")) {
+                            val parts = fullPath.removePrefix("detail/").split("/")
+                            if (parts.size >= 2) {
+                                val contentId = parts[0]
+                                val contentType = parts[1]
+                                val addonBaseUrl = uri.getQueryParameter("addonBaseUrl") ?: ""
+                                Screen.Detail.createRoute(contentId, contentType, addonBaseUrl, returnToHomeOnBack = true)
+                            } else null
+                        } else null
+                    }
+                    val startDestination = intentDeepLinkRoute ?: if (layoutChosen) Screen.Home.route else Screen.LayoutSelection.route
                     val navController = rememberNavController()
                     val navBackStackEntry by navController.currentBackStackEntryAsState()
                     val currentRoute = navBackStackEntry?.destination?.route
+
+                    val pendingDeepLinkIntentState = remember { androidx.compose.runtime.mutableStateOf<android.content.Intent?>(null) }
+                    var pendingDeepLinkIntent by pendingDeepLinkIntentState
+                    _pendingDeepLinkIntent = pendingDeepLinkIntentState
+                    LaunchedEffect(pendingDeepLinkIntent, currentRoute) {
+                        val pending = pendingDeepLinkIntent ?: return@LaunchedEffect
+                        if (pending.data?.scheme == "nuvio" && currentRoute != null) {
+                            DeepLinkHandler.handle(pending, navController)
+                            pendingDeepLinkIntent = null
+                        }
+                    }
 
                     val view = LocalView.current
                     LaunchedEffect(currentRoute) {
@@ -433,8 +468,11 @@ class MainActivity : ComponentActivity() {
                     }?.route
                     val selectedDrawerItem = drawerItems.firstOrNull { it.route == selectedDrawerRoute } ?: drawerItems.first()
 
+                    val appInForeground by _appInForeground
+
                     if (modernSidebarEnabled) {
                         ModernSidebarScaffold(
+                            appInForeground = appInForeground,
                             navController = navController,
                             startDestination = startDestination,
                             currentRoute = currentRoute,
@@ -457,6 +495,7 @@ class MainActivity : ComponentActivity() {
                         )
                     } else {
                         LegacySidebarScaffold(
+                            appInForeground = appInForeground,
                             navController = navController,
                             startDestination = startDestination,
                             currentRoute = currentRoute,
@@ -502,6 +541,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        _appInForeground.value = true
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
         startupSyncService.requestSyncNow()
         lifecycleScope.launch {
@@ -511,17 +551,29 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        _appInForeground.value = false
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = false
     }
 
     override fun onStart() {
         super.onStart()
     }
+
+    private val _appInForeground = androidx.compose.runtime.mutableStateOf(true)
+    private var _pendingDeepLinkIntent: androidx.compose.runtime.MutableState<android.content.Intent?>? = null
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        _pendingDeepLinkIntent?.value = intent
+    }
+
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun LegacySidebarScaffold(
+    appInForeground: Boolean,
     navController: NavHostController,
     startDestination: String,
     currentRoute: String?,
@@ -605,7 +657,7 @@ private fun LegacySidebarScaffold(
                         .onPreviewKeyEvent { keyEvent ->
                             if (keyEvent.key == Key.DirectionRight && keyEvent.type == KeyEventType.KeyDown) {
                                 drawerState.setValue(DrawerValue.Closed)
-                                pendingContentFocusTransfer = false
+                                pendingContentFocusTransfer = true
                                 true
                             } else {
                                 false
@@ -739,6 +791,7 @@ private fun LegacySidebarScaffold(
                 }
         ) {
             CompositionLocalProvider(
+                LocalAppInForeground provides appInForeground,
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
                 LocalContentFocusRequester provides contentFocusRequester
             ) {
@@ -833,6 +886,7 @@ private fun LegacySidebarButton(
 
 @Composable
 private fun ModernSidebarScaffold(
+    appInForeground: Boolean,
     navController: NavHostController,
     startDestination: String,
     currentRoute: String?,
@@ -1097,6 +1151,7 @@ private fun ModernSidebarScaffold(
                 }
         ) {
             CompositionLocalProvider(
+                LocalAppInForeground provides appInForeground,
                 LocalSidebarExpanded provides isSidebarExpanded,
                 LocalContentFocusRequester provides contentFocusRequester
             ) {

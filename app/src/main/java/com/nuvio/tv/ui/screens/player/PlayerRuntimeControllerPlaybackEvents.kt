@@ -28,6 +28,8 @@ internal fun PlayerRuntimeController.applyAudioAmplification(db: Int) {
 }
 
 internal fun PlayerRuntimeController.startProgressUpdates() {
+    var lastPeriodicScrobbleMs = 0L
+    val periodicScrobbleIntervalMs = 30_000L
     progressJob?.cancel()
     progressJob = scope.launch {
         while (isActive) {
@@ -45,6 +47,21 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     )
                 }
                 updateActiveSkipInterval(pos)
+
+                // Periodic scrobble-pause so Trakt has a saved state even on force-stop
+                if (player.isPlaying && hasRequestedScrobbleStartForCurrentItem) {
+                    val nowMs = System.currentTimeMillis()
+                    if (nowMs - lastPeriodicScrobbleMs >= periodicScrobbleIntervalMs) {
+                        lastPeriodicScrobbleMs = nowMs
+                        val pct = currentPlaybackProgressPercent()
+                        if (pct >= 1f && pct < 80f) {
+                            val scrobbleItem = currentScrobbleItem
+                            if (scrobbleItem != null) {
+                                scope.launch { traktScrobbleService.scrobblePause(scrobbleItem, pct) }
+                            }
+                        }
+                    }
+                }
                 evaluateNextEpisodeCardVisibility(
                     positionMs = pos,
                     durationMs = playerDuration.coerceAtLeast(0L)

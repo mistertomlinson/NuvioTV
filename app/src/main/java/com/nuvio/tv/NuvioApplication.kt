@@ -1,22 +1,32 @@
 package com.nuvio.tv
 
 import android.app.Application
+import androidx.hilt.work.HiltWorkerFactory
+import androidx.work.Configuration
 import coil.ImageLoader
 import coil.ImageLoaderFactory
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.nuvio.tv.core.homechannel.HomeScreenChannelWorker
 import com.nuvio.tv.core.sync.StartupSyncService
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 
 @HiltAndroidApp
-class NuvioApplication : Application(), ImageLoaderFactory {
+class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provider {
 
     @Inject lateinit var startupSyncService: StartupSyncService
+    @Inject lateinit var workerFactory: HiltWorkerFactory
+
+    override val workManagerConfiguration: Configuration
+        get() = Configuration.Builder()
+            .setWorkerFactory(workerFactory)
+            .build()
 
     override fun onCreate() {
         super.onCreate()
+        HomeScreenChannelWorker.schedule(this)
     }
 
     override fun newImageLoader(): ImageLoader {

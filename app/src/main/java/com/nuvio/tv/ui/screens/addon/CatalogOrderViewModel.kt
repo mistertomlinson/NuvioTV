@@ -25,6 +25,8 @@ class CatalogOrderViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(CatalogOrderUiState())
     val uiState: StateFlow<CatalogOrderUiState> = _uiState.asStateFlow()
     private var disabledKeysCache: Set<String> = emptySet()
+    private var numberedKeysCache: Set<String> = emptySet()
+    private var outlineNumberedKeysCache: Set<String> = emptySet()
 
     init {
         observeCatalogs()
@@ -44,6 +46,43 @@ class CatalogOrderViewModel @Inject constructor(
         }
         viewModelScope.launch {
             layoutPreferenceDataStore.setDisabledHomeCatalogKeys(updatedDisabled.toList())
+        }
+    }
+
+    fun toggleCatalogNumbered(key: String) {
+        val isSolid = key in numberedKeysCache
+        val isOutline = key in outlineNumberedKeysCache
+        val updatedSolid = numberedKeysCache.toMutableSet()
+        val updatedOutline = outlineNumberedKeysCache.toMutableSet()
+        when {
+            isOutline -> { updatedOutline.remove(key) }
+            isSolid -> { updatedSolid.remove(key); updatedOutline.add(key) }
+            else -> { updatedSolid.add(key) }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setNumberedHomeCatalogKeys(updatedSolid.toList())
+            layoutPreferenceDataStore.setOutlineNumberedHomeCatalogKeys(updatedOutline.toList())
+        }
+    }
+
+    fun toggleUseThemeColorForNumbers() {
+        val current = _uiState.value.useThemeColorForNumbers
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setUseThemeColorForNumbers(!current)
+        }
+    }
+
+    fun toggleAggregatePlatforms() {
+        val current = _uiState.value.aggregateStreamingPlatformsEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setAggregateStreamingPlatformsEnabled(!current)
+        }
+    }
+
+    fun toggleShowAllCatalogsOnHome() {
+        val current = _uiState.value.showAllCatalogsOnHome
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setShowAllCatalogsOnHome(!current)
         }
     }
 
@@ -70,19 +109,46 @@ class CatalogOrderViewModel @Inject constructor(
             combine(
                 addonRepository.getInstalledAddons(),
                 layoutPreferenceDataStore.homeCatalogOrderKeys,
-                layoutPreferenceDataStore.disabledHomeCatalogKeys
-            ) { addons, savedOrderKeys, disabledKeys ->
-                buildOrderedCatalogItems(
-                    addons = addons,
-                    savedOrderKeys = savedOrderKeys,
-                    disabledKeys = disabledKeys.toSet()
-                )
-            }.collectLatest { orderedItems ->
+                layoutPreferenceDataStore.disabledHomeCatalogKeys,
+                layoutPreferenceDataStore.numberedHomeCatalogKeys,
+                layoutPreferenceDataStore.outlineNumberedHomeCatalogKeys,
+                layoutPreferenceDataStore.useThemeColorForNumbers,
+            layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
+            layoutPreferenceDataStore.showAllCatalogsOnHome
+            ) { args ->
+                val addons = args[0] as List<*>
+                val savedOrderKeys = args[1] as List<*>
+                val disabledKeys = args[2] as List<*>
+                val numberedKeys = args[3] as List<*>
+                val outlineNumberedKeys = args[4] as List<*>
+                val useThemeColor = args[5] as Boolean
+                val aggregatePlatforms = args[6] as Boolean
+                val showAllOnHome = args[7] as Boolean
+                Pair(
+                Triple(
+                    buildOrderedCatalogItems(
+                        addons = addons as List<com.nuvio.tv.domain.model.Addon>,
+                        savedOrderKeys = savedOrderKeys as List<String>,
+                        disabledKeys = (disabledKeys as List<String>).toSet(),
+                        numberedKeys = (numberedKeys as List<String>).toSet(),
+                        outlineNumberedKeys = (outlineNumberedKeys as List<String>).toSet()
+                    ),
+                    useThemeColor,
+                    Unit
+                ), aggregatePlatforms to showAllOnHome)
+            }.collectLatest { (triple, aggregatePair) ->
+                val (aggregatePlatforms, showAllOnHome) = aggregatePair
+                val (orderedItems, useThemeColor, _) = triple
                 disabledKeysCache = orderedItems.filter { it.isDisabled }.map { it.disableKey }.toSet()
+                numberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.SOLID }.map { it.key }.toSet()
+                outlineNumberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE }.map { it.key }.toSet()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
-                        items = orderedItems
+                        items = orderedItems,
+                        useThemeColorForNumbers = useThemeColor,
+                        aggregateStreamingPlatformsEnabled = aggregatePlatforms,
+                        showAllCatalogsOnHome = showAllOnHome
                     )
                 }
             }
@@ -92,7 +158,9 @@ class CatalogOrderViewModel @Inject constructor(
     private fun buildOrderedCatalogItems(
         addons: List<Addon>,
         savedOrderKeys: List<String>,
-        disabledKeys: Set<String>
+        disabledKeys: Set<String>,
+        numberedKeys: Set<String> = emptySet(),
+        outlineNumberedKeys: Set<String> = emptySet()
     ): List<CatalogOrderItem> {
         val defaultEntries = buildDefaultCatalogEntries(addons)
         val availableMap = defaultEntries.associateBy { it.key }
@@ -117,6 +185,11 @@ class CatalogOrderViewModel @Inject constructor(
                 addonName = entry.addonName,
                 typeLabel = entry.typeLabel,
                 isDisabled = entry.disableKey in disabledKeys,
+                numberStyle = when {
+                    entry.key in outlineNumberedKeys -> com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE
+                    entry.key in numberedKeys -> com.nuvio.tv.ui.screens.home.NumberStyle.SOLID
+                    else -> com.nuvio.tv.ui.screens.home.NumberStyle.OFF
+                },
                 canMoveUp = index > 0,
                 canMoveDown = index < effectiveOrder.lastIndex
             )
@@ -178,7 +251,10 @@ class CatalogOrderViewModel @Inject constructor(
 
 data class CatalogOrderUiState(
     val isLoading: Boolean = true,
-    val items: List<CatalogOrderItem> = emptyList()
+    val items: List<CatalogOrderItem> = emptyList(),
+    val useThemeColorForNumbers: Boolean = false,
+    val aggregateStreamingPlatformsEnabled: Boolean = false,
+    val showAllCatalogsOnHome: Boolean = false
 )
 
 data class CatalogOrderItem(
@@ -188,6 +264,7 @@ data class CatalogOrderItem(
     val addonName: String,
     val typeLabel: String,
     val isDisabled: Boolean,
+    val numberStyle: com.nuvio.tv.ui.screens.home.NumberStyle = com.nuvio.tv.ui.screens.home.NumberStyle.OFF,
     val canMoveUp: Boolean,
     val canMoveDown: Boolean
 )
@@ -199,3 +276,4 @@ private data class CatalogOrderEntry(
     val addonName: String,
     val typeLabel: String
 )
+

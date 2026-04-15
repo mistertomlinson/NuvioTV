@@ -77,7 +77,7 @@ class TraktScrobbleService @Inject constructor(
         if (!traktAuthService.hasRequiredCredentials()) return
 
         val clampedProgress = progressPercent.coerceIn(0f, 100f)
-        if (shouldSkip(action, item.itemKey, clampedProgress)) return
+        if (action != "stop" && action != "pause" && shouldSkip(action, item.itemKey, clampedProgress)) return
 
         val requestBody = buildRequestBody(item, clampedProgress)
 

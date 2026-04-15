@@ -13,7 +13,11 @@ import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchedItemsPreferences
+import com.nuvio.tv.core.homechannel.HomeScreenChannelWorker
+import com.nuvio.tv.core.homechannel.HomeScreenChannelManager
 import com.nuvio.tv.data.trailer.TrailerService
+import dagger.hilt.android.qualifiers.ApplicationContext
+import android.content.Context
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
@@ -55,7 +59,10 @@ class HomeViewModel @Inject constructor(
     internal val tmdbService: TmdbService,
     internal val tmdbMetadataService: TmdbMetadataService,
     internal val trailerService: TrailerService,
-    internal val watchedItemsPreferences: WatchedItemsPreferences
+    internal val watchedItemsPreferences: WatchedItemsPreferences,
+    internal val watchProgressPreferences: com.nuvio.tv.data.local.WatchProgressPreferences,
+    @ApplicationContext internal val appContext: Context,
+    internal val homeScreenChannelManager: HomeScreenChannelManager,
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -95,6 +102,15 @@ class HomeViewModel @Inject constructor(
     internal var addonsCache: List<Addon> = emptyList()
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()
+    internal var _numberedCatalogKeysSet = MutableStateFlow<Set<String>>(emptySet())
+    val numberedHomeCatalogKeys: Set<String>
+        get() = _numberedCatalogKeysSet.value
+    internal var _outlineNumberedCatalogKeysSet = MutableStateFlow<Set<String>>(emptySet())
+    val outlineNumberedHomeCatalogKeys: Set<String>
+        get() = _outlineNumberedCatalogKeysSet.value
+    internal var _useThemeColorForNumbers = MutableStateFlow<Boolean>(false)
+    val useThemeColorForNumbers: Boolean
+        get() = _useThemeColorForNumbers.value
     internal var currentHeroCatalogKeys: List<String> = emptyList()
     internal var catalogUpdateJob: Job? = null
     internal var hasRenderedFirstCatalog = false
@@ -138,6 +154,8 @@ class HomeViewModel @Inject constructor(
     @Volatile
     internal var startupGracePeriodActive: Boolean = true
     internal var startupAuthNoticeJob: Job? = null
+
+
     val trailerPreviewUrls: Map<String, String>
         get() = trailerPreviewUrlsState
     val trailerPreviewAudioUrls: Map<String, String>
@@ -148,6 +166,7 @@ class HomeViewModel @Inject constructor(
         observeExternalMetaPrefetchPreference()
         loadHomeCatalogOrderPreference()
         loadDisabledHomeCatalogPreference()
+        loadNumberedHomeCatalogPreference()
         observeLibraryState()
         observeTmdbSettings()
         observeStartupAuthNotice()
@@ -184,6 +203,7 @@ class HomeViewModel @Inject constructor(
     private fun loadHomeCatalogOrderPreference() = loadHomeCatalogOrderPreferencePipeline()
 
     private fun loadDisabledHomeCatalogPreference() = loadDisabledHomeCatalogPreferencePipeline()
+    private fun loadNumberedHomeCatalogPreference() = loadNumberedHomeCatalogPreferencePipeline()
 
     private fun observeTmdbSettings() = observeTmdbSettingsPipeline()
 
@@ -257,8 +277,6 @@ class HomeViewModel @Inject constructor(
         catalogUpdateJob?.cancel()
         catalogUpdateJob = viewModelScope.launch {
             val debounceMs = when {
-                // First render: use minimal debounce to show content ASAP while still
-                // batching near-simultaneous arrivals.
                 !hasRenderedFirstCatalog && catalogsMap.isNotEmpty() -> {
                     hasRenderedFirstCatalog = true
                     50L
@@ -300,15 +318,14 @@ class HomeViewModel @Inject constructor(
     private fun heroEnrichmentSignature(items: List<MetaPreview>, settings: TmdbSettings): String =
         heroEnrichmentSignaturePipeline(items, settings)
 
-    /**
-     * Saves the current focus and scroll state for restoration when returning to this screen.
-     */
     fun saveFocusState(
         verticalScrollIndex: Int,
         verticalScrollOffset: Int,
         focusedRowIndex: Int,
         focusedItemIndex: Int,
-        catalogRowScrollStates: Map<String, Int>
+        catalogRowScrollStates: Map<String, Int>,
+        focusedRowKey: String? = null,
+        selectedPlatformId: String = "home"
     ) {
         val nextState = HomeScreenFocusState(
             verticalScrollIndex = verticalScrollIndex,
@@ -316,22 +333,18 @@ class HomeViewModel @Inject constructor(
             focusedRowIndex = focusedRowIndex,
             focusedItemIndex = focusedItemIndex,
             catalogRowScrollStates = catalogRowScrollStates,
+            focusedRowKey = focusedRowKey,
+            selectedPlatformId = selectedPlatformId,
             hasSavedFocus = true
         )
         if (_focusState.value == nextState) return
         _focusState.value = nextState
     }
 
-    /**
-     * Clears the saved focus state.
-     */
     fun clearFocusState() {
         _focusState.value = HomeScreenFocusState()
     }
 
-    /**
-     * Saves the grid layout focus and scroll state.
-     */
     fun saveGridFocusState(
         verticalScrollIndex: Int,
         verticalScrollOffset: Int,
@@ -346,6 +359,14 @@ class HomeViewModel @Inject constructor(
         )
     }
 
+    fun getCachedVisiblePlatformIds() = layoutPreferenceDataStore.cachedVisiblePlatformIds
+
+    fun saveCachedVisiblePlatformIds(ids: Set<String>) {
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setCachedVisiblePlatformIds(ids)
+        }
+    }
+
     override fun onCleared() {
         startupAuthNoticeJob?.cancel()
         posterStatusReconcileJob?.cancel()
@@ -358,3 +379,4 @@ class HomeViewModel @Inject constructor(
         super.onCleared()
     }
 }
+

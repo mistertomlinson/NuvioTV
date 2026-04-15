@@ -29,6 +29,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.lazy.LazyColumn
@@ -46,6 +49,20 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import kotlinx.coroutines.launch
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.Paint
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.tv.material3.Card
 
 @Composable
 fun CatalogOrderScreen(
@@ -81,6 +98,29 @@ fun CatalogOrderScreen(
                     text = stringResource(R.string.catalog_order_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuvioColors.TextSecondary
+                )
+            }
+
+            item {
+                AggregatePlatformsToggleRow(
+                    checked = uiState.aggregateStreamingPlatformsEnabled,
+                    onToggle = { viewModel.toggleAggregatePlatforms() }
+                )
+            }
+
+            if (uiState.aggregateStreamingPlatformsEnabled) {
+                item {
+                    ShowAllCatalogsOnHomeToggleRow(
+                        checked = uiState.showAllCatalogsOnHome,
+                        onToggle = { viewModel.toggleShowAllCatalogsOnHome() }
+                    )
+                }
+            }
+
+            item {
+                ThemeColorToggleRow(
+                    checked = uiState.useThemeColorForNumbers,
+                    onToggle = { viewModel.toggleUseThemeColorForNumbers() }
                 )
             }
 
@@ -129,7 +169,8 @@ fun CatalogOrderScreen(
                                     )
                                 }
                             },
-                            onToggleEnabled = { viewModel.toggleCatalogEnabled(item.disableKey) }
+                            onToggleEnabled = { viewModel.toggleCatalogEnabled(item.disableKey) },
+                            onToggleNumbered = { viewModel.toggleCatalogNumbered(item.key) }
                         )
                     }
                 }
@@ -143,7 +184,8 @@ private fun CatalogOrderCard(
     item: CatalogOrderItem,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
-    onToggleEnabled: () -> Unit
+    onToggleEnabled: () -> Unit,
+    onToggleNumbered: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -230,6 +272,37 @@ private fun CatalogOrderCard(
                 }
 
                 Button(
+                    onClick = onToggleNumbered,
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                        contentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
+                    ),
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                ) {
+                    val hashFont = when (item.numberStyle) {
+                        com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE -> FontFamily(Font(R.font.sf_distant_galaxy_outline))
+                        else -> FontFamily(Font(R.font.sf_distant_galaxy_alternate))
+                    }
+                    Text(
+                        text = "#",
+                        style = TextStyle(
+                            fontFamily = hashFont,
+                            fontSize = 28.sp,
+                            lineHeight = 28.sp
+                        ),
+                        modifier = Modifier.padding(top = if (item.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE) 7.dp else 8.dp)
+                    )
+                }
+
+                Button(
                     onClick = onToggleEnabled,
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.BackgroundCard,
@@ -255,5 +328,196 @@ private fun CatalogOrderCard(
 private fun String.toDisplayTypeLabel(): String {
     return replaceFirstChar { ch ->
         if (ch.isLowerCase()) ch.titlecase() else ch.toString()
+    }
+}
+
+@Composable
+private fun ShowAllCatalogsOnHomeToggleRow(
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    androidx.tv.material3.Card(
+        onClick = onToggle,
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = androidx.tv.material3.CardDefaults.colors(
+            containerColor = NuvioColors.BackgroundElevated,
+            focusedContainerColor = NuvioColors.BackgroundElevated
+        ),
+        border = androidx.tv.material3.CardDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(999.dp)
+            )
+        ),
+        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
+        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.catalog_show_all_on_home_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NuvioColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.catalog_show_all_on_home_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextSecondary
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(pillColor)
+                    .padding(2.dp),
+                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AggregatePlatformsToggleRow(
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    androidx.tv.material3.Card(
+        onClick = onToggle,
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = androidx.tv.material3.CardDefaults.colors(
+            containerColor = NuvioColors.BackgroundElevated,
+            focusedContainerColor = NuvioColors.BackgroundElevated
+        ),
+        border = androidx.tv.material3.CardDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(999.dp)
+            )
+        ),
+        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
+        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.catalog_aggregate_platforms_title),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NuvioColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.catalog_aggregate_platforms_desc),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextSecondary
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(pillColor)
+                    .padding(2.dp),
+                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemeColorToggleRow(
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    androidx.tv.material3.Card(
+        onClick = onToggle,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(62.dp)
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = androidx.tv.material3.CardDefaults.colors(
+            containerColor = NuvioColors.BackgroundElevated,
+            focusedContainerColor = NuvioColors.BackgroundElevated
+        ),
+        border = androidx.tv.material3.CardDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(999.dp)
+            )
+        ),
+        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
+        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 18.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = stringResource(R.string.catalog_use_theme_color_numbers),
+                style = MaterialTheme.typography.bodyLarge,
+                color = NuvioColors.TextPrimary
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(pillColor)
+                    .padding(2.dp),
+                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+        }
     }
 }

@@ -4,5 +4,6 @@
 
     <style name="Theme.MyApplication.Launcher" parent="Theme.MyApplication">
         <item name="android:windowBackground">@drawable/splash_screen_background</item>
+        <item name="android:windowDisablePreview">true</item>
     </style>
 </resources>

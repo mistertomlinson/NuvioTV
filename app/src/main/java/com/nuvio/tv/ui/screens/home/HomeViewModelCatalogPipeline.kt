@@ -53,6 +53,27 @@ internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
     }
 }
 
+internal fun HomeViewModel.loadNumberedHomeCatalogPreferencePipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.numberedHomeCatalogKeys.collectLatest { keys ->
+            _numberedCatalogKeysSet.value = keys.toSet()
+            scheduleUpdateCatalogRows()
+        }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.outlineNumberedHomeCatalogKeys.collectLatest { keys ->
+            _outlineNumberedCatalogKeysSet.value = keys.toSet()
+            scheduleUpdateCatalogRows()
+        }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.useThemeColorForNumbers.collectLatest { enabled ->
+            _useThemeColorForNumbers.value = enabled
+            scheduleUpdateCatalogRows()
+        }
+    }
+}
+
 internal fun HomeViewModel.observeTmdbSettingsPipeline() {
     viewModelScope.launch {
         tmdbSettingsDataStore.settings
@@ -280,6 +301,7 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
 internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     val orderedKeys = catalogOrder.toList()
     val catalogSnapshot = catalogsMap.toMap()
+    val allCatalogsLoaded = pendingCatalogLoads == 0 && catalogSnapshot.isNotEmpty()
     val heroCatalogKeys = currentHeroCatalogKeys
     val currentLayout = _uiState.value.homeLayout
     val currentGridItems = _uiState.value.gridItems
@@ -414,7 +436,15 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             catalogRows = if (state.catalogRows == displayRows) state.catalogRows else displayRows,
             heroItems = if (state.heroItems == baseHeroItems) state.heroItems else baseHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
-            isLoading = false
+            isLoading = false,
+            stableVisiblePlatformIds = if (allCatalogsLoaded) {
+                displayRows
+                    .filter { it.items.isNotEmpty() }
+                    .mapNotNull { inferPlatformId(it.catalogName) }
+                    .toSet()
+            } else {
+                state.stableVisiblePlatformIds
+            }
         )
     }
 
@@ -580,3 +610,5 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
         }
     }
 }
+
+

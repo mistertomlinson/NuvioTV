@@ -50,7 +50,10 @@ data class HomeUiState(
     val posterListPickerError: String? = null,
     val gridItems: List<GridItem> = emptyList(),
     val hideUnreleasedContent: Boolean = false,
-    val startupAuthNotice: StartupAuthNotice? = null
+    val startupAuthNotice: StartupAuthNotice? = null,
+    val aggregateStreamingPlatformsEnabled: Boolean = false,
+    val showAllCatalogsOnHome: Boolean = false,
+    val stableVisiblePlatformIds: Set<String> = emptySet()
 )
 
 @Immutable

@@ -235,13 +235,23 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private fun traktAllProgressFlow(): Flow<List<WatchProgress>> {
         return combine(
             traktProgressService.observeAllProgress()
-                .onStart {
-                    emit(emptyList())
-                },
+                .onStart { emit(emptyList()) },
+            watchProgressPreferences.allProgress
+                .onStart { emit(emptyList()) },
             metadataState
-        ) { remoteItems, metadataMap ->
+        ) { remoteItems, localItems, metadataMap ->
+            val localByKey = localItems.associateBy { "${it.contentId}_${it.season}_${it.episode}" }
             hydrateMetadata(remoteItems)
-            remoteItems.map { enrichWithMetadata(it, metadataMap) }
+            remoteItems.map { remote ->
+                val enriched = enrichWithMetadata(remote, metadataMap)
+                if (enriched.duration <= 0L) {
+                    val key = "${enriched.contentId}_${enriched.season}_${enriched.episode}"
+                    val local = localByKey[key]
+                    if (local != null && local.duration > 0L) {
+                        enriched.copy(duration = local.duration)
+                    } else enriched
+                } else enriched
+            }
         }.distinctUntilChanged()
     }
 

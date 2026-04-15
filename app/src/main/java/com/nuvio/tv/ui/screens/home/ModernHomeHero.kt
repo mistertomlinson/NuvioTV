@@ -1,8 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -26,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -56,16 +56,13 @@ private data class ModernHeroSecondaryMeta(
     val details: List<String>
 )
 
-
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
-    enrichmentActive: Boolean,
+    heroBackdropAlpha: Float,
     shouldPlayHeroTrailer: Boolean,
-    heroTrailerFirstFrameRendered: Boolean,
     heroTrailerUrl: String?,
     heroTrailerAudioUrl: String?,
-    heroBackdropAlpha: Float,
     heroTrailerAlpha: Float,
     muted: Boolean,
     onTrailerEnded: () -> Unit,
@@ -75,28 +72,31 @@ internal fun ModernHeroMediaLayer(
     requestHeightPx: Int
 ) {
     val localContext = LocalContext.current
-    var stableBackdrop by remember { mutableStateOf(heroBackdrop) }
-    if (!enrichmentActive) stableBackdrop = heroBackdrop
-    val imageModel = remember(localContext, stableBackdrop, requestWidthPx, requestHeightPx) {
-        ImageRequest.Builder(localContext)
-            .data(stableBackdrop)
-            .crossfade(400)
-            .size(width = requestWidthPx, height = requestHeightPx)
-            .build()
-    }
     Box(modifier = modifier) {
-        AsyncImage(
-            model = imageModel,
-            contentDescription = null,
+        Crossfade(
+            targetState = heroBackdrop,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    alpha = heroBackdropAlpha
-                    compositingStrategy = CompositingStrategy.Offscreen
-                },
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopEnd
-        )
+                .graphicsLayer { alpha = heroBackdropAlpha },
+            animationSpec = tween(durationMillis = 350),
+            label = "modernHeroBackground"
+        ) { imageUrl ->
+            val imageModel = remember(localContext, imageUrl, requestWidthPx, requestHeightPx) {
+                ImageRequest.Builder(localContext)
+                    .data(imageUrl)
+                    .crossfade(false)
+                    .size(width = requestWidthPx, height = requestHeightPx)
+                    .build()
+            }
+            AsyncImage(
+                model = imageModel,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopEnd
+            )
+        }
+
         if (shouldPlayHeroTrailer) {
             TrailerPlayer(
                 trailerUrl = heroTrailerUrl,
@@ -109,12 +109,10 @@ internal fun ModernHeroMediaLayer(
                 overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = heroTrailerAlpha
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
+                    .graphicsLayer { alpha = heroTrailerAlpha }
             )
         }
+
     }
 }
 
@@ -123,12 +121,14 @@ internal fun ModernHeroGradientLayer(
     bgColor: Color,
     allowLetterboxing: Boolean,
     trailerTransitionProgress: Float,
-    modifier: Modifier
+    modifier: Modifier,
+    cinematicMode: Boolean = false,
+    shouldPlayHeroTrailer: Boolean = false
 ) {
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
         val leftBlendSolidWidth = size.width * 0.018f
         val horizontalGradientStartX = leftBlendSolidWidth
-        val horizontalFadeEndX = horizontalGradientStartX + (size.width * 0.42f)
+        val horizontalFadeEndX = size.width * 0.65f
         val topContourGradient = Brush.linearGradient(
             colorStops = arrayOf(
                 0.0f to bgColor.copy(alpha = 0.28f),
@@ -149,32 +149,58 @@ internal fun ModernHeroGradientLayer(
             start = Offset(0f, size.height),
             end = Offset(size.width * 0.24f, size.height * 0.61f)
         )
-        val verticalGradient = Brush.verticalGradient(
+
+        val verticalGradient = if (cinematicMode) Brush.verticalGradient(
+            0.38f to Color.Transparent,
+            0.44f to bgColor.copy(alpha = 0.01f),
+            0.50f to bgColor.copy(alpha = 0.02f),
+            0.55f to bgColor.copy(alpha = 0.05f),
+            0.61f to bgColor.copy(alpha = 0.10f),
+            0.67f to bgColor.copy(alpha = 0.20f),
+            0.73f to bgColor.copy(alpha = 0.36f),
+            0.79f to bgColor.copy(alpha = 0.55f),
+            0.85f to bgColor.copy(alpha = 0.74f),
+            0.91f to bgColor.copy(alpha = 0.88f),
+            0.96f to bgColor.copy(alpha = 0.96f),
+            1.0f to bgColor
+        ) else if (!cinematicMode) Brush.verticalGradient(
             0.89f to Color.Transparent,
             0.93f to bgColor.copy(alpha = 0.14f),
             0.965f to bgColor.copy(alpha = 0.52f),
             0.99f to bgColor.copy(alpha = 0.92f),
             1.0f to bgColor
-        )
+        ) else null
         val defaultAlpha = if (allowLetterboxing) 1f - trailerTransitionProgress else 1f
         val lbAlpha = if (allowLetterboxing) trailerTransitionProgress else 0f
+
+        // Default gradient — fades out as trailer fades in
         if (defaultAlpha > 0f) {
             val horizontalGradient = Brush.horizontalGradient(
                 colorStops = arrayOf(
-                    0.0f to bgColor,
-                    0.22f to bgColor.copy(alpha = 0.86f * defaultAlpha),
-                    0.46f to bgColor.copy(alpha = 0.56f * defaultAlpha),
-                    0.76f to bgColor.copy(alpha = 0.16f * defaultAlpha),
-                    1.0f to Color.Transparent
+                    0.0f  to bgColor,
+                    0.10f to bgColor.copy(alpha = 0.97f * defaultAlpha),
+                    0.22f to bgColor.copy(alpha = 0.88f * defaultAlpha),
+                    0.36f to bgColor.copy(alpha = 0.76f * defaultAlpha),
+                    0.52f to bgColor.copy(alpha = 0.58f * defaultAlpha),
+                    0.66f to bgColor.copy(alpha = 0.38f * defaultAlpha),
+                    0.78f to bgColor.copy(alpha = 0.20f * defaultAlpha),
+                    0.90f to bgColor.copy(alpha = 0.08f * defaultAlpha),
+                    1.0f  to Color.Transparent
                 ),
                 startX = horizontalGradientStartX,
                 endX = horizontalFadeEndX
             )
-            drawRect(color = bgColor.copy(alpha = defaultAlpha), size = androidx.compose.ui.geometry.Size(leftBlendSolidWidth, size.height))
+            if (cinematicMode) drawRect(color = bgColor.copy(alpha = 0.18f), size = size)
+            drawRect(color = bgColor.copy(alpha = defaultAlpha), size = Size(leftBlendSolidWidth, size.height))
             drawRect(brush = horizontalGradient, size = size)
             drawRect(brush = topContourGradient, size = size)
             drawRect(brush = bottomContourGradient, size = size)
         }
+
+        // Letterboxing gradient — fades in as trailer fades in
+        // 40% screen = 16.7% canvas, 45% screen = 23.6% canvas
+        // Eased: slow fade at start (40-42%), accelerates toward end (43-45%)
+        // Dithering extends to ~50% of screen (27.8% of canvas) for organic edge
         if (lbAlpha > 0f) {
             val lbSolidWidth = size.width * 0.097f
             val lbGradient = Brush.horizontalGradient(
@@ -211,8 +237,10 @@ internal fun ModernHeroGradientLayer(
                 startX = 0f,
                 endX = size.width
             )
-            drawRect(color = bgColor.copy(alpha = lbAlpha), size = androidx.compose.ui.geometry.Size(lbSolidWidth, size.height))
+            drawRect(color = bgColor.copy(alpha = lbAlpha), size = Size(lbSolidWidth, size.height))
             drawRect(brush = lbGradient, size = size)
+
+            // Dithering: light noise in fade zone to blur banding, plus feather at edge
             val fadeStart = size.width * 0.097f
             val edgeEnd = size.width * 0.500f
             val ditherRange = edgeEnd - fadeStart
@@ -227,6 +255,8 @@ internal fun ModernHeroGradientLayer(
                 val randA = ((seed ushr 33) and 0xFFL).toFloat() / 255f
                 val pos = (x - fadeStart) / ditherRange
                 val baseAlpha = (1f - pos).coerceIn(0f, 1f)
+                // In the main fade zone (0-55%): subtle anti-banding noise
+                // In the edge zone (55-100%): feathering dots only
                 val maxNoise = if (pos < 0.55f) baseAlpha * 0.12f else baseAlpha * 0.07f
                 val noiseAlpha = (randA - 0.5f) * maxNoise * lbAlpha
                 val finalAlpha = noiseAlpha.coerceIn(0f, 1f)
@@ -234,16 +264,16 @@ internal fun ModernHeroGradientLayer(
                     drawRect(
                         color = bgColor.copy(alpha = finalAlpha),
                         topLeft = Offset(x, randY * size.height),
-                        size = androidx.compose.ui.geometry.Size(2f, 2f)
+                        size = Size(2f, 2f)
                     )
                 }
                 x += 3f + randX * 3f
             }
         }
-        drawRect(brush = verticalGradient, size = size)
+
+        verticalGradient?.let { drawRect(brush = it, size = size) }
     }
 }
-
 
 @Composable
 internal fun HeroTitleBlock(
@@ -286,6 +316,12 @@ private fun HeroTitleContent(
     val bodyMedium = MaterialTheme.typography.bodyMedium
     val logoMaxWidthPx = remember(density) { with(density) { 220.dp.roundToPx() } }
     val logoHeightPx = remember(density) { with(density) { 100.dp.roundToPx() } }
+    val imdbLogoModel = remember(context) {
+        ImageRequest.Builder(context)
+            .data(com.nuvio.tv.R.raw.imdb_logo_2016)
+            .decoderFactory(SvgDecoder.Factory())
+            .build()
+    }
     val logoModel = remember(context, preview.logo, logoMaxWidthPx, logoHeightPx) {
         preview.logo?.let {
             ImageRequest.Builder(context)
@@ -294,12 +330,6 @@ private fun HeroTitleContent(
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .build()
         }
-    }
-    val imdbLogoModel = remember(context) {
-        ImageRequest.Builder(context)
-            .data(com.nuvio.tv.R.raw.imdb_logo_2016)
-            .decoderFactory(SvgDecoder.Factory())
-            .build()
     }
     val scaledTitleStyle = remember(headlineLarge, titleScale) {
         headlineLarge.copy(
@@ -380,12 +410,14 @@ private fun HeroTitleContent(
 
         val secondaryHighlightText = secondaryMeta.highlightText
         val ageRatingBadge = secondaryMeta.ageRating
+        // Status badge only shown for series — movies don't show status
         val statusBadge = secondaryMeta.status
         val secondaryDetails = secondaryMeta.details
         val hasSecondaryBadge = ageRatingBadge != null || statusBadge != null
         val showImdbInPrimary = !preview.isSeries && !hasSecondaryBadge && !preview.imdbText.isNullOrBlank()
         val showImdbInPrimaryWithHighlight = showImdbInPrimary && secondaryHighlightText == null
         val showImdbInSecondary = !preview.imdbText.isNullOrBlank() &&
+            (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
             (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
 
         Row(
@@ -545,6 +577,7 @@ private fun HeroTitleContent(
         }
     }
 }
+
 
 @Composable
 private fun HeroImdbMeta(
