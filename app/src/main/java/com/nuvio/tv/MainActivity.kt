@@ -606,6 +606,8 @@ private fun LegacySidebarScaffold(
     val contentFocusRequester = remember { FocusRequester() }
     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
+    var legacyLeftAtEdge by remember { mutableStateOf(false) }
+    var legacyLeftReleasedSinceEdge by remember { mutableStateOf(false) }
 
     BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Closed) {
         pendingSidebarFocusRequest = true
@@ -772,18 +774,25 @@ private fun LegacySidebarScaffold(
                 .fillMaxSize()
                 .padding(start = contentStartPadding)
                 .onKeyEvent { keyEvent ->
-                    if (
-                        showSidebar &&
-                        drawerState.currentValue == DrawerValue.Closed &&
-                        keyEvent.type == KeyEventType.KeyDown &&
-                        keyEvent.key == Key.DirectionLeft
-                    ) {
-                        if (focusManager.moveFocus(FocusDirection.Left)) {
-                            true
+                    if (showSidebar && drawerState.currentValue == DrawerValue.Closed) {
+                        if (keyEvent.key == Key.DirectionLeft && keyEvent.type == KeyEventType.KeyUp) {
+                            if (legacyLeftAtEdge) legacyLeftReleasedSinceEdge = true
+                        }
+                        if (keyEvent.type == KeyEventType.KeyDown && keyEvent.key == Key.DirectionLeft) {
+                            if (focusManager.moveFocus(FocusDirection.Left)) {
+                                legacyLeftAtEdge = false
+                                legacyLeftReleasedSinceEdge = false
+                                true
+                            } else {
+                                if (legacyLeftAtEdge && legacyLeftReleasedSinceEdge) {
+                                    pendingSidebarFocusRequest = true
+                                    drawerState.setValue(DrawerValue.Open)
+                                }
+                                legacyLeftAtEdge = true
+                                true
+                            }
                         } else {
-                            pendingSidebarFocusRequest = true
-                            drawerState.setValue(DrawerValue.Open)
-                            true
+                            false
                         }
                     } else {
                         false
@@ -919,6 +928,8 @@ private fun ModernSidebarScaffold(
     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
     var focusedDrawerIndex by remember { mutableStateOf(-1) }
+    var leftAtEdge by remember { mutableStateOf(false) }
+    var leftReleasedSinceEdge by remember { mutableStateOf(false) }
     var isFloatingPillIconOnly by remember { mutableStateOf(false) }
     val keepFloatingPillExpanded = selectedDrawerRoute == Screen.Settings.route
     val keepSidebarFocusDuringCollapse =
@@ -1125,22 +1136,36 @@ private fun ModernSidebarScaffold(
                     }
                 }
                 .onKeyEvent { keyEvent ->
-                    if (showSidebar && !isSidebarExpanded && keyEvent.type == KeyEventType.KeyDown) {
-                        if (!keepFloatingPillExpanded) {
-                            when (keyEvent.key) {
-                                Key.DirectionDown -> isFloatingPillIconOnly = true
-                                Key.DirectionUp -> isFloatingPillIconOnly = false
-                                else -> Unit
-                            }
+                    if (showSidebar && !isSidebarExpanded) {
+                        if (keyEvent.key == Key.DirectionLeft && keyEvent.type == KeyEventType.KeyUp) {
+                            if (leftAtEdge) leftReleasedSinceEdge = true
                         }
-                        if (keyEvent.key == Key.DirectionLeft) {
-                            if (focusManager.moveFocus(FocusDirection.Left)) {
-                                true
+                        if (keyEvent.type == KeyEventType.KeyDown) {
+                            if (!keepFloatingPillExpanded) {
+                                when (keyEvent.key) {
+                                    Key.DirectionDown -> isFloatingPillIconOnly = true
+                                    Key.DirectionUp -> isFloatingPillIconOnly = false
+                                    else -> Unit
+                                }
+                            }
+                            if (keyEvent.key == Key.DirectionLeft) {
+                                if (focusManager.moveFocus(FocusDirection.Left)) {
+                                    leftAtEdge = false
+                                    leftReleasedSinceEdge = false
+                                    true
+                                } else {
+                                    if (leftAtEdge && leftReleasedSinceEdge) {
+                                        isSidebarExpanded = true
+                                        sidebarCollapsePending = false
+                                        pendingSidebarFocusRequest = true
+                                    }
+                                    leftAtEdge = true
+                                    true
+                                }
                             } else {
-                                isSidebarExpanded = true
-                                sidebarCollapsePending = false
-                                pendingSidebarFocusRequest = true
-                                true
+                                leftAtEdge = false
+                                leftReleasedSinceEdge = false
+                                false
                             }
                         } else {
                             false

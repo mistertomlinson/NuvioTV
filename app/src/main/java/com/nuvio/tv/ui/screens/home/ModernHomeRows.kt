@@ -299,6 +299,7 @@ internal fun ModernRowSection(
                 firstVisibleItemIndex = focusStateCatalogRowScrollStates[row.key] ?: 0
             )
         }
+        var rowLeftReleasedAtEdge by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
         val isRowScrolling by remember(rowListState) {
             derivedStateOf { rowListState.isScrollInProgress }
         }
@@ -499,6 +500,21 @@ internal fun ModernRowSection(
                             event.key == androidx.compose.ui.input.key.Key.DirectionUp) {
                             onRequestCarouselFocus()
                             true
+                        } else if (event.key == androidx.compose.ui.input.key.Key.DirectionLeft) {
+                            val isAtStart = rowListState.firstVisibleItemIndex == 0 &&
+                                rowListState.firstVisibleItemScrollOffset == 0
+                            if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) {
+                                if (isAtStart) rowLeftReleasedAtEdge = true
+                                false
+                            } else if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                                if (isAtStart && rowLeftReleasedAtEdge) {
+                                    rowLeftReleasedAtEdge = false
+                                    false // let it bubble to open sidebar
+                                } else {
+                                    if (!isAtStart) rowLeftReleasedAtEdge = false
+                                    false // let LazyRow scroll normally
+                                }
+                            } else false
                         } else false
                     }
                     .focusRestorer(
