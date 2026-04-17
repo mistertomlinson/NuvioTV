@@ -106,6 +106,12 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 import android.view.KeyEvent as AndroidKeyEvent
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 130L
@@ -379,6 +385,7 @@ fun ModernHomeContent(
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
     }
     // After fast-scroll stops, animate to nearest clean row boundary
+    // After fast-scroll stops, animate to nearest clean row boundary
     LaunchedEffect(verticalRowListState) {
         snapshotFlow { verticalRowListState.isScrollInProgress }
             .collect { scrolling ->
@@ -386,8 +393,6 @@ fun ModernHomeContent(
                     val layoutInfo = verticalRowListState.layoutInfo
                     val visibleItems = layoutInfo.visibleItemsInfo
                     if (visibleItems.isEmpty()) return@collect
-                    // Find the item closest to the top inset position
-                    val topInset = with(visibleItems.first()) { 0 }
                     val nearest = visibleItems.minByOrNull { kotlin.math.abs(it.offset) }
                         ?: return@collect
                     if (nearest.offset != 0) {
@@ -438,6 +443,9 @@ fun ModernHomeContent(
     var pendingRowFocusNonce by remember { mutableIntStateOf(0) }
     var heroItem by remember { mutableStateOf<HeroPreview?>(null) }
     var heroItemRowKey by remember { mutableStateOf<String?>(null) }
+    var frozenHeroItem by remember { mutableStateOf<HeroPreview?>(null) }
+    var frozenHeroItemRowKey by remember { mutableStateOf<String?>(null) }
+    var isFastScrolling by remember { mutableStateOf(false) }
     val heroTransitioningRef = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
     var restoredFromSavedState by remember { mutableStateOf(false) }
     var lastRestoredRowKey by remember { mutableStateOf<String?>(null) }
@@ -449,7 +457,7 @@ fun ModernHomeContent(
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
         val lastKeyRepeatTimeRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
-    val isFastScrollingRef = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    val isFastScrollingRef = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
     val lastKeyUpTimeRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
@@ -632,31 +640,39 @@ fun ModernHomeContent(
         focusedItemByRow[row.key] = clampedIndex
     }
 
-    LaunchedEffect(Unit) {
-        snapshotFlow { Pair(activeRow, clampedActiveItemIndex) }
-            .collectLatest { (capturedRow, capturedIndex) ->
-                android.util.Log.d("NuvioHero", "EMISSION: row=${capturedRow?.key} index=$capturedIndex isFastScrolling=${isFastScrollingRef.get()}")
-                if (isFastScrollingRef.get()) {
-                    while (isFastScrollingRef.get()) { delay(16L) }
-                    delay(80L)
-                }
-                val row = activeRow ?: return@collectLatest
-                val index = clampedActiveItemIndex
-                val hero = row.items.getOrNull(index)?.heroPreview
-                android.util.Log.d("NuvioHero", "RESOLVED: row=${row.key} index=$index heroNull=${hero == null} heroTitle=${hero?.title} itemCount=${row.items.size}")
-                if (hero == null) {
-                    android.util.Log.d("NuvioHero", "BAILING: item at index $index not ready, items=${row.items.mapIndexed { i, it -> "$i:${it.heroPreview?.title}" }}")
-                    return@collectLatest
-                }
-                android.util.Log.d("NuvioHero", "SETTING heroItem: ${hero.title}")
-                heroItem = hero
-                heroItemRowKey = row.key
-            }
-    }
     val latestActiveRow by rememberUpdatedState(activeRow)
     val latestActiveItemIndex by rememberUpdatedState(clampedActiveItemIndex)
     val latestCarouselRows by rememberUpdatedState(carouselRows)
     val latestVerticalRowListState by rememberUpdatedState(verticalRowListState)
+
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.flow.combine(
+            snapshotFlow { Pair(activeRow, clampedActiveItemIndex) },
+            isFastScrollingRef
+        ) { pair, scrolling -> Pair(pair, scrolling) }
+            .debounce(80L)
+            .collectLatest { (_, isScrolling) ->
+                if (isScrolling) return@collectLatest
+                val row = activeRow ?: return@collectLatest
+                val index = clampedActiveItemIndex
+                val hero = row.items.getOrNull(index)?.heroPreview
+                if (hero == null) return@collectLatest
+                heroItem = hero
+                heroItemRowKey = row.key
+            }
+    }
+    LaunchedEffect(Unit) {
+        isFastScrollingRef
+            .collect { isScrolling ->
+                if (isScrolling && !isFastScrolling) {
+                    val currentRow = latestActiveRow
+                    val currentIndex = latestActiveItemIndex
+                    frozenHeroItem = currentRow?.items?.getOrNull(currentIndex)?.heroPreview ?: heroItem
+                    frozenHeroItemRowKey = currentRow?.key ?: heroItemRowKey
+                }
+                isFastScrolling = isScrolling
+            }
+    }
 
     // Save focus state immediately before navigating away so it's available on back
     val latestSelectedPlatformId by rememberUpdatedState(selectedPlatformId)
@@ -736,7 +752,7 @@ fun ModernHomeContent(
         // Always use debounced heroItem so fast scrolling doesn't flash metadata.
         // Only fall back to activeCarouselItem when heroItem is null (cold start).
         val heroItemMatchesRow = heroItemRowKey == activeRow?.key
-        val resolvedHero = if (heroItemMatchesRow) heroItem ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
+        val resolvedHero = if (isFastScrolling) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) heroItem ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
         android.util.Log.d("NuvioHero", "RENDER: heroItem=${heroItem?.title} heroItemRow=${heroItemRowKey?.take(20)} activeRow=${activeRow?.key?.take(20)} rowMatch=$heroItemMatchesRow activeCarouselItem=${activeCarouselItem?.heroPreview?.title} resolvedHero=${resolvedHero?.title} index=$clampedActiveItemIndex")
         // Inject cached MDB ratings into the hero preview when home screen ratings are enabled
 
@@ -999,10 +1015,10 @@ fun ModernHomeContent(
                             native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
                         if (native.action == AndroidKeyEvent.ACTION_UP && isDpad) {
                             lastKeyUpTimeRef.set(System.currentTimeMillis())
-                            isFastScrollingRef.set(false)
+                            isFastScrollingRef.value = false
                         }
                         if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount > 0 && isDpad) {
-                            isFastScrollingRef.set(true)
+                            isFastScrollingRef.value = true
                             val now = System.currentTimeMillis()
                             if (native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
                                 native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
