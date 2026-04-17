@@ -384,23 +384,6 @@ fun ModernHomeContent(
     LaunchedEffect(isVerticalRowsScrolling) {
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
     }
-    // After fast-scroll stops, animate to nearest clean row boundary
-    // After fast-scroll stops, animate to nearest clean row boundary
-    LaunchedEffect(verticalRowListState) {
-        snapshotFlow { verticalRowListState.isScrollInProgress }
-            .collect { scrolling ->
-                if (!scrolling) {
-                    val layoutInfo = verticalRowListState.layoutInfo
-                    val visibleItems = layoutInfo.visibleItemsInfo
-                    if (visibleItems.isEmpty()) return@collect
-                    val nearest = visibleItems.minByOrNull { kotlin.math.abs(it.offset) }
-                        ?: return@collect
-                    if (nearest.offset != 0) {
-                        verticalRowListState.animateScrollToItem(nearest.index)
-                    }
-                }
-            }
-    }
     LaunchedEffect(enrichingItemId) {
         metricsHolder.state?.putState("HeroEnriching", (enrichingItemId != null).toString())
     }
@@ -1035,11 +1018,16 @@ fun ModernHomeContent(
                                 val firstRow = carouselRows.firstOrNull()
                                 firstRow != null && focusHolder.activeRowKey == firstRow.key
                             }
-                            if (isAtTopRow && aggregatePlatformsEnabled) {
-                                focusedCatalogSelection = null
-                                onCarouselOpenRequested()
-                                try { carouselFocusRequester.requestFocus() } catch (e: Exception) {}
-                                return@onPreviewKeyEvent true
+                            if (isAtTopRow) {
+                                if (isFastScrollingRef.value) {
+                                    return@onPreviewKeyEvent true
+                                }
+                                if (aggregatePlatformsEnabled) {
+                                    focusedCatalogSelection = null
+                                    onCarouselOpenRequested()
+                                    try { carouselFocusRequester.requestFocus() } catch (e: Exception) {}
+                                    return@onPreviewKeyEvent true
+                                }
                             }
                         }
                         false
