@@ -384,6 +384,23 @@ fun ModernHomeContent(
     LaunchedEffect(isVerticalRowsScrolling) {
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
     }
+    // After fast-scroll stops, snap to row only if significantly misaligned
+    LaunchedEffect(verticalRowListState) {
+        snapshotFlow { verticalRowListState.isScrollInProgress }
+            .collect { scrolling ->
+                if (!scrolling) {
+                    val layoutInfo = verticalRowListState.layoutInfo
+                    val visibleItems = layoutInfo.visibleItemsInfo
+                    if (visibleItems.isEmpty()) return@collect
+                    val nearest = visibleItems.minByOrNull { kotlin.math.abs(it.offset) }
+                        ?: return@collect
+                    // Only snap if offset is significant (> 50px)
+                    if (kotlin.math.abs(nearest.offset) > 50) {
+                        verticalRowListState.animateScrollToItem(nearest.index)
+                    }
+                }
+            }
+    }
     LaunchedEffect(enrichingItemId) {
         metricsHolder.state?.putState("HeroEnriching", (enrichingItemId != null).toString())
     }
@@ -436,6 +453,20 @@ fun ModernHomeContent(
         restoredFromSavedState = false
     }
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
+    var pendingRemovalFocusIndex by remember { mutableStateOf<Int?>(null) }
+    var lastContinueWatchingSize by remember { mutableIntStateOf(uiState.continueWatchingItems.size) }
+
+    LaunchedEffect(uiState.continueWatchingItems.size) {
+        val currentSize = uiState.continueWatchingItems.size
+        if (currentSize < lastContinueWatchingSize && pendingRemovalFocusIndex != null) {
+            withFrameNanos { }
+            pendingRowFocusKey = "continue_watching"
+            pendingRowFocusIndex = pendingRemovalFocusIndex
+            pendingRowFocusNonce++
+            pendingRemovalFocusIndex = null
+        }
+        lastContinueWatchingSize = currentSize
+    }
     val lastFocusedContinueWatchingIndexRef = remember { java.util.concurrent.atomic.AtomicInteger(-1) }
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
@@ -1165,9 +1196,10 @@ fun ModernHomeContent(
                     minOf(lastFocusedContinueWatchingIndexRef.get(), uiState.continueWatchingItems.size - 2)
                         .coerceAtLeast(0)
                 }
-                pendingRowFocusKey = if (targetIndex != null) "continue_watching" else null
-                pendingRowFocusIndex = targetIndex
-                pendingRowFocusNonce++
+                pendingRemovalFocusIndex = targetIndex
+                android.util.Log.e("CWFocus", "onRemove: targetIndex=$targetIndex")
+                
+                
                 onRemoveContinueWatching(
                     selectedOptionsItem.contentId(),
                     selectedOptionsItem.season(),
