@@ -307,25 +307,14 @@ internal fun HeroTitleBlock(
     }
     val slideDistancePx = (screenWidthPx * 0.25f).toInt()
 
-    // Per-platform frozen snapshots — each AnimatedContent slot reads its own frozen copy
+    // Per-platform frozen snapshots — each AnimatedContent slot reads its own frozen copy.
+    // No lock needed — the unified slide+fade transition fades everything out before
+    // the platform flips, so any TMDB enrichment snap is invisible.
     val previewByPlatform = remember { mutableMapOf<String, HeroPreview>() }
-    // After a platform switch, lock updates for 650ms so TMDB enrichment
-    // arriving mid-animation doesn't cause a snap
-    var lockedPlatformId by remember { mutableStateOf<String?>(null) }
-    var lastPlatformId by remember { mutableStateOf(selectedPlatformId) }
 
-    if (selectedPlatformId != lastPlatformId) {
-        lockedPlatformId = selectedPlatformId
-        lastPlatformId = selectedPlatformId
-    }
-
-    LaunchedEffect(selectedPlatformId) {
-        kotlinx.coroutines.delay(650)
-        lockedPlatformId = null
-    }
-
-    // Update snapshot freely except when this platform is locked mid-transition
-    if (!enrichmentActive && preview != null && selectedPlatformId != lockedPlatformId) {
+    // Always update snapshot — enrichment data flows in naturally as it arrives.
+    // No lock needed since the unified fade-out makes any snap invisible.
+    if (preview != null) {
         previewByPlatform[selectedPlatformId] = preview
     }
 

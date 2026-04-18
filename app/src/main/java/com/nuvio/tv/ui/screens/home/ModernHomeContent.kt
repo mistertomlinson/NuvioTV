@@ -1035,6 +1035,16 @@ fun ModernHomeContent(
                 displayedPlatformId = selectedPlatformId
                 catalogDisplayedPlatformId = selectedPlatformId
                 catalogSlideOffset.snapTo(enterDir * catalogSlideDistancePx)
+                // Proactively enrich the first item of the incoming platform while
+                // the screen is still invisible — so enriched metadata is ready
+                // by the time the enter animation completes (~600ms later)
+                val incomingFirstItem = uiState.catalogRows
+                    .filter { it.items.isNotEmpty() }
+                    .firstOrNull { inferPlatformId(it.catalogName) == selectedPlatformId }
+                    ?.items?.firstOrNull()
+                if (incomingFirstItem != null) {
+                    onItemFocus(incomingFirstItem)
+                }
                 // Give recomposition time to settle while still invisible
                 kotlinx.coroutines.delay(50)
                 // ENTER — slide and fade the entire hero+catalog block in together
