@@ -178,8 +178,6 @@ fun ModernHomeContent(
     var displayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
     // Lags behind by exit animation duration — drives catalog LazyColumn content
     var catalogDisplayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
-    // Snapshot passed to HeroTitleBlock — set at exact same moment catalog exit starts
-
 
     val visibleCatalogRows = remember(uiState.catalogRows, catalogDisplayedPlatformId) {
         uiState.catalogRows.filter { it.items.isNotEmpty() }.let { rows ->
@@ -994,22 +992,6 @@ fun ModernHomeContent(
                     )
             )
         }
-        HeroTitleBlock(
-            preview = resolvedHero,
-            enrichmentActive = enrichmentActive,
-            portraitMode = !useLandscapePosters,
-            selectedPlatformId = selectedPlatformId,
-            platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive) platformNavDirection else 0,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(
-                    start = rowHorizontalPadding,
-                    end = 48.dp,
-                    bottom = catalogBottomPadding + rowsViewportHeight + heroToCatalogGap
-                )
-                .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
-        )
-
         val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
             val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -1038,26 +1020,24 @@ fun ModernHomeContent(
         val catalogSlideDistancePx = screenWidthPx * 0.25f
         LaunchedEffect(selectedPlatformId) {
             if (aggregatePlatformsEnabled && selectedPlatformId != catalogDisplayedPlatformId) {
-                android.util.Log.d("NuvioTransition", "CATALOG EXIT START: from=$catalogDisplayedPlatformId to=$selectedPlatformId rows=${carouselRows.size} dir=$platformNavDirection")
+                android.util.Log.d("NuvioTransition", "PLATFORM TRANSITION: from=$catalogDisplayedPlatformId to=$selectedPlatformId dir=$platformNavDirection")
                 val exitDir = if (platformNavDirection > 0) -1f else 1f
                 val enterDir = -exitDir
-                // Build snapshot with current preview and new platformId — fires metadata
-                // transition at the exact same frame as catalog exit starts
-
-                displayedPlatformId = selectedPlatformId
                 // Ensure starting from visible rest position
                 catalogSlideAlpha.snapTo(1f)
                 catalogSlideOffset.snapTo(0f)
-                // Animate OLD catalog rows out — catalogDisplayedPlatformId still holds old value
+                // EXIT — slide and fade the entire hero+catalog block out together
                 val exitAlpha = launch { catalogSlideAlpha.animateTo(0f, tween(300)) }
                 val exitOffset = launch { catalogSlideOffset.animateTo(exitDir * catalogSlideDistancePx * 0.4f, tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
                 exitAlpha.join()
                 exitOffset.join()
-                // NOW flip catalog rows and snap to enter side
-                android.util.Log.d("NuvioTransition", "CATALOG FLIP: now showing rows for=$selectedPlatformId rows=${carouselRows.size}")
+                // FLIP — screen is at alpha=0, recomposition stutter is invisible
+                displayedPlatformId = selectedPlatformId
                 catalogDisplayedPlatformId = selectedPlatformId
                 catalogSlideOffset.snapTo(enterDir * catalogSlideDistancePx)
-                // Animate NEW catalog rows in
+                // Give recomposition time to settle while still invisible
+                kotlinx.coroutines.delay(50)
+                // ENTER — slide and fade the entire hero+catalog block in together
                 val enterAlpha = launch { catalogSlideAlpha.animateTo(1f, tween(600)) }
                 val enterOffset = launch { catalogSlideOffset.animateTo(0f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
                 enterAlpha.join()
@@ -1068,7 +1048,33 @@ fun ModernHomeContent(
             }
         }
 
-        CompositionLocalProvider(LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec) {
+        // Unified slide+fade wrapper — HeroTitleBlock and LazyColumn animate as one
+        // block so recomposition at the flip point is invisible (happens at alpha=0).
+        // Only driven by platform navigation, never by catalog row focus changes.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = catalogSlideAlpha.value
+                    translationX = catalogSlideOffset.value
+                }
+        ) {
+            HeroTitleBlock(
+                preview = resolvedHero,
+                enrichmentActive = enrichmentActive,
+                portraitMode = !useLandscapePosters,
+                selectedPlatformId = selectedPlatformId,
+                platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive) platformNavDirection else 0,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(
+                        start = rowHorizontalPadding,
+                        end = 48.dp,
+                        bottom = catalogBottomPadding + rowsViewportHeight + heroToCatalogGap
+                    )
+                    .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+            )
+            CompositionLocalProvider(LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec) {
             LazyColumn(
                 state = verticalRowListState,
                 modifier = Modifier
@@ -1076,10 +1082,6 @@ fun ModernHomeContent(
                     .fillMaxWidth()
                     .height(rowsViewportHeight)
                     .padding(bottom = catalogBottomPadding)
-                    .graphicsLayer {
-                        alpha = catalogSlideAlpha.value
-                        translationX = catalogSlideOffset.value
-                    }
                     .focusRequester(contentFocusRequester)
                     .focusRestorer { focusRestorerRequester }
                     .onPreviewKeyEvent { event ->
@@ -1243,6 +1245,7 @@ fun ModernHomeContent(
                 }
             }
         }
+        } // end unified slide+fade Box
     }
 
     val selectedOptionsItem = optionsItem

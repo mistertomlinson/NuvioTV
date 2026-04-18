@@ -179,8 +179,8 @@ fun StreamingPlatformCarousel(
                             if (next != focusedIndex) {
                                 snapNextNavigation = false
                                 focusedIndex = next
-                                onPlatformSelected(activePlatforms[next].id)
                                 onNavigationDirection(1)
+                                onPlatformSelected(activePlatforms[next].id)
                             }
                             true
                         }
@@ -189,8 +189,8 @@ fun StreamingPlatformCarousel(
                             if (next != focusedIndex) {
                                 snapNextNavigation = false
                                 focusedIndex = next
-                                onPlatformSelected(activePlatforms[next].id)
                                 onNavigationDirection(-1)
+                                onPlatformSelected(activePlatforms[next].id)
                             }
                             true
                         }
