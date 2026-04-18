@@ -428,6 +428,13 @@ private fun ModernHomeRoute(
         }
     }
     var selectedPlatformId by remember { mutableStateOf(focusState.selectedPlatformId) }
+    var platformNavDirection by remember { mutableStateOf(0) }
+    LaunchedEffect(platformNavDirection) {
+        if (platformNavDirection != 0) {
+            kotlinx.coroutines.delay(550)
+            platformNavDirection = 0
+        }
+    }
     var isCarouselFocused by remember { mutableStateOf(false) }
     val aggregatePlatformsEnabled = uiState.aggregateStreamingPlatformsEnabled
     var isAtTop by remember { mutableStateOf(true) }
@@ -495,7 +502,8 @@ private fun ModernHomeRoute(
         aggregatePlatformsEnabled = aggregatePlatformsEnabled,
         showAllCatalogsOnHome = uiState.showAllCatalogsOnHome,
         carouselGradientAlpha = carouselAlpha,
-        onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it }
+        onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it },
+        platformNavDirection = platformNavDirection
     )
     }
 
@@ -508,6 +516,9 @@ private fun ModernHomeRoute(
         onCarouselFocusChanged = { isCarouselFocused = it },
         onPlatformSelected = {
             selectedPlatformId = it
+        },
+        onNavigationDirection = { dir ->
+            platformNavDirection = dir
         },
         focusRequester = carouselFocusRequester,
         modifier = Modifier

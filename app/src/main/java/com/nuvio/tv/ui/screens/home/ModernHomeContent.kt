@@ -103,7 +103,9 @@ import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalCarouselFocusRequester
 import com.nuvio.tv.ui.theme.NuvioColors
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import android.view.KeyEvent as AndroidKeyEvent
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -148,7 +150,8 @@ fun ModernHomeContent(
     carouselGradientAlpha: Float = 0f,
     onCarouselOpenRequested: () -> Unit = {},
     isCarouselFocused: Boolean = false,
-    onHeroTrailerPlayingChanged: (Boolean) -> Unit = {}
+    onHeroTrailerPlayingChanged: (Boolean) -> Unit = {},
+    platformNavDirection: Int = 0
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
     val isSidebarExpanded = LocalSidebarExpanded.current
@@ -171,13 +174,20 @@ fun ModernHomeContent(
         effectiveExpandEnabled ||
             (effectiveAutoplayEnabled &&
                 trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
-    val visibleCatalogRows = remember(uiState.catalogRows, selectedPlatformId) {
+    // Flips immediately on platform change — drives metadata AnimatedContent
+    var displayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
+    // Lags behind by exit animation duration — drives catalog LazyColumn content
+    var catalogDisplayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
+    // Snapshot passed to HeroTitleBlock — set at exact same moment catalog exit starts
+
+
+    val visibleCatalogRows = remember(uiState.catalogRows, catalogDisplayedPlatformId) {
         uiState.catalogRows.filter { it.items.isNotEmpty() }.let { rows ->
-            if (!aggregatePlatformsEnabled || selectedPlatformId == "home") {
+            if (!aggregatePlatformsEnabled || catalogDisplayedPlatformId == "home") {
                 if (aggregatePlatformsEnabled && !showAllCatalogsOnHome) rows.filter { inferPlatformId(it.catalogName) == null }
                 else rows
             } else {
-                rows.filter { inferPlatformId(it.catalogName) == selectedPlatformId }
+                rows.filter { inferPlatformId(it.catalogName) == catalogDisplayedPlatformId }
             }
         }
     }
@@ -200,7 +210,7 @@ fun ModernHomeContent(
     ) {
         buildList {
             val activeCatalogKeys = LinkedHashSet<String>(visibleCatalogRows.size)
-            if (uiState.continueWatchingItems.isNotEmpty() && selectedPlatformId == "home") {
+            if (uiState.continueWatchingItems.isNotEmpty() && catalogDisplayedPlatformId == "home") {
                 val reuseContinueWatchingRow =
                     rowBuildCache.continueWatchingRow != null &&
                         rowBuildCache.continueWatchingItems == uiState.continueWatchingItems &&
@@ -909,6 +919,7 @@ fun ModernHomeContent(
 
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
+            backdropCrossfadeDuration = if (aggregatePlatformsEnabled && platformNavDirection != 0) 500 else 350,
             heroBackdropAlpha = heroBackdropAlpha,
             shouldPlayHeroTrailer = shouldPlayHeroTrailer && !uiState.heroTrailerAllowLetterboxing,
             heroTrailerUrl = heroTrailerUrl,
@@ -985,7 +996,10 @@ fun ModernHomeContent(
         }
         HeroTitleBlock(
             preview = resolvedHero,
+            enrichmentActive = enrichmentActive,
             portraitMode = !useLandscapePosters,
+            selectedPlatformId = selectedPlatformId,
+            platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive) platformNavDirection else 0,
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .padding(
@@ -1011,6 +1025,49 @@ fun ModernHomeContent(
             }
         }
 
+        // Slide+fade catalog rows on platform switch.
+        // We keep a displayedPlatformId that lags behind selectedPlatformId —
+        // the LazyColumn renders based on displayedPlatformId so the old rows
+        // stay visible during the exit animation, then we flip to the new rows
+        // and slide them in.
+        val catalogSlideAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
+        val catalogSlideOffset = remember { androidx.compose.animation.core.Animatable(0f) }
+        val screenWidthPx = with(localDensity) {
+            androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
+        }
+        val catalogSlideDistancePx = screenWidthPx * 0.25f
+        LaunchedEffect(selectedPlatformId) {
+            if (aggregatePlatformsEnabled && selectedPlatformId != catalogDisplayedPlatformId) {
+                android.util.Log.d("NuvioTransition", "CATALOG EXIT START: from=$catalogDisplayedPlatformId to=$selectedPlatformId rows=${carouselRows.size} dir=$platformNavDirection")
+                val exitDir = if (platformNavDirection > 0) -1f else 1f
+                val enterDir = -exitDir
+                // Build snapshot with current preview and new platformId — fires metadata
+                // transition at the exact same frame as catalog exit starts
+
+                displayedPlatformId = selectedPlatformId
+                // Ensure starting from visible rest position
+                catalogSlideAlpha.snapTo(1f)
+                catalogSlideOffset.snapTo(0f)
+                // Animate OLD catalog rows out — catalogDisplayedPlatformId still holds old value
+                val exitAlpha = launch { catalogSlideAlpha.animateTo(0f, tween(300)) }
+                val exitOffset = launch { catalogSlideOffset.animateTo(exitDir * catalogSlideDistancePx * 0.4f, tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+                exitAlpha.join()
+                exitOffset.join()
+                // NOW flip catalog rows and snap to enter side
+                android.util.Log.d("NuvioTransition", "CATALOG FLIP: now showing rows for=$selectedPlatformId rows=${carouselRows.size}")
+                catalogDisplayedPlatformId = selectedPlatformId
+                catalogSlideOffset.snapTo(enterDir * catalogSlideDistancePx)
+                // Animate NEW catalog rows in
+                val enterAlpha = launch { catalogSlideAlpha.animateTo(1f, tween(600)) }
+                val enterOffset = launch { catalogSlideOffset.animateTo(0f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+                enterAlpha.join()
+                enterOffset.join()
+            } else {
+                displayedPlatformId = selectedPlatformId
+                catalogDisplayedPlatformId = selectedPlatformId
+            }
+        }
+
         CompositionLocalProvider(LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec) {
             LazyColumn(
                 state = verticalRowListState,
@@ -1019,6 +1076,10 @@ fun ModernHomeContent(
                     .fillMaxWidth()
                     .height(rowsViewportHeight)
                     .padding(bottom = catalogBottomPadding)
+                    .graphicsLayer {
+                        alpha = catalogSlideAlpha.value
+                        translationX = catalogSlideOffset.value
+                    }
                     .focusRequester(contentFocusRequester)
                     .focusRestorer { focusRestorerRequester }
                     .onPreviewKeyEvent { event ->

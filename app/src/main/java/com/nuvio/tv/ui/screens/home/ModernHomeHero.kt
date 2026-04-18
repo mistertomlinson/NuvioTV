@@ -1,6 +1,13 @@
 package com.nuvio.tv.ui.screens.home
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -18,6 +25,8 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +44,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -48,6 +58,11 @@ import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
+
+internal data class HeroPlatformSnapshot(
+    val platformId: String,
+    val preview: HeroPreview
+)
 
 private data class ModernHeroSecondaryMeta(
     val highlightText: String?,
@@ -69,7 +84,8 @@ internal fun ModernHeroMediaLayer(
     onFirstFrameRendered: () -> Unit,
     modifier: Modifier,
     requestWidthPx: Int,
-    requestHeightPx: Int
+    requestHeightPx: Int,
+    backdropCrossfadeDuration: Int = 350
 ) {
     val localContext = LocalContext.current
     Box(modifier = modifier) {
@@ -78,7 +94,7 @@ internal fun ModernHeroMediaLayer(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = heroBackdropAlpha },
-            animationSpec = tween(durationMillis = 350),
+            animationSpec = tween(durationMillis = backdropCrossfadeDuration),
             label = "modernHeroBackground"
         ) { imageUrl ->
             val imageModel = remember(localContext, imageUrl, requestWidthPx, requestHeightPx) {
@@ -280,21 +296,64 @@ internal fun HeroTitleBlock(
     preview: HeroPreview?,
     enrichmentActive: Boolean = false,
     portraitMode: Boolean,
+    selectedPlatformId: String = "home",
+    platformNavDirection: Int = 0,
     modifier: Modifier = Modifier
 ) {
-    var stablePreview by remember { mutableStateOf<HeroPreview?>(null) }
+    if (preview == null) return
 
-    if (!enrichmentActive && preview != null) stablePreview = preview
-    if (enrichmentActive) stablePreview = null
+    val screenWidthPx = with(LocalDensity.current) {
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.roundToPx()
+    }
+    val slideDistancePx = (screenWidthPx * 0.25f).toInt()
 
-    if (stablePreview == null) return
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.BottomStart
-    ) {
-        HeroTitleContent(preview = stablePreview!!, portraitMode = portraitMode)
+    // Per-platform frozen snapshots — each AnimatedContent slot reads its own frozen copy
+    val previewByPlatform = remember { mutableMapOf<String, HeroPreview>() }
+    // After a platform switch, lock updates for 650ms so TMDB enrichment
+    // arriving mid-animation doesn't cause a snap
+    var lockedPlatformId by remember { mutableStateOf<String?>(null) }
+    var lastPlatformId by remember { mutableStateOf(selectedPlatformId) }
+
+    if (selectedPlatformId != lastPlatformId) {
+        lockedPlatformId = selectedPlatformId
+        lastPlatformId = selectedPlatformId
+    }
+
+    LaunchedEffect(selectedPlatformId) {
+        kotlinx.coroutines.delay(650)
+        lockedPlatformId = null
+    }
+
+    // Update snapshot freely except when this platform is locked mid-transition
+    if (!enrichmentActive && preview != null && selectedPlatformId != lockedPlatformId) {
+        previewByPlatform[selectedPlatformId] = preview
+    }
+
+    if (previewByPlatform.isEmpty()) return
+
+    Box(modifier = modifier, contentAlignment = Alignment.BottomStart) {
+        AnimatedContent(
+            targetState = selectedPlatformId,
+            transitionSpec = {
+                if (platformNavDirection != 0) {
+                    val dir = platformNavDirection
+                    val inOffset: (Int) -> Int = if (dir > 0) ({ slideDistancePx }) else ({ -slideDistancePx })
+                    val outOffset: (Int) -> Int = if (dir > 0) ({ -slideDistancePx }) else ({ slideDistancePx })
+                    (slideInHorizontally(tween(600, easing = FastOutSlowInEasing), inOffset) + fadeIn(tween(600))) togetherWith
+                    (slideOutHorizontally(tween(600, easing = FastOutSlowInEasing), outOffset) + fadeOut(tween(600))) using null
+                } else {
+                    fadeIn(tween(500)) togetherWith fadeOut(tween(300)) using null
+                }
+            },
+            contentAlignment = Alignment.BottomStart,
+            label = "heroTitleSlide"
+        ) { pid ->
+            val frozenPreview = previewByPlatform[pid] ?: return@AnimatedContent
+            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode)
+        }
     }
 }
+
 
 @Composable
 private fun HeroTitleContent(
@@ -343,6 +402,9 @@ private fun HeroTitleContent(
             lineHeight = bodyMedium.lineHeight * descriptionScale
         )
     }
+
+    // Key on selectedPlatformId so the slide transition only fires when switching
+    // platforms. Focusing different titles within a platform uses plain fade (key unchanged).
 
     Column(
         modifier = Modifier,

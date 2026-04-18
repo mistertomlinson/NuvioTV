@@ -74,6 +74,7 @@ fun StreamingPlatformCarousel(
     isCarouselFocused: Boolean,
     onCarouselFocusChanged: (Boolean) -> Unit,
     onPlatformSelected: (String) -> Unit,
+    onNavigationDirection: (Int) -> Unit = {},
     focusRequester: FocusRequester,
     modifier: Modifier = Modifier
 ) {
@@ -179,6 +180,7 @@ fun StreamingPlatformCarousel(
                                 snapNextNavigation = false
                                 focusedIndex = next
                                 onPlatformSelected(activePlatforms[next].id)
+                                onNavigationDirection(1)
                             }
                             true
                         }
@@ -188,6 +190,7 @@ fun StreamingPlatformCarousel(
                                 snapNextNavigation = false
                                 focusedIndex = next
                                 onPlatformSelected(activePlatforms[next].id)
+                                onNavigationDirection(-1)
                             }
                             true
                         }
