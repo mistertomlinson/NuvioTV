@@ -1035,18 +1035,19 @@ fun ModernHomeContent(
                 displayedPlatformId = selectedPlatformId
                 catalogDisplayedPlatformId = selectedPlatformId
                 catalogSlideOffset.snapTo(enterDir * catalogSlideDistancePx)
-                // Proactively enrich the first item of the incoming platform while
-                // the screen is still invisible — so enriched metadata is ready
-                // by the time the enter animation completes (~600ms later)
-                val incomingFirstItem = uiState.catalogRows
-                    .filter { it.items.isNotEmpty() }
-                    .firstOrNull { inferPlatformId(it.catalogName) == selectedPlatformId }
-                    ?.items?.firstOrNull()
-                if (incomingFirstItem != null) {
-                    onItemFocus(incomingFirstItem)
+                // Proactively enrich first items of all incoming platform rows while
+                // the screen is invisible — enriched metadata ready by enter completion.
+                // First row uses onItemFocus (primary enrichment job).
+                // Remaining rows use onPreloadAdjacentItem (separate job, won't cancel primary).
+                val incomingRows = uiState.catalogRows
+                    .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == selectedPlatformId }
+                incomingRows.forEachIndexed { index, row ->
+                    val firstItem = row.items.firstOrNull() ?: return@forEachIndexed
+                    if (index == 0) onItemFocus(firstItem)
+                    else onPreloadAdjacentItem(firstItem)
                 }
-                // Give recomposition time to settle while still invisible
-                kotlinx.coroutines.delay(50)
+                // Yield one scheduler tick so state writes commit before enter starts
+                kotlinx.coroutines.delay(30)
                 // ENTER — slide and fade the entire hero+catalog block in together
                 val enterAlpha = launch { catalogSlideAlpha.animateTo(1f, tween(600)) }
                 val enterOffset = launch { catalogSlideOffset.animateTo(0f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
