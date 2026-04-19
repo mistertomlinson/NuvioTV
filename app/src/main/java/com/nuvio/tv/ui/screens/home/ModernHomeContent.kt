@@ -775,7 +775,7 @@ fun ModernHomeContent(
         // Only fall back to activeCarouselItem when heroItem is null (cold start).
         val heroItemMatchesRow = heroItemRowKey == activeRow?.key
         val resolvedHero = if (isFastScrolling) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) heroItem ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
-        android.util.Log.d("NuvioHero", "RENDER: heroItem=${heroItem?.title} heroItemRow=${heroItemRowKey?.take(20)} activeRow=${activeRow?.key?.take(20)} rowMatch=$heroItemMatchesRow activeCarouselItem=${activeCarouselItem?.heroPreview?.title} resolvedHero=${resolvedHero?.title} index=$clampedActiveItemIndex")
+        android.util.Log.d("NuvioHero", "RENDER: heroItem=${heroItem?.title} heroItemRow=${heroItemRowKey?.take(20)} activeRow=${activeRow?.key?.take(20)} rowMatch=$heroItemMatchesRow activeCarouselItem=${activeCarouselItem?.heroPreview?.title} resolvedHero=${resolvedHero?.title} logo=${resolvedHero?.logo?.take(60)} index=$clampedActiveItemIndex")
         // Inject cached MDB ratings into the hero preview when home screen ratings are enabled
 
         val activeRowFallbackBackdrop = remember(activeRow?.key, activeRow?.items?.size) {

@@ -372,8 +372,13 @@ private fun HeroTitleContent(
     }
     val logoModel = remember(context, preview.logo, logoMaxWidthPx, logoHeightPx) {
         preview.logo?.let {
+            // TMDB logo URLs sometimes arrive without a file extension,
+            // ending with a bare period (e.g. ".../logo." instead of ".../logo.png").
+            // Append .png in this case — TMDB logos are always PNG.
+            val cleanedUrl = if (it.endsWith('.')) it + "png" else it
             ImageRequest.Builder(context)
-                .data(it)
+                .data(cleanedUrl)
+                .decoderFactory(SvgDecoder.Factory())
                 .crossfade(false)
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .build()
