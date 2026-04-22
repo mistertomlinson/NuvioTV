@@ -437,6 +437,7 @@ private fun ModernHomeRoute(
     }
     var isCarouselFocused by remember { mutableStateOf(false) }
     val aggregatePlatformsEnabled = uiState.aggregateStreamingPlatformsEnabled
+    val fullWidthIconRowEnabled = uiState.fullWidthIconRowEnabled
     var isAtTop by remember { mutableStateOf(true) }
     val carouselFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     // Load cached platform ids so carousel shows instantly on cold launch
@@ -501,6 +502,7 @@ private fun ModernHomeRoute(
         selectedPlatformId = selectedPlatformId,
         aggregatePlatformsEnabled = aggregatePlatformsEnabled,
         showAllCatalogsOnHome = uiState.showAllCatalogsOnHome,
+        fullWidthIconRowEnabled = fullWidthIconRowEnabled,
         carouselGradientAlpha = carouselAlpha,
         onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it },
         platformNavDirection = platformNavDirection
@@ -521,10 +523,11 @@ private fun ModernHomeRoute(
             platformNavDirection = dir
         },
         focusRequester = carouselFocusRequester,
+        fullWidthMode = fullWidthIconRowEnabled,
         modifier = Modifier
             .align(Alignment.TopEnd)
-            .fillMaxWidth(0.55f)
-            .padding(top = 8.dp, end = 20.dp)
+            .fillMaxWidth(if (fullWidthIconRowEnabled) 1f else 0.55f)
+            .padding(top = 8.dp, end = if (fullWidthIconRowEnabled) 0.dp else 20.dp, start = if (fullWidthIconRowEnabled) 20.dp else 0.dp)
             .graphicsLayer { alpha = carouselAlpha }
     )
     } // end Box

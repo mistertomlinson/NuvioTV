@@ -126,6 +126,7 @@ fun ModernHomeContent(
     selectedPlatformId: String = "home",
     aggregatePlatformsEnabled: Boolean = true,
     showAllCatalogsOnHome: Boolean = false,
+    fullWidthIconRowEnabled: Boolean = false,
     focusState: HomeScreenFocusState,
     enrichingItemId: String? = null,
     trailerPreviewUrls: Map<String, String>,
@@ -676,18 +677,21 @@ fun ModernHomeContent(
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.flow.combine(
-            snapshotFlow { Triple(activeRow, clampedActiveItemIndex, carouselRows) },
+            snapshotFlow { Pair(activeRow, clampedActiveItemIndex) },
             isFastScrollingRef
-        ) { triple, scrolling -> Pair(triple, scrolling) }
+        ) { pair, scrolling -> Pair(pair, scrolling) }
             .debounce(80L)
-            .collectLatest { (triple, isScrolling) ->
+            .collectLatest { (pair, isScrolling) ->
                 if (isScrolling) return@collectLatest
-                val (row, index, _) = triple
+                val (row, index) = pair
                 if (row == null) return@collectLatest
-                val hero = row.items.getOrNull(index)?.heroPreview
+                // Read from latestCarouselRows so enrichment updates are picked up
+                // without putting carouselRows in the flow (which caused debounce stomping)
+                val currentRow = latestCarouselRows.firstOrNull { it.key == row.key } ?: row
+                val hero = currentRow.items.getOrNull(index)?.heroPreview
                 if (hero == null) return@collectLatest
                 heroItem = hero
-                heroItemRowKey = row.key
+                heroItemRowKey = currentRow.key
             }
     }
     LaunchedEffect(Unit) {
@@ -1087,12 +1091,14 @@ fun ModernHomeContent(
                 portraitMode = !useLandscapePosters,
                 selectedPlatformId = selectedPlatformId,
                 platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive) platformNavDirection else 0,
+                fullWidthIconRowEnabled = fullWidthIconRowEnabled,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
                     .padding(
                         start = rowHorizontalPadding,
                         end = 48.dp,
-                        bottom = catalogBottomPadding + rowsViewportHeight + heroToCatalogGap
+                        bottom = catalogBottomPadding + rowsViewportHeight + heroToCatalogGap +
+                            if (fullWidthIconRowEnabled) 14.dp else 0.dp
                     )
                     .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
             )

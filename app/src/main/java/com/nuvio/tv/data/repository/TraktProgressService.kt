@@ -286,7 +286,9 @@ class TraktProgressService @Inject constructor(
                 }
             }
         }
-        requestFastSync()
+        // Do NOT requestFastSync here — sync fires before the API delete completes,
+        // causing the item to be re-fetched from Trakt and reappear in the list.
+        // requestFastSync() is called after the delete completes in removeProgress().
     }
 
     fun clearOptimistic() {
@@ -511,8 +513,15 @@ class TraktProgressService @Inject constructor(
             .forEach { item ->
                 item.id?.let { playbackId ->
                     Log.d(TAG, "removeProgress deleting movie playbackId=$playbackId")
-                    traktAuthService.executeAuthorizedWriteRequest { authHeader ->
+                    val response = traktAuthService.executeAuthorizedWriteRequest { authHeader ->
                         traktApi.deletePlayback(authHeader, playbackId)
+                    }
+                    val code = response?.code()
+                    Log.d(TAG, "removeProgress delete movie response code=$code success=${response?.isSuccessful}")
+                    // 404 means the playback ID is a ghost entry — fall back to history remove
+                    if (code == 404) {
+                        Log.d(TAG, "removeProgress movie 404 fallback: removing from history contentId=$contentId")
+                        removeFromHistory(contentId = contentId, videoId = null, season = null, episode = null)
                     }
                 }
             }
@@ -539,6 +548,19 @@ class TraktProgressService @Inject constructor(
                 }
             }
 
+        // Force remove from remoteProgress immediately so item disappears even if
+        // Trakt returns 404 (ghost entry) or hasn't processed the delete yet
+        val normalizedTarget = contentId.trim()
+        remoteProgress.update { current ->
+            current.filter { progress ->
+                if (season != null && episode != null) {
+                    !(progress.contentId == normalizedTarget && progress.season == season && progress.episode == episode)
+                } else {
+                    progress.contentId != normalizedTarget
+                }
+            }
+        }
+        Log.d(TAG, "removeProgress force-removed from remoteProgress contentId=$contentId")
         Log.d(TAG, "removeProgress refreshNow contentId=$contentId")
         refreshNow()
     }

@@ -156,9 +156,13 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
         ) { basePrefs, modernPrefs, aggregatePlatforms, showAllOnHome ->
             Triple(basePrefs.copy(modernLandscapePostersEnabled = modernPrefs), aggregatePlatforms, showAllOnHome)
         }
+            .combine(layoutPreferenceDataStore.fullWidthIconRowEnabled) { triple, fullWidthIconRow ->
+                Pair(triple, fullWidthIconRow)
+            }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (prefs, aggregateStreamingPlatforms, showAllCatalogsOnHome) ->
+            .collectLatest { (tripleVal, fullWidthIconRowEnabled) ->
+            val (prefs, aggregateStreamingPlatforms, showAllCatalogsOnHome) = tripleVal
                 val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
                     false
                 } else {
@@ -192,7 +196,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         posterCardHeightDp = prefs.posterCardHeightDp,
                         posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp,
                         aggregateStreamingPlatformsEnabled = aggregateStreamingPlatforms,
-                        showAllCatalogsOnHome = showAllCatalogsOnHome
+                        showAllCatalogsOnHome = showAllCatalogsOnHome,
+                        fullWidthIconRowEnabled = fullWidthIconRowEnabled
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {

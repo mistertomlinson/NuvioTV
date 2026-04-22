@@ -52,6 +52,7 @@ data class HomeUiState(
     val hideUnreleasedContent: Boolean = false,
     val startupAuthNotice: StartupAuthNotice? = null,
     val aggregateStreamingPlatformsEnabled: Boolean = false,
+    val fullWidthIconRowEnabled: Boolean = false,
     val showAllCatalogsOnHome: Boolean = false,
     val stableVisiblePlatformIds: Set<String> = emptySet()
 )

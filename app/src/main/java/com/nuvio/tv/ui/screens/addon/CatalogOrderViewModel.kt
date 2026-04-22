@@ -86,6 +86,13 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleFullWidthIconRow() {
+        val current = _uiState.value.fullWidthIconRowEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setFullWidthIconRowEnabled(!current)
+        }
+    }
+
     private fun moveCatalog(key: String, direction: Int) {
         val currentKeys = _uiState.value.items.map { it.key }
         val currentIndex = currentKeys.indexOf(key)
@@ -114,7 +121,8 @@ class CatalogOrderViewModel @Inject constructor(
                 layoutPreferenceDataStore.outlineNumberedHomeCatalogKeys,
                 layoutPreferenceDataStore.useThemeColorForNumbers,
             layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
-            layoutPreferenceDataStore.showAllCatalogsOnHome
+            layoutPreferenceDataStore.showAllCatalogsOnHome,
+            layoutPreferenceDataStore.fullWidthIconRowEnabled
             ) { args ->
                 val addons = args[0] as List<*>
                 val savedOrderKeys = args[1] as List<*>
@@ -124,7 +132,8 @@ class CatalogOrderViewModel @Inject constructor(
                 val useThemeColor = args[5] as Boolean
                 val aggregatePlatforms = args[6] as Boolean
                 val showAllOnHome = args[7] as Boolean
-                Pair(
+                val fullWidthIconRow = args[8] as Boolean
+                Triple(
                 Triple(
                     buildOrderedCatalogItems(
                         addons = addons as List<com.nuvio.tv.domain.model.Addon>,
@@ -135,8 +144,8 @@ class CatalogOrderViewModel @Inject constructor(
                     ),
                     useThemeColor,
                     Unit
-                ), aggregatePlatforms to showAllOnHome)
-            }.collectLatest { (triple, aggregatePair) ->
+                ), aggregatePlatforms to showAllOnHome, fullWidthIconRow)
+            }.collectLatest { (triple, aggregatePair, fullWidthIconRow) ->
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
                 val (orderedItems, useThemeColor, _) = triple
                 disabledKeysCache = orderedItems.filter { it.isDisabled }.map { it.disableKey }.toSet()
@@ -148,7 +157,8 @@ class CatalogOrderViewModel @Inject constructor(
                         items = orderedItems,
                         useThemeColorForNumbers = useThemeColor,
                         aggregateStreamingPlatformsEnabled = aggregatePlatforms,
-                        showAllCatalogsOnHome = showAllOnHome
+                        showAllCatalogsOnHome = showAllOnHome,
+                        fullWidthIconRowEnabled = fullWidthIconRow
                     )
                 }
             }
@@ -254,7 +264,8 @@ data class CatalogOrderUiState(
     val items: List<CatalogOrderItem> = emptyList(),
     val useThemeColorForNumbers: Boolean = false,
     val aggregateStreamingPlatformsEnabled: Boolean = false,
-    val showAllCatalogsOnHome: Boolean = false
+    val showAllCatalogsOnHome: Boolean = false,
+    val fullWidthIconRowEnabled: Boolean = false
 )
 
 data class CatalogOrderItem(

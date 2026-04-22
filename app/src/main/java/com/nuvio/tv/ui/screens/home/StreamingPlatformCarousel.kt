@@ -32,6 +32,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.IntOffset
@@ -76,6 +77,7 @@ fun StreamingPlatformCarousel(
     onPlatformSelected: (String) -> Unit,
     onNavigationDirection: (Int) -> Unit = {},
     focusRequester: FocusRequester,
+    fullWidthMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -88,6 +90,8 @@ fun StreamingPlatformCarousel(
     var focusedIndex by remember { mutableStateOf(activePlatforms.indexOfFirst { it.id == selectedPlatformId }.coerceAtLeast(0)) }
     var containerWidthPx by remember { mutableStateOf(0f) }
     val itemWidths = remember(activePlatforms) { HashMap<Int, Float>() }
+    val itemOffsets = remember(activePlatforms) { HashMap<Int, Float>() }  // actual X in full width mode
+    var itemOffsetsReady by remember { mutableStateOf(false) }
     val spacingPx = with(density) { 4.dp.toPx() }
 
     fun defaultW() = with(density) { 88.dp.toPx() }
@@ -141,26 +145,40 @@ fun StreamingPlatformCarousel(
     }
 
     // Drive scroll and selector from focusedIndex changes
-    LaunchedEffect(focusedIndex, snapNextNavigation) {
+    LaunchedEffect(focusedIndex, snapNextNavigation, fullWidthMode, itemOffsetsReady) {
         if (containerWidthPx <= 0f) return@LaunchedEffect
-        val scroll = centeredScrollFor(focusedIndex)
-        val selX = itemAbsoluteX(focusedIndex)
-        val selW = itemWidths[focusedIndex] ?: defaultW()
-        if (snapNextNavigation) {
-            scrollState.scrollTo(scroll.roundToInt())
-            selectorXAnim.snapTo(selX)
-            selectorWAnim.snapTo(selW)
+        val selX = if (fullWidthMode) {
+            itemOffsets[focusedIndex] ?: itemAbsoluteX(focusedIndex)
         } else {
-            launch { scrollState.animateScrollTo(scroll.roundToInt(), tween(150)) }
-            launch { selectorXAnim.animateTo(selX, tween(150)) }
-            launch { selectorWAnim.animateTo(selW, tween(150)) }
+            itemAbsoluteX(focusedIndex)
+        }
+        val selW = itemWidths[focusedIndex] ?: defaultW()
+        if (fullWidthMode) {
+            if (snapNextNavigation) {
+                selectorXAnim.snapTo(selX)
+                selectorWAnim.snapTo(selW)
+            } else {
+                launch { selectorXAnim.animateTo(selX, tween(150)) }
+                launch { selectorWAnim.animateTo(selW, tween(150)) }
+            }
+        } else {
+            val scroll = centeredScrollFor(focusedIndex)
+            if (snapNextNavigation) {
+                scrollState.scrollTo(scroll.roundToInt())
+                selectorXAnim.snapTo(selX)
+                selectorWAnim.snapTo(selW)
+            } else {
+                launch { scrollState.animateScrollTo(scroll.roundToInt(), tween(150)) }
+                launch { selectorXAnim.animateTo(selX, tween(150)) }
+                launch { selectorWAnim.animateTo(selW, tween(150)) }
+            }
         }
     }
 
     // Outer container — the only focusable thing, handles all key events
     Box(
         modifier = modifier
-            .wrapContentSize()
+            .then(if (fullWidthMode) Modifier.fillMaxWidth() else Modifier.wrapContentSize())
             .onGloballyPositioned { containerWidthPx = it.size.width.toFloat() }
             .focusRequester(focusRequester)
             .onFocusChanged { state ->
@@ -204,40 +222,11 @@ fun StreamingPlatformCarousel(
                 } else false
             }
     ) {
-        // Fade edges
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
-                .drawWithContent {
-                    drawContent()
-                    val edgeW = 48.dp.toPx()
-                    val leftAlpha = (scrollState.value / 80f).coerceIn(0f, 1f)
-                    drawRect(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(Color.Black.copy(alpha = 1f - leftAlpha), Color.Black),
-                            startX = 0f, endX = edgeW
-                        ),
-                        blendMode = BlendMode.DstIn
-                    )
-                    if (scrollState.maxValue > 0) {
-                        val rightAlpha = ((scrollState.maxValue - scrollState.value) / 80f).coerceIn(0f, 1f)
-                        drawRect(
-                            brush = Brush.horizontalGradient(
-                                colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - rightAlpha)),
-                                startX = size.width - edgeW, endX = size.width
-                            ),
-                            blendMode = BlendMode.DstIn
-                        )
-                    }
-                }
-        ) {
-            // Scrollable container — no focusable children so bringIntoView never fires
-            Box(
-                modifier = Modifier
-                    .horizontalScroll(scrollState, enabled = false)
-            ) {
-                // Selector box — in content space, behind icons
+        if (fullWidthMode) {
+            // Full width mode — evenly spaced, no scroll, no fade edges
+            // Selector box positioned absolutely behind icons
+            Box(modifier = Modifier.fillMaxWidth().height(34.dp)) {
+                // Selector box
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(currentSelectorX.roundToInt(), 0) }
@@ -253,10 +242,11 @@ fun StreamingPlatformCarousel(
                             ) else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
                         )
                 )
-
-                // Icons row
+                // Icons row — evenly spaced across full width
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    modifier = Modifier.fillMaxWidth().height(34.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     activePlatforms.forEachIndexed { index, platform ->
                         val iconAlpha by animateFloatAsState(
@@ -272,6 +262,8 @@ fun StreamingPlatformCarousel(
                             modifier = Modifier
                                 .onGloballyPositioned { coords ->
                                     itemWidths[index] = coords.size.width.toFloat()
+                                    itemOffsets[index] = coords.positionInParent().x
+                                    if (index == 0) itemOffsetsReady = true
                                 }
                                 .height(34.dp)
                                 .padding(horizontal = 14.dp)
@@ -279,6 +271,87 @@ fun StreamingPlatformCarousel(
                             contentAlignment = Alignment.Center
                         ) {
                             PlatformIconContent(platform)
+                        }
+                    }
+                }
+            }
+        } else {
+            // Fade edges
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                    .drawWithContent {
+                        drawContent()
+                        val edgeW = 48.dp.toPx()
+                        val leftAlpha = (scrollState.value / 80f).coerceIn(0f, 1f)
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.Black.copy(alpha = 1f - leftAlpha), Color.Black),
+                                startX = 0f, endX = edgeW
+                            ),
+                            blendMode = BlendMode.DstIn
+                        )
+                        if (scrollState.maxValue > 0) {
+                            val rightAlpha = ((scrollState.maxValue - scrollState.value) / 80f).coerceIn(0f, 1f)
+                            drawRect(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(Color.Black, Color.Black.copy(alpha = 1f - rightAlpha)),
+                                    startX = size.width - edgeW, endX = size.width
+                                ),
+                                blendMode = BlendMode.DstIn
+                            )
+                        }
+                    }
+            ) {
+                // Scrollable container — no focusable children so bringIntoView never fires
+                Box(
+                    modifier = Modifier
+                        .horizontalScroll(scrollState, enabled = false)
+                ) {
+                    // Selector box — in content space, behind icons
+                    Box(
+                        modifier = Modifier
+                            .offset { IntOffset(currentSelectorX.roundToInt(), 0) }
+                            .width(with(density) { currentSelectorW.toDp() })
+                            .height(34.dp)
+                            .alpha(selectorBoxAlpha)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (focusedPlatform?.id == "home") Brush.radialGradient(
+                                    colors = listOf(Color(0xFF9B5FE0), Color(0xFF6A3FD4), Color(0xFF00C8C8)),
+                                    center = androidx.compose.ui.geometry.Offset(0f, 0f),
+                                    radius = 120f
+                                ) else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
+                            )
+                    )
+
+                    // Icons row
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        activePlatforms.forEachIndexed { index, platform ->
+                            val iconAlpha by animateFloatAsState(
+                                targetValue = when {
+                                    !isCarouselFocused && platform.id == selectedPlatformId -> 0.75f
+                                    !isCarouselFocused -> 0.35f
+                                    else -> 1f
+                                },
+                                animationSpec = tween(200),
+                                label = "iconAlpha$index"
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .onGloballyPositioned { coords ->
+                                        itemWidths[index] = coords.size.width.toFloat()
+                                    }
+                                    .height(34.dp)
+                                    .padding(horizontal = 14.dp)
+                                    .alpha(iconAlpha),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                PlatformIconContent(platform)
+                            }
                         }
                     }
                 }

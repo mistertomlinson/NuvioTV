@@ -298,6 +298,7 @@ internal fun HeroTitleBlock(
     portraitMode: Boolean,
     selectedPlatformId: String = "home",
     platformNavDirection: Int = 0,
+    fullWidthIconRowEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (preview == null) return
@@ -338,7 +339,7 @@ internal fun HeroTitleBlock(
             label = "heroTitleSlide"
         ) { pid ->
             val frozenPreview = previewByPlatform[pid] ?: return@AnimatedContent
-            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode)
+            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled)
         }
     }
 }
@@ -347,7 +348,8 @@ internal fun HeroTitleBlock(
 @Composable
 private fun HeroTitleContent(
     preview: HeroPreview?,
-    portraitMode: Boolean
+    portraitMode: Boolean,
+    fullWidthIconRowEnabled: Boolean = false
 ) {
     if (preview == null) return
     val descriptionMaxLines = if (portraitMode) 4 else 5
@@ -622,7 +624,7 @@ private fun HeroTitleContent(
             }
         }
 
-        preview.description?.takeIf { it.isNotBlank() }?.let { description ->
+        if (!fullWidthIconRowEnabled) preview.description?.takeIf { it.isNotBlank() }?.let { description ->
             Text(
                 text = description,
                 style = scaledDescriptionStyle,

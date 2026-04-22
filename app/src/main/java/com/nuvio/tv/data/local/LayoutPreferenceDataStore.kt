@@ -69,6 +69,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val focusedPosterNoBackdropImageKey = booleanPreferencesKey("focused_poster_no_backdrop_image")
     private val heroTrailerAllowLetterboxingKey = booleanPreferencesKey("hero_trailer_allow_letterboxing")
     private val aggregateStreamingPlatformsKey = booleanPreferencesKey("aggregate_streaming_platforms")
+    private val fullWidthIconRowKey = booleanPreferencesKey("full_width_icon_row")
     private val showAllCatalogsOnHomeKey = booleanPreferencesKey("show_all_catalogs_on_home")
     private val cachedVisiblePlatformIdsKey = stringPreferencesKey("cached_visible_platform_ids")
 
@@ -233,6 +234,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val aggregateStreamingPlatformsEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[aggregateStreamingPlatformsKey] ?: false
+    }
+
+    val fullWidthIconRowEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[fullWidthIconRowKey] ?: false
     }
 
     suspend fun setLayout(layout: HomeLayout) {
@@ -476,6 +481,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setAggregateStreamingPlatformsEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[aggregateStreamingPlatformsKey] = enabled
+        }
+    }
+
+    suspend fun setFullWidthIconRowEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[fullWidthIconRowKey] = enabled
         }
     }
 

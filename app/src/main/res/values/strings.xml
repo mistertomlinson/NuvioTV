@@ -665,6 +665,8 @@
     <string name="catalog_order_title">Catalog Management</string>
     <string name="catalog_order_subtitle">Controls catalog row order and numbered lists</string>
     <string name="catalog_aggregate_platforms_title">Aggregate Streaming Platforms</string>
+    <string name="catalog_full_width_icon_row_title">Full Width Icon Row</string>
+    <string name="catalog_full_width_icon_row_desc">Removes hero synopsis and expands streaming platform icon row to full screen width</string>
     <string name="catalog_aggregate_platforms_desc">Keeps platform catalogs grouped on a separate screen</string>
     <string name="catalog_show_all_on_home_title">Show all Catalogs on Home</string>
     <string name="catalog_show_all_on_home_desc">Streaming platforms will be shown on Home as well as their respective screens</string>
