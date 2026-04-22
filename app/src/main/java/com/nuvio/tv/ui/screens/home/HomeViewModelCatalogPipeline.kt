@@ -601,6 +601,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             val firstRowIndex = rowIndexById.values.minOrNull() ?: 0
             val firstRowItems = allItems.filter { (rowIndexById[it.id] ?: Int.MAX_VALUE) == firstRowIndex }
             val remainingItems = allItems.filter { (rowIndexById[it.id] ?: Int.MAX_VALUE) != firstRowIndex }
+            proactiveEnrichJob?.cancel()
             proactiveEnrichJob = viewModelScope.launch(Dispatchers.IO) {
                 // Enrich first row with full concurrency, no semaphore — these are immediately visible
                 coroutineScope {

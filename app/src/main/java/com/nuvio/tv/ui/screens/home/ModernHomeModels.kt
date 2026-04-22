@@ -199,7 +199,8 @@ internal fun buildContinueWatchingItem(
                     item.progress.backdrop ?: item.progress.poster
                 } else {
                     item.progress.poster ?: item.progress.backdrop
-                }
+                },
+                imdbText = item.episodeImdbRating?.takeIf { it > 0f }?.let { "%.1f".format(it) }
             )
         }
         is ContinueWatchingItem.NextUp -> {
@@ -223,7 +224,8 @@ internal fun buildContinueWatchingItem(
                     firstNonBlank(item.info.backdrop, item.info.poster, item.info.thumbnail)
                 } else {
                     firstNonBlank(item.info.poster, item.info.backdrop, item.info.thumbnail)
-                }
+                },
+                imdbText = item.info.imdbRating?.takeIf { it > 0f }?.let { "%.1f".format(it) }
             )
         }
     }
