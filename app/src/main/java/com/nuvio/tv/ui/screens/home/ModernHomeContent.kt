@@ -611,9 +611,16 @@ fun ModernHomeContent(
         activeRowKey = resolvedActive.key
         activeItemIndex = resolvedIndex
         focusedItemByRow[resolvedActive.key] = resolvedIndex
-        heroItem = resolvedActive.items.getOrNull(resolvedIndex)?.heroPreview
+        val resolvedHeroPreview = resolvedActive.items.getOrNull(resolvedIndex)?.heroPreview
             ?: resolvedActive.items.firstOrNull()?.heroPreview
+        android.util.Log.d("NuvioBadgeTrace", "heroItem set: title=${resolvedHeroPreview?.title} ageRating=${resolvedHeroPreview?.ageRatingText} status=${resolvedHeroPreview?.statusText}")
+        heroItem = resolvedHeroPreview
         heroItemRowKey = resolvedActive.key
+        // If the resolved hero item has no badge data yet, trigger enrichment immediately
+        val resolvedMetaPreview = resolvedActive.items.getOrNull(resolvedIndex)?.metaPreview
+        if (resolvedMetaPreview != null && resolvedHeroPreview?.ageRatingText == null) {
+            onItemFocus(resolvedMetaPreview)
+        }
         if (!focusState.hasSavedFocus && (!hadActiveRow || existingActive == null) && !isCarouselFocused) {
             pendingRowFocusKey = resolvedActive.key
             pendingRowFocusIndex = resolvedIndex
@@ -669,14 +676,14 @@ fun ModernHomeContent(
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.flow.combine(
-            snapshotFlow { Pair(activeRow, clampedActiveItemIndex) },
+            snapshotFlow { Triple(activeRow, clampedActiveItemIndex, carouselRows) },
             isFastScrollingRef
-        ) { pair, scrolling -> Pair(pair, scrolling) }
+        ) { triple, scrolling -> Pair(triple, scrolling) }
             .debounce(80L)
-            .collectLatest { (_, isScrolling) ->
+            .collectLatest { (triple, isScrolling) ->
                 if (isScrolling) return@collectLatest
-                val row = activeRow ?: return@collectLatest
-                val index = clampedActiveItemIndex
+                val (row, index, _) = triple
+                if (row == null) return@collectLatest
                 val hero = row.items.getOrNull(index)?.heroPreview
                 if (hero == null) return@collectLatest
                 heroItem = hero
@@ -774,7 +781,11 @@ fun ModernHomeContent(
         // Always use debounced heroItem so fast scrolling doesn't flash metadata.
         // Only fall back to activeCarouselItem when heroItem is null (cold start).
         val heroItemMatchesRow = heroItemRowKey == activeRow?.key
-        val resolvedHero = if (isFastScrolling) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) heroItem ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
+        // Prefer activeCarouselItem heroPreview when it has enriched badge data that heroItem lacks
+        val activeHasRicher = activeCarouselItem?.heroPreview?.let {
+            it.ageRatingText != null && heroItem?.ageRatingText == null
+        } == true
+        val resolvedHero = if (isFastScrolling) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
         android.util.Log.d("NuvioHero", "RENDER: heroItem=${heroItem?.title} heroItemRow=${heroItemRowKey?.take(20)} activeRow=${activeRow?.key?.take(20)} rowMatch=$heroItemMatchesRow activeCarouselItem=${activeCarouselItem?.heroPreview?.title} resolvedHero=${resolvedHero?.title} logo=${resolvedHero?.logo?.take(60)} index=$clampedActiveItemIndex")
         // Inject cached MDB ratings into the hero preview when home screen ratings are enabled
 

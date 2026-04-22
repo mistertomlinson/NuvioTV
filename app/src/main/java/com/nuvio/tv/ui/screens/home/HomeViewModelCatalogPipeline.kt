@@ -9,6 +9,9 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.supportsExtra
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -133,6 +136,9 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     externalMetaPrefetchJob?.cancel()
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
+    enrichmentCache.clear()
+    proactiveEnrichJob?.cancel()
+    proactiveEnrichJob = null
     tmdbEnrichFocusJob?.cancel()
     pendingTmdbEnrichItemId = null
     lastHeroEnrichmentSignature = null
@@ -210,7 +216,36 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             type = catalog.apiType,
                             catalogId = catalog.id
                         )
-                        catalogsMap[key] = result.data
+                        val existingRow = catalogsMap[key]
+                        val mergedRow = if (existingRow != null) {
+                            val enrichedById = existingRow.items
+                                .filter { it.ageRating != null || it.status != null || it.logo != null }
+                                .associateBy { it.id }
+                            if (enrichedById.isNotEmpty()) {
+                                val mergedItems = result.data.items.map { freshItem ->
+                                    val enriched = enrichedById[freshItem.id]
+                                    if (enriched != null) {
+                                        freshItem.copy(
+                                            ageRating = enriched.ageRating ?: freshItem.ageRating,
+                                            status = enriched.status ?: freshItem.status,
+                                            logo = enriched.logo ?: freshItem.logo
+                                        )
+                                    } else freshItem
+                                }
+                                result.data.copy(items = mergedItems)
+                            } else result.data
+                        } else result.data
+                        val preEnriched = existingRow?.items?.count { it.ageRating != null } ?: 0
+                        val postEnriched = mergedRow.items.count { it.ageRating != null }
+                        if (preEnriched > 0) {
+                            android.util.Log.w("NuvioEnrich", "[RELOAD] key=$key pre-enriched=$preEnriched post-enriched=$postEnriched")
+                        }
+                        catalogsMap[key] = mergedRow
+                        val stomped2 = mergedRow.items.filter { it.ageRating == null }
+                        val had = existingRow?.items?.filter { it.ageRating != null } ?: emptyList()
+                        if (had.isNotEmpty() && stomped2.any { item -> had.any { it.id == item.id } }) {
+                            android.util.Log.w("NuvioEnrich", "[STOMP2] after merge, ${had.size} enriched items still lost ageRating in key=$key")
+                        }
                         if (!hasCountedCompletion) {
                             pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
                             hasCountedCompletion = true
@@ -275,20 +310,21 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
         ).collect { result ->
             when (result) {
                 is NetworkResult.Success -> {
-                    val existingIds = currentRow.items.asSequence()
+                    val latestRow = catalogsMap[key] ?: currentRow
+                    val existingIds = latestRow.items.asSequence()
                         .map { "${it.apiType}:${it.id}" }
                         .toHashSet()
                     val newUniqueItems = result.data.items.filter { item ->
                         "${item.apiType}:${item.id}" !in existingIds
                     }
-                    val mergedItems = currentRow.items + newUniqueItems
+                    val mergedItems = latestRow.items + newUniqueItems
                     val hasMore = if (newUniqueItems.isEmpty()) false else result.data.hasMore
                     catalogsMap[key] = result.data.copy(items = mergedItems, hasMore = hasMore)
                     _loadingCatalogs.update { it - key }
                     scheduleUpdateCatalogRows()
                 }
                 is NetworkResult.Error -> {
-                    catalogsMap[key] = currentRow.copy(isLoading = false)
+                    catalogsMap[key] = (catalogsMap[key] ?: currentRow).copy(isLoading = false)
                     _loadingCatalogs.update { it - key }
                     scheduleUpdateCatalogRows()
                 }
@@ -432,9 +468,68 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     }
 
     _uiState.update { state ->
+        // Re-read catalogsMap inside the atomic update to capture enrichment
+        // that landed after the snapshot was taken at the top of this pipeline run.
+        val enrichedCount = synchronized(catalogsMap) {
+            catalogsMap.values.sumOf { row -> row.items.count { it.ageRating != null } }
+        }
+        android.util.Log.d("NuvioEnrich", "[PIPELINE-WRITE] catalogsMap has ${"$"}enrichedCount enriched items at write time")
+        // Merge enrichment: for each item, prefer existing uiState enrichment over
+        // fresh display row data, so pipeline runs never stomp already-enriched badges.
+        // enrichmentCache is the source of truth for TMDB enrichment — it covers
+        // items from all row types (catalogsMap rows AND special rows like Continue Watching).
+        val freshRows = displayRows.map { row ->
+            if (enrichmentCache.isEmpty()) row
+            else row.copy(items = row.items.map { item ->
+                val cached = enrichmentCache[item.id]
+                if (cached == null) item
+                else {
+                    var merged = item
+                    if (currentTmdbSettings.useBasicInfo) {
+                        merged = merged.copy(
+                            name = cached.localizedTitle ?: merged.name,
+                            description = cached.description ?: merged.description,
+                            genres = if (cached.genres.isNotEmpty()) cached.genres else merged.genres
+                        )
+                    }
+                    if (currentTmdbSettings.useArtwork) {
+                        merged = merged.copy(logo = cached.logo ?: merged.logo)
+                    }
+                    if (currentTmdbSettings.useDetails) {
+                        merged = merged.copy(
+                            ageRating = cached.ageRating ?: merged.ageRating,
+                            status = cached.status ?: merged.status
+                        )
+                    }
+                    merged
+                }
+            })
+        }
+        val enrichedHeroItems = if (enrichmentCache.isEmpty()) baseHeroItems
+        else baseHeroItems.map { item ->
+            val cached = enrichmentCache[item.id] ?: return@map item
+            var merged = item
+            if (currentTmdbSettings.useBasicInfo) {
+                merged = merged.copy(
+                    name = cached.localizedTitle ?: merged.name,
+                    description = cached.description ?: merged.description,
+                    genres = if (cached.genres.isNotEmpty()) cached.genres else merged.genres
+                )
+            }
+            if (currentTmdbSettings.useArtwork) {
+                merged = merged.copy(logo = cached.logo ?: merged.logo)
+            }
+            if (currentTmdbSettings.useDetails) {
+                merged = merged.copy(
+                    ageRating = cached.ageRating ?: merged.ageRating,
+                    status = cached.status ?: merged.status
+                )
+            }
+            merged
+        }
         state.copy(
-            catalogRows = if (state.catalogRows == displayRows) state.catalogRows else displayRows,
-            heroItems = if (state.heroItems == baseHeroItems) state.heroItems else baseHeroItems,
+            catalogRows = if (state.catalogRows == freshRows) state.catalogRows else freshRows,
+            heroItems = if (state.heroItems == enrichedHeroItems) state.heroItems else enrichedHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
             isLoading = false,
             stableVisiblePlatformIds = if (allCatalogsLoaded) {
@@ -485,6 +580,80 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     } else {
         lastHeroEnrichmentSignature = null
         lastHeroEnrichedItems = emptyList()
+    }
+
+    // Proactive enrichment — enrich all catalog items in the background as rows load,
+    // so badges appear without requiring the user to focus each item first.
+    if (currentTmdbSettings.enabled) {
+        // Enrich items from earlier rows first so visible content gets badges sooner
+        val rowIndexById = displayRows
+            .flatMapIndexed { rowIdx, row -> row.items.map { it.id to rowIdx } }
+            .toMap()
+        val allItems = displayRows
+            .flatMap { it.items }
+            .distinctBy { it.id }
+            .filter { it.id !in prefetchedTmdbIds }
+            .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
+        android.util.Log.d("NuvioEnrich", "[PROACTIVE] pipeline run: ${displayRows.size} rows, ${displayRows.flatMap { it.items }.distinctBy { it.id }.size} total items, ${allItems.size} need enrichment")
+        if (allItems.isNotEmpty()) {
+            val tmdbSettingsSnapshot = currentTmdbSettings
+            // Split first row items for priority enrichment vs rest for background batch
+            val firstRowIndex = rowIndexById.values.minOrNull() ?: 0
+            val firstRowItems = allItems.filter { (rowIndexById[it.id] ?: Int.MAX_VALUE) == firstRowIndex }
+            val remainingItems = allItems.filter { (rowIndexById[it.id] ?: Int.MAX_VALUE) != firstRowIndex }
+            proactiveEnrichJob = viewModelScope.launch(Dispatchers.IO) {
+                // Enrich first row with full concurrency, no semaphore — these are immediately visible
+                coroutineScope {
+                    firstRowItems.map { item ->
+                        async {
+                            if (item.id in prefetchedTmdbIds) return@async
+                            try {
+                                val tmdbId = runCatching {
+                                    tmdbService.ensureTmdbId(item.id, item.apiType)
+                                }.getOrNull() ?: return@async
+                                val enrichment = runCatching {
+                                    tmdbMetadataService.fetchEnrichment(
+                                        tmdbId = tmdbId,
+                                        contentType = item.type,
+                                        language = tmdbSettingsSnapshot.language
+                                    )
+                                }.getOrNull() ?: return@async
+                                prefetchedTmdbIds.add(item.id)
+                                prefetchedExternalMetaIds.add(item.id)
+                                updateCatalogItemWithTmdb(item.id, enrichment)
+                            } catch (_: Exception) {}
+                        }
+                    }.awaitAll()
+                }
+                // Then enrich remaining rows with semaphore throttling
+                val semaphore = kotlinx.coroutines.sync.Semaphore(8)
+                coroutineScope {
+                    remainingItems.map { item ->
+                        async {
+                            if (item.id in prefetchedTmdbIds) return@async
+                            semaphore.acquire()
+                            try {
+                                val tmdbId = runCatching {
+                                    tmdbService.ensureTmdbId(item.id, item.apiType)
+                                }.getOrNull() ?: return@async
+                                val enrichment = runCatching {
+                                    tmdbMetadataService.fetchEnrichment(
+                                        tmdbId = tmdbId,
+                                        contentType = item.type,
+                                        language = tmdbSettingsSnapshot.language
+                                    )
+                                }.getOrNull() ?: return@async
+                                prefetchedTmdbIds.add(item.id)
+                                prefetchedExternalMetaIds.add(item.id)
+                                updateCatalogItemWithTmdb(item.id, enrichment)
+                            } finally {
+                                semaphore.release()
+                            }
+                        }
+                    }.awaitAll()
+                }
+            }
+        }
     }
 
     schedulePosterStatusReconcilePipeline(displayRows)
