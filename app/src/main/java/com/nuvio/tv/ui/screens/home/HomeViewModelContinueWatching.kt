@@ -428,6 +428,9 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
     var lastAppliedCount = 0
 
     for (item in inProgressItems) {
+        val tmdbSettingsSnapshot = currentTmdbSettings
+
+        // Resolve addon meta fields
         val description = resolveCurrentEpisodeDescription(item.progress, metaCache)
         val thumbnail = resolveCurrentEpisodeThumbnail(item.progress, metaCache)
         val imdbRating = resolveCurrentEpisodeImdbRating(item.progress, metaCache)
@@ -435,73 +438,57 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
         val releaseInfo = resolveCurrentReleaseInfo(item.progress, metaCache)
         val logo = resolveCurrentLogo(item.progress, metaCache)
 
-        // Augment with TMDB data when addon meta is incomplete
-        val tmdbShowEnrichment = runCatching {
-            if (!currentTmdbSettings.enabled) null
-            else {
-                val meta = resolveMetaForProgress(item.progress, metaCache)
-                val candidates = buildList {
-                    add(item.progress.contentId)
-                    meta?.id?.takeIf { it.isNotBlank() }?.let { add(it) }
-                }.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+        // Resolve TMDB ID once — reused by both show and episode fetches below
+        val meta = resolveMetaForProgress(item.progress, metaCache)
+        val candidates = buildList {
+            add(item.progress.contentId)
+            meta?.id?.takeIf { it.isNotBlank() }?.let { add(it) }
+        }.map { it.trim() }.filter { it.isNotBlank() }.distinct()
 
-                // Check enrichmentCache first (populated by proactive catalog enrichment)
-                // to avoid redundant TMDB API calls
-                val cachedEnrichment = candidates.firstNotNullOfOrNull { id ->
-                    enrichmentCache[id]
-                }
-                if (cachedEnrichment != null) {
-                    cachedEnrichment
-                } else {
-                    val tmdbId = candidates.firstNotNullOfOrNull { id ->
-                        tmdbService.ensureTmdbId(id, item.progress.contentType)
-                    }
-                    tmdbId?.let { id ->
-                        tmdbMetadataService.fetchEnrichment(
-                            tmdbId = id,
-                            contentType = if (isSeriesTypeCW(item.progress.contentType))
-                                com.nuvio.tv.domain.model.ContentType.SERIES
-                            else
-                                com.nuvio.tv.domain.model.ContentType.MOVIE,
-                            language = currentTmdbSettings.language
-                        )
-                    }
-                }
+        val resolvedTmdbId: String? = if (!tmdbSettingsSnapshot.enabled) null
+        else runCatching {
+            candidates.firstNotNullOfOrNull { id ->
+                tmdbService.ensureTmdbId(id, item.progress.contentType)
             }
         }.getOrNull()
 
-        val tmdbEpisodeOverview = runCatching {
-            if (!currentTmdbSettings.enabled || !isSeriesTypeCW(item.progress.contentType)) null
-            else {
-                val season = item.progress.season ?: return@runCatching null
-                val episode = item.progress.episode ?: return@runCatching null
-                val meta = resolveMetaForProgress(item.progress, metaCache)
-                val candidates = buildList {
-                    add(item.progress.contentId)
-                    meta?.id?.takeIf { it.isNotBlank() }?.let { add(it) }
-                }.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-                val tmdbId = candidates.firstNotNullOfOrNull { id ->
-                    tmdbService.ensureTmdbId(id, item.progress.contentType)
-                }
-                tmdbId?.let { id ->
-                    tmdbMetadataService.fetchEpisodeEnrichment(
+        // Show-level enrichment — check enrichmentCache first
+        val tmdbShowEnrichment: com.nuvio.tv.core.tmdb.TmdbEnrichment? = if (!tmdbSettingsSnapshot.enabled) null
+        else runCatching {
+            candidates.firstNotNullOfOrNull { enrichmentCache[it] }
+                ?: resolvedTmdbId?.let { id ->
+                    tmdbMetadataService.fetchEnrichment(
                         tmdbId = id,
-                        seasonNumbers = listOf(season),
-                        language = currentTmdbSettings.language
-                    )[season to episode]?.overview?.takeIf { it.isNotBlank() }
+                        contentType = if (isSeriesTypeCW(item.progress.contentType))
+                            com.nuvio.tv.domain.model.ContentType.SERIES
+                        else
+                            com.nuvio.tv.domain.model.ContentType.MOVIE,
+                        language = tmdbSettingsSnapshot.language
+                    )
                 }
+        }.getOrNull()
+
+        // Episode overview — reuses resolvedTmdbId, no duplicate lookup
+        val tmdbEpisodeOverview: String? = if (!tmdbSettingsSnapshot.enabled ||
+            !isSeriesTypeCW(item.progress.contentType)) null
+        else runCatching {
+            val season = item.progress.season ?: return@runCatching null
+            val episode = item.progress.episode ?: return@runCatching null
+            resolvedTmdbId?.let { id ->
+                tmdbMetadataService.fetchEpisodeEnrichment(
+                    tmdbId = id,
+                    seasonNumbers = listOf(season),
+                    language = tmdbSettingsSnapshot.language
+                )[season to episode]?.overview?.takeIf { it.isNotBlank() }
             }
         }.getOrNull()
 
-        // Episode overview > addon description > show description from TMDB > addon show description
-        val cleanAddonDesc = description?.takeIf { 
-            it.isNotBlank() && 
+        val cleanAddonDesc = description?.takeIf {
+            it.isNotBlank() &&
             !it.contains("rate limit", ignoreCase = true) &&
             !it.contains("too many requests", ignoreCase = true) &&
             it != item.progress.episodeTitle
         }
-        // Always prefer freshly fetched data, but fall back to existing cached values
-        // so good data is never overwritten with null on a flaky TMDB response
         val resolvedDescription = tmdbEpisodeOverview
             ?: cleanAddonDesc
             ?: tmdbShowEnrichment?.description
@@ -510,20 +497,13 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
                 !it.contains("rate limit", ignoreCase = true) &&
                 !it.contains("too many requests", ignoreCase = true)
             }
-
         val resolvedImdbRating = imdbRating
             ?: tmdbShowEnrichment?.rating?.toFloat()
             ?: item.episodeImdbRating
-
         val resolvedGenres = genres.ifEmpty {
-            tmdbShowEnrichment?.genres?.take(3)?.takeIf { it.isNotEmpty() }
-                ?: item.genres
+            tmdbShowEnrichment?.genres?.take(3)?.takeIf { it.isNotEmpty() } ?: item.genres
         }
-
-        val resolvedReleaseInfo = releaseInfo
-            ?: tmdbShowEnrichment?.releaseInfo
-            ?: item.releaseInfo
-
+        val resolvedReleaseInfo = releaseInfo ?: tmdbShowEnrichment?.releaseInfo ?: item.releaseInfo
         val resolvedLogo = logo
             ?: tmdbShowEnrichment?.logo?.takeIf { it.isNotBlank() }
             ?: item.progress.logo?.takeIf { it.isNotBlank() }
@@ -534,12 +514,13 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
             episodeImdbRating = resolvedImdbRating,
             genres = resolvedGenres,
             releaseInfo = resolvedReleaseInfo,
-            progress = if (resolvedLogo != null && item.progress.logo.isNullOrBlank()) item.progress.copy(logo = resolvedLogo) else item.progress
+            progress = if (resolvedLogo != null && item.progress.logo.isNullOrBlank())
+                item.progress.copy(logo = resolvedLogo) else item.progress
         )
 
         if (enrichedItem != item) {
             enrichedByProgress[item.progress] = enrichedItem
-            if (enrichedByProgress.size - lastAppliedCount >= 2) {
+            if (enrichedByProgress.size - lastAppliedCount >= 1) {
                 applyInProgressEpisodeDetailEnrichment(enrichedByProgress)
                 lastAppliedCount = enrichedByProgress.size
             }
@@ -549,6 +530,7 @@ private suspend fun HomeViewModel.enrichInProgressEpisodeDetailsProgressively(
     if (enrichedByProgress.isNotEmpty() && enrichedByProgress.size != lastAppliedCount) {
         applyInProgressEpisodeDetailEnrichment(enrichedByProgress)
     }
+
     // Save NextUp cache for optimistic UI on next launch
     val nextUpItems = _uiState.value.continueWatchingItems
         .filterIsInstance<ContinueWatchingItem.NextUp>()
