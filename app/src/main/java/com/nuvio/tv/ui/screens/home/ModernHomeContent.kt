@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -910,6 +911,10 @@ fun ModernHomeContent(
         val heroMediaHeightPx = remember(heroBackdropHeight, localDensity) {
             with(localDensity) { heroBackdropHeight.roundToPx() }
         }
+        val catalogSlideAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
+        val catalogSlideOffset = remember { androidx.compose.animation.core.Animatable(0f) }
+        // Separate parallax animatable — never snaps, only smooth exit+enter arcs
+        val backdropParallaxOffset = remember { androidx.compose.animation.core.Animatable(0f) }
 
         // Cinematic mode: trailers off OR target is expanded card → full-screen backdrop + detail-style gradient
         val cinematicHeroMode = !uiState.focusedPosterBackdropTrailerEnabled ||
@@ -918,9 +923,9 @@ fun ModernHomeContent(
         val heroMediaModifier = remember(heroBackdropHeight, cinematicHeroMode, maxHeight) {
             if (cinematicHeroMode) {
                 Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(y = -(maxHeight * 0.10f))
-                    .fillMaxSize()
+                    .align(Alignment.Center)
+                    .offset(y = -(maxHeight * 0.05f))
+                    .requiredSize(maxWidth * 1.1f, maxHeight * 1.1f)
             } else {
                 Modifier
                     .align(Alignment.TopEnd)
@@ -934,6 +939,8 @@ fun ModernHomeContent(
             heroBackdrop = heroBackdrop,
             backdropCrossfadeDuration = if (aggregatePlatformsEnabled && platformNavDirection != 0) 500 else 350,
             heroBackdropAlpha = heroBackdropAlpha,
+            parallaxOffsetX = backdropParallaxOffset.value,
+            cinematicMode = cinematicHeroMode,
             shouldPlayHeroTrailer = shouldPlayHeroTrailer && !uiState.heroTrailerAllowLetterboxing,
             heroTrailerUrl = heroTrailerUrl,
             heroTrailerAudioUrl = heroTrailerAudioUrl,
@@ -941,7 +948,10 @@ fun ModernHomeContent(
             muted = uiState.focusedPosterBackdropTrailerMuted,
             onTrailerEnded = { expandedCatalogFocusKey = null },
             onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
-            modifier = heroMediaModifier,
+            modifier = heroMediaModifier.graphicsLayer {
+                alpha = catalogSlideAlpha.value
+                translationX = backdropParallaxOffset.value
+            },
             requestWidthPx = heroMediaWidthPx,
             requestHeightPx = heroMediaHeightPx
         )
@@ -1027,8 +1037,7 @@ fun ModernHomeContent(
         // the LazyColumn renders based on displayedPlatformId so the old rows
         // stay visible during the exit animation, then we flip to the new rows
         // and slide them in.
-        val catalogSlideAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
-        val catalogSlideOffset = remember { androidx.compose.animation.core.Animatable(0f) }
+
         val screenWidthPx = with(localDensity) {
             androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
         }
@@ -1041,15 +1050,23 @@ fun ModernHomeContent(
                 // Ensure starting from visible rest position
                 catalogSlideAlpha.snapTo(1f)
                 catalogSlideOffset.snapTo(0f)
+                backdropParallaxOffset.snapTo(0f)
                 // EXIT — slide and fade the entire hero+catalog block out together
                 val exitAlpha = launch { catalogSlideAlpha.animateTo(0f, tween(300)) }
                 val exitOffset = launch { catalogSlideOffset.animateTo(exitDir * catalogSlideDistancePx * 0.4f, tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+                // Safe parallax: 1.2x scale gives 10% overflow per side in screen px.
+                // Use the smaller non-cinematic width as the binding constraint.
+                // Travel only 40% of that to stay well clear of the edge.
+                val safeParallaxMax = screenWidthPx * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.02f
+                val exitParallax = launch { backdropParallaxOffset.animateTo(exitDir * safeParallaxMax, tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
                 exitAlpha.join()
                 exitOffset.join()
+                exitParallax.join()
                 // FLIP — screen is at alpha=0, recomposition stutter is invisible
                 displayedPlatformId = selectedPlatformId
                 catalogDisplayedPlatformId = selectedPlatformId
                 catalogSlideOffset.snapTo(enterDir * catalogSlideDistancePx)
+                backdropParallaxOffset.snapTo(enterDir * safeParallaxMax)
                 // Proactively enrich first items of all incoming platform rows while
                 // the screen is invisible — enriched metadata ready by enter completion.
                 // First row uses onItemFocus (primary enrichment job).
@@ -1066,8 +1083,10 @@ fun ModernHomeContent(
                 // ENTER — slide and fade the entire hero+catalog block in together
                 val enterAlpha = launch { catalogSlideAlpha.animateTo(1f, tween(600)) }
                 val enterOffset = launch { catalogSlideOffset.animateTo(0f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+                val enterParallax = launch { backdropParallaxOffset.animateTo(0f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
                 enterAlpha.join()
                 enterOffset.join()
+                enterParallax.join()
             } else {
                 displayedPlatformId = selectedPlatformId
                 catalogDisplayedPlatformId = selectedPlatformId

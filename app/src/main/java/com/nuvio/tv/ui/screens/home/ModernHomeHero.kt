@@ -14,8 +14,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -34,6 +37,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -42,7 +47,12 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -85,10 +95,12 @@ internal fun ModernHeroMediaLayer(
     modifier: Modifier,
     requestWidthPx: Int,
     requestHeightPx: Int,
+    parallaxOffsetX: Float = 0f,
+    cinematicMode: Boolean = false,
     backdropCrossfadeDuration: Int = 350
 ) {
     val localContext = LocalContext.current
-    Box(modifier = modifier) {
+    Box(modifier = modifier.clipToBounds()) {
         Crossfade(
             targetState = heroBackdrop,
             modifier = Modifier
@@ -104,13 +116,30 @@ internal fun ModernHeroMediaLayer(
                     .size(width = requestWidthPx, height = requestHeightPx)
                     .build()
             }
-            AsyncImage(
-                model = imageModel,
-                contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop,
-                alignment = Alignment.TopEnd
-            )
+            if (cinematicMode) {
+                AsyncImage(
+                    model = imageModel,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .onGloballyPositioned { coords ->
+                            val pos = coords.positionInRoot()
+                            val size = coords.size
+                            android.util.Log.d("NuvioLayout", "w=" + size.width + " h=" + size.height + " rootX=" + pos.x + " rootY=" + pos.y + " parallax=" + parallaxOffsetX)
+                        }
+                        .graphicsLayer { translationX = parallaxOffsetX },
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.Center
+                )
+            } else {
+                AsyncImage(
+                    model = imageModel,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopEnd
+                )
+            }
         }
 
         if (shouldPlayHeroTrailer) {
