@@ -937,7 +937,7 @@ fun ModernHomeContent(
 
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
-            backdropCrossfadeDuration = if (aggregatePlatformsEnabled && platformNavDirection != 0) 500 else 350,
+            backdropCrossfadeDuration = if (aggregatePlatformsEnabled && platformNavDirection != 0) 0 else 350,
             heroBackdropAlpha = heroBackdropAlpha,
             parallaxOffsetX = backdropParallaxOffset.value,
             cinematicMode = cinematicHeroMode,
@@ -1041,7 +1041,7 @@ fun ModernHomeContent(
         val screenWidthPx = with(localDensity) {
             androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
         }
-        val catalogSlideDistancePx = screenWidthPx * 0.25f
+        val catalogSlideDistancePx = screenWidthPx * 0.15f
         LaunchedEffect(selectedPlatformId) {
             if (aggregatePlatformsEnabled && selectedPlatformId != catalogDisplayedPlatformId) {
                 android.util.Log.d("NuvioTransition", "PLATFORM TRANSITION: from=$catalogDisplayedPlatformId to=$selectedPlatformId dir=$platformNavDirection")
@@ -1078,12 +1078,21 @@ fun ModernHomeContent(
                     if (index == 0) onItemFocus(firstItem)
                     else onPreloadAdjacentItem(firstItem)
                 }
+                // Preload backdrop image for first incoming item into Coil memory cache
+                val backdropToPreload = incomingRows.firstOrNull()?.items?.firstOrNull()?.backdropUrl
+                if (backdropToPreload != null) {
+                    val preloadRequest = coil.request.ImageRequest.Builder(context)
+                        .data(backdropToPreload)
+                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                        .build()
+                    coil.Coil.imageLoader(context).enqueue(preloadRequest)
+                }
                 // Yield one scheduler tick so state writes commit before enter starts
-                kotlinx.coroutines.delay(30)
+                kotlinx.coroutines.delay(80)
                 // ENTER — slide and fade the entire hero+catalog block in together
-                val enterAlpha = launch { catalogSlideAlpha.animateTo(1f, tween(600)) }
-                val enterOffset = launch { catalogSlideOffset.animateTo(0f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
-                val enterParallax = launch { backdropParallaxOffset.animateTo(0f, tween(600, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+                val enterAlpha = launch { catalogSlideAlpha.animateTo(1f, tween(500)) }
+                val enterOffset = launch { catalogSlideOffset.animateTo(0f, tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
+                val enterParallax = launch { backdropParallaxOffset.animateTo(0f, tween(500, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
                 enterAlpha.join()
                 enterOffset.join()
                 enterParallax.join()
