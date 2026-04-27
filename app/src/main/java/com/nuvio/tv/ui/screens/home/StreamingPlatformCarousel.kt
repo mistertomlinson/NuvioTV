@@ -122,6 +122,7 @@ fun StreamingPlatformCarousel(
     val selectorWAnim = remember { Animatable(defaultW()) }
 
     var snapNextNavigation by remember { mutableStateOf(true) }
+    var lastRepeatTimeMs by remember { mutableStateOf(0L) }
 
     // Color
     val displayIndex = if (isCarouselFocused) focusedIndex else
@@ -195,7 +196,9 @@ fun StreamingPlatformCarousel(
             .onPreviewKeyEvent { event ->
                 if (!isCarouselFocused) return@onPreviewKeyEvent false
                 if (event.type == KeyEventType.KeyDown) {
-                    if (event.nativeKeyEvent.repeatCount > 0) return@onPreviewKeyEvent true
+                    val now = System.currentTimeMillis()
+                    if (event.nativeKeyEvent.repeatCount > 0 && now - lastRepeatTimeMs < 120) return@onPreviewKeyEvent true
+                    if (event.nativeKeyEvent.repeatCount > 0) lastRepeatTimeMs = now
                     when (event.key) {
                         Key.DirectionRight -> {
                             val next = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
