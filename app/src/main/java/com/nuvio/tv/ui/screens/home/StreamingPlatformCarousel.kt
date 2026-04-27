@@ -123,6 +123,7 @@ fun StreamingPlatformCarousel(
 
     var snapNextNavigation by remember { mutableStateOf(true) }
     var lastRepeatTimeMs by remember { mutableStateOf(0L) }
+    var holdScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     // Color
     val displayIndex = if (isCarouselFocused) focusedIndex else
@@ -196,6 +197,7 @@ fun StreamingPlatformCarousel(
             .onPreviewKeyEvent { event ->
                 if (!isCarouselFocused) return@onPreviewKeyEvent false
                 if (event.type == KeyEventType.KeyDown) {
+                    if (event.nativeKeyEvent.repeatCount > 0 && holdScrollJob?.isActive == true) return@onPreviewKeyEvent true
                     val now = System.currentTimeMillis()
                     if (event.nativeKeyEvent.repeatCount > 0 && now - lastRepeatTimeMs < 120) return@onPreviewKeyEvent true
                     if (event.nativeKeyEvent.repeatCount > 0) lastRepeatTimeMs = now
@@ -203,11 +205,26 @@ fun StreamingPlatformCarousel(
                         Key.DirectionRight -> {
                             val next = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
                             if (next != focusedIndex) {
-                android.util.Log.d("NuvioCarousel", "PRESS at=${System.currentTimeMillis()} idx=$focusedIndex->$next selectorX=${selectorXAnim.value} targetX=${itemOffsets[next]} allOffsets=${itemOffsets.entries.sortedBy{it.key}.map{it.value.toInt()}}")
                                 snapNextNavigation = false
                                 focusedIndex = next
                                 onNavigationDirection(1)
                                 onPlatformSelected(activePlatforms[next].id)
+                            }
+                            if (event.nativeKeyEvent.repeatCount == 0) {
+                                holdScrollJob?.cancel()
+                                holdScrollJob = scope.launch {
+                                    kotlinx.coroutines.delay(150)
+                                    while (true) {
+                                        val n = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
+                                        if (n != focusedIndex) {
+                                            snapNextNavigation = false
+                                            focusedIndex = n
+                                            onNavigationDirection(1)
+                                            onPlatformSelected(activePlatforms[n].id)
+                                        } else break
+                                        kotlinx.coroutines.delay(120)
+                                    }
+                                }
                             }
                             true
                         }
@@ -219,6 +236,22 @@ fun StreamingPlatformCarousel(
                                 onNavigationDirection(-1)
                                 onPlatformSelected(activePlatforms[next].id)
                             }
+                            if (event.nativeKeyEvent.repeatCount == 0) {
+                                holdScrollJob?.cancel()
+                                holdScrollJob = scope.launch {
+                                    kotlinx.coroutines.delay(150)
+                                    while (true) {
+                                        val n = (focusedIndex - 1).coerceAtLeast(0)
+                                        if (n != focusedIndex) {
+                                            snapNextNavigation = false
+                                            focusedIndex = n
+                                            onNavigationDirection(-1)
+                                            onPlatformSelected(activePlatforms[n].id)
+                                        } else break
+                                        kotlinx.coroutines.delay(120)
+                                    }
+                                }
+                            }
                             true
                         }
                         Key.DirectionDown, Key.Back -> {
@@ -228,6 +261,10 @@ fun StreamingPlatformCarousel(
                         }
                         else -> false
                     }
+                } else if (event.type == KeyEventType.KeyUp) {
+                    holdScrollJob?.cancel()
+                    holdScrollJob = null
+                    false
                 } else false
             }
     ) {
