@@ -8,6 +8,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
@@ -158,8 +159,10 @@ fun StreamingPlatformCarousel(
                 selectorXAnim.snapTo(selX)
                 selectorWAnim.snapTo(selW)
             } else {
-                launch { selectorXAnim.animateTo(selX, tween(150)) }
-                launch { selectorWAnim.animateTo(selW, tween(150)) }
+                val dist = kotlin.math.abs(selectorXAnim.value - selX)
+                val dur = if (dist > 300f) 80 else 150
+                launch { selectorXAnim.animateTo(selX, tween(dur, easing = LinearEasing)) }
+                launch { selectorWAnim.animateTo(selW, tween(dur, easing = LinearEasing)) }
             }
         } else {
             val scroll = centeredScrollFor(focusedIndex)
@@ -168,9 +171,11 @@ fun StreamingPlatformCarousel(
                 selectorXAnim.snapTo(selX)
                 selectorWAnim.snapTo(selW)
             } else {
-                launch { scrollState.animateScrollTo(scroll.roundToInt(), tween(150)) }
-                launch { selectorXAnim.animateTo(selX, tween(150)) }
-                launch { selectorWAnim.animateTo(selW, tween(150)) }
+                val dist = kotlin.math.abs(selectorXAnim.value - selX)
+                val dur = if (dist > 300f) 80 else 150
+                launch { scrollState.animateScrollTo(scroll.roundToInt(), tween(dur, easing = LinearEasing)) }
+                launch { selectorXAnim.animateTo(selX, tween(dur, easing = LinearEasing)) }
+                launch { selectorWAnim.animateTo(selW, tween(dur, easing = LinearEasing)) }
             }
         }
     }
@@ -195,6 +200,7 @@ fun StreamingPlatformCarousel(
                         Key.DirectionRight -> {
                             val next = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
                             if (next != focusedIndex) {
+                android.util.Log.d("NuvioCarousel", "PRESS at=${System.currentTimeMillis()} idx=$focusedIndex->$next selectorX=${selectorXAnim.value} targetX=${itemOffsets[next]} allOffsets=${itemOffsets.entries.sortedBy{it.key}.map{it.value.toInt()}}")
                                 snapNextNavigation = false
                                 focusedIndex = next
                                 onNavigationDirection(1)

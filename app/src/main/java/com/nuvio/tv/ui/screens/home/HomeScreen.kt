@@ -431,7 +431,7 @@ private fun ModernHomeRoute(
     var platformNavDirection by remember { mutableStateOf(0) }
     LaunchedEffect(platformNavDirection) {
         if (platformNavDirection != 0) {
-            kotlinx.coroutines.delay(550)
+            kotlinx.coroutines.delay(100)
             platformNavDirection = 0
         }
     }
