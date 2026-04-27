@@ -86,6 +86,13 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleFastPlatformScroll() {
+        val current = _uiState.value.fastPlatformScrollEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setFastPlatformScrollEnabled(!current)
+        }
+    }
+
     fun toggleFullWidthIconRow() {
         val current = _uiState.value.fullWidthIconRowEnabled
         viewModelScope.launch {
@@ -122,7 +129,8 @@ class CatalogOrderViewModel @Inject constructor(
                 layoutPreferenceDataStore.useThemeColorForNumbers,
             layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
             layoutPreferenceDataStore.showAllCatalogsOnHome,
-            layoutPreferenceDataStore.fullWidthIconRowEnabled
+            layoutPreferenceDataStore.fullWidthIconRowEnabled,
+            layoutPreferenceDataStore.fastPlatformScrollEnabled
             ) { args ->
                 val addons = args[0] as List<*>
                 val savedOrderKeys = args[1] as List<*>
@@ -133,6 +141,7 @@ class CatalogOrderViewModel @Inject constructor(
                 val aggregatePlatforms = args[6] as Boolean
                 val showAllOnHome = args[7] as Boolean
                 val fullWidthIconRow = args[8] as Boolean
+                val fastPlatformScroll = args[9] as Boolean
                 Triple(
                 Triple(
                     buildOrderedCatalogItems(
@@ -144,9 +153,10 @@ class CatalogOrderViewModel @Inject constructor(
                     ),
                     useThemeColor,
                     Unit
-                ), aggregatePlatforms to showAllOnHome, fullWidthIconRow)
-            }.collectLatest { (triple, aggregatePair, fullWidthIconRow) ->
+                ), aggregatePlatforms to showAllOnHome, fullWidthIconRow to fastPlatformScroll)
+            }.collectLatest { (triple, aggregatePair, fullWidthIconRowPair) ->
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
+                val (fullWidthIconRow, fastPlatformScroll) = fullWidthIconRowPair
                 val (orderedItems, useThemeColor, _) = triple
                 disabledKeysCache = orderedItems.filter { it.isDisabled }.map { it.disableKey }.toSet()
                 numberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.SOLID }.map { it.key }.toSet()
@@ -158,7 +168,8 @@ class CatalogOrderViewModel @Inject constructor(
                         useThemeColorForNumbers = useThemeColor,
                         aggregateStreamingPlatformsEnabled = aggregatePlatforms,
                         showAllCatalogsOnHome = showAllOnHome,
-                        fullWidthIconRowEnabled = fullWidthIconRow
+                        fullWidthIconRowEnabled = fullWidthIconRow,
+                        fastPlatformScrollEnabled = fastPlatformScroll
                     )
                 }
             }
@@ -265,7 +276,8 @@ data class CatalogOrderUiState(
     val useThemeColorForNumbers: Boolean = false,
     val aggregateStreamingPlatformsEnabled: Boolean = false,
     val showAllCatalogsOnHome: Boolean = false,
-    val fullWidthIconRowEnabled: Boolean = false
+    val fullWidthIconRowEnabled: Boolean = false,
+    val fastPlatformScrollEnabled: Boolean = false
 )
 
 data class CatalogOrderItem(

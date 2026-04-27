@@ -159,9 +159,13 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             .combine(layoutPreferenceDataStore.fullWidthIconRowEnabled) { triple, fullWidthIconRow ->
                 Pair(triple, fullWidthIconRow)
             }
+            .combine(layoutPreferenceDataStore.fastPlatformScrollEnabled) { pair, fastPlatformScroll ->
+                Pair(pair, fastPlatformScroll)
+            }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (tripleVal, fullWidthIconRowEnabled) ->
+            .collectLatest { (pairVal, fastPlatformScrollEnabled) ->
+            val (tripleVal, fullWidthIconRowEnabled) = pairVal
             val (prefs, aggregateStreamingPlatforms, showAllCatalogsOnHome) = tripleVal
                 val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
                     false
@@ -197,7 +201,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         posterCardCornerRadiusDp = prefs.posterCardCornerRadiusDp,
                         aggregateStreamingPlatformsEnabled = aggregateStreamingPlatforms,
                         showAllCatalogsOnHome = showAllCatalogsOnHome,
-                        fullWidthIconRowEnabled = fullWidthIconRowEnabled
+                        fullWidthIconRowEnabled = fullWidthIconRowEnabled,
+                        fastPlatformScrollEnabled = fastPlatformScrollEnabled
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {

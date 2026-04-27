@@ -358,10 +358,10 @@ internal fun HeroTitleBlock(
                     val dir = platformNavDirection
                     val inOffset: (Int) -> Int = if (dir > 0) ({ slideDistancePx }) else ({ -slideDistancePx })
                     val outOffset: (Int) -> Int = if (dir > 0) ({ -slideDistancePx }) else ({ slideDistancePx })
-                    (slideInHorizontally(tween(600, easing = FastOutSlowInEasing), inOffset) + fadeIn(tween(600))) togetherWith
-                    (slideOutHorizontally(tween(600, easing = FastOutSlowInEasing), outOffset) + fadeOut(tween(600))) using null
+                    (slideInHorizontally(tween(500, easing = FastOutSlowInEasing), inOffset) + fadeIn(tween(500))) togetherWith
+                    (slideOutHorizontally(tween(200, easing = FastOutSlowInEasing), outOffset) + fadeOut(tween(200))) using null
                 } else {
-                    fadeIn(tween(500)) togetherWith fadeOut(tween(300)) using null
+                    fadeIn(tween(400)) togetherWith fadeOut(tween(150)) using null
                 }
             },
             contentAlignment = Alignment.BottomStart,

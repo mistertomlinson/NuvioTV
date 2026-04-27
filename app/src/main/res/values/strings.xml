@@ -669,6 +669,8 @@
     <string name="catalog_full_width_icon_row_desc">Removes hero synopsis and expands streaming platform icon row to full screen width</string>
     <string name="catalog_aggregate_platforms_desc">Keeps platform catalogs grouped on a separate screen</string>
     <string name="catalog_show_all_on_home_title">Show all Catalogs on Home</string>
+    <string name="catalog_fast_platform_scroll_title">Fast Platform Scrolling</string>
+    <string name="catalog_fast_platform_scroll_desc">Removes debounce for faster scrolling</string>
     <string name="catalog_show_all_on_home_desc">Streaming platforms will be shown on Home as well as their respective screens</string>
     <string name="catalog_use_theme_color_numbers">Use Theme Color for Numbered Lists</string>
     <string name="catalog_order_empty">No home catalogs available yet.</string>
