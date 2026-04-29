@@ -1068,5 +1068,24 @@
     <string name="subtitle_style_customize">Customize</string>
     <string name="audio_dialog_tab_tracks">Tracks</string>
     <string name="audio_dialog_tab_mix">Mix</string>
+<string name="trakt_error_code_expired">Device code expired. Start again.</string>
+    <string name="trakt_error_code_used">Device code already used. Start again.</string>
+    <string name="trakt_error_denied">Authorization denied on Trakt.</string>
+    <string name="trakt_library_source_title">Library Source</string>
+    <string name="trakt_library_source_subtitle">Choose which library to use for saving and viewing your collection</string>
+    <string name="trakt_library_source_dialog_title">Library Source</string>
+    <string name="trakt_library_source_dialog_subtitle">Choose where to save and manage your library items</string>
+    <string name="trakt_library_source_trakt">Trakt</string>
+    <string name="trakt_library_source_nuvio">Nuvio Library</string>
+    <string name="trakt_library_source_trakt_selected">Trakt library selected</string>
+    <string name="trakt_library_source_nuvio_selected">Nuvio library selected</string>
+    <string name="trakt_comments_title">Comments</string>
+    <string name="trakt_comments_subtitle">Show Trakt reviews on metadata pages</string>
+    <string name="trakt_comments_dialog_title">Comments</string>
+    <string name="trakt_comments_dialog_subtitle">Choose whether metadata pages should show Trakt reviews when your account is connected.</string>
+    <string name="trakt_comments_now_shown">Trakt reviews on metadata pages are now shown</string>
+    <string name="trakt_comments_now_hidden">Trakt reviews on metadata pages are now hidden</string>
+    <string name="trakt_setting_on">On</string>
+    <string name="trakt_setting_off">Off</string>
 </resources>
 

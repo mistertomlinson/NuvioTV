@@ -33,6 +33,8 @@ import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,6 +44,9 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import java.util.Collections
+import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
+import com.nuvio.tv.data.repository.TraktProgressService
 import javax.inject.Inject
 
 @OptIn(kotlinx.coroutines.FlowPreview::class)
@@ -64,6 +69,9 @@ class HomeViewModel @Inject constructor(
     internal val watchProgressPreferences: com.nuvio.tv.data.local.WatchProgressPreferences,
     @ApplicationContext internal val appContext: Context,
     internal val homeScreenChannelManager: HomeScreenChannelManager,
+    internal val profileManager: ProfileManager,
+    internal val traktProgressService: TraktProgressService,
+    internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
 ) : ViewModel() {
     companion object {
         internal const val TAG = "HomeViewModel"
@@ -119,6 +127,7 @@ class HomeViewModel @Inject constructor(
     internal var pendingCatalogLoads = 0
     internal val activeCatalogLoadJobs = mutableSetOf<Job>()
     internal var activeCatalogLoadSignature: String? = null
+    internal val cwMetaCache: MutableMap<String, com.nuvio.tv.domain.model.Meta?> = Collections.synchronizedMap(mutableMapOf())
     internal var catalogLoadGeneration: Long = 0L
     internal var catalogsLoadInProgress: Boolean = false
     internal data class TruncatedRowCacheEntry(
@@ -157,6 +166,8 @@ class HomeViewModel @Inject constructor(
     @Volatile
     internal var startupGracePeriodActive: Boolean = true
     internal var startupAuthNoticeJob: Job? = null
+    internal var cwPipelineJob: Job? = null
+    internal var cwEnrichmentJob: Job? = null
 
 
     val trailerPreviewUrls: Map<String, String>
@@ -175,6 +186,61 @@ class HomeViewModel @Inject constructor(
         observeStartupAuthNotice()
         loadContinueWatching()
         observeInstalledAddons()
+        viewModelScope.launch {
+            var previousProfileId = profileManager.activeProfileId.value
+            profileManager.activeProfileId.collect { newId ->
+                if (newId != previousProfileId) {
+                    previousProfileId = newId
+                    traktProgressService.resetForProfileSwitch()
+                    cwMetaCache.clear()
+                    // Pre-render new profile's cache instantly before pipeline catches up
+                    _uiState.update { it.copy(continueWatchingItems = emptyList()) }
+                    // Don't restart pipeline — it already observes activeProfileId via combine()
+                    // Just pre-render from the new profile's cache
+                    viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        val cachedInProgress = runCatching { cwEnrichmentCache.getInProgressSnapshot(newId) }.getOrDefault(emptyList())
+                        val cachedNextUp = runCatching { cwEnrichmentCache.getNextUpSnapshot(newId) }.getOrDefault(emptyList())
+                        android.util.Log.d("CW_TIMING", "🔄 profile switch pre-render: inProgress=${cachedInProgress.size} nextUp=${cachedNextUp.size}")
+                        if (cachedInProgress.isEmpty() && cachedNextUp.isEmpty()) return@launch
+                        val inProgressItems = cachedInProgress.map { cached ->
+                            ContinueWatchingItem.InProgress(
+                                progress = com.nuvio.tv.domain.model.WatchProgress(
+                                    contentId = cached.contentId, contentType = cached.contentType,
+                                    name = cached.name, poster = cached.poster, backdrop = cached.backdrop,
+                                    logo = cached.logo, videoId = cached.videoId, season = cached.season,
+                                    episode = cached.episode, episodeTitle = cached.episodeTitle,
+                                    position = cached.position, duration = cached.duration,
+                                    lastWatched = cached.lastWatched, progressPercent = cached.progressPercent
+                                ),
+                                episodeThumbnail = cached.episodeThumbnail,
+                                episodeDescription = cached.episodeDescription,
+                                episodeImdbRating = cached.episodeImdbRating,
+                                genres = cached.genres, releaseInfo = cached.releaseInfo
+                            )
+                        }
+                        val nextUpItems = cachedNextUp.map { cached ->
+                            ContinueWatchingItem.NextUp(info = NextUpInfo(
+                                contentId = cached.contentId, contentType = cached.contentType,
+                                name = cached.name, poster = cached.poster, backdrop = cached.backdrop,
+                                logo = cached.logo, videoId = cached.videoId, season = cached.season,
+                                episode = cached.episode, episodeTitle = cached.episodeTitle,
+                                episodeDescription = cached.episodeDescription, thumbnail = cached.thumbnail,
+                                released = cached.released, hasAired = cached.hasAired,
+                                airDateLabel = cached.airDateLabel, lastWatched = cached.lastWatched,
+                                imdbRating = cached.imdbRating, genres = cached.genres, releaseInfo = cached.releaseInfo
+                            ))
+                        }
+                        val items = mergeContinueWatchingItems(inProgressItems = inProgressItems, nextUpItems = nextUpItems)
+                        if (items.isNotEmpty()) {
+                            _uiState.update { state ->
+                                if (state.continueWatchingItems.isEmpty()) state.copy(continueWatchingItems = items) else state
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         viewModelScope.launch {
             delay(3000)
             startupGracePeriodActive = false
@@ -251,7 +317,88 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    private fun loadContinueWatching() = loadContinueWatchingPipeline()
+    private fun loadContinueWatching() {
+        // Pre-render cached CW instantly before pipeline starts — user sees content
+        // immediately on launch without waiting for Trakt/allProgress to respond.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val cachedInProgress = runCatching { cwEnrichmentCache.getInProgressSnapshot() }.getOrDefault(emptyList())
+            val cachedNextUp = runCatching { cwEnrichmentCache.getNextUpSnapshot() }.getOrDefault(emptyList())
+            android.util.Log.d("CW_TIMING", "💾 pre-render: inProgress=${cachedInProgress.size} nextUp=${cachedNextUp.size}")
+            if (cachedInProgress.isEmpty() && cachedNextUp.isEmpty()) {
+                android.util.Log.d("CW_TIMING", "💾 pre-render: cache empty, skipping")
+                return@launch
+            }
+            // Use a short timeout for dismissed keys — if DataStore isn't ready yet,
+            // show all cached items. The pipeline will filter dismissed items shortly after.
+            val dismissedNextUp = withTimeoutOrNull(200L) {
+                traktSettingsDataStore.dismissedNextUpKeys.first()
+            } ?: emptySet()
+            val inProgressItems = cachedInProgress.map { cached ->
+                ContinueWatchingItem.InProgress(
+                    progress = com.nuvio.tv.domain.model.WatchProgress(
+                        contentId = cached.contentId,
+                        contentType = cached.contentType,
+                        name = cached.name,
+                        poster = cached.poster,
+                        backdrop = cached.backdrop,
+                        logo = cached.logo,
+                        videoId = cached.videoId,
+                        season = cached.season,
+                        episode = cached.episode,
+                        episodeTitle = cached.episodeTitle,
+                        position = cached.position,
+                        duration = cached.duration,
+                        lastWatched = cached.lastWatched,
+                        progressPercent = cached.progressPercent
+                    ),
+                    episodeThumbnail = cached.episodeThumbnail,
+                    episodeDescription = cached.episodeDescription,
+                    episodeImdbRating = cached.episodeImdbRating,
+                    genres = cached.genres,
+                    releaseInfo = cached.releaseInfo
+                )
+            }
+            val nextUpItems = cachedNextUp
+                .filter { nextUpDismissKey(it.contentId) !in dismissedNextUp }
+                .map { cached ->
+                    ContinueWatchingItem.NextUp(
+                        info = NextUpInfo(
+                            contentId = cached.contentId,
+                            contentType = cached.contentType,
+                            name = cached.name,
+                            poster = cached.poster,
+                            backdrop = cached.backdrop,
+                            logo = cached.logo,
+                            videoId = cached.videoId,
+                            season = cached.season,
+                            episode = cached.episode,
+                            episodeTitle = cached.episodeTitle,
+                            episodeDescription = cached.episodeDescription,
+                            thumbnail = cached.thumbnail,
+                            released = cached.released,
+                            hasAired = cached.hasAired,
+                            airDateLabel = cached.airDateLabel,
+                            lastWatched = cached.lastWatched,
+                            imdbRating = cached.imdbRating,
+                            genres = cached.genres,
+                            releaseInfo = cached.releaseInfo
+                        )
+                    )
+                }
+            val items = mergeContinueWatchingItems(
+                inProgressItems = inProgressItems,
+                nextUpItems = nextUpItems
+            )
+            if (items.isNotEmpty()) {
+                _uiState.update { state ->
+                    if (state.continueWatchingItems.isEmpty()) {
+                        state.copy(continueWatchingItems = items)
+                    } else state
+                }
+            }
+        }
+        loadContinueWatchingPipeline()
+    }
 
     private fun removeContinueWatching(
         contentId: String,

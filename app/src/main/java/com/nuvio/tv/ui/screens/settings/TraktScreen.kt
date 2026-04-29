@@ -74,10 +74,25 @@ fun TraktScreen(
     var showDaysCapDialog by remember { mutableStateOf(false) }
     var showUnairedNextUpDialog by remember { mutableStateOf(false) }
     var showWatchProgressDialog by remember { mutableStateOf(false) }
+    var showLibrarySourceDialog by remember { mutableStateOf(false) }
+    var showCommentsDialog by remember { mutableStateOf(false) }
     val strAllHistory = stringResource(R.string.trakt_all_history)
     val strDaysFormat = stringResource(R.string.trakt_days_format)
     val strWatchProgressTrakt = stringResource(R.string.trakt_watch_progress_source_trakt)
     val strWatchProgressNuvio = stringResource(R.string.trakt_watch_progress_source_nuvio)
+    val strLibrarySourceTrakt = stringResource(R.string.trakt_library_source_trakt)
+    val strLibrarySourceNuvio = stringResource(R.string.trakt_library_source_nuvio)
+    val strSettingOn = stringResource(R.string.trakt_setting_on)
+    val strSettingOff = stringResource(R.string.trakt_setting_off)
+    val librarySourceFormatter: (com.nuvio.tv.domain.model.LibrarySourceMode) -> String = { mode ->
+        when (mode) {
+            com.nuvio.tv.domain.model.LibrarySourceMode.TRAKT -> strLibrarySourceTrakt
+            com.nuvio.tv.domain.model.LibrarySourceMode.LOCAL -> strLibrarySourceNuvio
+        }
+    }
+    val enabledFormatter: (Boolean) -> String = { enabled ->
+        if (enabled) strSettingOn else strSettingOff
+    }
     val cwWindowFormatter: (Int) -> String = { days ->
         formatContinueWatchingWindow(days, strAllHistory) { strDaysFormat.format(it) }
     }
@@ -279,6 +294,12 @@ fun TraktScreen(
 
                 if (uiState.mode == TraktConnectionMode.CONNECTED) {
                     SettingsActionRow(
+                        title = stringResource(R.string.trakt_library_source_title),
+                        subtitle = stringResource(R.string.trakt_library_source_subtitle),
+                        value = librarySourceFormatter(uiState.librarySourceMode),
+                        onClick = { showLibrarySourceDialog = true }
+                    )
+                    SettingsActionRow(
                         title = stringResource(R.string.trakt_watch_progress_title),
                         subtitle = stringResource(R.string.trakt_watch_progress_subtitle),
                         value = watchProgressFormatter(uiState.watchProgressSource),
@@ -295,6 +316,12 @@ fun TraktScreen(
                         subtitle = stringResource(R.string.trakt_unaired_next_up_subtitle),
                         value = if (uiState.showUnairedNextUp) stringResource(R.string.trakt_unaired_shown) else stringResource(R.string.trakt_unaired_hidden),
                         onClick = { showUnairedNextUpDialog = true }
+                    )
+                    SettingsActionRow(
+                        title = stringResource(R.string.trakt_comments_title),
+                        subtitle = stringResource(R.string.trakt_comments_subtitle),
+                        value = enabledFormatter(uiState.showMetaComments),
+                        onClick = { showCommentsDialog = true }
                     )
                 }
 
@@ -506,6 +533,128 @@ fun TraktScreen(
                 ) {
                     Button(
                         onClick = { showUnairedNextUpDialog = false },
+                        colors = ButtonDefaults.colors(
+                            containerColor = NuvioColors.BackgroundCard,
+                            contentColor = NuvioColors.TextPrimary
+                        )
+                    ) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                }
+            }
+        }
+    }
+
+    if (showLibrarySourceDialog) {
+        NuvioDialog(
+            onDismiss = { showLibrarySourceDialog = false },
+            title = stringResource(R.string.trakt_library_source_dialog_title),
+            subtitle = stringResource(R.string.trakt_library_source_dialog_subtitle),
+            width = 620.dp,
+            suppressFirstKeyUp = false
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.onLibrarySourceModeSelected(com.nuvio.tv.domain.model.LibrarySourceMode.TRAKT)
+                        showLibrarySourceDialog = false
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (uiState.librarySourceMode == com.nuvio.tv.domain.model.LibrarySourceMode.TRAKT) {
+                            NuvioColors.Primary
+                        } else {
+                            NuvioColors.BackgroundCard
+                        },
+                        contentColor = if (uiState.librarySourceMode == com.nuvio.tv.domain.model.LibrarySourceMode.TRAKT) {
+                            Color.Black
+                        } else {
+                            NuvioColors.TextPrimary
+                        }
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.trakt_library_source_trakt))
+                }
+                Button(
+                    onClick = {
+                        viewModel.onLibrarySourceModeSelected(com.nuvio.tv.domain.model.LibrarySourceMode.LOCAL)
+                        showLibrarySourceDialog = false
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (uiState.librarySourceMode == com.nuvio.tv.domain.model.LibrarySourceMode.LOCAL) {
+                            NuvioColors.Primary
+                        } else {
+                            NuvioColors.BackgroundCard
+                        },
+                        contentColor = if (uiState.librarySourceMode == com.nuvio.tv.domain.model.LibrarySourceMode.LOCAL) {
+                            Color.Black
+                        } else {
+                            NuvioColors.TextPrimary
+                        }
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.trakt_library_source_nuvio))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Button(
+                        onClick = { showLibrarySourceDialog = false },
+                        colors = ButtonDefaults.colors(
+                            containerColor = NuvioColors.BackgroundCard,
+                            contentColor = NuvioColors.TextPrimary
+                        )
+                    ) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                }
+            }
+        }
+    }
+
+    if (showCommentsDialog) {
+        NuvioDialog(
+            onDismiss = { showCommentsDialog = false },
+            title = stringResource(R.string.trakt_comments_dialog_title),
+            subtitle = stringResource(R.string.trakt_comments_dialog_subtitle),
+            width = 620.dp,
+            suppressFirstKeyUp = false
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(
+                    onClick = {
+                        viewModel.onShowMetaCommentsChanged(true)
+                        showCommentsDialog = false
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (uiState.showMetaComments) NuvioColors.Primary else NuvioColors.BackgroundCard,
+                        contentColor = if (uiState.showMetaComments) Color.Black else NuvioColors.TextPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.trakt_setting_on))
+                }
+                Button(
+                    onClick = {
+                        viewModel.onShowMetaCommentsChanged(false)
+                        showCommentsDialog = false
+                    },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (!uiState.showMetaComments) NuvioColors.Primary else NuvioColors.BackgroundCard,
+                        contentColor = if (!uiState.showMetaComments) Color.Black else NuvioColors.TextPrimary
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.trakt_setting_off))
+                }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    Button(
+                        onClick = { showCommentsDialog = false },
                         colors = ButtonDefaults.colors(
                             containerColor = NuvioColors.BackgroundCard,
                             contentColor = NuvioColors.TextPrimary

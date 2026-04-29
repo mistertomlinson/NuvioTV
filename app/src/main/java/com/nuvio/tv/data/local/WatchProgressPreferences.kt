@@ -35,15 +35,15 @@ class WatchProgressPreferences @Inject constructor(
     private val nextUpCacheKey = stringPreferencesKey("next_up_cache")
     private val inProgressEnrichmentCacheKey = stringPreferencesKey("in_progress_enrichment_cache")
 
-    suspend fun saveInProgressEnrichmentCache(items: List<InProgressEnrichmentEntry>) {
-        store().edit { preferences ->
+    suspend fun saveInProgressEnrichmentCache(items: List<InProgressEnrichmentEntry>, profileId: Int = profileManager.activeProfileId.value) {
+        store(profileId).edit { preferences ->
             preferences[inProgressEnrichmentCacheKey] = gson.toJson(items)
         }
     }
 
-    suspend fun loadInProgressEnrichmentCache(): List<InProgressEnrichmentEntry> {
+    suspend fun loadInProgressEnrichmentCache(profileId: Int = profileManager.activeProfileId.value): List<InProgressEnrichmentEntry> {
         return try {
-            val json = store().data.first()[inProgressEnrichmentCacheKey] ?: return emptyList()
+            val json = store(profileId).data.first()[inProgressEnrichmentCacheKey] ?: return emptyList()
             val type = object : TypeToken<List<InProgressEnrichmentEntry>>() {}.type
             gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
@@ -51,19 +51,26 @@ class WatchProgressPreferences @Inject constructor(
         }
     }
 
-    suspend fun saveNextUpCache(items: List<NextUpInfo>) {
-        store().edit { preferences ->
+    suspend fun saveNextUpCache(items: List<NextUpInfo>, profileId: Int = profileManager.activeProfileId.value) {
+        store(profileId).edit { preferences ->
             preferences[nextUpCacheKey] = gson.toJson(items)
         }
     }
 
-    suspend fun loadNextUpCache(): List<NextUpInfo> {
+    suspend fun loadNextUpCache(profileId: Int = profileManager.activeProfileId.value): List<NextUpInfo> {
         return try {
-            val json = store().data.first()[nextUpCacheKey] ?: return emptyList()
+            val json = store(profileId).data.first()[nextUpCacheKey] ?: return emptyList()
             val type = object : TypeToken<List<NextUpInfo>>() {}.type
             gson.fromJson(json, type) ?: emptyList()
         } catch (e: Exception) {
             emptyList()
+        }
+    }
+
+    suspend fun clearNextUpAndEnrichmentCache(profileId: Int = profileManager.activeProfileId.value) {
+        store(profileId).edit { preferences ->
+            preferences.remove(nextUpCacheKey)
+            preferences.remove(inProgressEnrichmentCacheKey)
         }
     }
 

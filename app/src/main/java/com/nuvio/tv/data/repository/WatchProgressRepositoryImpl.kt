@@ -53,6 +53,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
 ) : WatchProgressRepository {
     companion object {
         private const val TAG = "WatchProgressRepo"
+        private const val OPTIMISTIC_NEXT_UP_SEED_WINDOW_MS = 3 * 60_000L
     }
 
     private data class EpisodeMetadata(
@@ -304,7 +305,120 @@ class WatchProgressRepositoryImpl @Inject constructor(
             }
     }
 
-    override fun getAllEpisodeProgress(contentId: String): Flow<Map<Pair<Int, Int>, WatchProgress>> {
+    override fun observeNextUpSeeds(): Flow<List<WatchProgress>> {
+        return useTraktProgressFlow()
+            .flatMapLatest { useTraktProgress ->
+                if (useTraktProgress) {
+                    combine(
+                        traktProgressService.observeAllProgress()
+                            .map { items ->
+                                val nowMs = System.currentTimeMillis()
+                                items.filter { progress ->
+                                    isOptimisticNextUpSeedCandidate(progress, nowMs)
+                                }
+                            }
+                            .onStart { emit(emptyList()) },
+                        traktProgressService.observeAllProgress()
+                            .map { items ->
+                                items
+                                    .filter { it.contentType.equals("series", ignoreCase = true) || it.contentType.equals("tv", ignoreCase = true) }
+                                    .filter { it.season != null && it.episode != null && it.season != 0 }
+                                    .filter { it.isCompleted() }
+                                    .filter { !isMalformedNextUpSeedContentId(it.contentId) }
+                                    .groupBy { it.contentId }
+                                    .mapNotNull { (_, episodes) ->
+                                        episodes.maxWithOrNull(
+                                            compareBy<WatchProgress>({ it.season ?: -1 }, { it.episode ?: -1 }, { it.lastWatched })
+                                        )
+                                    }
+                            }
+                            .onStart { emit(emptyList()) }
+                    ) { optimisticSeeds, canonicalSeeds ->
+                        mergeNextUpSeeds(canonicalSeeds, optimisticSeeds)
+                    }
+                } else {
+                    watchedItemsPreferences.allItems.map { items ->
+                        items
+                            .filter { item ->
+                                (item.contentType.equals("series", ignoreCase = true) ||
+                                    item.contentType.equals("tv", ignoreCase = true)) &&
+                                    item.season != null &&
+                                    item.episode != null &&
+                                    item.season != 0 &&
+                                    !isMalformedNextUpSeedContentId(item.contentId)
+                            }
+                            .groupBy { it.contentId }
+                            .mapNotNull { (_, episodes) ->
+                                val latest = episodes.maxWithOrNull(
+                                    compareBy<WatchedItem> { it.watchedAt }
+                                        .thenBy { it.season ?: 0 }
+                                        .thenBy { it.episode ?: 0 }
+                                ) ?: return@mapNotNull null
+                                WatchProgress(
+                                    contentId = latest.contentId,
+                                    contentType = latest.contentType,
+                                    name = latest.title,
+                                    poster = null,
+                                    backdrop = null,
+                                    logo = null,
+                                    videoId = latest.contentId,
+                                    season = latest.season,
+                                    episode = latest.episode,
+                                    episodeTitle = null,
+                                    position = 1L,
+                                    duration = 1L,
+                                    lastWatched = latest.watchedAt,
+                                    progressPercent = 100f
+                                )
+                            }
+                    }
+                }
+            }
+            .distinctUntilChanged()
+    }
+
+    private fun isOptimisticNextUpSeedCandidate(progress: WatchProgress, nowMs: Long): Boolean {
+        if (!progress.contentType.equals("series", ignoreCase = true) &&
+            !progress.contentType.equals("tv", ignoreCase = true)) return false
+        if (!progress.isCompleted()) return false
+        if (progress.source != WatchProgress.SOURCE_TRAKT_PLAYBACK) return false
+        if (progress.season == null || progress.episode == null || progress.season == 0) return false
+        val ageMs = nowMs - progress.lastWatched
+        return ageMs in 0..OPTIMISTIC_NEXT_UP_SEED_WINDOW_MS
+    }
+
+    private fun mergeNextUpSeeds(
+        canonicalSeeds: List<WatchProgress>,
+        optimisticSeeds: List<WatchProgress>
+    ): List<WatchProgress> {
+        val merged = linkedMapOf<String, WatchProgress>()
+        canonicalSeeds.forEach { seed -> merged[nextUpSeedKey(seed)] = seed }
+        optimisticSeeds.forEach { seed ->
+            val key = nextUpSeedKey(seed)
+            val existing = merged[key]
+            if (existing == null || shouldReplaceNextUpSeed(existing, seed)) merged[key] = seed
+        }
+        return merged.values.sortedByDescending { it.lastWatched }
+    }
+
+    private fun isMalformedNextUpSeedContentId(contentId: String?): Boolean {
+        val t = contentId?.trim().orEmpty()
+        if (t.isEmpty()) return true
+        val l = t.lowercase()
+        return l == "tmdb" || l == "imdb" || l == "trakt" ||
+            l == "tmdb:" || l == "imdb:" || l == "trakt:"
+    }
+
+    private fun nextUpSeedKey(progress: WatchProgress): String =
+        progress.contentId.trim()
+
+    private fun shouldReplaceNextUpSeed(existing: WatchProgress, candidate: WatchProgress): Boolean {
+        val cs = candidate.season ?: -1; val ce = candidate.episode ?: -1
+        val es = existing.season ?: -1;  val ee = existing.episode ?: -1
+        return cs > es || (cs == es && (ce > ee || (ce == ee && candidate.lastWatched >= existing.lastWatched)))
+    }
+
+        override fun getAllEpisodeProgress(contentId: String): Flow<Map<Pair<Int, Int>, WatchProgress>> {
         return useTraktProgressFlow()
             .flatMapLatest { useTraktProgress ->
                 if (useTraktProgress) {

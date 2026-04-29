@@ -55,6 +55,7 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
+import com.nuvio.tv.core.profile.ProfileManager
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -65,7 +66,8 @@ class TraktProgressService @Inject constructor(
     private val traktAuthService: TraktAuthService,
     private val metaRepository: MetaRepository,
     private val traktSettingsDataStore: TraktSettingsDataStore,
-    private val traktEpisodeMappingService: TraktEpisodeMappingService
+    private val traktEpisodeMappingService: TraktEpisodeMappingService,
+    private val profileManager: ProfileManager
 ) {
     companion object {
         private const val TAG = "TraktProgressSvc"
@@ -295,6 +297,19 @@ class TraktProgressService @Inject constructor(
         optimisticProgress.value = emptyMap()
     }
 
+    fun resetForProfileSwitch() {
+        remoteProgress.value = emptyList()
+        optimisticProgress.value = emptyMap()
+        hasLoadedRemoteProgress.value = false
+        lastKnownActivityFingerprint = null
+        lastKnownEpisodeActivityFingerprint = ""
+        lastKnownMoviesWatchedAt = null
+        watchedMoviesStale = false
+        lastFastSyncRequestMs = 0L
+        forceRefreshUntilMs = System.currentTimeMillis() + 30_000L
+        refreshSignals.tryEmit(Unit)
+    }
+
     fun observeAllProgress(): Flow<List<WatchProgress>> {
         return combine(
             remoteProgress,
@@ -326,6 +341,8 @@ class TraktProgressService @Inject constructor(
     fun observeRemoteProgressLoaded(): Flow<Boolean> {
         return hasLoadedRemoteProgress
     }
+
+    fun isRemoteProgressLoaded(): Boolean = hasLoadedRemoteProgress.value
 
     fun observeEpisodeProgress(contentId: String): Flow<Map<Pair<Int, Int>, WatchProgress>> {
         val cacheKey = canonicalLookupKey(contentId)

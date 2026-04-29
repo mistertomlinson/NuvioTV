@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
@@ -36,6 +37,8 @@ class TraktSettingsDataStore @Inject constructor(
         const val DEFAULT_CONTINUE_WATCHING_DAYS_CAP = 60
         const val DEFAULT_SHOW_UNAIRED_NEXT_UP = true
         val DEFAULT_WATCH_PROGRESS_SOURCE = WatchProgressSource.TRAKT
+        val DEFAULT_LIBRARY_SOURCE_MODE = LibrarySourceMode.TRAKT
+        const val DEFAULT_SHOW_META_COMMENTS = true
         const val MIN_CONTINUE_WATCHING_DAYS_CAP = 7
         const val MAX_CONTINUE_WATCHING_DAYS_CAP = 365
     }
@@ -47,6 +50,8 @@ class TraktSettingsDataStore @Inject constructor(
     private val dismissedNextUpKeysKey = stringSetPreferencesKey("dismissed_next_up_keys")
     private val showUnairedNextUpKey = booleanPreferencesKey("show_unaired_next_up")
     private val watchProgressSourceKey = stringPreferencesKey("watch_progress_source")
+    private val librarySourceModeKey = stringPreferencesKey("library_source_mode")
+    private val showMetaCommentsKey = booleanPreferencesKey("show_meta_comments")
 
     val continueWatchingDaysCap: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -74,7 +79,20 @@ class TraktSettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setContinueWatchingDaysCap(days: Int) {
+    val showMetaComments: Flow<Boolean> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            prefs[showMetaCommentsKey] ?: DEFAULT_SHOW_META_COMMENTS
+        }
+    }
+
+    val librarySourceMode: Flow<LibrarySourceMode> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            val stored = prefs[librarySourceModeKey]
+            LibrarySourceMode.entries.firstOrNull { it.name == stored } ?: DEFAULT_LIBRARY_SOURCE_MODE
+        }
+    }
+
+        suspend fun setContinueWatchingDaysCap(days: Int) {
         store().edit { prefs ->
             prefs[continueWatchingDaysCapKey] = normalizeContinueWatchingDaysCap(days)
         }
@@ -96,7 +114,19 @@ class TraktSettingsDataStore @Inject constructor(
         }
     }
 
-    suspend fun setShowUnairedNextUp(enabled: Boolean) {
+    suspend fun removeDismissedNextUpKeysForContent(contentId: String) {
+        if (contentId.isBlank()) return
+        val prefix = "${contentId.trim()}|"
+        store().edit { prefs ->
+            val current = prefs[dismissedNextUpKeysKey] ?: emptySet()
+            val filtered = current.filterNot { it.startsWith(prefix) }
+            if (filtered.size != current.size) {
+                prefs[dismissedNextUpKeysKey] = filtered.toSet()
+            }
+        }
+    }
+
+        suspend fun setShowUnairedNextUp(enabled: Boolean) {
         store().edit { prefs ->
             prefs[showUnairedNextUpKey] = enabled
         }
@@ -105,6 +135,18 @@ class TraktSettingsDataStore @Inject constructor(
     suspend fun setWatchProgressSource(source: WatchProgressSource) {
         store().edit { prefs ->
             prefs[watchProgressSourceKey] = source.name
+        }
+    }
+
+    suspend fun setShowMetaComments(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[showMetaCommentsKey] = enabled
+        }
+    }
+
+    suspend fun setLibrarySourceMode(mode: LibrarySourceMode) {
+        store().edit { prefs ->
+            prefs[librarySourceModeKey] = mode.name
         }
     }
 }

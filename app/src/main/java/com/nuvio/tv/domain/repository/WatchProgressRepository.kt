@@ -40,6 +40,12 @@ interface WatchProgressRepository {
      */
     fun isWatched(contentId: String, videoId: String? = null, season: Int? = null, episode: Int? = null): Flow<Boolean>
     
+    /**
+     * Pre-computed flow of latest completed episode per series — used for Next Up
+     * resolution without per-series Trakt API calls.
+     */
+    fun observeNextUpSeeds(): Flow<List<WatchProgress>>
+
     fun observeWatchedMovieIds(): Flow<Set<String>>
 
     /**
