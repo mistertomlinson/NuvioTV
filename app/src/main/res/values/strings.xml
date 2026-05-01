@@ -11,6 +11,19 @@
 
     <!-- ErrorState -->
     <string name="action_retry">Retry</string>
+    <string name="detail_comments_title">Comments</string>
+    <string name="detail_comments_subtitle">Reviews from Trakt</string>
+    <string name="detail_comments_empty">No Trakt reviews available yet.</string>
+    <string name="detail_comments_error">Could not load Trakt reviews right now.</string>
+    <string name="detail_comments_spoiler_hidden">Spoiler review. Press OK to reveal.</string>
+    <string name="detail_comments_reveal_spoiler">Reveal spoiler</string>
+    <string name="detail_comments_reveal_spoiler_hint">Press OK to reveal spoiler.</string>
+    <string name="detail_comments_back_hint">Click back to close</string>
+    <string name="detail_comments_badge_review">Review</string>
+    <string name="detail_comments_badge_spoiler">Spoiler</string>
+    <string name="detail_comments_badge_rating">%1$d/10</string>
+    <string name="detail_comments_likes">%1$d likes</string>
+    <string name="cd_trakt_logo">Trakt Logo</string>
     <string name="error_state_generic_issue">Something went wrong.</string>
     <string name="error_state_possible_fix">Possible fix: %1$s</string>
     <string name="error_state_fix_retry_soon">retry in a moment.</string>

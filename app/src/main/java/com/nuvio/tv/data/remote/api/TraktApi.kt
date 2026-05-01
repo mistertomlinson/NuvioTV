@@ -1,5 +1,8 @@
 package com.nuvio.tv.data.remote.api
 
+import com.nuvio.tv.data.remote.dto.trakt.TraktCommentDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktSearchResultDto
+
 import com.nuvio.tv.data.remote.dto.trakt.TraktDeviceCodeRequestDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktDeviceCodeResponseDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktDeviceTokenRequestDto
@@ -231,6 +234,32 @@ interface TraktApi {
         @Header("Authorization") authorization: String,
         @Body body: TraktListItemsMutationRequestDto
     ): Response<TraktListItemsMutationResponseDto>
+
+    @GET("movies/{id}/comments/{sort}")
+    suspend fun getMovieComments(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+        @Path("sort") sort: String,
+        @Query("page") page: Int,
+        @Query("limit") limit: Int
+    ): Response<List<TraktCommentDto>>
+
+    @GET("shows/{id}/comments/{sort}")
+    suspend fun getShowComments(
+        @Header("Authorization") authorization: String,
+        @Path("id") id: String,
+        @Path("sort") sort: String,
+        @Query("page") page: Int,
+        @Query("limit") limit: Int
+    ): Response<List<TraktCommentDto>>
+
+    @GET("search/{id_type}/{id}")
+    suspend fun searchById(
+        @Header("Authorization") authorization: String,
+        @Path("id_type") idType: String,
+        @Path("id") id: String,
+        @Query("type") type: String
+    ): Response<List<TraktSearchResultDto>>
 
     @POST("sync/watchlist/remove")
     suspend fun removeFromWatchlist(

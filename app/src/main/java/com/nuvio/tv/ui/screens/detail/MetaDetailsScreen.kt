@@ -92,6 +92,7 @@ import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.MDBListRatings
+import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
@@ -187,6 +188,13 @@ fun MetaDetailsScreen(
     returnFocusSeason: Int? = null,
     returnFocusEpisode: Int? = null,
     onBackPress: () -> Unit,
+    onRetryComments: () -> Unit = {},
+    onLoadMoreComments: () -> Unit = {},
+    onCommentClick: (TraktCommentReview) -> Unit = {},
+    onShowPreviousComment: () -> Unit = {},
+    onShowNextComment: () -> Unit = {},
+    onDismissCommentOverlay: () -> Unit = {},
+    commentOverlayDirection: Int = 0,
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit = { _, _, _ -> },
     onPlayClick: (
@@ -374,6 +382,14 @@ fun MetaDetailsScreen(
                     episodeRatingsError = uiState.episodeRatingsError,
                     mdbListRatings = uiState.mdbListRatings,
                     showMdbListImdb = uiState.showMdbListImdb,
+                    comments = uiState.comments,
+                    commentsCurrentPage = uiState.commentsCurrentPage,
+                    commentsPageCount = uiState.commentsPageCount,
+                    isCommentsLoading = uiState.isCommentsLoading,
+                    isCommentsLoadingMore = uiState.isCommentsLoadingMore,
+                    commentsError = uiState.commentsError,
+                    shouldShowCommentsSection = uiState.shouldShowCommentsSection,
+                    selectedComment = uiState.selectedComment,
                     onSeasonSelected = { viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(it)) },
                     onEpisodeClick = { video ->
                         onPlayClick(
@@ -515,6 +531,13 @@ fun MetaDetailsScreen(
                     onTrailerEnded = { viewModel.onEvent(MetaDetailsEvent.OnTrailerEnded) },
                     onTrailerButtonClick = { viewModel.onEvent(MetaDetailsEvent.OnTrailerButtonClick) },
                     restorePlayFocusAfterTrailerBackToken = restorePlayFocusAfterTrailerBackToken,
+                    onRetryComments = { viewModel.onEvent(MetaDetailsEvent.OnRetryComments) },
+                    onLoadMoreComments = { viewModel.onEvent(MetaDetailsEvent.OnLoadMoreComments) },
+                    onCommentClick = { viewModel.onEvent(MetaDetailsEvent.OnCommentSelected(it)) },
+                    onShowPreviousComment = { viewModel.onEvent(MetaDetailsEvent.OnAdvanceCommentOverlay(direction = -1)) },
+                    onShowNextComment = { viewModel.onEvent(MetaDetailsEvent.OnAdvanceCommentOverlay(direction = 1)) },
+                    onDismissCommentOverlay = { viewModel.onEvent(MetaDetailsEvent.OnDismissCommentOverlay) },
+                    commentOverlayDirection = uiState.comments.indexOfFirst { it.id == uiState.selectedComment?.id },
                     onNavigateToCastDetail = onNavigateToCastDetail,
                     onNavigateToDetail = onNavigateToDetail
                 )
@@ -607,6 +630,14 @@ private fun MetaDetailsContent(
     episodeRatingsError: String?,
     mdbListRatings: MDBListRatings?,
     showMdbListImdb: Boolean,
+    comments: List<TraktCommentReview> = emptyList(),
+    commentsCurrentPage: Int = 0,
+    commentsPageCount: Int = 0,
+    isCommentsLoading: Boolean = false,
+    isCommentsLoadingMore: Boolean = false,
+    commentsError: String? = null,
+    shouldShowCommentsSection: Boolean = false,
+    selectedComment: TraktCommentReview? = null,
     onSeasonSelected: (Int) -> Unit,
     onEpisodeClick: (Video) -> Unit,
     onEpisodeManualPlayClick: (Video) -> Unit,
@@ -635,9 +666,20 @@ private fun MetaDetailsContent(
     onTrailerEnded: () -> Unit,
     onTrailerButtonClick: () -> Unit,
     restorePlayFocusAfterTrailerBackToken: Int,
+    onRetryComments: () -> Unit = {},
+    onLoadMoreComments: () -> Unit = {},
+    onCommentClick: (TraktCommentReview) -> Unit = {},
+    onShowPreviousComment: () -> Unit = {},
+    onShowNextComment: () -> Unit = {},
+    onDismissCommentOverlay: () -> Unit = {},
+    commentOverlayDirection: Int = 0,
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
     onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit = { _, _, _ -> }
 ) {
+    val canLoadMoreComments = commentsCurrentPage in 1 until commentsPageCount
+    val selectedCommentIndex = remember(comments, selectedComment?.id) {
+        selectedComment?.let { review -> comments.indexOfFirst { it.id == review.id } } ?: -1
+    }
     val isSeries = remember(meta.type, meta.videos) {
         meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
     }
@@ -1356,6 +1398,21 @@ private fun MetaDetailsContent(
                 }
             }
 
+            if (shouldShowCommentsSection) {
+                item(key = "trakt_comments", contentType = "horizontal_row") {
+                    CommentsSection(
+                        comments = comments,
+                        isLoading = isCommentsLoading,
+                        isLoadingMore = isCommentsLoadingMore,
+                        canLoadMore = canLoadMoreComments,
+                        error = commentsError,
+                        onRetry = onRetryComments,
+                        onLoadMore = onLoadMoreComments,
+                        onCommentClick = onCommentClick
+                    )
+                }
+            }
+
             if (isTvShow) {
                 if (meta.networks.isNotEmpty()) {
                     item(key = "networks", contentType = "horizontal_row") {
@@ -1422,6 +1479,21 @@ private fun MetaDetailsContent(
                 }
             )
         }
+    }
+
+    selectedComment?.let { review ->
+        CommentOverlay(
+            review = review,
+            canNavigatePrevious = selectedCommentIndex > 0,
+            canNavigateNext = selectedCommentIndex >= 0 && (
+                selectedCommentIndex < comments.lastIndex || canLoadMoreComments || isCommentsLoadingMore
+            ),
+            isLoadingNext = isCommentsLoadingMore,
+            transitionDirection = commentOverlayDirection,
+            onPrevious = onShowPreviousComment,
+            onNext = onShowNextComment,
+            onDismiss = onDismissCommentOverlay
+        )
     }
 }
 
