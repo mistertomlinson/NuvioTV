@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.homechannel.HomeScreenChannelManager
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.data.remote.supabase.AvatarCatalogItem
 import com.nuvio.tv.data.remote.supabase.AvatarRepository
@@ -19,7 +20,8 @@ import javax.inject.Inject
 class ProfileSelectionViewModel @Inject constructor(
     private val profileManager: ProfileManager,
     private val profileSyncService: ProfileSyncService,
-    private val avatarRepository: AvatarRepository
+    private val avatarRepository: AvatarRepository,
+    private val homeScreenChannelManager: HomeScreenChannelManager
 ) : ViewModel() {
     private var isAvatarCatalogLoading = false
 
@@ -103,6 +105,7 @@ class ProfileSelectionViewModel @Inject constructor(
             profileManager.deleteProfile(id)
             profileSyncService.deleteProfileData(id)
             profileSyncService.pushToRemote()
+            homeScreenChannelManager.deleteChannel(id)
         }
     }
 }

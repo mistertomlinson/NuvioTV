@@ -1410,8 +1410,10 @@ private suspend fun HomeViewModel.enrichVisibleContinueWatchingItems(
     // Refresh home screen channel after enrichment (logos/thumbnails now available)
     val finalItems2 = _uiState.value.continueWatchingItems
     if (finalItems2.isNotEmpty()) {
+        val profileId = profileManager.activeProfileId.value
+        val profileName = profileManager.activeProfile?.name ?: "Profile $profileId"
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { homeScreenChannelManager.refreshFromItems(finalItems2) }
+            runCatching { homeScreenChannelManager.refreshFromItems(finalItems2, profileId, profileName) }
         }
     }
     true

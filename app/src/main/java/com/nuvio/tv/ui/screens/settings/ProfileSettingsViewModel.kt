@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.settings
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.homechannel.HomeScreenChannelManager
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.domain.model.UserProfile
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -18,7 +19,8 @@ import javax.inject.Inject
 @HiltViewModel
 class ProfileSettingsViewModel @Inject constructor(
     private val profileManager: ProfileManager,
-    private val profileSyncService: ProfileSyncService
+    private val profileSyncService: ProfileSyncService,
+    private val homeScreenChannelManager: HomeScreenChannelManager
 ) : ViewModel() {
 
     val profiles: StateFlow<List<UserProfile>> = profileManager.profiles
@@ -78,6 +80,7 @@ class ProfileSettingsViewModel @Inject constructor(
             profileManager.deleteProfile(id)
             profileSyncService.deleteProfileData(id)
             profileSyncService.pushToRemote()
+            homeScreenChannelManager.deleteChannel(id)
         }
     }
 }

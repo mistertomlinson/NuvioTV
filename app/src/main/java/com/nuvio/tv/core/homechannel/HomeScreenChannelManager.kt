@@ -25,9 +25,11 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private const val TAG = "HomeScreenChannelManager"
-private const val CHANNEL_ID_PREF = "home_channel_id"
 private const val PREFS_NAME = "home_screen_channel"
 private const val MAX_PROGRAMS = 15
+
+private fun channelPrefKey(profileId: Int) = "home_channel_id_p$profileId"
+private fun channelDisplayName(profileName: String) = "$profileName — Continue Watching"
 
 @Singleton
 class HomeScreenChannelManager @Inject constructor(
@@ -59,9 +61,10 @@ class HomeScreenChannelManager @Inject constructor(
         }
     }
 
-    private fun getOrCreateChannelId(): Long? {
+    private fun getOrCreateChannelId(profileId: Int, profileName: String): Long? {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-        val savedId = prefs.getLong(CHANNEL_ID_PREF, -1L)
+        val prefKey = channelPrefKey(profileId)
+        val savedId = prefs.getLong(prefKey, -1L)
         if (savedId != -1L) {
             val cursor = context.contentResolver.query(
                 TvContractCompat.buildChannelUri(savedId),
@@ -69,7 +72,6 @@ class HomeScreenChannelManager @Inject constructor(
             )
             cursor?.use {
                 if (it.moveToFirst()) {
-                    // Always try to refresh the logo in case it was lost
                     storeAppIconAsChannelLogo(savedId)
                     return savedId
                 }
@@ -79,7 +81,7 @@ class HomeScreenChannelManager @Inject constructor(
         return try {
             val channel = Channel.Builder()
                 .setType(TvContractCompat.Channels.TYPE_PREVIEW)
-                .setDisplayName("Continue Watching")
+                .setDisplayName(channelDisplayName(profileName))
                 .setAppLinkIntentUri(Uri.parse("nuvio://home"))
                 .build()
 
@@ -89,7 +91,7 @@ class HomeScreenChannelManager @Inject constructor(
             ) ?: return null
 
             val id = ContentUris.parseId(uri)
-            prefs.edit().putLong(CHANNEL_ID_PREF, id).apply()
+            prefs.edit().putLong(prefKey, id).apply()
 
             storeAppIconAsChannelLogo(id)
             TvContractCompat.requestChannelBrowsable(context, id)
@@ -101,10 +103,26 @@ class HomeScreenChannelManager @Inject constructor(
         }
     }
 
-    suspend fun refreshFromItems(items: List<ContinueWatchingItem>) = withContext(Dispatchers.IO) {
+    fun deleteChannel(profileId: Int) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val prefKey = channelPrefKey(profileId)
+        val savedId = prefs.getLong(prefKey, -1L)
+        if (savedId == -1L) return
         try {
-            Log.d(TAG, "refreshFromItems() called with ${items.size} items")
-            val channelId = getOrCreateChannelId() ?: run {
+            context.contentResolver.delete(
+                TvContractCompat.buildChannelUri(savedId), null, null
+            )
+            prefs.edit().remove(prefKey).apply()
+            Log.d(TAG, "Deleted channel for profile $profileId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to delete channel for profile $profileId", e)
+        }
+    }
+
+    suspend fun refreshFromItems(items: List<ContinueWatchingItem>, profileId: Int, profileName: String) = withContext(Dispatchers.IO) {
+        try {
+            Log.d(TAG, "refreshFromItems() called with ${items.size} items for profile $profileId")
+            val channelId = getOrCreateChannelId(profileId, profileName) ?: run {
                 Log.w(TAG, "Could not get or create channel")
                 return@withContext
             }
@@ -241,7 +259,7 @@ class HomeScreenChannelManager @Inject constructor(
     suspend fun refresh() = withContext(Dispatchers.IO) {
         try {
             Log.d(TAG, "refresh() called")
-            val channelId = getOrCreateChannelId() ?: run {
+            val channelId = getOrCreateChannelId(1, "Profile 1") ?: run {
                 Log.w(TAG, "Could not get or create channel")
                 return@withContext
             }
