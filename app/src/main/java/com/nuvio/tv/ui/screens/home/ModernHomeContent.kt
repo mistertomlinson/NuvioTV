@@ -950,7 +950,7 @@ fun ModernHomeContent(
 
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
-            backdropCrossfadeDuration = if (aggregatePlatformsEnabled && platformNavDirection != 0) 0 else 350,
+            backdropCrossfadeDuration = if (isPlatformTransitioning) 0 else 350,
             heroBackdropAlpha = heroBackdropAlpha,
             parallaxOffsetX = backdropParallaxOffset.value,
             cinematicMode = cinematicHeroMode,
