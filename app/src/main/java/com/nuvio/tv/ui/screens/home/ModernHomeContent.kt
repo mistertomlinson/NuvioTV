@@ -687,6 +687,7 @@ fun ModernHomeContent(
             .debounce(80L)
             .collectLatest { (pair, isScrolling) ->
                 if (isScrolling) return@collectLatest
+                if (heroTransitioningRef.get()) return@collectLatest
                 val (row, index) = pair
                 if (row == null) return@collectLatest
                 // Read from latestCarouselRows so enrichment updates are picked up
@@ -797,6 +798,9 @@ fun ModernHomeContent(
         android.util.Log.d("NuvioHero", "RENDER: heroItem=${heroItem?.title} heroItemRow=${heroItemRowKey?.take(20)} activeRow=${activeRow?.key?.take(20)} rowMatch=$heroItemMatchesRow activeCarouselItem=${activeCarouselItem?.heroPreview?.title} resolvedHero=${resolvedHero?.title} logo=${resolvedHero?.logo?.take(60)} index=$clampedActiveItemIndex")
         // transitionHero: non-null during platform transition, blocks live resolvedHero updates.
         var isPlatformTransitioning by remember { mutableStateOf(false) }
+        LaunchedEffect(isPlatformTransitioning) {
+            heroTransitioningRef.set(isPlatformTransitioning)
+        }
         // Inject cached MDB ratings into the hero preview when home screen ratings are enabled
 
         val activeRowFallbackBackdrop = remember(activeRow?.key, activeRow?.items?.size) {
@@ -1061,7 +1065,7 @@ fun ModernHomeContent(
 
         // Shared transition logic — used by both fast and debounced modes.
         suspend fun runTransition(finalTarget: String) {
-            val safeParallaxMax = screenWidthPx * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.02f
+            val safeParallaxMax = screenWidthPx * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f
             val navDir = platformNavDirectionRef.get()
             val exitDir = if (navDir >= 0) -1f else 1f
             val enterDir = -exitDir
@@ -1094,6 +1098,7 @@ fun ModernHomeContent(
                 coil.Coil.imageLoader(context).enqueue(preloadRequest)
             }
             withFrameNanos {}
+            withFrameNanos {}
             // ENTER — slide and fade in together
             coroutineScope {
                 launch { catalogSlideAlpha.animateTo(1f, tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
@@ -1101,6 +1106,14 @@ fun ModernHomeContent(
                 launch { backdropParallaxOffset.animateTo(0f, tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }
             }
             isPlatformTransitioning = false
+            // Now that the screen is fully visible, sync heroItem to the new platform's content
+            val currentRow = latestCarouselRows.firstOrNull { it.key == latestActiveRow?.key } ?: latestActiveRow
+            val currentIndex = latestActiveItemIndex
+            val hero = currentRow?.items?.getOrNull(currentIndex)?.heroPreview
+            if (hero != null) {
+                heroItem = hero
+                heroItemRowKey = currentRow.key
+            }
         }
 
         if (fastPlatformScrollEnabled) {
