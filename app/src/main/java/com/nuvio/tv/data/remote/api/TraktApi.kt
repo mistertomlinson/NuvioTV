@@ -98,6 +98,12 @@ interface TraktApi {
         @Query("limit") limit: Int = 100
     ): Response<List<TraktPlaybackItemDto>>
 
+    @GET("sync/watched/shows")
+    suspend fun getWatchedShows(
+        @Header("Authorization") authorization: String,
+        @Query("extended") extended: String? = null
+    ): Response<List<com.nuvio.tv.data.remote.dto.trakt.TraktWatchedShowItemDto>>
+
     @GET("sync/watched/{type}")
     suspend fun getWatched(
         @Header("Authorization") authorization: String,

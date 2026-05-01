@@ -60,7 +60,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.data.remote.supabase.AvatarCatalogItem
 import com.nuvio.tv.ui.theme.NuvioColors
 
-private val PinnedAvatarCategories = listOf("anime", "animation", "tv", "movie", "gaming")
+private val PinnedAvatarCategories = listOf("personal", "anime", "animation", "tv", "movie", "gaming")
 
 @Composable
 fun AvatarPickerGrid(
@@ -321,15 +321,28 @@ private fun AvatarGridItem(
                 .fillMaxSize()
                 .clip(CircleShape)
         ) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(avatar.imageUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = avatar.displayName,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
-            )
+            val context = LocalContext.current
+            val resId = if (avatar.imageUrl.startsWith("res://")) {
+                context.resources.getIdentifier(avatar.imageUrl.removePrefix("res://"), "drawable", context.packageName)
+            } else 0
+            if (resId != 0) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = resId),
+                    contentDescription = avatar.displayName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(avatar.imageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = avatar.displayName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
         }
     }
 }
@@ -343,6 +356,7 @@ private fun categoryLabel(category: String): String {
         "movie" -> stringResource(R.string.profile_avatar_category_movie)
         "tv" -> stringResource(R.string.profile_avatar_category_tv)
         "gaming" -> stringResource(R.string.profile_avatar_category_gaming)
+        "personal" -> "Personal"
         else -> category.replaceFirstChar { it.uppercase() }
     }
 }

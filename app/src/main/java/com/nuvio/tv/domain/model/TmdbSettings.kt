@@ -21,5 +21,9 @@ data class TmdbSettings(
     // Group: Recommendations (more like this)
     val useMoreLikeThis: Boolean = true,
     // Group: Collections
-    val useCollections: Boolean = true
+    val useCollections: Boolean = true,
+    // Enrich Continue Watching with TMDB metadata
+    val enrichContinueWatching: Boolean = true,
+    // Use TMDB release dates
+    val useReleaseDates: Boolean = true
 )

@@ -238,4 +238,12 @@ class MDBListRepository @Inject constructor(
             else -> "movie"
         }
     }
+    suspend fun getImdbRatingForItem(itemId: String, itemType: String): Double? {
+        return try {
+            null // MDBList rating lookup not implemented in this fork
+        } catch (e: Exception) {
+            null
+        }
+    }
+
 }

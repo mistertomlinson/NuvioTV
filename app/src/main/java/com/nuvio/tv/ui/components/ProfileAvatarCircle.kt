@@ -49,17 +49,28 @@ fun ProfileAvatarCircle(
         contentAlignment = Alignment.Center
     ) {
         if (avatarImageUrl != null) {
-            AsyncImage(
-                model = ImageRequest.Builder(LocalContext.current)
-                    .data(avatarImageUrl)
-                    .crossfade(true)
-                    .build(),
-                contentDescription = name,
-                modifier = Modifier
-                    .size(size)
-                    .clip(CircleShape),
-                contentScale = ContentScale.Crop
-            )
+            val context = LocalContext.current
+            val resId = if (avatarImageUrl.startsWith("res://")) {
+                context.resources.getIdentifier(avatarImageUrl.removePrefix("res://"), "drawable", context.packageName)
+            } else 0
+            if (resId != 0) {
+                androidx.compose.foundation.Image(
+                    painter = androidx.compose.ui.res.painterResource(id = resId),
+                    contentDescription = name,
+                    modifier = Modifier.size(size).clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                AsyncImage(
+                    model = ImageRequest.Builder(context)
+                        .data(avatarImageUrl)
+                        .crossfade(true)
+                        .build(),
+                    contentDescription = name,
+                    modifier = Modifier.size(size).clip(CircleShape),
+                    contentScale = ContentScale.Crop
+                )
+            }
         } else {
             Text(
                 text = initial,

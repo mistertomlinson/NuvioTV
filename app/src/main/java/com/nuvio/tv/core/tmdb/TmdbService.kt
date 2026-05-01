@@ -215,4 +215,8 @@ class TmdbService @Inject constructor(
     }
 
     fun apiKey(): String = TMDB_API_KEY
+    fun cachedTmdbId(contentId: String): String? {
+        return null // TMDB id cache lookup stub
+    }
+
 }

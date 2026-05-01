@@ -55,7 +55,10 @@ data class HomeUiState(
     val fastPlatformScrollEnabled: Boolean = false,
     val fullWidthIconRowEnabled: Boolean = false,
     val showAllCatalogsOnHome: Boolean = false,
-    val stableVisiblePlatformIds: Set<String> = emptySet()
+    val stableVisiblePlatformIds: Set<String> = emptySet(),
+    val blurUnwatchedEpisodes: Boolean = false,
+    val memoryOnlyVerticalScroll: Boolean = false,
+    val layoutPreferencesReady: Boolean = false
 )
 
 @Immutable
@@ -67,7 +70,8 @@ sealed class ContinueWatchingItem {
         val episodeThumbnail: String? = null,
         val episodeImdbRating: Float? = null,
         val genres: List<String> = emptyList(),
-        val releaseInfo: String? = null
+        val releaseInfo: String? = null,
+        val contentLanguage: String? = null
     ) : ContinueWatchingItem()
 
     @Immutable
@@ -94,7 +98,14 @@ data class NextUpInfo(
     val lastWatched: Long,
     val imdbRating: Float? = null,
     val genres: List<String> = emptyList(),
-    val releaseInfo: String? = null
+    val releaseInfo: String? = null,
+    val sortTimestamp: Long = lastWatched,
+    val releaseTimestamp: Long? = null,
+    val isReleaseAlert: Boolean = false,
+    val isNewSeasonRelease: Boolean = false,
+    val seedSeason: Int? = null,
+    val seedEpisode: Int? = null,
+    val contentLanguage: String? = null
 )
 
 @Immutable

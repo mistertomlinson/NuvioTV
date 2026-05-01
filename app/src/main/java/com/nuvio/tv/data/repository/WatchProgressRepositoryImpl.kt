@@ -37,6 +37,10 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.flowOf
 
 @Singleton
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -73,6 +77,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private var syncJob: Job? = null
     private var watchedItemsSyncJob: Job? = null
     var isSyncingFromRemote = false
+    private val optimisticContinueWatchingUpdates = MutableSharedFlow<WatchProgress>(
+        replay = 1,
+        extraBufferCapacity = 16
+    )
     var hasCompletedInitialPull = false
     var hasCompletedInitialWatchedItemsPull = false
 
@@ -235,14 +243,12 @@ class WatchProgressRepositoryImpl @Inject constructor(
 
     private fun traktAllProgressFlow(): Flow<List<WatchProgress>> {
         return combine(
-            traktProgressService.observeAllProgress()
-                .onStart { emit(emptyList()) },
-            watchProgressPreferences.allProgress
-                .onStart { emit(emptyList()) },
+            traktProgressService.observeAllProgress().onStart { emit(emptyList()) },
+            watchProgressPreferences.allProgress.onStart { emit(emptyList()) },
             metadataState
         ) { remoteItems, localItems, metadataMap ->
-            val localByKey = localItems.associateBy { "${it.contentId}_${it.season}_${it.episode}" }
             hydrateMetadata(remoteItems)
+            val localByKey = localItems.associateBy { "${it.contentId}_${it.season}_${it.episode}" }
             remoteItems.map { remote ->
                 val enriched = enrichWithMetadata(remote, metadataMap)
                 if (enriched.duration <= 0L) {
@@ -678,6 +684,62 @@ class WatchProgressRepositoryImpl @Inject constructor(
         }
         watchProgressPreferences.clearAll()
     }
+
+    override fun getAiredEpisodeOrder(contentId: String): Flow<List<Pair<Int, Int>>> {
+        return if (kotlinx.coroutines.runBlocking { shouldUseTraktProgress() }) {
+            traktProgressService.observeAiredEpisodes(contentId)
+        } else {
+            flowOf(emptyList())
+        }
+    }
+
+    override fun observeOptimisticContinueWatchingUpdates(): Flow<WatchProgress> {
+        return optimisticContinueWatchingUpdates
+    }
+
+    override suspend fun getWatchedShowEpisodes(): Map<String, Set<Pair<Int, Int>>> {
+        return if (shouldUseTraktProgress()) {
+            traktProgressService.getWatchedShowEpisodes()
+        } else {
+            watchedItemsPreferences.allItems.first()
+                .filter { it.season != null && it.episode != null }
+                .groupBy { it.contentId }
+                .mapValues { (_, items) -> items.map { it.season!! to it.episode!! }.toSet() }
+        }
+    }
+
+    override suspend fun getShowIdSiblings(): Map<String, Set<String>> {
+        return if (shouldUseTraktProgress()) {
+            traktProgressService.getShowIdSiblings()
+        } else {
+            emptyMap()
+        }
+    }
+
+    override suspend fun saveProgressBatch(progressList: List<WatchProgress>, syncRemote: Boolean) {
+        progressList.forEach { saveProgress(it, syncRemote) }
+    }
+
+    override suspend fun markAsCompletedBatch(progressList: List<WatchProgress>) {
+        progressList.forEach { markAsCompleted(it) }
+    }
+
+    override suspend fun removeFromHistoryBatch(
+        contentId: String,
+        videoId: String?,
+        episodes: List<Pair<Int, Int>>
+    ) {
+        episodes.forEach { (season, episode) ->
+            removeFromHistory(contentId, videoId, season, episode)
+        }
+    }
+
+    override fun isDroppedShow(contentId: String): Boolean {
+        return traktProgressService.isShowHiddenFromProgress(contentId)
+    }
+
+    override suspend fun isTraktProgressActive(): Boolean = shouldUseTraktProgress()
+
 
     private fun progressKey(progress: WatchProgress): String {
         return if (progress.season != null && progress.episode != null) {

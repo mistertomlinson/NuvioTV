@@ -512,12 +512,21 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val cachedVisiblePlatformIds: Flow<Set<String>> = profileFlow { prefs ->
+
         val json = prefs[cachedVisiblePlatformIdsKey]
         if (json.isNullOrBlank()) emptySet()
         else try {
             val type = object : TypeToken<List<String>>() {}.type
             gson.fromJson<List<String>>(json, type).orEmpty().toSet()
         } catch (_: Exception) { emptySet() }
+    }
+
+    val blurContinueWatchingNextUp: Flow<Boolean> = profileFlow { prefs ->
+        prefs[androidx.datastore.preferences.core.booleanPreferencesKey("blur_cw_next_up")] ?: false
+    }
+
+    val memoryOnlyVerticalScroll: Flow<Boolean> = profileFlow { prefs ->
+        prefs[androidx.datastore.preferences.core.booleanPreferencesKey("memory_only_vertical_scroll")] ?: false
     }
 
     suspend fun setCachedVisiblePlatformIds(ids: Set<String>) {

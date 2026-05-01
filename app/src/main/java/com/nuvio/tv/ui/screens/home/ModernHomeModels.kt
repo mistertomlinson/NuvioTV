@@ -417,14 +417,14 @@ internal fun ContinueWatchingItem.contentType(): String {
 internal fun ContinueWatchingItem.season(): Int? {
     return when (this) {
         is ContinueWatchingItem.InProgress -> progress.season
-        is ContinueWatchingItem.NextUp -> info.season
+        is ContinueWatchingItem.NextUp -> info.seedSeason ?: info.season
     }
 }
 
 internal fun ContinueWatchingItem.episode(): Int? {
     return when (this) {
         is ContinueWatchingItem.InProgress -> progress.episode
-        is ContinueWatchingItem.NextUp -> info.episode
+        is ContinueWatchingItem.NextUp -> info.seedEpisode ?: info.episode
     }
 }
 

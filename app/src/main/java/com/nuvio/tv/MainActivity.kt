@@ -659,7 +659,7 @@ private fun LegacySidebarScaffold(
                         .onPreviewKeyEvent { keyEvent ->
                             if (keyEvent.key == Key.DirectionRight && keyEvent.type == KeyEventType.KeyDown) {
                                 drawerState.setValue(DrawerValue.Closed)
-                                pendingContentFocusTransfer = true
+                                pendingContentFocusTransfer = false
                                 true
                             } else {
                                 false

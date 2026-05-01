@@ -120,3 +120,21 @@ data class MetaReleaseDate(
     val releaseDate: String? = null,
     val type: Int? = null
 )
+
+internal fun normalizeLanguageCode(language: String?): String? {
+    if (language.isNullOrBlank()) return null
+    val lang = language.trim().lowercase()
+    return if (lang.length == 2 || lang.length == 3) lang else null
+}
+
+internal fun countryToLanguageCode(country: String?): String? {
+    if (country.isNullOrBlank()) return null
+    val map = mapOf(
+        "us" to "en", "gb" to "en", "au" to "en", "ca" to "en",
+        "fr" to "fr", "de" to "de", "es" to "es", "it" to "it",
+        "jp" to "ja", "kr" to "ko", "cn" to "zh", "br" to "pt",
+        "pt" to "pt", "ru" to "ru", "nl" to "nl", "pl" to "pl",
+        "se" to "sv", "no" to "no", "dk" to "da", "fi" to "fi"
+    )
+    return map[country.trim().lowercase()]
+}

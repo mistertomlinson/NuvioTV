@@ -47,7 +47,8 @@ class ProfileSyncService @Inject constructor(
                             put("avatar_color_hex", profile.avatarColorHex)
                             put("uses_primary_addons", profile.usesPrimaryAddons)
                             put("uses_primary_plugins", profile.usesPrimaryPlugins)
-                            put("avatar_id", profile.avatarId)
+                            val remoteAvatarId = profile.avatarId?.takeUnless { it.startsWith("local_") }
+                            put("avatar_id", remoteAvatarId)
                         }
                     }
                 })
@@ -73,14 +74,17 @@ class ProfileSyncService @Inject constructor(
 
             Log.d(TAG, "pullFromRemote: fetched ${remote.size} profiles from Supabase")
 
+            val localProfiles = profileManager.profiles.value
             val profiles = remote.map { entry ->
+                val localAvatarId = localProfiles.firstOrNull { it.id == entry.profileIndex }?.avatarId
+                    ?.takeIf { it.startsWith("local_") }
                 UserProfile(
                     id = entry.profileIndex,
                     name = entry.name,
                     avatarColorHex = entry.avatarColorHex,
                     usesPrimaryAddons = entry.usesPrimaryAddons,
                     usesPrimaryPlugins = entry.usesPrimaryPlugins,
-                    avatarId = entry.avatarId
+                    avatarId = localAvatarId ?: entry.avatarId
                 )
             }
 
