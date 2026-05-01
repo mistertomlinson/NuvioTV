@@ -93,6 +93,7 @@ import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
+import com.nuvio.tv.LocalSidebarOpenRequest
 import com.nuvio.tv.LocalNoBackdropImage
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.abs
@@ -279,6 +280,7 @@ internal fun ModernRowSection(
 ) {
     val focusedItemByRow = uiCaches.focusedItemByRow
     val itemFocusRequesters = uiCaches.itemFocusRequesters
+    val sidebarOpenRequest = LocalSidebarOpenRequest.current
     val rowListStates = uiCaches.rowListStates
     val loadMoreRequestedTotals = uiCaches.loadMoreRequestedTotals
 
@@ -299,7 +301,7 @@ internal fun ModernRowSection(
                 firstVisibleItemIndex = focusStateCatalogRowScrollStates[row.key] ?: 0
             )
         }
-        var rowLeftReleasedAtEdge by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+
         val isRowScrolling by remember(rowListState) {
             derivedStateOf { rowListState.isScrollInProgress }
         }
@@ -501,18 +503,14 @@ internal fun ModernRowSection(
                             onRequestCarouselFocus()
                             true
                         } else if (event.key == androidx.compose.ui.input.key.Key.DirectionLeft) {
-                            val isAtStart = rowListState.firstVisibleItemIndex == 0 &&
-                                rowListState.firstVisibleItemScrollOffset == 0
-                            if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) {
-                                if (isAtStart) rowLeftReleasedAtEdge = true
-                                false
-                            } else if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
-                                if (isAtStart && rowLeftReleasedAtEdge) {
-                                    rowLeftReleasedAtEdge = false
-                                    false // let it bubble to open sidebar
+                            val focusedIndex = focusedItemByRow[row.key] ?: 0
+                            val isAtStart = focusedIndex == 0
+                            if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
+                                if (isAtStart && event.nativeKeyEvent.repeatCount == 0) {
+                                    sidebarOpenRequest()
+                                    true // single press at edge — open sidebar
                                 } else {
-                                    if (!isAtStart) rowLeftReleasedAtEdge = false
-                                    false // let LazyRow scroll normally
+                                    false // repeat press or not at edge — let LazyRow handle
                                 }
                             } else false
                         } else false

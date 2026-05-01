@@ -104,6 +104,7 @@ import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalCarouselFocusRequester
+import com.nuvio.tv.LocalRowFocusRestorer
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -894,14 +895,14 @@ fun ModernHomeContent(
         val bgColor = NuvioColors.Background
         val contentFocusRequester = LocalContentFocusRequester.current
         val carouselFocusRequester = LocalCarouselFocusRequester.current
+        val rowFocusRestorerState = LocalRowFocusRestorer.current
         val focusRestorerRequester by remember(carouselRows, uiCaches) {
             derivedStateOf {
                 val rowKey = activeRowKey
                 if (rowKey != null) {
                     val row = carouselRows.firstOrNull { it.key == rowKey }
-                    val rowListState = uiCaches.rowListStates[rowKey]
-                    val firstVisibleIndex = rowListState?.firstVisibleItemIndex ?: 0
-                    val safeIndex = firstVisibleIndex.coerceIn(0, ((row?.items?.size ?: 1) - 1).coerceAtLeast(0))
+                    val focusedIndex = uiCaches.focusedItemByRow[rowKey] ?: 0
+                    val safeIndex = focusedIndex.coerceIn(0, ((row?.items?.size ?: 1) - 1).coerceAtLeast(0))
                     val itemKey = row?.items?.getOrNull(safeIndex)?.key
                     if (itemKey != null) {
                         uiCaches.itemFocusRequesters[rowKey]?.get(itemKey) ?: FocusRequester.Default
@@ -909,6 +910,10 @@ fun ModernHomeContent(
                 } else FocusRequester.Default
             }
         }
+        LaunchedEffect(focusRestorerRequester) {
+            rowFocusRestorerState.value = focusRestorerRequester
+        }
+
         val heroMediaWidthPx = remember(maxWidth, localDensity) {
             with(localDensity) { (maxWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION).roundToPx() }
         }

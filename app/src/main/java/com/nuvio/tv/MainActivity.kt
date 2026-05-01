@@ -145,6 +145,8 @@ val LocalAppInForeground = compositionLocalOf { true }
 val LocalNoBackdropImage = compositionLocalOf { false }
 val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
 val LocalCarouselFocusRequester = compositionLocalOf { FocusRequester.Default }
+val LocalSidebarOpenRequest = compositionLocalOf<() -> Unit> { {} }
+val LocalRowFocusRestorer = compositionLocalOf<androidx.compose.runtime.MutableState<FocusRequester>> { androidx.compose.runtime.mutableStateOf(FocusRequester.Default) }
 
 data class DrawerItem(
     val route: String,
@@ -604,6 +606,7 @@ private fun LegacySidebarScaffold(
 
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
+    val rowFocusRestorer = remember { androidx.compose.runtime.mutableStateOf(FocusRequester.Default) }
     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
     var legacyLeftAtEdge by remember { mutableStateOf(false) }
@@ -660,6 +663,7 @@ private fun LegacySidebarScaffold(
                             if (keyEvent.key == Key.DirectionRight && keyEvent.type == KeyEventType.KeyDown) {
                                 drawerState.setValue(DrawerValue.Closed)
                                 pendingContentFocusTransfer = false
+                                runCatching { rowFocusRestorer.value.requestFocus() }
                                 true
                             } else {
                                 false
@@ -802,7 +806,9 @@ private fun LegacySidebarScaffold(
             CompositionLocalProvider(
                 LocalAppInForeground provides appInForeground,
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalSidebarOpenRequest provides { pendingSidebarFocusRequest = true; drawerState.setValue(DrawerValue.Open) },
+                LocalRowFocusRestorer provides rowFocusRestorer
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -974,6 +980,7 @@ private fun ModernSidebarScaffold(
         delay(95L)
         isSidebarExpanded = false
         sidebarCollapsePending = false
+        pendingContentFocusTransfer = true
     }
 
     val sidebarVisible = showSidebar && (isSidebarExpanded || !sidebarCollapsed)
@@ -1178,7 +1185,8 @@ private fun ModernSidebarScaffold(
             CompositionLocalProvider(
                 LocalAppInForeground provides appInForeground,
                 LocalSidebarExpanded provides isSidebarExpanded,
-                LocalContentFocusRequester provides contentFocusRequester
+                LocalContentFocusRequester provides contentFocusRequester,
+                LocalSidebarOpenRequest provides { isSidebarExpanded = true; sidebarCollapsePending = false; pendingSidebarFocusRequest = true }
             ) {
                 NuvioNavHost(
                     navController = navController,
