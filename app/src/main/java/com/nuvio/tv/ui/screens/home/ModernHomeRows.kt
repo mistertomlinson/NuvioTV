@@ -54,6 +54,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
@@ -797,11 +798,7 @@ private fun ModernCarouselCard(
             !landscapeLogoLoadFailed
     var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
-    val watchedIconEndPadding by animateDpAsState(
-        targetValue = if (isFocused) 16.dp else 8.dp,
-        animationSpec = tween(durationMillis = 180),
-        label = "modernCardWatchedIconEndPadding"
-    )
+
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
     val titleMedium = MaterialTheme.typography.titleMedium
@@ -1029,26 +1026,22 @@ private fun ModernCarouselCard(
                 }
 
                 if (isWatched) {
-                    Box(
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = stringResource(R.string.episodes_cd_watched),
+                        tint = Color.White,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(end = watchedIconEndPadding, top = 8.dp)
-                            .zIndex(2f),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = null,
-                            tint = Color.Black,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription = stringResource(R.string.episodes_cd_watched),
-                            tint = Color.White,
-                            modifier = Modifier.size(21.dp)
-                        )
-                    }
+                            .padding(end = 8.dp, top = 8.dp)
+                            .zIndex(2f)
+                            .size(21.dp)
+                            .drawBehind {
+                                drawCircle(
+                                    color = androidx.compose.ui.graphics.Color.Black,
+                                    radius = size.minDimension / 2f + 1.5f
+                                )
+                            }
+                    )
                 }
             }
         }
