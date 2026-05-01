@@ -124,6 +124,7 @@ fun StreamingPlatformCarousel(
     var snapNextNavigation by remember { mutableStateOf(true) }
     var lastRepeatTimeMs by remember { mutableStateOf(0L) }
     var holdScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var holdDidMove by remember { mutableStateOf(false) }
 
     // Color
     val displayIndex = if (isCarouselFocused) focusedIndex else
@@ -203,17 +204,19 @@ fun StreamingPlatformCarousel(
                     if (event.nativeKeyEvent.repeatCount > 0) lastRepeatTimeMs = now
                     when (event.key) {
                         Key.DirectionRight -> {
-                            val next = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
-                            if (next != focusedIndex) {
-                                snapNextNavigation = false
-                                focusedIndex = next
-                                onNavigationDirection(1)
-                                onPlatformSelected(activePlatforms[next].id)
-                            }
                             if (event.nativeKeyEvent.repeatCount == 0) {
                                 holdScrollJob?.cancel()
+                                // Move immediately on press
+                                val first = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
+                                if (first != focusedIndex) {
+                                    snapNextNavigation = false
+                                    focusedIndex = first
+                                    onNavigationDirection(1)
+                                    onPlatformSelected(activePlatforms[first].id)
+                                }
+                                holdDidMove = true
                                 holdScrollJob = scope.launch {
-                                    kotlinx.coroutines.delay(150)
+                                    kotlinx.coroutines.delay(250)
                                     while (true) {
                                         val n = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
                                         if (n != focusedIndex) {
@@ -229,17 +232,19 @@ fun StreamingPlatformCarousel(
                             true
                         }
                         Key.DirectionLeft -> {
-                            val next = (focusedIndex - 1).coerceAtLeast(0)
-                            if (next != focusedIndex) {
-                                snapNextNavigation = false
-                                focusedIndex = next
-                                onNavigationDirection(-1)
-                                onPlatformSelected(activePlatforms[next].id)
-                            }
                             if (event.nativeKeyEvent.repeatCount == 0) {
                                 holdScrollJob?.cancel()
+                                // Move immediately on press
+                                val first = (focusedIndex - 1).coerceAtLeast(0)
+                                if (first != focusedIndex) {
+                                    snapNextNavigation = false
+                                    focusedIndex = first
+                                    onNavigationDirection(-1)
+                                    onPlatformSelected(activePlatforms[first].id)
+                                }
+                                holdDidMove = true
                                 holdScrollJob = scope.launch {
-                                    kotlinx.coroutines.delay(150)
+                                    kotlinx.coroutines.delay(250)
                                     while (true) {
                                         val n = (focusedIndex - 1).coerceAtLeast(0)
                                         if (n != focusedIndex) {
@@ -264,6 +269,30 @@ fun StreamingPlatformCarousel(
                 } else if (event.type == KeyEventType.KeyUp) {
                     holdScrollJob?.cancel()
                     holdScrollJob = null
+                    if (!holdDidMove) {
+                        when (event.key) {
+                            Key.DirectionRight -> {
+                                val n = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
+                                if (n != focusedIndex) {
+                                    snapNextNavigation = false
+                                    focusedIndex = n
+                                    onNavigationDirection(1)
+                                    onPlatformSelected(activePlatforms[n].id)
+                                }
+                            }
+                            Key.DirectionLeft -> {
+                                val n = (focusedIndex - 1).coerceAtLeast(0)
+                                if (n != focusedIndex) {
+                                    snapNextNavigation = false
+                                    focusedIndex = n
+                                    onNavigationDirection(-1)
+                                    onPlatformSelected(activePlatforms[n].id)
+                                }
+                            }
+                            else -> {}
+                        }
+                    }
+                    holdDidMove = false
                     false
                 } else false
             }
