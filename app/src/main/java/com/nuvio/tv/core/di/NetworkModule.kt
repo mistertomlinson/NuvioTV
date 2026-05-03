@@ -26,6 +26,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.Cache
 import okhttp3.OkHttpClient
+import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -56,12 +57,29 @@ object NetworkModule {
     fun provideOkHttpClient(@ApplicationContext context: Context): OkHttpClient = OkHttpClient.Builder()
         .dns(IPv4FirstDns())
         .cache(Cache(File(context.cacheDir, "http_cache"), 50L * 1024 * 1024)) // 50 MB disk cache
-        .connectTimeout(30, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .readTimeout(15, TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC
                     else HttpLoggingInterceptor.Level.NONE
         })
+        .addNetworkInterceptor { chain ->
+            val request = chain.request()
+            val response = chain.proceed(request)
+            // Override cache headers for addon catalog requests only.
+            // Addon servers send max-age=0 which bypasses OkHttp's disk cache entirely.
+            // Catalog content (trending/popular lists) is safe to cache for 5 minutes.
+            val path = request.url.encodedPath
+            val isCatalogRequest = path.contains("/catalog/") && path.endsWith(".json")
+            if (isCatalogRequest) {
+                response.newBuilder()
+                    .header("Cache-Control", "public, max-age=300")
+                    .removeHeader("Pragma")
+                    .build()
+            } else {
+                response
+            }
+        }
         .build()
 
     @Provides

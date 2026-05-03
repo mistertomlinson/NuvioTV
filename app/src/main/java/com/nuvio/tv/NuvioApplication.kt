@@ -33,7 +33,7 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
         return ImageLoader.Builder(this)
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.25)
+                    .maxSizePercent(0.35)
                     .build()
             }
             .diskCache {
@@ -42,9 +42,9 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
                     .maxSizeBytes(200L * 1024 * 1024)
                     .build()
             }
-            .decoderDispatcher(Dispatchers.IO.limitedParallelism(2))
-            .fetcherDispatcher(Dispatchers.IO.limitedParallelism(4))
-            .bitmapFactoryMaxParallelism(2)
+            .decoderDispatcher(Dispatchers.IO.limitedParallelism(4))
+            .fetcherDispatcher(Dispatchers.IO.limitedParallelism(6))
+            .bitmapFactoryMaxParallelism(4)
             .allowRgb565(true)
             .crossfade(false)
             .build()

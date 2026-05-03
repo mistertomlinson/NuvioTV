@@ -91,8 +91,8 @@ class HomeViewModel @Inject constructor(
         private const val CONTINUE_WATCHING_WINDOW_MS = 30L * 24 * 60 * 60 * 1000
         private const val MAX_RECENT_PROGRESS_ITEMS = 300
         private const val MAX_NEXT_UP_LOOKUPS = 24
-        private const val MAX_NEXT_UP_CONCURRENCY = 4
-        private const val MAX_CATALOG_LOAD_CONCURRENCY = 4
+        private const val MAX_NEXT_UP_CONCURRENCY = 6
+        private const val MAX_CATALOG_LOAD_CONCURRENCY = 10
         internal const val EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS = 220L
         internal const val EXTERNAL_META_PREFETCH_ADJACENT_DEBOUNCE_MS = 120L
         internal const val MAX_POSTER_STATUS_OBSERVERS = 24
@@ -246,6 +246,9 @@ class HomeViewModel @Inject constructor(
                     loadContinueWatching()
                     watchedSeriesStateHolder.update(emptySet())
                     _uiState.update { it.copy(movieWatchedStatus = emptyMap()) }
+                    // Reset the signature so loadAllCatalogsPipeline won't skip
+                    // if the new profile has identical addon URLs to the previous one.
+                    activeCatalogLoadSignature = null
                 }
             }
         }

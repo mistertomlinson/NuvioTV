@@ -48,7 +48,7 @@ class UpdateViewModel @Inject constructor(
     }
 
     fun checkForUpdates(force: Boolean, showNoUpdateFeedback: Boolean) {
-        if (BuildConfig.DEBUG) return // Never prompt for updates in debug builds
+        if (BuildConfig.IS_DEBUG_BUILD) return // Never prompt for updates in debug builds
         viewModelScope.launch {
             _uiState.update { it.copy(isChecking = true, errorMessage = null, showNoUpdateToastHint = false) }
 

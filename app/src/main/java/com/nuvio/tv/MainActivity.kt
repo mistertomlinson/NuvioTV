@@ -518,7 +518,7 @@ class MainActivity : ComponentActivity() {
                         )
                     }
 
-                    if (!com.nuvio.tv.BuildConfig.DEBUG) UpdatePromptDialog(
+                    if (!com.nuvio.tv.BuildConfig.IS_DEBUG_BUILD) UpdatePromptDialog(
                         state = updateState,
                         onDismiss = { updateViewModel.dismissDialog() },
                         onDownload = { updateViewModel.downloadUpdate() },

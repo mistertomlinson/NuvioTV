@@ -470,10 +470,6 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     _uiState.update { state ->
         // Re-read catalogsMap inside the atomic update to capture enrichment
         // that landed after the snapshot was taken at the top of this pipeline run.
-        val enrichedCount = synchronized(catalogsMap) {
-            catalogsMap.values.sumOf { row -> row.items.count { it.ageRating != null } }
-        }
-        android.util.Log.d("NuvioEnrich", "[PIPELINE-WRITE] catalogsMap has ${"$"}enrichedCount enriched items at write time")
         // Merge enrichment: for each item, prefer existing uiState enrichment over
         // fresh display row data, so pipeline runs never stomp already-enriched badges.
         // enrichmentCache is the source of truth for TMDB enrichment — it covers

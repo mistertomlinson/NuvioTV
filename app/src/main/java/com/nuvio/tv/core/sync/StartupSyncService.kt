@@ -99,6 +99,7 @@ class StartupSyncService @Inject constructor(
             return false
         }
 
+        lastPulledKey = key  // Set optimistically to block duplicate syncs for same key
         startupPullJob = scope.launch {
             val maxAttempts = 3
             var syncCompleted = false
@@ -106,7 +107,6 @@ class StartupSyncService @Inject constructor(
                 Log.d(TAG, "Startup sync attempt $attempt/$maxAttempts for key=$key")
                 val result = pullRemoteData()
                 if (result.isSuccess) {
-                    lastPulledKey = key
                     Log.d(TAG, "Startup sync completed for key=$key")
                     syncCompleted = true
                     break
@@ -117,7 +117,12 @@ class StartupSyncService @Inject constructor(
                     delay(3000)
                 }
             }
-            
+
+            if (!syncCompleted) {
+                // All attempts failed — clear optimistic key so a future auth emission can retry
+                lastPulledKey = null
+            }
+
             val resyncKey = pendingResyncKey
             if (resyncKey != null) {
                 pendingResyncKey = null

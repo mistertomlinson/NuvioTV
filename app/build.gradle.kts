@@ -79,7 +79,7 @@ android {
     buildTypes {
         debug {
             signingConfig = signingConfigs.getByName("release")
-            isDebuggable = true
+            isDebuggable = false
             isMinifyEnabled = false
 
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
