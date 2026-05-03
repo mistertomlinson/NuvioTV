@@ -127,6 +127,12 @@ fun CatalogOrderScreen(
                         onToggle = { viewModel.toggleFullWidthIconRow() }
                     )
                 }
+                item {
+                    DimIconsOnRowExitToggleRow(
+                        checked = uiState.dimIconsOnRowExitEnabled,
+                        onToggle = { viewModel.toggleDimIconsOnRowExit() }
+                    )
+                }
             }
 
             item {
@@ -607,6 +613,72 @@ private fun FullWidthIconRowToggleRow(
     }
 }
 
+
+@Composable
+private fun DimIconsOnRowExitToggleRow(
+    checked: Boolean,
+    onToggle: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    androidx.tv.material3.Card(
+        onClick = onToggle,
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = androidx.tv.material3.CardDefaults.colors(
+            containerColor = NuvioColors.BackgroundElevated,
+            focusedContainerColor = NuvioColors.BackgroundElevated
+        ),
+        border = androidx.tv.material3.CardDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(999.dp)
+            )
+        ),
+        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
+        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Dim Icons on Row Exit",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NuvioColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Icons only brighten when row is active",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = NuvioColors.TextSecondary
+                )
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            Box(
+                modifier = Modifier
+                    .width(46.dp)
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(pillColor)
+                    .padding(2.dp),
+                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(if (checked) NuvioColors.Secondary else NuvioColors.TextSecondary)
+                )
+            }
+        }
+    }
+}
 @Composable
 private fun ThemeColorToggleRow(
     checked: Boolean,

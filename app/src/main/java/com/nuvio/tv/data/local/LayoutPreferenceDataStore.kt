@@ -71,6 +71,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val aggregateStreamingPlatformsKey = booleanPreferencesKey("aggregate_streaming_platforms")
     private val fastPlatformScrollKey = booleanPreferencesKey("fast_platform_scroll")
     private val fullWidthIconRowKey = booleanPreferencesKey("full_width_icon_row")
+    private val dimIconsOnRowExitKey = booleanPreferencesKey("dim_icons_on_row_exit")
     private val showAllCatalogsOnHomeKey = booleanPreferencesKey("show_all_catalogs_on_home")
     private val cachedVisiblePlatformIdsKey = stringPreferencesKey("cached_visible_platform_ids")
 
@@ -243,6 +244,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val fullWidthIconRowEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[fullWidthIconRowKey] ?: false
+    }
+
+    val dimIconsOnRowExitEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[dimIconsOnRowExitKey] ?: false
     }
 
     suspend fun setLayout(layout: HomeLayout) {
@@ -498,6 +503,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setFullWidthIconRowEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[fullWidthIconRowKey] = enabled
+        }
+    }
+
+    suspend fun setDimIconsOnRowExitEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[dimIconsOnRowExitKey] = enabled
         }
     }
 

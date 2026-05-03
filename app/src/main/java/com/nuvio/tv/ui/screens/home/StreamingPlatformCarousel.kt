@@ -79,6 +79,7 @@ fun StreamingPlatformCarousel(
     onNavigationDirection: (Int) -> Unit = {},
     focusRequester: FocusRequester,
     fullWidthMode: Boolean = false,
+    dimOnRowExit: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -326,6 +327,7 @@ fun StreamingPlatformCarousel(
                     activePlatforms.forEachIndexed { index, platform ->
                         val iconAlpha by animateFloatAsState(
                             targetValue = when {
+                                !dimOnRowExit -> 1f
                                 !isCarouselFocused && platform.id == selectedPlatformId -> 0.75f
                                 !isCarouselFocused -> 0.35f
                                 else -> 1f
@@ -408,6 +410,7 @@ fun StreamingPlatformCarousel(
                         activePlatforms.forEachIndexed { index, platform ->
                             val iconAlpha by animateFloatAsState(
                                 targetValue = when {
+                                    !dimOnRowExit -> 1f
                                     !isCarouselFocused && platform.id == selectedPlatformId -> 0.75f
                                     !isCarouselFocused -> 0.35f
                                     else -> 1f

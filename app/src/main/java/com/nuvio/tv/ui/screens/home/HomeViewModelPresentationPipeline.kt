@@ -162,9 +162,13 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             .combine(layoutPreferenceDataStore.fastPlatformScrollEnabled) { pair, fastPlatformScroll ->
                 Pair(pair, fastPlatformScroll)
             }
+            .combine(layoutPreferenceDataStore.dimIconsOnRowExitEnabled) { outerPair, dimIconsOnRowExit ->
+                Pair(outerPair, dimIconsOnRowExit)
+            }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (pairVal, fastPlatformScrollEnabled) ->
+            .collectLatest { (outerPairVal, dimIconsOnRowExitEnabled) ->
+            val (pairVal, fastPlatformScrollEnabled) = outerPairVal
             val (tripleVal, fullWidthIconRowEnabled) = pairVal
             val (prefs, aggregateStreamingPlatforms, showAllCatalogsOnHome) = tripleVal
                 val effectivePosterLabelsEnabled = if (prefs.layout == HomeLayout.MODERN) {
@@ -202,6 +206,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         aggregateStreamingPlatformsEnabled = aggregateStreamingPlatforms,
                         showAllCatalogsOnHome = showAllCatalogsOnHome,
                         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
+                        dimIconsOnRowExitEnabled = dimIconsOnRowExitEnabled,
                         fastPlatformScrollEnabled = fastPlatformScrollEnabled
                     )
                 }

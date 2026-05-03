@@ -54,6 +54,7 @@ data class HomeUiState(
     val aggregateStreamingPlatformsEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
     val fullWidthIconRowEnabled: Boolean = false,
+    val dimIconsOnRowExitEnabled: Boolean = false,
     val showAllCatalogsOnHome: Boolean = false,
     val stableVisiblePlatformIds: Set<String> = emptySet(),
     val blurUnwatchedEpisodes: Boolean = false,

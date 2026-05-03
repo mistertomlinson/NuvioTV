@@ -526,6 +526,7 @@ private fun ModernHomeRoute(
         },
         focusRequester = carouselFocusRequester,
         fullWidthMode = fullWidthIconRowEnabled,
+        dimOnRowExit = uiState.dimIconsOnRowExitEnabled,
         modifier = Modifier
             .align(Alignment.TopEnd)
             .fillMaxWidth(if (fullWidthIconRowEnabled) 1f else 0.55f)

@@ -100,6 +100,13 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleDimIconsOnRowExit() {
+        val current = _uiState.value.dimIconsOnRowExitEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setDimIconsOnRowExitEnabled(!current)
+        }
+    }
+
     private fun moveCatalog(key: String, direction: Int) {
         val currentKeys = _uiState.value.items.map { it.key }
         val currentIndex = currentKeys.indexOf(key)
@@ -130,7 +137,8 @@ class CatalogOrderViewModel @Inject constructor(
             layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
             layoutPreferenceDataStore.showAllCatalogsOnHome,
             layoutPreferenceDataStore.fullWidthIconRowEnabled,
-            layoutPreferenceDataStore.fastPlatformScrollEnabled
+            layoutPreferenceDataStore.fastPlatformScrollEnabled,
+            layoutPreferenceDataStore.dimIconsOnRowExitEnabled
             ) { args ->
                 val addons = args[0] as List<*>
                 val savedOrderKeys = args[1] as List<*>
@@ -142,21 +150,25 @@ class CatalogOrderViewModel @Inject constructor(
                 val showAllOnHome = args[7] as Boolean
                 val fullWidthIconRow = args[8] as Boolean
                 val fastPlatformScroll = args[9] as Boolean
-                Triple(
-                Triple(
-                    buildOrderedCatalogItems(
-                        addons = addons as List<com.nuvio.tv.domain.model.Addon>,
-                        savedOrderKeys = savedOrderKeys as List<String>,
-                        disabledKeys = (disabledKeys as List<String>).toSet(),
-                        numberedKeys = (numberedKeys as List<String>).toSet(),
-                        outlineNumberedKeys = (outlineNumberedKeys as List<String>).toSet()
+                val dimIconsOnRowExit = args[10] as Boolean
+Triple(
+                    Triple(
+                        buildOrderedCatalogItems(
+                            addons = addons as List<com.nuvio.tv.domain.model.Addon>,
+                            savedOrderKeys = savedOrderKeys as List<String>,
+                            disabledKeys = (disabledKeys as List<String>).toSet(),
+                            numberedKeys = (numberedKeys as List<String>).toSet(),
+                            outlineNumberedKeys = (outlineNumberedKeys as List<String>).toSet()
+                        ),
+                        useThemeColor,
+                        Unit
                     ),
-                    useThemeColor,
-                    Unit
-                ), aggregatePlatforms to showAllOnHome, fullWidthIconRow to fastPlatformScroll)
-            }.collectLatest { (triple, aggregatePair, fullWidthIconRowPair) ->
+                    aggregatePlatforms to showAllOnHome,
+                    Triple(fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit)
+                )
+            }.collectLatest { (triple, aggregatePair, fullWidthIconRowTriple) ->
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
-                val (fullWidthIconRow, fastPlatformScroll) = fullWidthIconRowPair
+                val (fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit) = fullWidthIconRowTriple
                 val (orderedItems, useThemeColor, _) = triple
                 disabledKeysCache = orderedItems.filter { it.isDisabled }.map { it.disableKey }.toSet()
                 numberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.SOLID }.map { it.key }.toSet()
@@ -169,7 +181,8 @@ class CatalogOrderViewModel @Inject constructor(
                         aggregateStreamingPlatformsEnabled = aggregatePlatforms,
                         showAllCatalogsOnHome = showAllOnHome,
                         fullWidthIconRowEnabled = fullWidthIconRow,
-                        fastPlatformScrollEnabled = fastPlatformScroll
+                        fastPlatformScrollEnabled = fastPlatformScroll,
+                        dimIconsOnRowExitEnabled = dimIconsOnRowExit
                     )
                 }
             }
@@ -277,7 +290,8 @@ data class CatalogOrderUiState(
     val aggregateStreamingPlatformsEnabled: Boolean = false,
     val showAllCatalogsOnHome: Boolean = false,
     val fullWidthIconRowEnabled: Boolean = false,
-    val fastPlatformScrollEnabled: Boolean = false
+    val fastPlatformScrollEnabled: Boolean = false,
+    val dimIconsOnRowExitEnabled: Boolean = false
 )
 
 data class CatalogOrderItem(
