@@ -1322,6 +1322,7 @@ fun ModernHomeContent(
                         rowTitleBottom = rowTitleBottom,
                         numberStyle = row.numberStyle,
                         isFirstRow = carouselRows.firstOrNull()?.key == row.key,
+                        catalogSlideAnimatable = catalogSlideAlpha,
                         onRequestCarouselFocus = stableOnRequestCarouselFocus,
                         defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                         focusStateCatalogRowScrollStates = focusState.catalogRowScrollStates,

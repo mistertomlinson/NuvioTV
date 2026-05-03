@@ -3,6 +3,8 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -140,6 +142,7 @@ private fun ModernContinueWatchingRowItem(
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 private fun ModernCatalogRowItem(
+    modifier: Modifier = Modifier,
     item: ModernCarouselItem,
     payload: ModernPayload.Catalog,
     requester: FocusRequester,
@@ -168,13 +171,13 @@ private fun ModernCatalogRowItem(
     onUpPressed: (() -> Unit)? = null
 ) {
     val focusKey = payload.focusKey
-    val upPressedModifier = if (onUpPressed != null) Modifier.onPreviewKeyEvent { event ->
+    val upPressedModifier = if (onUpPressed != null) modifier.then(Modifier.onPreviewKeyEvent { event ->
         if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
             event.key == androidx.compose.ui.input.key.Key.DirectionUp) {
             onUpPressed()
             true
         } else false
-    } else Modifier
+    }) else modifier
     val suppressCardExpansionForHeroTrailer =
         effectiveAutoplayEnabled &&
             trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
@@ -191,6 +194,7 @@ private fun ModernCatalogRowItem(
     val trailerPreviewUrl = if (playTrailerInExpandedCard) expandedTrailerPreviewUrl else null
     val trailerPreviewAudioUrl = if (playTrailerInExpandedCard) expandedTrailerPreviewAudioUrl else null
 
+    Box(modifier = upPressedModifier) {
     ModernCarouselCard(
         item = item,
         useLandscapePosters = useLandscapePosters,
@@ -234,6 +238,7 @@ private fun ModernCatalogRowItem(
         isNearRowEnd = isNearRowEnd,
         onUpPressed = onUpPressed
     )
+    }
 }
 
 @OptIn(ExperimentalComposeUiApi::class)
@@ -277,7 +282,8 @@ internal fun ModernRowSection(
     onExpandedCatalogFocusKeyChange: (String?) -> Unit,
     useThemeColorForNumbers: Boolean = false,
     isFirstRow: Boolean = false,
-    onRequestCarouselFocus: () -> Unit = {}
+    onRequestCarouselFocus: () -> Unit = {},
+    catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null
 ) {
     val focusedItemByRow = uiCaches.focusedItemByRow
     val itemFocusRequesters = uiCaches.itemFocusRequesters
@@ -302,6 +308,30 @@ internal fun ModernRowSection(
                 firstVisibleItemIndex = focusStateCatalogRowScrollStates[row.key] ?: 0
             )
         }
+
+        // Detect last partially-clipped item (first row only) for edge fade effect
+        val clippedLastIndex by remember(rowListState) {
+            derivedStateOf {
+                if (!isFirstRow) return@derivedStateOf null
+                val info = rowListState.layoutInfo
+                val viewportEnd = info.viewportEndOffset
+                info.visibleItemsInfo.lastOrNull()?.let { last ->
+                    if (last.offset + last.size > viewportEnd) last.index else null
+                }
+            }
+        }
+        // Read animatable value in composition — only first row reads it, so only first row recomposes during transition
+        val parentAlpha = if (isFirstRow && catalogSlideAnimatable != null) catalogSlideAnimatable.value else 1f
+        val prevAlpha = remember { androidx.compose.runtime.mutableFloatStateOf(parentAlpha) }
+        val isFadingIn = parentAlpha > prevAlpha.floatValue
+        prevAlpha.floatValue = parentAlpha
+        val clippedItemAlpha = when {
+            !isFirstRow -> 1f
+            parentAlpha >= 1f -> 1f
+            isFadingIn -> parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha
+            else -> parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha
+        }
+        val counteractedAlpha = if (isFirstRow && parentAlpha > 0.001f) (clippedItemAlpha / parentAlpha).coerceIn(0f, 1f) else 1f
 
         val isRowScrolling by remember(rowListState) {
             derivedStateOf { rowListState.isScrollInProgress }
@@ -604,6 +634,7 @@ internal fun ModernRowSection(
                                     useThemeColorForNumbers = useThemeColorForNumbers
                                 ) {
                                     ModernCatalogRowItem(
+                                        modifier = if (isFirstRow && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
                                         item = item,
                                         payload = payload,
                                         requester = requester,
@@ -636,6 +667,7 @@ internal fun ModernRowSection(
                                 }
                             } else {
                                 ModernCatalogRowItem(
+                                    modifier = if (isFirstRow && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
                                     item = item,
                                     payload = payload,
                                     requester = requester,
