@@ -140,6 +140,7 @@ import coil.request.ImageRequest
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
+val LocalIsScrolling = compositionLocalOf { false }
 val LocalSidebarExpanded = compositionLocalOf { false }
 val LocalAppInForeground = compositionLocalOf { true }
 val LocalNoBackdropImage = compositionLocalOf { false }

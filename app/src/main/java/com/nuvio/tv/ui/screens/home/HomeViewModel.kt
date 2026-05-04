@@ -35,6 +35,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -55,8 +56,9 @@ import com.nuvio.tv.data.repository.MDBListRepository
 import com.nuvio.tv.domain.model.MDBListSettings
 import com.nuvio.tv.domain.model.Collection
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.debounce
 
-@OptIn(kotlinx.coroutines.FlowPreview::class)
+@OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     internal val addonRepository: AddonRepository,
@@ -92,7 +94,7 @@ class HomeViewModel @Inject constructor(
         private const val MAX_RECENT_PROGRESS_ITEMS = 300
         private const val MAX_NEXT_UP_LOOKUPS = 24
         private const val MAX_NEXT_UP_CONCURRENCY = 6
-        private const val MAX_CATALOG_LOAD_CONCURRENCY = 10
+        private const val MAX_CATALOG_LOAD_CONCURRENCY = 6
         internal const val EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS = 220L
         internal const val EXTERNAL_META_PREFETCH_ADJACENT_DEBOUNCE_MS = 120L
         internal const val MAX_POSTER_STATUS_OBSERVERS = 24
@@ -143,6 +145,10 @@ class HomeViewModel @Inject constructor(
     internal var pendingCatalogLoads = 0
     internal val activeCatalogLoadJobs = mutableSetOf<Job>()
     internal var activeCatalogLoadSignature: String? = null
+    internal val catalogPipelineMutex = kotlinx.coroutines.sync.Mutex()
+    internal var catalogPipelineDebounceJob: Job? = null
+    internal val catalogReloadTrigger = kotlinx.coroutines.flow.MutableSharedFlow<Pair<List<com.nuvio.tv.domain.model.Addon>, Boolean>>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+    internal var diskCacheRestored: Boolean = false
     internal val cwMetaCache = Collections.synchronizedMap(mutableMapOf<String, CwMetaSummary?>())
     internal val cwMetaNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
     internal val cwBadgeEpisodeCache = Collections.synchronizedMap(mutableMapOf<String, Set<Pair<Int, Int>>?>())
@@ -206,6 +212,7 @@ class HomeViewModel @Inject constructor(
         get() = trailerPreviewAudioUrlsState
 
     init {
+        android.util.Log.e("NuvioCache", "HomeViewModel INIT instance=${System.identityHashCode(this)}")
         observeStartupAuthNotice()
         viewModelScope.launch {
             profileManager.activeProfileReady.first { it }
@@ -223,6 +230,15 @@ class HomeViewModel @Inject constructor(
             observeProgressSourceChanges()
             loadContinueWatching()
             observeInstalledAddons()
+            launch {
+                android.util.Log.e("NuvioCache", "catalogReloadTrigger collector STARTED thread=${Thread.currentThread().name}")
+                catalogReloadTrigger
+                    .debounce(300)
+                    .collectLatest { (addons, force) ->
+                        android.util.Log.e("NuvioCache", "catalogReloadTrigger FIRED addons=${addons.size} force=$force")
+                        loadAllCatalogsPipeline(addons, force)
+                    }
+            }
 
             var previousProfileId = profileManager.activeProfileId.value
             profileManager.activeProfileId.collect { newId ->
@@ -246,12 +262,8 @@ class HomeViewModel @Inject constructor(
                     loadContinueWatching()
                     watchedSeriesStateHolder.update(emptySet())
                     _uiState.update { it.copy(movieWatchedStatus = emptyMap()) }
-                    // Reset the signature so loadAllCatalogsPipeline won't skip
-                    // if the new profile has identical addon URLs to the previous one.
-                    activeCatalogLoadSignature = null
-                    // Clear disk cache for the previous profile so stale rows
-                    // don't show on next switch back before network refresh.
-                    catalogRepository.clearDiskCache(previousProfileId)
+                    // Disk cache is intentionally preserved on profile switch.
+                    // TTL handles staleness; cache allows instant restore on return.
                 }
             }
         }

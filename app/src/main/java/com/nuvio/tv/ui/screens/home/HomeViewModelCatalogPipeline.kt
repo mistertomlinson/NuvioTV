@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
+import kotlinx.coroutines.sync.withLock
+
 import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
@@ -40,6 +42,11 @@ internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     }
 }
 
+internal fun HomeViewModel.scheduleCatalogPipeline(addons: List<Addon>, forceReload: Boolean = false) {
+    android.util.Log.e("NuvioCache", "scheduleCatalogPipeline EMIT addons=${addons.size} force=$forceReload thread=${Thread.currentThread().name} stack=${Thread.currentThread().stackTrace.drop(3).take(4).joinToString("|") { it.methodName }}")
+    catalogReloadTrigger.tryEmit(addons to forceReload)
+}
+
 internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.disabledHomeCatalogKeys.collectLatest { keys ->
@@ -47,11 +54,7 @@ internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
             if (newKeys == disabledHomeCatalogKeys) return@collectLatest
             disabledHomeCatalogKeys = newKeys
             rebuildCatalogOrder(addonsCache)
-            if (addonsCache.isNotEmpty()) {
-                loadAllCatalogsPipeline(addonsCache)
-            } else {
-                scheduleUpdateCatalogRows()
-            }
+            scheduleUpdateCatalogRows()
         }
     }
 }
@@ -91,10 +94,15 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
 internal fun HomeViewModel.observeInstalledAddonsPipeline() {
     viewModelScope.launch {
         addonRepository.getInstalledAddons()
-            .distinctUntilChanged()
+            .distinctUntilChanged { old, new ->
+                old.size == new.size &&
+                old.zip(new).all { (a, b) ->
+                    a.id == b.id && a.baseUrl == b.baseUrl && a.catalogs == b.catalogs
+                }
+            }
             .collectLatest { addons ->
                 addonsCache = addons
-                loadAllCatalogsPipeline(addons)
+                scheduleCatalogPipeline(addons)
             }
     }
 }
@@ -103,12 +111,13 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     addons: List<Addon>,
     forceReload: Boolean = false
 ) {
+    catalogPipelineMutex.withLock {
     val signature = buildHomeCatalogLoadSignature(addons)
     if (!forceReload &&
         signature == activeCatalogLoadSignature &&
         (catalogsLoadInProgress || catalogsMap.isNotEmpty())
     ) {
-        return
+        return@withLock
     }
 
     activeCatalogLoadSignature = signature
@@ -116,6 +125,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     catalogLoadGeneration += 1
     val generation = catalogLoadGeneration
     cancelInFlightCatalogLoads()
+    android.util.Log.e("NuvioCache", "loadAllCatalogsPipeline START generation=$generation force=$forceReload addons=${addons.size}")
 
     _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
     catalogOrder.clear()
@@ -125,6 +135,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     _fullCatalogRows.value = emptyList()
     truncatedRowCache.clear()
     hasRenderedFirstCatalog = false
+    diskCacheRestored = false
     trailerPreviewLoadingIds.clear()
     trailerPreviewNegativeCache.clear()
     trailerPreviewUrlsState.clear()
@@ -148,7 +159,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         if (addons.isEmpty()) {
             catalogsLoadInProgress = false
             _uiState.update { it.copy(isLoading = false, error = "No addons installed") }
-            return
+            return@withLock
         }
 
         rebuildCatalogOrder(addons)
@@ -156,15 +167,22 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         if (catalogOrder.isEmpty()) {
             catalogsLoadInProgress = false
             _uiState.update { it.copy(isLoading = false, error = "No catalog addons installed") }
-            return
+            return@withLock
         }
 
         // Load persisted catalog rows from disk and show immediately while network fetches run
         val profileId = profileManager.activeProfileId.value
         val diskCached = catalogRepository.loadCatalogsFromDisk(profileId)
+        android.util.Log.e("NuvioCache", "loadCatalogsFromDisk returned ${diskCached.size} entries for profile $profileId")
         if (diskCached.isNotEmpty()) {
             diskCached.forEach { (key, row) -> catalogsMap[key] = row }
-            scheduleUpdateCatalogRows()
+            diskCacheRestored = true
+            android.util.Log.e("NuvioCache", "catalogsMap now has ${catalogsMap.size} rows, catalogOrder has ${catalogOrder.size} keys after disk restore")
+            val matchedKeys = diskCached.keys.count { it in catalogOrder }
+            android.util.Log.e("NuvioCache", "disk cache keys matching catalogOrder: $matchedKeys / ${diskCached.size}")
+            // Show cached rows immediately and hide spinner — network fetches refresh in background
+            _uiState.update { it.copy(isLoading = false) }
+            updateCatalogRowsPipeline()
             Log.d(HomeViewModel.TAG, "Restored ${diskCached.size} catalog rows from disk for profile $profileId")
         }
 
@@ -189,6 +207,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         catalogsLoadInProgress = false
         _uiState.update { it.copy(isLoading = false, error = e.message) }
     }
+    } // end withLock
 }
 
 internal fun HomeViewModel.loadCatalogPipeline(
@@ -250,6 +269,10 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             android.util.Log.w("NuvioEnrich", "[RELOAD] key=$key pre-enriched=$preEnriched post-enriched=$postEnriched")
                         }
                         catalogsMap[key] = mergedRow
+                        // Hide spinner immediately on first catalog result — don't wait for debounce
+                        if (!hasRenderedFirstCatalog && mergedRow.items.isNotEmpty()) {
+                            _uiState.update { it.copy(isLoading = false) }
+                        }
                         val stomped2 = mergedRow.items.filter { it.ageRating == null }
                         val had = existingRow?.items?.filter { it.ageRating != null } ?: emptyList()
                         if (had.isNotEmpty() && stomped2.any { item -> had.any { it.id == item.id } }) {
@@ -265,8 +288,13 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         )
                         if (pendingCatalogLoads == 0) {
                             catalogsLoadInProgress = false
+                            val saveProfileId = profileManager.activeProfileId.value
                             viewModelScope.launch {
-                                catalogRepository.saveCatalogsToDisk(profileManager.activeProfileId.value)
+                                // Small delay to let the final scheduleUpdateCatalogRows settle
+                                kotlinx.coroutines.delay(500)
+                                if (pendingCatalogLoads == 0) {
+                                    catalogRepository.saveCatalogsToDisk(saveProfileId)
+                                }
                             }
                         }
                         scheduleUpdateCatalogRows()
@@ -350,6 +378,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     val orderedKeys = catalogOrder.toList()
     val catalogSnapshot = catalogsMap.toMap()
     val allCatalogsLoaded = pendingCatalogLoads == 0 && catalogSnapshot.isNotEmpty()
+    val diskCacheRestored = this.diskCacheRestored
     val heroCatalogKeys = currentHeroCatalogKeys
     val currentLayout = _uiState.value.homeLayout
     val currentGridItems = _uiState.value.gridItems
@@ -540,7 +569,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             heroItems = if (state.heroItems == enrichedHeroItems) state.heroItems else enrichedHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
             isLoading = false,
-            stableVisiblePlatformIds = if (allCatalogsLoaded) {
+            stableVisiblePlatformIds = if (allCatalogsLoaded || diskCacheRestored) {
                 displayRows
                     .filter { it.items.isNotEmpty() }
                     .mapNotNull { inferPlatformId(it.catalogName) }

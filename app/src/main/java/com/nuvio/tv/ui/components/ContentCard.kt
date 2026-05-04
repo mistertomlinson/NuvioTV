@@ -59,6 +59,7 @@ import com.nuvio.tv.ui.theme.NuvioTheme
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
+import coil.size.Precision
 import kotlinx.coroutines.delay
 
 private const val BACKDROP_ASPECT_RATIO = 16f / 9f
@@ -242,6 +243,7 @@ fun ContentCard(
                 .crossfade(false)
                 .memoryCacheKey("${imageUrl}_${requestWidthPx}x${requestHeightPx}")
                 .size(width = requestWidthPx, height = requestHeightPx)
+                .precision(Precision.INEXACT)
                 .build()
         }
         val logoRequestHeightPx = remember(density) {
@@ -254,6 +256,7 @@ fun ContentCard(
                     .crossfade(false)
                     .memoryCacheKey("${logoUrl}_${requestWidthPx}x${logoRequestHeightPx}")
                     .size(width = requestWidthPx, height = logoRequestHeightPx)
+                    .precision(Precision.INEXACT)
                     .build()
             }
         }

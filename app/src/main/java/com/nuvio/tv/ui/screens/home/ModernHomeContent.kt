@@ -104,6 +104,7 @@ import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalCarouselFocusRequester
+import com.nuvio.tv.LocalIsScrolling
 import com.nuvio.tv.LocalRowFocusRestorer
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.coroutineScope
@@ -795,7 +796,6 @@ fun ModernHomeContent(
             it.ageRatingText != null && heroItem?.ageRatingText == null
         } == true
         val resolvedHero = if (isFastScrolling) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
-        android.util.Log.d("NuvioHero", "RENDER: heroItem=${heroItem?.title} heroItemRow=${heroItemRowKey?.take(20)} activeRow=${activeRow?.key?.take(20)} rowMatch=$heroItemMatchesRow activeCarouselItem=${activeCarouselItem?.heroPreview?.title} resolvedHero=${resolvedHero?.title} logo=${resolvedHero?.logo?.take(60)} index=$clampedActiveItemIndex")
         // transitionHero: non-null during platform transition, blocks live resolvedHero updates.
         var isPlatformTransitioning by remember { mutableStateOf(false) }
         LaunchedEffect(isPlatformTransitioning) {

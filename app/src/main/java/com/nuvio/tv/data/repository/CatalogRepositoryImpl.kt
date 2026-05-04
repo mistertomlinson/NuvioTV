@@ -53,9 +53,16 @@ class CatalogRepositoryImpl @Inject constructor(
         try {
             val snapshot = catalogCache.toMap()
             if (snapshot.isEmpty()) return@withContext
-            val json = cacheAdapter.toJson(snapshot)
-            diskCacheFile(profileId).writeText(json)
-            Log.d(TAG, "Saved ${snapshot.size} catalog entries to disk for profile $profileId")
+            // Re-key using simple addonId_rawType_catalogId so keys match catalogOrder on restore
+            val rekeyed = snapshot.values
+                .filter { it.currentPage == 0 }
+                .associateBy { "${it.addonId}_${it.rawType}_${it.catalogId}" }
+            if (rekeyed.isEmpty()) return@withContext
+            val file = diskCacheFile(profileId)
+            Log.d(TAG, "Saving catalog cache to: ${file.absolutePath}")
+            val json = cacheAdapter.toJson(rekeyed)
+            file.writeText(json)
+            Log.d(TAG, "Saved ${rekeyed.size} catalog entries to disk for profile $profileId (${file.length()} bytes)")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to save catalog cache to disk", e)
         }
