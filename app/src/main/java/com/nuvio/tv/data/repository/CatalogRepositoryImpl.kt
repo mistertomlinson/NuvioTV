@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.repository
 
+import android.content.Context
 import android.util.Log
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.network.safeApiCall
@@ -8,8 +9,14 @@ import com.nuvio.tv.data.remote.api.AddonApi
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.repository.CatalogRepository
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.withContext
+import java.io.File
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -17,13 +24,68 @@ import javax.inject.Singleton
 
 @Singleton
 class CatalogRepositoryImpl @Inject constructor(
-    private val api: AddonApi
+    private val api: AddonApi,
+    private val moshi: Moshi,
+    @ApplicationContext private val context: Context
 ) : CatalogRepository {
     companion object {
         private const val TAG = "CatalogRepository"
+        private const val DISK_CACHE_TTL_MS = 24L * 60 * 60 * 1000 // 24 hours
+        private const val DISK_CACHE_VERSION = 1
     }
 
     private val catalogCache = ConcurrentHashMap<String, CatalogRow>()
+
+    // Moshi adapter for serializing the full cache map
+    private val cacheAdapter by lazy {
+        val type = Types.newParameterizedType(
+            Map::class.java,
+            String::class.java,
+            CatalogRow::class.java
+        )
+        moshi.adapter<Map<String, CatalogRow>>(type)
+    }
+
+    private fun diskCacheFile(profileId: Int): File =
+        File(context.cacheDir, "catalog_cache_v${DISK_CACHE_VERSION}_p${profileId}.json")
+
+    override suspend fun saveCatalogsToDisk(profileId: Int) = withContext(Dispatchers.IO) {
+        try {
+            val snapshot = catalogCache.toMap()
+            if (snapshot.isEmpty()) return@withContext
+            val json = cacheAdapter.toJson(snapshot)
+            diskCacheFile(profileId).writeText(json)
+            Log.d(TAG, "Saved ${snapshot.size} catalog entries to disk for profile $profileId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to save catalog cache to disk", e)
+        }
+    }
+
+    override suspend fun loadCatalogsFromDisk(profileId: Int): Map<String, CatalogRow> = withContext(Dispatchers.IO) {
+        try {
+            val file = diskCacheFile(profileId)
+            if (!file.exists()) return@withContext emptyMap()
+            val ageMs = System.currentTimeMillis() - file.lastModified()
+            if (ageMs > DISK_CACHE_TTL_MS) {
+                Log.d(TAG, "Disk cache for profile $profileId is stale (${ageMs/1000}s old), ignoring")
+                file.delete()
+                return@withContext emptyMap()
+            }
+            val json = file.readText()
+            val cached = cacheAdapter.fromJson(json) ?: emptyMap()
+            // Warm the in-memory cache
+            catalogCache.putAll(cached)
+            Log.d(TAG, "Loaded ${cached.size} catalog entries from disk for profile $profileId")
+            cached
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load catalog cache from disk", e)
+            emptyMap()
+        }
+    }
+
+    override fun clearDiskCache(profileId: Int) {
+        diskCacheFile(profileId).delete()
+    }
 
     override fun getCatalog(
         addonBaseUrl: String,

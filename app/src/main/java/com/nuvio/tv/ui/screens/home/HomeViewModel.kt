@@ -249,6 +249,9 @@ class HomeViewModel @Inject constructor(
                     // Reset the signature so loadAllCatalogsPipeline won't skip
                     // if the new profile has identical addon URLs to the previous one.
                     activeCatalogLoadSignature = null
+                    // Clear disk cache for the previous profile so stale rows
+                    // don't show on next switch back before network refresh.
+                    catalogRepository.clearDiskCache(previousProfileId)
                 }
             }
         }

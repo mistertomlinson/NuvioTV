@@ -159,6 +159,15 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             return
         }
 
+        // Load persisted catalog rows from disk and show immediately while network fetches run
+        val profileId = profileManager.activeProfileId.value
+        val diskCached = catalogRepository.loadCatalogsFromDisk(profileId)
+        if (diskCached.isNotEmpty()) {
+            diskCached.forEach { (key, row) -> catalogsMap[key] = row }
+            scheduleUpdateCatalogRows()
+            Log.d(HomeViewModel.TAG, "Restored ${diskCached.size} catalog rows from disk for profile $profileId")
+        }
+
         val catalogsToLoad = addons.flatMap { addon ->
             addon.catalogs
                 .filterNot {
@@ -256,6 +265,9 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         )
                         if (pendingCatalogLoads == 0) {
                             catalogsLoadInProgress = false
+                            viewModelScope.launch {
+                                catalogRepository.saveCatalogsToDisk(profileManager.activeProfileId.value)
+                            }
                         }
                         scheduleUpdateCatalogRows()
                     }

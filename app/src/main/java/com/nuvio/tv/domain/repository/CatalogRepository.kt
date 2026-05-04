@@ -17,4 +17,8 @@ interface CatalogRepository {
         extraArgs: Map<String, String> = emptyMap(),
         supportsSkip: Boolean = false
     ): Flow<NetworkResult<CatalogRow>>
+
+    suspend fun saveCatalogsToDisk(profileId: Int)
+    suspend fun loadCatalogsFromDisk(profileId: Int): Map<String, CatalogRow>
+    fun clearDiskCache(profileId: Int)
 }
