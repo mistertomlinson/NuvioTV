@@ -58,6 +58,8 @@ import com.nuvio.tv.domain.model.Collection
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 
+@Volatile private var homeViewModelActiveInstanceId: Int = -1
+
 @OptIn(kotlinx.coroutines.FlowPreview::class, kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -87,6 +89,7 @@ class HomeViewModel @Inject constructor(
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
 ) : ViewModel() {
     companion object {
+        @Volatile internal var activeInstanceId: Int = -1
         internal const val TAG = "HomeViewModel"
         internal const val STARTUP_GRACE_PERIOD_MS = 3_000L
         internal const val CONTINUE_WATCHING_ENRICHMENT_GRACE_PERIOD_MS = 1_000L
@@ -145,6 +148,8 @@ class HomeViewModel @Inject constructor(
     internal var pendingCatalogLoads = 0
     internal val activeCatalogLoadJobs = mutableSetOf<Job>()
     internal var activeCatalogLoadSignature: String? = null
+    private val instanceId = System.identityHashCode(this)
+    internal val isActiveInstance get() = instanceId == homeViewModelActiveInstanceId
     internal val catalogPipelineMutex = kotlinx.coroutines.sync.Mutex()
     internal var catalogPipelineDebounceJob: Job? = null
     internal val catalogReloadTrigger = kotlinx.coroutines.flow.MutableSharedFlow<Pair<List<com.nuvio.tv.domain.model.Addon>, Boolean>>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
@@ -213,6 +218,7 @@ class HomeViewModel @Inject constructor(
 
     init {
         android.util.Log.e("NuvioCache", "HomeViewModel INIT instance=${System.identityHashCode(this)}")
+        homeViewModelActiveInstanceId = instanceId
         observeStartupAuthNotice()
         viewModelScope.launch {
             profileManager.activeProfileReady.first { it }
@@ -234,7 +240,7 @@ class HomeViewModel @Inject constructor(
                 android.util.Log.e("NuvioCache", "catalogReloadTrigger collector STARTED thread=${Thread.currentThread().name}")
                 catalogReloadTrigger
                     .debounce(300)
-                    .collectLatest { (addons, force) ->
+                    .collect { (addons, force) ->
                         android.util.Log.e("NuvioCache", "catalogReloadTrigger FIRED addons=${addons.size} force=$force")
                         loadAllCatalogsPipeline(addons, force)
                     }
@@ -533,6 +539,7 @@ class HomeViewModel @Inject constructor(
     private fun loadCatalog(addon: Addon, catalog: CatalogDescriptor, generation: Long) =
         loadCatalogPipeline(addon, catalog, generation)
 
+
     private fun loadMoreCatalogItems(catalogId: String, addonId: String, type: String) =
         loadMoreCatalogItemsPipeline(catalogId, addonId, type)
 
@@ -631,6 +638,8 @@ class HomeViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        android.util.Log.e("NuvioCache", "HomeViewModel CLEARED instance=${System.identityHashCode(this)}")
+        if (homeViewModelActiveInstanceId == System.identityHashCode(this)) homeViewModelActiveInstanceId = -1
         startupAuthNoticeJob?.cancel()
         posterStatusReconcileJob?.cancel()
         movieWatchedBatchJob?.cancel()
