@@ -12,6 +12,9 @@ import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.nuvio.tv.data.local.ImdbTmdbMappingCache
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 
 private const val TAG = "TmdbService"
 private val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
@@ -22,7 +25,8 @@ private val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
  */
 @Singleton
 class TmdbService @Inject constructor(
-    private val tmdbApi: TmdbApi
+    private val tmdbApi: TmdbApi,
+    private val imdbTmdbMappingCache: ImdbTmdbMappingCache
 ) {
     // Cache: IMDB ID -> TMDB ID
     private val imdbToTmdbCache = ConcurrentHashMap<String, Int>()
@@ -35,6 +39,18 @@ class TmdbService @Inject constructor(
     
     // Mutex for thread-safe cache operations
     private val cacheMutex = Mutex()
+
+    @Volatile private var mappingDiskCacheLoaded = false
+
+    private suspend fun ensureMappingDiskCacheLoaded() {
+        if (mappingDiskCacheLoaded) return
+        mappingDiskCacheLoaded = true
+        val loaded = imdbTmdbMappingCache.loadAll()
+        if (loaded.isNotEmpty()) {
+            loaded.forEach { (imdbId, tmdbId) -> preCacheMapping(imdbId, tmdbId) }
+            Log.d(TAG, "Restored ${loaded.size} IMDB->TMDB mappings from disk")
+        }
+    }
     
     /**
      * Convert an IMDB ID to a TMDB ID.
@@ -44,6 +60,7 @@ class TmdbService @Inject constructor(
      * @return The TMDB ID, or null if not found
      */
     suspend fun imdbToTmdb(imdbId: String, mediaType: String): Int? = withContext(Dispatchers.IO) {
+        ensureMappingDiskCacheLoaded()
         // Validate IMDB ID format
         if (!imdbId.startsWith("tt")) {
             Log.w(TAG, "Invalid IMDB ID format: $imdbId")
@@ -98,6 +115,9 @@ class TmdbService @Inject constructor(
                 cacheMutex.withLock {
                     imdbToTmdbCache[imdbId] = found.id
                     tmdbToImdbCache[found.id] = imdbId
+                }
+                GlobalScope.launch(Dispatchers.IO) {
+                    imdbTmdbMappingCache.saveAll(imdbToTmdbCache.toMap())
                 }
                 
                 requestDeferred.complete(found.id)
