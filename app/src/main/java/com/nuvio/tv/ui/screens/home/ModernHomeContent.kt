@@ -210,7 +210,8 @@ fun ModernHomeContent(
         strTypeMovie,
         strTypeSeries,
         numberedCatalogKeys,
-        outlineNumberedCatalogKeys
+        outlineNumberedCatalogKeys,
+        uiState.landscapeCatalogKeys
     ) {
         buildList {
             val activeCatalogKeys = LinkedHashSet<String>(visibleCatalogRows.size)
@@ -254,6 +255,7 @@ fun ModernHomeContent(
 
             visibleCatalogRows.forEachIndexed { index, row ->
                 val rowKey = catalogRowKey(row)
+                val rowUseLandscapePosters = useLandscapePosters || rowKey in uiState.landscapeCatalogKeys
                 activeCatalogKeys += rowKey
                 val cached = rowBuildCache.catalogRows[rowKey]
                 val cachedNumberStyle = when {
@@ -264,7 +266,7 @@ fun ModernHomeContent(
                 val canReuseMappedRow =
                     cached != null &&
                         cached.source == row &&
-                        cached.useLandscapePosters == useLandscapePosters &&
+                        cached.useLandscapePosters == rowUseLandscapePosters &&
                         cached.showCatalogTypeSuffix == showCatalogTypeSuffixInModern &&
                         cached.mappedRow.numberStyle == cachedNumberStyle
 
@@ -305,21 +307,21 @@ fun ModernHomeContent(
                             val cachedItem = rowItemCache[cacheKey]
                             if (cachedItem != null &&
                                 cachedItem.source == item &&
-                                cachedItem.useLandscapePosters == useLandscapePosters
+                                cachedItem.useLandscapePosters == rowUseLandscapePosters
                             ) {
                                 cachedItem.carouselItem
                             } else {
                                 val built = buildCatalogItem(
                                     item = item,
                                     row = row,
-                                    useLandscapePosters = useLandscapePosters,
+                                    useLandscapePosters = rowUseLandscapePosters,
                                     occurrence = occurrence,
                                     strTypeMovie = strTypeMovie,
                                     strTypeSeries = strTypeSeries
                                 )
                                 rowItemCache[cacheKey] = CachedCarouselItem(
                                     source = item,
-                                    useLandscapePosters = useLandscapePosters,
+                                    useLandscapePosters = rowUseLandscapePosters,
                                     carouselItem = built
                                 )
                                 built
@@ -330,7 +332,7 @@ fun ModernHomeContent(
 
                 rowBuildCache.catalogRows[rowKey] = ModernCatalogRowBuildCacheEntry(
                     source = row,
-                    useLandscapePosters = useLandscapePosters,
+                    useLandscapePosters = rowUseLandscapePosters,
                     showCatalogTypeSuffix = showCatalogTypeSuffixInModern,
                     mappedRow = mappedRow
                 )
@@ -1332,7 +1334,7 @@ fun ModernHomeContent(
                         pendingRowFocusNonce = pendingRowFocusNonce,
                         onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
                         onRowItemFocused = stableOnRowItemFocused,
-                        useLandscapePosters = useLandscapePosters,
+                        useLandscapePosters = useLandscapePosters || row.key in uiState.landscapeCatalogKeys,
                         showLabels = uiState.posterLabelsEnabled,
                         posterCardCornerRadius = posterCardCornerRadius,
                         focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
@@ -1342,8 +1344,8 @@ fun ModernHomeContent(
                         expandedCatalogFocusKey = rowExpandedFocusKey,
                         expandedTrailerPreviewUrl = if (rowHasExpanded) expandedCatalogTrailerUrl else null,
                         expandedTrailerPreviewAudioUrl = if (rowHasExpanded) expandedCatalogTrailerAudioUrl else null,
-                        modernCatalogCardWidth = modernCatalogCardWidth,
-                        modernCatalogCardHeight = modernCatalogCardHeight,
+                        modernCatalogCardWidth = if (useLandscapePosters || row.key in uiState.landscapeCatalogKeys) portraitBaseWidth * 1.24f * 1.34f else modernCatalogCardWidth,
+                        modernCatalogCardHeight = if (useLandscapePosters || row.key in uiState.landscapeCatalogKeys) (portraitBaseWidth * 1.24f * 1.34f) / 1.77f else modernCatalogCardHeight,
                         continueWatchingCardWidth = continueWatchingCardWidth,
                         continueWatchingCardHeight = continueWatchingCardHeight,
                         onContinueWatchingClick = onContinueWatchingClick,

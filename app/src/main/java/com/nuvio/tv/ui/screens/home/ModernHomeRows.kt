@@ -502,10 +502,16 @@ internal fun ModernRowSection(
 
         // For numbered rows, increase item spacing to accommodate the large number overlay
         val isNumbered = numberStyle != NumberStyle.OFF
-        val numberedRowSpacing = if (isNumbered) (modernCatalogCardWidth * 0.64f).coerceAtLeast(12.dp) else 12.dp
+        val numberedRowSpacing = if (isNumbered) {
+            if (useLandscapePosters) (modernCatalogCardWidth * 0.30f).coerceAtLeast(12.dp)
+            else (modernCatalogCardWidth * 0.64f).coerceAtLeast(12.dp)
+        } else 12.dp
 
         // Pre-measure number widths once at row level for stable sizing across all items
-        val numberFontSizeRow = androidx.compose.ui.unit.TextUnit(modernCatalogCardHeight.value * 0.55f, androidx.compose.ui.unit.TextUnitType.Sp)
+        val numberFontSizeRow = androidx.compose.ui.unit.TextUnit(
+            if (useLandscapePosters) modernCatalogCardHeight.value * 0.80f else modernCatalogCardHeight.value * 0.55f,
+            androidx.compose.ui.unit.TextUnitType.Sp
+        )
         val numberBaseStyleRow = androidx.compose.ui.text.TextStyle(
             fontSize = numberFontSizeRow,
             fontWeight = androidx.compose.ui.text.font.FontWeight.W500,
@@ -613,8 +619,8 @@ internal fun ModernRowSection(
                             val cardNumber = index + 1
                             if (numberStyle != NumberStyle.OFF) {
                                 val digitPadding = when {
-                                    cardNumber >= 100 -> modernCatalogCardWidth * 0.81f
-                                    cardNumber >= 10 -> modernCatalogCardWidth * 0.41f
+                                    cardNumber >= 100 -> if (useLandscapePosters) modernCatalogCardWidth * 0.40f else modernCatalogCardWidth * 0.81f
+                                    cardNumber >= 10 -> if (useLandscapePosters) modernCatalogCardWidth * 0.20f else modernCatalogCardWidth * 0.41f
                                     else -> 0.dp
                                 }
                                 val preMeasuredWidth = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -631,7 +637,8 @@ internal fun ModernRowSection(
                                     extraStartPadding = digitPadding,
                                     preMeasuredTextWidth = preMeasuredWidth,
                                     numberStyle = numberStyle,
-                                    useThemeColorForNumbers = useThemeColorForNumbers
+                                    useThemeColorForNumbers = useThemeColorForNumbers,
+                                    useLandscapePosters = useLandscapePosters
                                 ) {
                                     ModernCatalogRowItem(
                                         modifier = if (isFirstRow && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
@@ -1115,10 +1122,14 @@ private fun NumberedCatalogCardWrapper(
     preMeasuredTextWidth: androidx.compose.ui.unit.Dp = 0.dp,
     numberStyle: NumberStyle = NumberStyle.SOLID,
     useThemeColorForNumbers: Boolean = false,
+    useLandscapePosters: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val numberText = number.toString()
-    val numberFontSize = androidx.compose.ui.unit.TextUnit(cardHeight.value * 0.55f, androidx.compose.ui.unit.TextUnitType.Sp)
+    val numberFontSize = androidx.compose.ui.unit.TextUnit(
+        if (useLandscapePosters) cardHeight.value * 0.80f else cardHeight.value * 0.55f,
+        androidx.compose.ui.unit.TextUnitType.Sp
+    )
     val context = androidx.compose.ui.platform.LocalContext.current
     val density = androidx.compose.ui.platform.LocalDensity.current
 
@@ -1154,7 +1165,7 @@ private fun NumberedCatalogCardWrapper(
     val textWidthDp = if (preMeasuredTextWidth > 0.dp) preMeasuredTextWidth else with(density) { measured.size.width.toDp() }
     val textHeightDp = with(density) { measured.size.height.toDp() }
 
-    val overlapDp = cardWidth * 0.10f
+    val overlapDp = if (useLandscapePosters) cardWidth * 0.06f else cardWidth * 0.10f
     val offsetX = -(textWidthDp - overlapDp)
 
     Box(modifier = androidx.compose.ui.Modifier.padding(start = extraStartPadding)) {
@@ -1162,7 +1173,7 @@ private fun NumberedCatalogCardWrapper(
             modifier = androidx.compose.ui.Modifier
                 .height(textHeightDp)
                 .align(androidx.compose.ui.Alignment.BottomStart)
-                .offset(x = offsetX, y = cardHeight * 0.105f)
+                .offset(x = offsetX, y = if (useLandscapePosters) cardHeight * 0.14f else cardHeight * 0.105f)
                 .zIndex(-1f)
                 .layout { measurable, constraints ->
                     val textWidthPx = with(density) { textWidthDp.roundToPx() }

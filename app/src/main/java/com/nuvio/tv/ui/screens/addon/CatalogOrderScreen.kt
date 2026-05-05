@@ -47,6 +47,8 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
+import com.nuvio.tv.R as NuvioR
 import com.nuvio.tv.R
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.Canvas
@@ -188,7 +190,9 @@ fun CatalogOrderScreen(
                                 }
                             },
                             onToggleEnabled = { viewModel.toggleCatalogEnabled(item.disableKey) },
-                            onToggleNumbered = { viewModel.toggleCatalogNumbered(item.key) }
+                            onToggleNumbered = { viewModel.toggleCatalogNumbered(item.key) },
+                            onToggleLandscape = { viewModel.toggleCatalogLandscape(item.key) },
+                            globalLandscapeEnabled = uiState.globalLandscapePostersEnabled
                         )
                     }
                 }
@@ -203,7 +207,9 @@ private fun CatalogOrderCard(
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onToggleEnabled: () -> Unit,
-    onToggleNumbered: () -> Unit
+    onToggleNumbered: () -> Unit,
+    onToggleLandscape: () -> Unit,
+    globalLandscapeEnabled: Boolean
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -258,11 +264,13 @@ private fun CatalogOrderCard(
                             shape = RoundedCornerShape(12.dp)
                         )
                     ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                    contentPadding = ButtonDefaults.ContentPadding
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
-                        contentDescription = "Move up"
+                        contentDescription = "Move up",
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
@@ -281,11 +289,13 @@ private fun CatalogOrderCard(
                             shape = RoundedCornerShape(12.dp)
                         )
                     ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                    contentPadding = ButtonDefaults.ContentPadding
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
-                        contentDescription = "Move down"
+                        contentDescription = "Move down",
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
@@ -303,7 +313,8 @@ private fun CatalogOrderCard(
                             shape = RoundedCornerShape(12.dp)
                         )
                     ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                    contentPadding = ButtonDefaults.ContentPadding
                 ) {
                     val hashFont = when (item.numberStyle) {
                         com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE -> FontFamily(Font(R.font.sf_distant_galaxy_outline))
@@ -317,6 +328,30 @@ private fun CatalogOrderCard(
                             lineHeight = 28.sp
                         ),
                         modifier = Modifier.padding(top = if (item.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE) 7.dp else 8.dp)
+                    )
+                }
+
+                if (!globalLandscapeEnabled) Button(
+                    onClick = onToggleLandscape,
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (item.isLandscape) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                        contentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
+                    ),
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                    contentPadding = ButtonDefaults.ContentPadding
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_landscape_poster),
+                        contentDescription = "Toggle landscape posters",
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 

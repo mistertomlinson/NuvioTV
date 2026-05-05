@@ -27,6 +27,7 @@ class CatalogOrderViewModel @Inject constructor(
     private var disabledKeysCache: Set<String> = emptySet()
     private var numberedKeysCache: Set<String> = emptySet()
     private var outlineNumberedKeysCache: Set<String> = emptySet()
+    private var landscapeKeysCache: Set<String> = emptySet()
 
     init {
         observeCatalogs()
@@ -46,6 +47,15 @@ class CatalogOrderViewModel @Inject constructor(
         }
         viewModelScope.launch {
             layoutPreferenceDataStore.setDisabledHomeCatalogKeys(updatedDisabled.toList())
+        }
+    }
+
+    fun toggleCatalogLandscape(key: String) {
+        val updatedLandscape = landscapeKeysCache.toMutableSet().apply {
+            if (key in this) remove(key) else add(key)
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setLandscapeHomeCatalogKeys(updatedLandscape.toList())
         }
     }
 
@@ -133,6 +143,7 @@ class CatalogOrderViewModel @Inject constructor(
                 layoutPreferenceDataStore.disabledHomeCatalogKeys,
                 layoutPreferenceDataStore.numberedHomeCatalogKeys,
                 layoutPreferenceDataStore.outlineNumberedHomeCatalogKeys,
+                layoutPreferenceDataStore.landscapeHomeCatalogKeys,
                 layoutPreferenceDataStore.useThemeColorForNumbers,
             layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
             layoutPreferenceDataStore.showAllCatalogsOnHome,
@@ -145,12 +156,13 @@ class CatalogOrderViewModel @Inject constructor(
                 val disabledKeys = args[2] as List<*>
                 val numberedKeys = args[3] as List<*>
                 val outlineNumberedKeys = args[4] as List<*>
-                val useThemeColor = args[5] as Boolean
-                val aggregatePlatforms = args[6] as Boolean
-                val showAllOnHome = args[7] as Boolean
-                val fullWidthIconRow = args[8] as Boolean
-                val fastPlatformScroll = args[9] as Boolean
-                val dimIconsOnRowExit = args[10] as Boolean
+                val landscapeKeys = args[5] as List<*>
+                val useThemeColor = args[6] as Boolean
+                val aggregatePlatforms = args[7] as Boolean
+                val showAllOnHome = args[8] as Boolean
+                val fullWidthIconRow = args[9] as Boolean
+                val fastPlatformScroll = args[10] as Boolean
+                val dimIconsOnRowExit = args[11] as Boolean
 Triple(
                     Triple(
                         buildOrderedCatalogItems(
@@ -158,7 +170,8 @@ Triple(
                             savedOrderKeys = savedOrderKeys as List<String>,
                             disabledKeys = (disabledKeys as List<String>).toSet(),
                             numberedKeys = (numberedKeys as List<String>).toSet(),
-                            outlineNumberedKeys = (outlineNumberedKeys as List<String>).toSet()
+                            outlineNumberedKeys = (outlineNumberedKeys as List<String>).toSet(),
+                            landscapeKeys = (landscapeKeys as List<String>).toSet()
                         ),
                         useThemeColor,
                         Unit
@@ -166,13 +179,17 @@ Triple(
                     aggregatePlatforms to showAllOnHome,
                     Triple(fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit)
                 )
-            }.collectLatest { (triple, aggregatePair, fullWidthIconRowTriple) ->
+            }.combine(layoutPreferenceDataStore.modernLandscapePostersEnabled) { inner, globalLandscape ->
+                inner to globalLandscape
+            }.collectLatest { (innerResult, globalLandscapePosters) ->
+            val (triple, aggregatePair, fullWidthIconRowTriple) = innerResult
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
                 val (fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit) = fullWidthIconRowTriple
                 val (orderedItems, useThemeColor, _) = triple
                 disabledKeysCache = orderedItems.filter { it.isDisabled }.map { it.disableKey }.toSet()
                 numberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.SOLID }.map { it.key }.toSet()
                 outlineNumberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE }.map { it.key }.toSet()
+                landscapeKeysCache = orderedItems.filter { it.isLandscape }.map { it.key }.toSet()
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -182,7 +199,8 @@ Triple(
                         showAllCatalogsOnHome = showAllOnHome,
                         fullWidthIconRowEnabled = fullWidthIconRow,
                         fastPlatformScrollEnabled = fastPlatformScroll,
-                        dimIconsOnRowExitEnabled = dimIconsOnRowExit
+                        dimIconsOnRowExitEnabled = dimIconsOnRowExit,
+                        globalLandscapePostersEnabled = globalLandscapePosters
                     )
                 }
             }
@@ -194,7 +212,8 @@ Triple(
         savedOrderKeys: List<String>,
         disabledKeys: Set<String>,
         numberedKeys: Set<String> = emptySet(),
-        outlineNumberedKeys: Set<String> = emptySet()
+        outlineNumberedKeys: Set<String> = emptySet(),
+        landscapeKeys: Set<String> = emptySet()
     ): List<CatalogOrderItem> {
         val defaultEntries = buildDefaultCatalogEntries(addons)
         val availableMap = defaultEntries.associateBy { it.key }
@@ -224,6 +243,7 @@ Triple(
                     entry.key in numberedKeys -> com.nuvio.tv.ui.screens.home.NumberStyle.SOLID
                     else -> com.nuvio.tv.ui.screens.home.NumberStyle.OFF
                 },
+                isLandscape = entry.key in landscapeKeys,
                 canMoveUp = index > 0,
                 canMoveDown = index < effectiveOrder.lastIndex
             )
@@ -285,6 +305,7 @@ Triple(
 
 data class CatalogOrderUiState(
     val isLoading: Boolean = true,
+    val globalLandscapePostersEnabled: Boolean = false,
     val items: List<CatalogOrderItem> = emptyList(),
     val useThemeColorForNumbers: Boolean = false,
     val aggregateStreamingPlatformsEnabled: Boolean = false,
@@ -302,6 +323,7 @@ data class CatalogOrderItem(
     val typeLabel: String,
     val isDisabled: Boolean,
     val numberStyle: com.nuvio.tv.ui.screens.home.NumberStyle = com.nuvio.tv.ui.screens.home.NumberStyle.OFF,
+    val isLandscape: Boolean = false,
     val canMoveUp: Boolean,
     val canMoveDown: Boolean
 )
