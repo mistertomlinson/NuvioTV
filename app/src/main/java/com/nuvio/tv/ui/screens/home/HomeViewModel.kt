@@ -47,6 +47,7 @@ import kotlinx.coroutines.sync.Semaphore
 import java.util.Collections
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
+import com.nuvio.tv.data.local.HomeEnrichmentDiskCache
 import com.nuvio.tv.data.repository.TraktProgressService
 import javax.inject.Inject
 import android.os.SystemClock
@@ -87,6 +88,7 @@ class HomeViewModel @Inject constructor(
     internal val mdbListSettingsDataStore: com.nuvio.tv.data.local.MDBListSettingsDataStore,
     internal val mdbListRepository: com.nuvio.tv.data.repository.MDBListRepository,
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    internal val homeEnrichmentDiskCache: HomeEnrichmentDiskCache,
 ) : ViewModel() {
     companion object {
         @Volatile internal var activeInstanceId: Int = -1

@@ -23,7 +23,10 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
+import com.nuvio.tv.data.local.TmdbEnrichmentDiskCache
 import javax.inject.Inject
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.GlobalScope
 import javax.inject.Singleton
 
 private const val TAG = "TmdbMetadataService"
@@ -31,10 +34,22 @@ private val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
 
 @Singleton
 class TmdbMetadataService @Inject constructor(
-    private val tmdbApi: TmdbApi
+    private val tmdbApi: TmdbApi,
+    private val diskCache: TmdbEnrichmentDiskCache
 ) {
     // In-memory caches
     private val enrichmentCache = ConcurrentHashMap<String, TmdbEnrichment>()
+    @Volatile private var diskCacheLoaded = false
+
+    private suspend fun ensureDiskCacheLoaded() {
+        if (diskCacheLoaded) return
+        diskCacheLoaded = true
+        val loaded = diskCache.loadAll()
+        if (loaded.isNotEmpty()) {
+            enrichmentCache.putAll(loaded)
+            android.util.Log.d("TmdbMetadataService", "Restored ${loaded.size} enrichment entries from disk")
+        }
+    }
     private val episodeCache = ConcurrentHashMap<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>()
     private val enrichmentInFlight = ConcurrentHashMap<String, CompletableDeferred<TmdbEnrichment?>>()
     private val episodeInFlight = ConcurrentHashMap<String, CompletableDeferred<Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>>()
@@ -47,6 +62,7 @@ class TmdbMetadataService @Inject constructor(
         language: String = "en"
     ): TmdbEnrichment? =
         withContext(Dispatchers.IO) {
+            ensureDiskCacheLoaded()
             val normalizedLanguage = normalizeTmdbLanguage(language)
             val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage"
             enrichmentCache[cacheKey]?.let { return@withContext it }
@@ -312,6 +328,9 @@ class TmdbMetadataService @Inject constructor(
                     detailBackdrop = detailBackdrop
                 )
                 enrichmentCache[cacheKey] = enrichment
+                GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    diskCache.saveAll(enrichmentCache.toMap())
+                }
                 requestDeferred.complete(enrichment)
                 enrichment
             } catch (e: CancellationException) {

@@ -164,6 +164,11 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
     enrichmentCache.clear()
+    val restored = homeEnrichmentDiskCache.loadAll()
+    if (restored.isNotEmpty()) {
+        enrichmentCache.putAll(restored)
+        android.util.Log.d("NuvioEnrich", "[PROACTIVE] restored ${restored.size} enrichment entries from disk")
+    }
     proactiveEnrichJob?.cancel()
     proactiveEnrichJob = null
     tmdbEnrichFocusJob?.cancel()
@@ -645,7 +650,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val allItems = displayRows
             .flatMap { it.items }
             .distinctBy { it.id }
-            .filter { it.id !in prefetchedTmdbIds }
+            .filter { it.id !in prefetchedTmdbIds && it.id !in enrichmentCache }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
         android.util.Log.d("NuvioEnrich", "[PROACTIVE] pipeline run: ${displayRows.size} rows, ${displayRows.flatMap { it.items }.distinctBy { it.id }.size} total items, ${allItems.size} need enrichment")
         if (allItems.isNotEmpty()) {
@@ -684,7 +689,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 coroutineScope {
                     remainingItems.map { item ->
                         async {
-                            if (item.id in prefetchedTmdbIds) return@async
+                            if (item.id in prefetchedTmdbIds || item.id in enrichmentCache) return@async
                             semaphore.acquire()
                             try {
                                 val tmdbId = runCatching {
@@ -705,6 +710,10 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                             }
                         }
                     }.awaitAll()
+                }
+                // Save entire enrichment cache to disk once after all items processed
+                viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    homeEnrichmentDiskCache.saveAll(enrichmentCache.toMap())
                 }
             }
         }

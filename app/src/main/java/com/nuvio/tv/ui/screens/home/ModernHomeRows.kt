@@ -662,7 +662,7 @@ internal fun ModernRowSection(
                                         onBackdropInteraction = onBackdropInteraction,
                                         onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange,
                                         isNearRowEnd = index >= row.items.size - 2,
-                                        onUpPressed = if (isFirstRow) onRequestCarouselFocus else null
+                                        onUpPressed = if (isFirstRow) onRequestCarouselFocus else null,
                                     )
                                 }
                             } else {
@@ -695,7 +695,7 @@ internal fun ModernRowSection(
                                     onBackdropInteraction = onBackdropInteraction,
                                     onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange,
                                     isNearRowEnd = index >= row.items.size - 2,
-                                    onUpPressed = if (isFirstRow) onRequestCarouselFocus else null
+                                    onUpPressed = if (isFirstRow) onRequestCarouselFocus else null,
                                 )
                             }
                         }
