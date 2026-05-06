@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withPermit
@@ -290,6 +291,14 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             android.util.Log.w("NuvioEnrich", "[RELOAD] key=$key pre-enriched=$preEnriched post-enriched=$postEnriched")
                         }
                         catalogsMap[key] = mergedRow
+                        // Proactively enrich landscape rows as pages arrive
+                        val isLandscapeRow = layoutPreferenceDataStore.modernLandscapePostersEnabled.first() ||
+                            key in _uiState.value.landscapeCatalogKeys
+                        if (isLandscapeRow) {
+                            mergedRow.items.take(25).forEach { item ->
+                                preloadAdjacentItemPipeline(item)
+                            }
+                        }
                         // Hide spinner immediately on first catalog result — don't wait for debounce
                         if (!hasRenderedFirstCatalog && mergedRow.items.isNotEmpty()) {
                             _uiState.update { it.copy(isLoading = false) }
@@ -551,7 +560,10 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                         )
                     }
                     if (currentTmdbSettings.useArtwork) {
-                        merged = merged.copy(logo = cached.logo ?: merged.logo)
+                        merged = merged.copy(
+                            logo = cached.logo ?: merged.logo,
+                            landscapePoster = cached.detailBackdrop ?: merged.landscapePoster
+                        )
                     }
                     if (currentTmdbSettings.useDetails) {
                         merged = merged.copy(

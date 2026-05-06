@@ -255,6 +255,7 @@ internal fun ModernRowSection(
     onPendingRowFocusCleared: () -> Unit,
     onRowItemFocused: (String, Int, Boolean) -> Unit,
     useLandscapePosters: Boolean,
+    perCatalogLandscape: Boolean = false,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
     focusedPosterBackdropTrailerMuted: Boolean,
@@ -782,7 +783,9 @@ private fun ModernCarouselCard(
     // In noBackdropImage mode, NEVER switch to the backdrop image.
     // The poster stays as-is; covered by the black overlay then the trailer.
     val imageUrl = remember(noBackdropImage, playTrailerInExpandedCard, effectiveIsExpanded, item.imageUrl, item.heroPreview.backdrop, item.heroPreview.poster) {
-        if (noBackdropImage && playTrailerInExpandedCard) {
+        if (useLandscapePosters) {
+            item.imageUrl
+        } else if (noBackdropImage && playTrailerInExpandedCard) {
             item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
         } else if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded) {
             item.heroPreview.backdrop ?: item.imageUrl ?: item.heroPreview.poster
@@ -821,7 +824,7 @@ private fun ModernCarouselCard(
         item.heroPreview.logo?.let {
             ImageRequest.Builder(context)
                 .data(it)
-                .crossfade(true)
+                .crossfade(false)
                 .size(width = maxLogoWidthPx, height = logoHeightPx)
                 .build()
         }
@@ -984,7 +987,7 @@ private fun ModernCarouselCard(
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop
                         )
-                    } else {
+                    } else if (!useLandscapePosters) {
                         MonochromePosterPlaceholder()
                     }
                 }

@@ -482,7 +482,8 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
         }
         if (currentTmdbSettings.useArtwork) {
             merged = merged.copy(
-                logo = enrichment.logo ?: merged.logo
+                logo = enrichment.logo ?: merged.logo,
+                landscapePoster = enrichment.detailBackdrop ?: merged.landscapePoster
             )
         }
         if (currentTmdbSettings.useDetails) {

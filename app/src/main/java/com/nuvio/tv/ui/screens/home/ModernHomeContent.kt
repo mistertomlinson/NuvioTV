@@ -702,6 +702,17 @@ fun ModernHomeContent(
                 heroItemRowKey = currentRow.key
             }
     }
+    LaunchedEffect(carouselRows) {
+        carouselRows.forEach { row ->
+            val isLandscapeRow = useLandscapePosters || row.key in uiState.landscapeCatalogKeys
+            if (!isLandscapeRow) return@forEach
+            row.items.take(50).forEach { item ->
+                item.metaPreview?.let { onPreloadAdjacentItem(it) }
+                delay(16L)
+            }
+        }
+    }
+
     LaunchedEffect(Unit) {
         isFastScrollingRef
             .collect { isScrolling ->
@@ -1335,6 +1346,7 @@ fun ModernHomeContent(
                         onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
                         onRowItemFocused = stableOnRowItemFocused,
                         useLandscapePosters = useLandscapePosters || row.key in uiState.landscapeCatalogKeys,
+                        perCatalogLandscape = !useLandscapePosters && row.key in uiState.landscapeCatalogKeys,
                         showLabels = uiState.posterLabelsEnabled,
                         posterCardCornerRadius = posterCardCornerRadius,
                         focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
