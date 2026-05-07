@@ -151,7 +151,8 @@ class AddonRepositoryImpl @Inject constructor(
                         urls.map { url ->
                             async {
                                 val canonical = canonicalizeUrl(url)
-                                manifestCache[canonical] ?: when (val result = fetchAddon(url)) {
+                                val cachedAddon = if (shouldBypassCache(canonical)) null else manifestCache[canonical]
+                                cachedAddon ?: when (val result = fetchAddon(url)) {
                                     is NetworkResult.Success -> result.data
                                     else -> null
                                 }
@@ -168,6 +169,12 @@ class AddonRepositoryImpl @Inject constructor(
             }.flowOn(Dispatchers.IO)
         }
 
+    // Addon URLs that should never be served from cache — always fetch fresh.
+    // This ensures dynamic addons like Watchly always return current catalog names.
+    private fun shouldBypassCache(baseUrl: String): Boolean {
+        return baseUrl.contains("watchly") || baseUrl.contains("ngrok")
+    }
+
     override suspend fun fetchAddon(baseUrl: String): NetworkResult<Addon> {
         val cleanBaseUrl = canonicalizeUrl(baseUrl)
         val manifestUrl = "$cleanBaseUrl/manifest.json"
@@ -175,8 +182,10 @@ class AddonRepositoryImpl @Inject constructor(
         return when (val result = safeApiCall { api.getManifest(manifestUrl) }) {
             is NetworkResult.Success -> {
                 val addon = result.data.toDomain(cleanBaseUrl)
-                manifestCache[cleanBaseUrl] = addon
-                persistManifestCacheToDisk()
+                if (!shouldBypassCache(cleanBaseUrl)) {
+                    manifestCache[cleanBaseUrl] = addon
+                    persistManifestCacheToDisk()
+                }
                 NetworkResult.Success(addon)
             }
             is NetworkResult.Error -> {

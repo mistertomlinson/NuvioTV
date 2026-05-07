@@ -177,7 +177,29 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideAddonApi(retrofit: Retrofit): AddonApi =
+    @Named("addon")
+    fun provideAddonOkHttpClient(okHttpClient: OkHttpClient): OkHttpClient =
+        okHttpClient.newBuilder()
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .build()
+
+    @Provides
+    @Singleton
+    @Named("addon")
+    fun provideAddonRetrofit(
+        @Named("addon") okHttpClient: OkHttpClient,
+        moshi: Moshi
+    ): Retrofit =
+        Retrofit.Builder()
+            .baseUrl("https://placeholder.nuvio.tv/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideAddonApi(@Named("addon") retrofit: Retrofit): AddonApi =
         retrofit.create(AddonApi::class.java)
 
     @Provides
