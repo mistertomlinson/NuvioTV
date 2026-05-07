@@ -219,11 +219,28 @@ private fun CatalogOrderCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "${item.catalogName} - ${item.typeLabel.toDisplayTypeLabel()}",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = if (item.isDisabled) NuvioColors.TextSecondary else NuvioColors.TextPrimary
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = if (item.isGroup) item.catalogName else "${item.catalogName} - ${item.typeLabel.toDisplayTypeLabel()}",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = if (item.isDisabled) NuvioColors.TextSecondary else NuvioColors.TextPrimary
+                    )
+                    if (item.isGroup && item.groupSize > 1) {
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(NuvioColors.Primary.copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "${item.groupSize}",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = NuvioColors.Primary
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
                     text = item.addonName,

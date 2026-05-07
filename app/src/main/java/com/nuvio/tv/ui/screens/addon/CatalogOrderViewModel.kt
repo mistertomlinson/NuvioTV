@@ -42,12 +42,14 @@ class CatalogOrderViewModel @Inject constructor(
     }
 
     fun moveToTop(key: String) {
-        val currentKeys = _uiState.value.items.map { it.key }
-        val currentIndex = currentKeys.indexOf(key)
-        if (currentIndex <= 0) return
-        val reordered = currentKeys.toMutableList().apply {
-            val item = removeAt(currentIndex)
-            add(0, item)
+        val item = _uiState.value.items.find { it.key == key } ?: return
+        val memberKeys = if (item.isGroup) item.groupMemberKeys else listOf(key)
+        // Get current full key order from datastore perspective
+        val currentItem = _uiState.value.items
+        val allKeys = currentItem.flatMap { if (it.isGroup) it.groupMemberKeys else listOf(it.key) }
+        val reordered = allKeys.toMutableList().apply {
+            memberKeys.forEach { remove(it) }
+            addAll(0, memberKeys)
         }
         viewModelScope.launch {
             layoutPreferenceDataStore.setHomeCatalogOrderKeys(reordered)
@@ -131,16 +133,32 @@ class CatalogOrderViewModel @Inject constructor(
     }
 
     private fun moveCatalog(key: String, direction: Int) {
-        val currentKeys = _uiState.value.items.map { it.key }
-        val currentIndex = currentKeys.indexOf(key)
+        val item = _uiState.value.items.find { it.key == key } ?: return
+        val memberKeys = if (item.isGroup) item.groupMemberKeys else listOf(key)
+        val currentItems = _uiState.value.items
+        val currentIndex = currentItems.indexOfFirst { it.key == key }
         if (currentIndex == -1) return
 
         val newIndex = currentIndex + direction
-        if (newIndex !in currentKeys.indices) return
+        if (newIndex !in currentItems.indices) return
 
-        val reordered = currentKeys.toMutableList().apply {
-            val item = removeAt(currentIndex)
-            add(newIndex, item)
+        // Work with full flat key list for datastore
+        val allKeys = currentItems.flatMap { if (it.isGroup) it.groupMemberKeys else listOf(it.key) }
+        val reordered = allKeys.toMutableList().apply {
+            memberKeys.forEach { remove(it) }
+            // Find insertion point based on new collapsed index
+            val targetItem = currentItems[newIndex]
+            val targetKeys = if (targetItem.isGroup) targetItem.groupMemberKeys else listOf(targetItem.key)
+            val targetFirstIndex = indexOf(targetKeys.first())
+            if (direction > 0) {
+                // Moving down: insert after the target group
+                val insertAt = (indexOf(targetKeys.last()) + 1).coerceAtMost(size)
+                addAll(insertAt, memberKeys)
+            } else {
+                // Moving up: insert before the target group
+                val insertAt = targetFirstIndex.coerceAtLeast(0)
+                addAll(insertAt, memberKeys)
+            }
         }
 
         viewModelScope.launch {
@@ -220,6 +238,50 @@ Triple(
         }
     }
 
+    // Maps a catalog key to its Watchly group identifier.
+    // Key format: com.bimal.watchly_<type>_<catalogId>
+    // type is "movie" or "series", catalogId is the Watchly catalog ID.
+    private fun watchlyGroup(key: String): String? {
+        if (!key.contains("com.bimal.watchly")) return null
+        val isMovie = key.contains("_movie_")
+        val isSeries = key.contains("_series_")
+        val typeSuffix = when {
+            isMovie -> "movie"
+            isSeries -> "series"
+            else -> "movie"
+        }
+        return when {
+            key.contains("watchly.watched") -> "watchly.watched.$typeSuffix"
+            key.contains("watchly.theme") -> "watchly.theme.$typeSuffix"
+            key.contains("watchly.rec") -> "watchly.rec.$typeSuffix"
+            key.contains("watchly.creators") -> "watchly.creators.$typeSuffix"
+            key.contains("watchly.all.loved") -> "watchly.all.loved.$typeSuffix"
+            key.contains("watchly.loved") -> "watchly.loved.$typeSuffix"
+            key.contains("watchly.liked") -> "watchly.liked.$typeSuffix"
+            else -> "watchly.other"
+        }
+    }
+
+    private fun watchlyGroupLabel(groupKey: String): String {
+        return when (groupKey) {
+            "watchly.watched.movie" -> "Because You Watched • Movies"
+            "watchly.watched.series" -> "Because You Watched • Series"
+            "watchly.theme.movie" -> "Keyword • Movies"
+            "watchly.theme.series" -> "Keyword • Series"
+            "watchly.rec.movie" -> "Top Picks • Movies"
+            "watchly.rec.series" -> "Top Picks • Series"
+            "watchly.creators.movie" -> "Creators • Movies"
+            "watchly.creators.series" -> "Creators • Series"
+            "watchly.all.loved.movie" -> "Based on What You Loved • Movies"
+            "watchly.all.loved.series" -> "Based on What You Loved • Series"
+            "watchly.loved.movie" -> "Based on What You Loved • Movies"
+            "watchly.loved.series" -> "Based on What You Loved • Series"
+            "watchly.liked.movie" -> "Based on What You Liked • Movies"
+            "watchly.liked.series" -> "Based on What You Liked • Series"
+            else -> "Watchly"
+        }
+    }
+
     private fun buildOrderedCatalogItems(
         addons: List<Addon>,
         savedOrderKeys: List<String>,
@@ -240,14 +302,62 @@ Triple(
 
         val savedKeySet = savedValid.toSet()
         val missing = defaultOrderKeys.filterNot { it in savedKeySet }
-        val effectiveOrder = savedValid + missing
 
-        return effectiveOrder.mapIndexedNotNull { index, key ->
+        // For missing Watchly catalogs, find the insertion position based on
+        // their group. Insert after the last saved key in the same group,
+        // or after the last saved Watchly key of any group, or at the end.
+        val effectiveOrder = savedValid.toMutableList()
+        missing.forEach { missingKey ->
+            val group = watchlyGroup(missingKey)
+            if (group == null) {
+                // Non-Watchly missing catalogs go to the end as before
+                effectiveOrder.add(missingKey)
+            } else {
+                // Find last index of any key in the same group
+                var insertAt = effectiveOrder.indexOfLast { watchlyGroup(it) == group }
+                if (insertAt >= 0) {
+                    effectiveOrder.add(insertAt + 1, missingKey)
+                } else {
+                    // No saved key in same group — find last saved Watchly key of any group
+                    insertAt = effectiveOrder.indexOfLast { watchlyGroup(it) != null }
+                    if (insertAt >= 0) {
+                        effectiveOrder.add(insertAt + 1, missingKey)
+                    } else {
+                        effectiveOrder.add(missingKey)
+                    }
+                }
+            }
+        }
+
+        // Collapse Watchly group members into single group rows
+        val collapsedOrder = mutableListOf<String>() // representative key per row
+        val groupRepresentatives = mutableMapOf<String, String>() // groupKey -> first key seen
+        val groupMembers = mutableMapOf<String, MutableList<String>>() // groupKey -> all keys
+
+        effectiveOrder.forEach { key ->
+            val group = watchlyGroup(key)
+            if (group != null) {
+                if (!groupRepresentatives.containsKey(group)) {
+                    groupRepresentatives[group] = key
+                    groupMembers[group] = mutableListOf(key)
+                    collapsedOrder.add(key) // use first key as row representative
+                } else {
+                    groupMembers[group]?.add(key)
+                }
+            } else {
+                collapsedOrder.add(key)
+            }
+        }
+
+        return collapsedOrder.mapIndexedNotNull { index, key ->
             val entry = availableMap[key] ?: return@mapIndexedNotNull null
+            val group = watchlyGroup(key)
+            val members = if (group != null) groupMembers[group] ?: listOf(key) else listOf(key)
+            val isGroup = group != null && members.size >= 1
             CatalogOrderItem(
                 key = entry.key,
                 disableKey = entry.disableKey,
-                catalogName = entry.catalogName,
+                catalogName = if (isGroup) watchlyGroupLabel(group!!) else entry.catalogName,
                 addonName = entry.addonName,
                 typeLabel = entry.typeLabel,
                 isDisabled = entry.disableKey in disabledKeys,
@@ -258,7 +368,10 @@ Triple(
                 },
                 isLandscape = entry.key in landscapeKeys,
                 canMoveUp = index > 0,
-                canMoveDown = index < effectiveOrder.lastIndex
+                canMoveDown = index < collapsedOrder.lastIndex,
+                isGroup = isGroup,
+                groupSize = members.size,
+                groupMemberKeys = members
             )
         }
     }
@@ -338,7 +451,11 @@ data class CatalogOrderItem(
     val numberStyle: com.nuvio.tv.ui.screens.home.NumberStyle = com.nuvio.tv.ui.screens.home.NumberStyle.OFF,
     val isLandscape: Boolean = false,
     val canMoveUp: Boolean,
-    val canMoveDown: Boolean
+    val canMoveDown: Boolean,
+    // Group support for dynamic addon catalogs (e.g. Watchly)
+    val isGroup: Boolean = false,
+    val groupSize: Int = 1,
+    val groupMemberKeys: List<String> = emptyList()
 )
 
 private data class CatalogOrderEntry(
