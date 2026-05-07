@@ -170,24 +170,18 @@ fun CatalogOrderScreen(
 
                 else -> {
                     itemsIndexed(
-                        items = uiState.items,
-                        key = { _, item -> item.key }
+                        items = uiState.items
                     ) { index, item ->
                         CatalogOrderCard(
                             item = item,
+                            onMoveToTop = {
+                                viewModel.moveToTop(item.key)
+                            },
                             onMoveUp = {
                                 viewModel.moveUp(item.key)
-                                scope.launch {
-                                    listState.animateScrollToItem((index - 1).coerceAtLeast(0))
-                                }
                             },
                             onMoveDown = {
                                 viewModel.moveDown(item.key)
-                                scope.launch {
-                                    listState.animateScrollToItem(
-                                        (index + 1).coerceAtMost(uiState.items.lastIndex)
-                                    )
-                                }
                             },
                             onToggleEnabled = { viewModel.toggleCatalogEnabled(item.disableKey) },
                             onToggleNumbered = { viewModel.toggleCatalogNumbered(item.key) },
@@ -204,6 +198,7 @@ fun CatalogOrderScreen(
 @Composable
 private fun CatalogOrderCard(
     item: CatalogOrderItem,
+    onMoveToTop: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onToggleEnabled: () -> Unit,
@@ -249,6 +244,31 @@ private fun CatalogOrderCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                Button(
+                    onClick = onMoveToTop,
+                    enabled = item.canMoveUp,
+                    colors = ButtonDefaults.colors(
+                        containerColor = NuvioColors.BackgroundCard,
+                        contentColor = NuvioColors.TextSecondary,
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContentColor = NuvioColors.Primary
+                    ),
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                    contentPadding = ButtonDefaults.ContentPadding
+                ) {
+                    Icon(
+                        painter = painterResource(id = NuvioR.drawable.ic_move_to_top),
+                        contentDescription = "Move to top",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
                 Button(
                     onClick = onMoveUp,
                     enabled = item.canMoveUp,

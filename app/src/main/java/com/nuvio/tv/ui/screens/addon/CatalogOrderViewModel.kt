@@ -41,6 +41,19 @@ class CatalogOrderViewModel @Inject constructor(
         moveCatalog(key, 1)
     }
 
+    fun moveToTop(key: String) {
+        val currentKeys = _uiState.value.items.map { it.key }
+        val currentIndex = currentKeys.indexOf(key)
+        if (currentIndex <= 0) return
+        val reordered = currentKeys.toMutableList().apply {
+            val item = removeAt(currentIndex)
+            add(0, item)
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setHomeCatalogOrderKeys(reordered)
+        }
+    }
+
     fun toggleCatalogEnabled(disableKey: String) {
         val updatedDisabled = disabledKeysCache.toMutableSet().apply {
             if (disableKey in this) remove(disableKey) else add(disableKey)
