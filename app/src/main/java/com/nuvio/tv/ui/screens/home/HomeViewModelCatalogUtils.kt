@@ -54,10 +54,52 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
         .toList()
 
     val savedSet = savedValid.toSet()
-    val mergedOrder = savedValid + defaultOrder.filterNot { it in savedSet }
+    val missing = defaultOrder.filterNot { it in savedSet }
+
+    // For missing Watchly catalogs, insert at group position rather than bottom
+    val mergedOrder = savedValid.toMutableList()
+    missing.forEach { missingKey ->
+        val group = watchlyGroup(missingKey)
+        if (group == null) {
+            mergedOrder.add(missingKey)
+        } else {
+            var insertAt = mergedOrder.indexOfLast { watchlyGroup(it) == group }
+            if (insertAt >= 0) {
+                mergedOrder.add(insertAt + 1, missingKey)
+            } else {
+                insertAt = mergedOrder.indexOfLast { watchlyGroup(it) != null }
+                if (insertAt >= 0) {
+                    mergedOrder.add(insertAt + 1, missingKey)
+                } else {
+                    mergedOrder.add(missingKey)
+                }
+            }
+        }
+    }
 
     catalogOrder.clear()
     catalogOrder.addAll(mergedOrder)
+}
+
+private fun watchlyGroup(key: String): String? {
+    if (!key.contains("com.bimal.watchly")) return null
+    val isMovie = key.contains("_movie_")
+    val isSeries = key.contains("_series_")
+    val typeSuffix = when {
+        isMovie -> "movie"
+        isSeries -> "series"
+        else -> "movie"
+    }
+    return when {
+        key.contains("watchly.watched") -> "watchly.watched.$typeSuffix"
+        key.contains("watchly.theme") -> "watchly.theme.$typeSuffix"
+        key.contains("watchly.rec") -> "watchly.rec.$typeSuffix"
+        key.contains("watchly.creators") -> "watchly.creators.$typeSuffix"
+        key.contains("watchly.all.loved") -> "watchly.all.loved.$typeSuffix"
+        key.contains("watchly.loved") -> "watchly.loved.$typeSuffix"
+        key.contains("watchly.liked") -> "watchly.liked.$typeSuffix"
+        else -> "watchly.other"
+    }
 }
 
 private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {

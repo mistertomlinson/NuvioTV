@@ -309,17 +309,17 @@ Triple(
         val effectiveOrder = savedValid.toMutableList()
         missing.forEach { missingKey ->
             val group = watchlyGroup(missingKey)
+            android.util.Log.d("WatchlyOrder", "missing key=$missingKey group=$group")
             if (group == null) {
-                // Non-Watchly missing catalogs go to the end as before
                 effectiveOrder.add(missingKey)
             } else {
-                // Find last index of any key in the same group
                 var insertAt = effectiveOrder.indexOfLast { watchlyGroup(it) == group }
+                android.util.Log.d("WatchlyOrder", "  sameGroupInsertAt=$insertAt")
                 if (insertAt >= 0) {
                     effectiveOrder.add(insertAt + 1, missingKey)
                 } else {
-                    // No saved key in same group — find last saved Watchly key of any group
                     insertAt = effectiveOrder.indexOfLast { watchlyGroup(it) != null }
+                    android.util.Log.d("WatchlyOrder", "  anyWatchlyInsertAt=$insertAt")
                     if (insertAt >= 0) {
                         effectiveOrder.add(insertAt + 1, missingKey)
                     } else {
@@ -346,6 +346,15 @@ Triple(
                 }
             } else {
                 collapsedOrder.add(key)
+            }
+        }
+
+        // Persist the effective order back to datastore so the home screen
+        // picks up new Watchly catalog IDs at their correct group positions
+        val flatEffectiveOrder = effectiveOrder.toList()
+        if (flatEffectiveOrder != savedOrderKeys) {
+            viewModelScope.launch {
+                layoutPreferenceDataStore.setHomeCatalogOrderKeys(flatEffectiveOrder)
             }
         }
 
