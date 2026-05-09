@@ -48,6 +48,17 @@ import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import com.nuvio.tv.ui.screens.settings.SettingsActionRow
+import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
 import com.nuvio.tv.R as NuvioR
 import com.nuvio.tv.R
 import kotlinx.coroutines.launch
@@ -104,36 +115,37 @@ fun CatalogOrderScreen(
             }
 
             item {
-                AggregatePlatformsToggleRow(
-                    checked = uiState.aggregateStreamingPlatformsEnabled,
-                    onToggle = { viewModel.toggleAggregatePlatforms() }
-                )
-            }
-
-            if (uiState.aggregateStreamingPlatformsEnabled) {
-                item {
-                    ShowAllCatalogsOnHomeToggleRow(
-                        checked = uiState.showAllCatalogsOnHome,
-                        onToggle = { viewModel.toggleShowAllCatalogsOnHome() }
+                var streamingPlatformSettingsExpanded by remember { mutableStateOf(false) }
+                val headerFocusRequester = remember { FocusRequester() }
+                CatalogCollapsibleSectionCard(
+                    title = "Streaming Platform Settings",
+                    description = "Controls how streaming platforms are handled",
+                    expanded = streamingPlatformSettingsExpanded,
+                    onToggle = { streamingPlatformSettingsExpanded = !streamingPlatformSettingsExpanded },
+                    focusRequester = headerFocusRequester
+                ) {
+                    AggregatePlatformsToggleRow(
+                        checked = uiState.aggregateStreamingPlatformsEnabled,
+                        onToggle = { viewModel.toggleAggregatePlatforms() }
                     )
-                }
-                item {
-                    FastPlatformScrollToggleRow(
-                        checked = uiState.fastPlatformScrollEnabled,
-                        onToggle = { viewModel.toggleFastPlatformScroll() }
-                    )
-                }
-                item {
-                    FullWidthIconRowToggleRow(
-                        checked = uiState.fullWidthIconRowEnabled,
-                        onToggle = { viewModel.toggleFullWidthIconRow() }
-                    )
-                }
-                item {
-                    DimIconsOnRowExitToggleRow(
-                        checked = uiState.dimIconsOnRowExitEnabled,
-                        onToggle = { viewModel.toggleDimIconsOnRowExit() }
-                    )
+                    if (uiState.aggregateStreamingPlatformsEnabled) {
+                        ShowAllCatalogsOnHomeToggleRow(
+                            checked = uiState.showAllCatalogsOnHome,
+                            onToggle = { viewModel.toggleShowAllCatalogsOnHome() }
+                        )
+                        FastPlatformScrollToggleRow(
+                            checked = uiState.fastPlatformScrollEnabled,
+                            onToggle = { viewModel.toggleFastPlatformScroll() }
+                        )
+                        FullWidthIconRowToggleRow(
+                            checked = uiState.fullWidthIconRowEnabled,
+                            onToggle = { viewModel.toggleFullWidthIconRow() }
+                        )
+                        DimIconsOnRowExitToggleRow(
+                            checked = uiState.dimIconsOnRowExitEnabled,
+                            onToggle = { viewModel.toggleDimIconsOnRowExit() }
+                        )
+                    }
                 }
             }
 
@@ -548,6 +560,35 @@ private fun FastPlatformScrollToggleRow(
                         .clip(CircleShape)
                         .background(Color.White)
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogCollapsibleSectionCard(
+    title: String,
+    description: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    focusRequester: FocusRequester,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        SettingsActionRow(
+            title = title,
+            subtitle = description,
+            value = if (expanded) stringResource(R.string.layout_open) else stringResource(R.string.layout_closed),
+            onClick = onToggle,
+            trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+            modifier = Modifier.focusRequester(focusRequester)
+        )
+        if (expanded) {
+            SettingsGroupCard {
+                content()
             }
         }
     }
