@@ -62,6 +62,7 @@ import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
 import com.nuvio.tv.R as NuvioR
 import com.nuvio.tv.R
 import kotlinx.coroutines.launch
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.Paint
@@ -96,7 +97,9 @@ fun CatalogOrderScreen(
     ) {
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .dpadRepeatThrottle(horizontalGateMs = 0L, verticalGateMs = 100L),
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
