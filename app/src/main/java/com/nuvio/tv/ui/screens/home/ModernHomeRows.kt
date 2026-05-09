@@ -103,6 +103,7 @@ import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import com.nuvio.tv.ui.util.dpadRepeatThrottle
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -553,6 +554,7 @@ internal fun ModernRowSection(
                             } else false
                         } else false
                     }
+                    .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L)
                     .focusRestorer(
                         run {
                             val rememberedIndex = (focusedItemByRow[row.key] ?: 0)
@@ -820,8 +822,16 @@ private fun ModernCarouselCard(
     val maxLogoWidthPx = remember(maxRequestCardWidth, density) {
         with(density) { (maxRequestCardWidth * 0.62f).roundToPx() }
     }
-    val logoModel = remember(context, item.heroPreview.logo, maxLogoWidthPx, logoHeightPx) {
-        item.heroPreview.logo?.let {
+    // Freeze logo URL — enrichment updates must not cause image reload/flash.
+    // First non-blank value wins and is never replaced within this composition.
+    val frozenLogoUrl = remember(item.key) { mutableStateOf(item.heroPreview.logo) }
+    if (frozenLogoUrl.value.isNullOrBlank() && !item.heroPreview.logo.isNullOrBlank()) {
+        frozenLogoUrl.value = item.heroPreview.logo
+    }
+    val effectiveLogoUrl = frozenLogoUrl.value
+
+    val logoModel = remember(context, effectiveLogoUrl, maxLogoWidthPx, logoHeightPx) {
+        effectiveLogoUrl?.let {
             ImageRequest.Builder(context)
                 .data(it)
                 .crossfade(false)
@@ -829,15 +839,20 @@ private fun ModernCarouselCard(
                 .build()
         }
     }
-    var landscapeLogoLoadFailed by remember(item.heroPreview.logo) { mutableStateOf(false) }
+    var landscapeLogoLoadFailed by remember(effectiveLogoUrl) { mutableStateOf(false) }
     // shouldPlayTrailerInCard: original = playTrailerInExpandedCard only.
     // playTrailerInExpandedCard already includes !isSidebarExpanded so trailer stops instantly.
     val shouldPlayTrailerInCard = playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
     val hasImage = !imageUrl.isNullOrBlank()
-    val hasLandscapeLogo =
-        useLandscapePosters &&
-            !item.heroPreview.logo.isNullOrBlank() &&
-            !landscapeLogoLoadFailed
+    // Freeze hasLandscapeLogo — once logo is available, never hide it to avoid flash
+    val hasLandscapeLogoInstant = useLandscapePosters &&
+        !effectiveLogoUrl.isNullOrBlank() &&
+        !landscapeLogoLoadFailed
+    val frozenHasLandscapeLogo = remember(item.key) { mutableStateOf(hasLandscapeLogoInstant) }
+    if (hasLandscapeLogoInstant && !frozenHasLandscapeLogo.value) {
+        frozenHasLandscapeLogo.value = true
+    }
+    val hasLandscapeLogo = frozenHasLandscapeLogo.value
     var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
 

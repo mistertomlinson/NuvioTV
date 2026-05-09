@@ -51,6 +51,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
@@ -74,6 +75,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -462,6 +464,7 @@ fun ModernHomeContent(
     var frozenHeroItem by remember { mutableStateOf<HeroPreview?>(null) }
     var frozenHeroItemRowKey by remember { mutableStateOf<String?>(null) }
     var isFastScrolling by remember { mutableStateOf(false) }
+    val landingScope = rememberCoroutineScope()
     val heroTransitioningRef = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
     var restoredFromSavedState by remember { mutableStateOf(false) }
     var lastRestoredRowKey by remember { mutableStateOf<String?>(null) }
@@ -1054,7 +1057,12 @@ fun ModernHomeContent(
                     offset: Float,
                     size: Float,
                     containerSize: Float
-                ): Float = offset - topInsetPx
+                ): Float {
+                    // During fast scroll, don't bring focused item into view —
+                    // it fights the drag and causes jank
+                    if (isFastScrolling) return 0f
+                    return offset - topInsetPx
+                }
             }
         }
 
@@ -1213,6 +1221,54 @@ fun ModernHomeContent(
                     .padding(bottom = catalogBottomPadding)
                     .focusRequester(contentFocusRequester)
                     .focusRestorer { focusRestorerRequester }
+                    .dpadVerticalFastScroll(
+                        scrollableState = verticalRowListState,
+                        onFastScrollingChanged = { isFastScrollingRef.value = it },
+                        verticalVelocityDpPerSec = 1200f,
+                        shouldHaltForward = {
+                            val info = verticalRowListState.layoutInfo
+                            val lastIdx = carouselRows.size - 1
+                            val lastVisible = info.visibleItemsInfo.lastOrNull { it.index == lastIdx }
+                            lastIdx >= 0 && lastVisible != null &&
+                                lastVisible.offset + lastVisible.size <= info.viewportEndOffset
+                        },
+                        resolveVerticalLanding = { sign ->
+                            val layoutInfo = verticalRowListState.layoutInfo
+                            val visibleItems = layoutInfo.visibleItemsInfo
+                            val lastIdx = carouselRows.size - 1
+                            val viewportEnd = layoutInfo.viewportEndOffset
+                            val lastRowAtBottom = lastIdx >= 0 &&
+                                visibleItems.lastOrNull { it.index == lastIdx }?.let {
+                                    it.offset + it.size <= viewportEnd
+                                } == true
+                            val upwardTopRow = if (sign < 0) {
+                                visibleItems.firstOrNull()?.takeIf { it.offset > -it.size / 2 }
+                            } else null
+                            val targetRowIndex = when {
+                                lastRowAtBottom -> lastIdx
+                                upwardTopRow != null -> upwardTopRow.index
+                                else -> visibleItems.firstOrNull { it.offset >= 0 }?.index
+                                    ?: visibleItems.firstOrNull()?.index
+                                    ?: verticalRowListState.firstVisibleItemIndex
+                            }
+                            val targetRow = carouselRows.getOrNull(targetRowIndex)
+                            if (targetRow != null) {
+                                val savedItemIndex = (focusedItemByRow[targetRow.key] ?: 0)
+                                    .coerceIn(0, (targetRow.items.size - 1).coerceAtLeast(0))
+                                activeRowKey = targetRow.key
+                                activeItemIndex = savedItemIndex
+                                val targetItemKey = targetRow.items.getOrNull(savedItemIndex)?.key
+                                val requester = targetItemKey?.let {
+                                    itemFocusRequesters[targetRow.key]?.get(it)
+                                }
+                                pendingRowFocusKey = targetRow.key
+                                pendingRowFocusIndex = targetRowIndex
+                                pendingRowFocusNonce++
+                                runCatching { requester?.requestFocus() }
+                                targetItemKey
+                            } else null
+                        }
+                    )
                     .onPreviewKeyEvent { event ->
                         val native = event.nativeKeyEvent
                         val isDpad = native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
