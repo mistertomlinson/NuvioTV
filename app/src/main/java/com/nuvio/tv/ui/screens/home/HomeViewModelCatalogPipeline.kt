@@ -740,9 +740,44 @@ internal fun HomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<Cata
         reconcilePosterStatusObserversPipeline(rows)
         return
     }
+    // Start the movie-watched batch observer immediately so Trakt watched state
+    // begins flowing without waiting for the library-membership debounce.
+    startMovieWatchedObserverIfNeeded(rows)
     posterStatusReconcileJob = viewModelScope.launch {
         delay(500)
         reconcilePosterStatusObserversPipeline(rows)
+    }
+}
+
+internal fun HomeViewModel.startMovieWatchedObserverIfNeeded(rows: List<CatalogRow>) {
+    val allMovieItemsByKey = linkedMapOf<String, String>()
+    rows.asSequence()
+        .flatMap { row -> row.items.asSequence() }
+        .filter { it.apiType.equals("movie", ignoreCase = true) }
+        .forEach { item ->
+            val key = homeItemStatusKey(item.id, item.apiType)
+            if (key !in allMovieItemsByKey) allMovieItemsByKey[key] = item.id
+        }
+    val desiredMovieKeys = allMovieItemsByKey.keys
+    if (desiredMovieKeys == lastMovieWatchedItemKeys && movieWatchedBatchJob?.isActive == true) return
+    lastMovieWatchedItemKeys = desiredMovieKeys
+    movieWatchedObserverJobs.values.forEach { it.cancel() }
+    movieWatchedObserverJobs.clear()
+    movieWatchedBatchJob?.cancel()
+    if (desiredMovieKeys.isEmpty()) return
+    movieWatchedBatchJob = viewModelScope.launch {
+        watchProgressRepository.observeWatchedMovieIds()
+            .collectLatest { watchedIds ->
+                _uiState.update { state ->
+                    val newStatus = buildMap {
+                        allMovieItemsByKey.forEach { (statusKey, contentId) ->
+                            put(statusKey, contentId in watchedIds)
+                        }
+                    }
+                    if (state.movieWatchedStatus == newStatus) state
+                    else state.copy(movieWatchedStatus = newStatus)
+                }
+            }
     }
 }
 

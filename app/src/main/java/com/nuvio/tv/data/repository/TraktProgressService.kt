@@ -56,6 +56,7 @@ import java.util.TimeZone
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.local.TraktWatchedMoviesCache
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -67,7 +68,8 @@ class TraktProgressService @Inject constructor(
     private val metaRepository: MetaRepository,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val traktEpisodeMappingService: TraktEpisodeMappingService,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val traktWatchedMoviesCache: TraktWatchedMoviesCache
 ) {
     companion object {
         private const val TAG = "TraktProgressSvc"
@@ -205,6 +207,15 @@ class TraktProgressService @Inject constructor(
             }
         }
         scope.launch {
+            traktWatchedMoviesCache.loadFromDisk()
+            val cached = traktWatchedMoviesCache.watchedIds.value
+            if (cached.isNotEmpty()) {
+                watchedMoviesState.value = cached
+                hasLoadedWatchedMovies = true
+                watchedMoviesStale = true  // still fetch from network, but cache seeds UI immediately
+            }
+        }
+        scope.launch {
             refreshEvents().collect {
                 val success = try {
                     refreshRemoteSnapshot()
@@ -337,6 +348,7 @@ class TraktProgressService @Inject constructor(
         watchedMoviesLastAttemptAtMs = 0L
         hasLoadedWatchedMovies = false
         watchedMoviesStale = true
+        traktWatchedMoviesCache.reset()
         watchedShowSeedsUpdatedAtMs = 0L
         watchedShowSeedsLastAttemptAtMs = 0L
         hasLoadedWatchedShowSeeds = false
@@ -954,6 +966,7 @@ class TraktProgressService @Inject constructor(
             watchedMoviesUpdatedAtMs = System.currentTimeMillis()
             hasLoadedWatchedMovies = true
             watchedMoviesStale = false
+            traktWatchedMoviesCache.update(watchedMovies)
             trace("watched-movies cache refreshed: size=${watchedMovies.size}")
             watchedMovies
         }
