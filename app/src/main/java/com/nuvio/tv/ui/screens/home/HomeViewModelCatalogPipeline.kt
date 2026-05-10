@@ -840,6 +840,7 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
         movieWatchedObserverJobs.values.forEach { it.cancel() }
         movieWatchedObserverJobs.clear()
         movieWatchedBatchJob?.cancel()
+        seriesWatchedJob?.cancel()
 
         if (desiredMovieKeys.isNotEmpty()) {
             movieWatchedBatchJob = viewModelScope.launch {
@@ -860,6 +861,33 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
                     }
             }
         }
+
+        // Observe fully-watched series IDs from the badge pipeline and map them
+        // to the catalog row items so series posters show the watched checkmark.
+        val allSeriesItemsByKey = linkedMapOf<String, String>()
+        rows.asSequence()
+            .flatMap { row -> row.items.asSequence() }
+            .filter { it.apiType.equals("series", ignoreCase = true) || it.apiType.equals("tv", ignoreCase = true) }
+            .forEach { item ->
+                val key = homeItemStatusKey(item.id, item.apiType)
+                if (key !in allSeriesItemsByKey) allSeriesItemsByKey[key] = item.id
+            }
+        if (allSeriesItemsByKey.isNotEmpty()) {
+            seriesWatchedJob = viewModelScope.launch {
+                fullyWatchedSeriesIds.fullyWatchedSeriesIds
+                    .collectLatest { watchedIds ->
+                        _uiState.update { state ->
+                            val newStatus = buildMap {
+                                allSeriesItemsByKey.forEach { (statusKey, contentId) ->
+                                    put(statusKey, contentId in watchedIds)
+                                }
+                            }
+                            if (state.seriesWatchedStatus == newStatus) state
+                            else state.copy(seriesWatchedStatus = newStatus)
+                        }
+                    }
+            }
+        }
     }
 
     _uiState.update { state ->
@@ -867,6 +895,13 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
             state.posterLibraryMembership.filterKeys { it in desiredLibraryKeys }
         val trimmedMovieWatchedStatus =
             state.movieWatchedStatus.filterKeys { it in desiredMovieKeys }
+        val allSeriesKeys = rows.asSequence()
+            .flatMap { row -> row.items.asSequence() }
+            .filter { it.apiType.equals("series", ignoreCase = true) || it.apiType.equals("tv", ignoreCase = true) }
+            .map { homeItemStatusKey(it.id, it.apiType) }
+            .toSet()
+        val trimmedSeriesWatchedStatus =
+            state.seriesWatchedStatus.filterKeys { it in allSeriesKeys }
         val trimmedLibraryPending =
             state.posterLibraryPending.filterTo(linkedSetOf()) { it in desiredLibraryKeys }
         val trimmedMovieWatchedPending =
@@ -875,6 +910,7 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
         if (
             trimmedLibraryMembership == state.posterLibraryMembership &&
             trimmedMovieWatchedStatus == state.movieWatchedStatus &&
+            trimmedSeriesWatchedStatus == state.seriesWatchedStatus &&
             trimmedLibraryPending == state.posterLibraryPending &&
             trimmedMovieWatchedPending == state.movieWatchedPending
         ) {
@@ -883,6 +919,7 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
             state.copy(
                 posterLibraryMembership = trimmedLibraryMembership,
                 movieWatchedStatus = trimmedMovieWatchedStatus,
+                seriesWatchedStatus = trimmedSeriesWatchedStatus,
                 posterLibraryPending = trimmedLibraryPending,
                 movieWatchedPending = trimmedMovieWatchedPending
             )

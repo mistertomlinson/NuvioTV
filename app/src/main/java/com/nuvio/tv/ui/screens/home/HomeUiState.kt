@@ -42,6 +42,7 @@ data class HomeUiState(
     val libraryListTabs: List<LibraryListTab> = emptyList(),
     val posterLibraryMembership: Map<String, Boolean> = emptyMap(),
     val movieWatchedStatus: Map<String, Boolean> = emptyMap(),
+    val seriesWatchedStatus: Map<String, Boolean> = emptyMap(),
     val posterLibraryPending: Set<String> = emptySet(),
     val movieWatchedPending: Set<String> = emptySet(),
     val showPosterListPicker: Boolean = false,

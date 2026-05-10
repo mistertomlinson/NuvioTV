@@ -204,7 +204,9 @@ fun HomeScreen(
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
                                 isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+                                    val key = homeItemStatusKey(item.id, item.apiType)
+                                    uiState.movieWatchedStatus[key] == true ||
+                                        uiState.seriesWatchedStatus[key] == true
                                 },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
                                     posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
@@ -222,7 +224,9 @@ fun HomeScreen(
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
                                 onNavigateToCatalogSeeAll = onNavigateToCatalogSeeAll,
                                 isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+                                    val key = homeItemStatusKey(item.id, item.apiType)
+                                    uiState.movieWatchedStatus[key] == true ||
+                                        uiState.seriesWatchedStatus[key] == true
                                 },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
                                     posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
@@ -238,7 +242,9 @@ fun HomeScreen(
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManually,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
                                 isCatalogItemWatched = { item ->
-                                    uiState.movieWatchedStatus[homeItemStatusKey(item.id, item.apiType)] == true
+                                    val key = homeItemStatusKey(item.id, item.apiType)
+                                    uiState.movieWatchedStatus[key] == true ||
+                                        uiState.seriesWatchedStatus[key] == true
                                 },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
                                     posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)

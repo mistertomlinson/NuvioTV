@@ -204,6 +204,7 @@ class HomeViewModel @Inject constructor(
     internal val posterLibraryObserverJobs = mutableMapOf<String, Job>()
     internal val movieWatchedObserverJobs = mutableMapOf<String, Job>()
     internal var movieWatchedBatchJob: Job? = null
+    internal var seriesWatchedJob: Job? = null
     internal var lastMovieWatchedItemKeys: Set<String> = emptySet()
     internal var activePosterListPickerInput: LibraryEntryInput? = null
     @Volatile
@@ -645,6 +646,7 @@ class HomeViewModel @Inject constructor(
         startupAuthNoticeJob?.cancel()
         posterStatusReconcileJob?.cancel()
         movieWatchedBatchJob?.cancel()
+        seriesWatchedJob?.cancel()
         cancelInFlightCatalogLoads()
         posterLibraryObserverJobs.values.forEach { it.cancel() }
         movieWatchedObserverJobs.values.forEach { it.cancel() }
