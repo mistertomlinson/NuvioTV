@@ -22,8 +22,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
@@ -90,12 +88,7 @@ class AddonRepositoryImpl @Inject constructor(
     private var manifestRefreshJob: Job? = null
 
     init {
-        syncScope.launch {
-            loadManifestCacheFromDisk()
-            // Remove bypass URLs from disk cache so they are always fetched fresh.
-            manifestCache.keys.filter { shouldBypassCache(it) }.forEach { manifestCache.remove(it) }
-            Log.d(TAG, "init: cleared bypass URLs from manifest cache")
-        }
+        syncScope.launch { loadManifestCacheFromDisk() }
     }
 
     private fun isCacheStale(): Boolean =
@@ -146,43 +139,22 @@ class AddonRepositoryImpl @Inject constructor(
     }
 
     override fun getInstalledAddons(): Flow<List<Addon>> =
-
-        preferences.installedAddonUrls
-            .distinctUntilChanged()
-            .onEach { urls -> Log.d(TAG, "getInstalledAddons: urls emitted count=${urls.size}") }
-            .flatMapLatest { urls: List<String> ->
+        preferences.installedAddonUrls.flatMapLatest { urls ->
             flow {
-                Log.d(TAG, "getInstalledAddons: flow started thread=${Thread.currentThread().name}")
                 val cached = urls.mapNotNull { manifestCache[canonicalizeUrl(it)] }
-                Log.d(TAG, "getInstalledAddons: cached=${cached.size}/${urls.size}")
                 if (cached.isNotEmpty()) {
                     emit(applyDisplayNames(cached))
                 }
 
-                // Always fetch bypass-cache addons (e.g. Watchly) fresh inline
-                // so catalog IDs are always current on every cold launch.
                 val hasCacheMiss = cached.size < urls.size
-                val hasBypassUrls = urls.any { shouldBypassCache(canonicalizeUrl(it)) }
-
-                if (hasCacheMiss || hasBypassUrls) {
-                    urls.filter { shouldBypassCache(canonicalizeUrl(it)) }
-                        .forEach { url -> syncScope.launch {
-                            Log.d(TAG, "getInstalledAddons: background bypass fetch starting url=$url")
-                            val t = System.currentTimeMillis()
-                            fetchAddon(url)
-                            Log.d(TAG, "getInstalledAddons: background bypass fetch done in ${System.currentTimeMillis()-t}ms")
-                        } }
+                if (hasCacheMiss) {
                     val fresh = coroutineScope {
                         urls.map { url ->
                             async {
                                 val canonical = canonicalizeUrl(url)
-                                if (shouldBypassCache(canonical)) {
-                                    manifestCache[canonical]
-                                } else {
-                                    manifestCache[canonical] ?: when (val result = fetchAddon(url)) {
-                                        is NetworkResult.Success -> result.data
-                                        else -> null
-                                    }
+                                manifestCache[canonical] ?: when (val result = fetchAddon(url)) {
+                                    is NetworkResult.Success -> result.data
+                                    else -> null
                                 }
                             }
                         }.awaitAll().filterNotNull()
@@ -197,12 +169,6 @@ class AddonRepositoryImpl @Inject constructor(
             }.flowOn(Dispatchers.IO)
         }
 
-    // Addon URLs that should never be served from cache — always fetch fresh.
-    // This ensures dynamic addons like Watchly always return current catalog names.
-    private fun shouldBypassCache(baseUrl: String): Boolean {
-        return baseUrl.contains("watchly") || baseUrl.contains("ngrok")
-    }
-
     override suspend fun fetchAddon(baseUrl: String): NetworkResult<Addon> {
         val cleanBaseUrl = canonicalizeUrl(baseUrl)
         val manifestUrl = "$cleanBaseUrl/manifest.json"
@@ -210,13 +176,8 @@ class AddonRepositoryImpl @Inject constructor(
         return when (val result = safeApiCall { api.getManifest(manifestUrl) }) {
             is NetworkResult.Success -> {
                 val addon = result.data.toDomain(cleanBaseUrl)
-                // Always update in-memory cache so the flow can detect changes.
-                // Only persist to disk for non-bypass addons so Watchly
-                // never serves stale catalog IDs from disk on next launch.
                 manifestCache[cleanBaseUrl] = addon
-                if (!shouldBypassCache(cleanBaseUrl)) {
-                    persistManifestCacheToDisk()
-                }
+                persistManifestCacheToDisk()
                 NetworkResult.Success(addon)
             }
             is NetworkResult.Error -> {

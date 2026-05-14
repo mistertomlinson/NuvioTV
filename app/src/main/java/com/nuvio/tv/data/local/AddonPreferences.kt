@@ -66,7 +66,7 @@ class AddonPreferences @Inject constructor(
                 val legacySet = preferences[legacyUrlsKey] ?: getDefaultAddons()
                 legacySet.toList()
             }
-        }
+        }.distinctUntilChanged()
     }
 
     suspend fun ensureMigrated() {

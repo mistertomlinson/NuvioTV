@@ -53,8 +53,5 @@ class TraktWatchedMoviesCache @Inject constructor(
     fun reset() {
         _watchedIds.value = emptySet()
         loaded = false
-        scope.launch {
-            store().edit { prefs -> prefs[KEY] = emptySet() }
-        }
     }
 }

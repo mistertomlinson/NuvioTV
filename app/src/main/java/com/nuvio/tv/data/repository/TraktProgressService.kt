@@ -207,13 +207,8 @@ class TraktProgressService @Inject constructor(
             }
         }
         scope.launch {
-            traktWatchedMoviesCache.loadFromDisk()
-            val cached = traktWatchedMoviesCache.watchedIds.value
-            if (cached.isNotEmpty()) {
-                watchedMoviesState.value = cached
-                hasLoadedWatchedMovies = true
-                watchedMoviesStale = true  // still fetch from network, but cache seeds UI immediately
-            }
+            profileManager.activeProfileReady.first { it }
+            loadWatchedMoviesFromCache()
         }
         scope.launch {
             refreshEvents().collect {
@@ -349,6 +344,7 @@ class TraktProgressService @Inject constructor(
         hasLoadedWatchedMovies = false
         watchedMoviesStale = true
         traktWatchedMoviesCache.reset()
+        scope.launch { loadWatchedMoviesFromCache() }
         watchedShowSeedsUpdatedAtMs = 0L
         watchedShowSeedsLastAttemptAtMs = 0L
         hasLoadedWatchedShowSeeds = false
@@ -759,7 +755,17 @@ class TraktProgressService @Inject constructor(
         refreshIntervalMs = nextInterval
     }
 
-    private suspend fun refreshRemoteSnapshot() {
+    private suspend fun loadWatchedMoviesFromCache() {
+        traktWatchedMoviesCache.loadFromDisk()
+        val cached = traktWatchedMoviesCache.watchedIds.value
+        if (cached.isNotEmpty()) {
+            watchedMoviesState.value = cached
+            hasLoadedWatchedMovies = true
+            watchedMoviesStale = true
+        }
+    }
+
+        private suspend fun refreshRemoteSnapshot() {
         if (!traktAuthService.isCircuitClosed()) {
             trace("refreshRemoteSnapshot: circuit breaker open, skipping")
             throw IOException("Trakt circuit breaker is open")
@@ -769,7 +775,7 @@ class TraktProgressService @Inject constructor(
 
         if (!force && !hasActivityChanged()) return
 
-        if (watchedMoviesStale && hasLoadedWatchedMovies) {
+        if (watchedMoviesStale) {
             getWatchedMoviesSnapshot(forceRefresh = true)
         }
 

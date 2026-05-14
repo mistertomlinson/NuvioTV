@@ -165,10 +165,13 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
     enrichmentCache.clear()
-    val restored = homeEnrichmentDiskCache.loadAll()
-    if (restored.isNotEmpty()) {
-        enrichmentCache.putAll(restored)
-        android.util.Log.d("NuvioEnrich", "[PROACTIVE] restored ${restored.size} enrichment entries from disk")
+    // Load enrichment cache in background — don't block catalog pipeline on it
+    viewModelScope.launch {
+        val restored = homeEnrichmentDiskCache.loadAll()
+        if (restored.isNotEmpty()) {
+            enrichmentCache.putAll(restored)
+            android.util.Log.d("NuvioEnrich", "[PROACTIVE] restored ${restored.size} enrichment entries from disk")
+        }
     }
     proactiveEnrichJob?.cancel()
     proactiveEnrichJob = null
