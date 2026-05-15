@@ -41,7 +41,7 @@ class AddonRepositoryImpl @Inject constructor(
     companion object {
         private const val TAG = "AddonRepository"
         private const val MANIFEST_CACHE_PREFS = "addon_manifest_cache"
-        private const val MANIFEST_CACHE_KEY = "manifests_v2"
+        private const val MANIFEST_CACHE_KEY = "manifests_v4"
         private const val LEGACY_MANIFEST_CACHE_KEY = "manifests"
         private const val MANIFEST_SUFFIX = "/manifest.json"
         private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L 
@@ -88,7 +88,12 @@ class AddonRepositoryImpl @Inject constructor(
     private var manifestRefreshJob: Job? = null
 
     init {
-        syncScope.launch { loadManifestCacheFromDisk() }
+        syncScope.launch {
+            loadManifestCacheFromDisk()
+            // Always trigger a background refresh on startup so catalog names
+            // stay current without waiting for the 6-hour TTL.
+            lastManifestRefreshTime = 0L
+        }
     }
 
     private fun isCacheStale(): Boolean =
