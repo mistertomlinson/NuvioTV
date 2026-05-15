@@ -100,10 +100,13 @@ fun NuvioNavHost(
             val isAutoPlayNav = initialState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
-            if (isPlayerToStream(from, to) && isAutoPlayNav) {
-                ExitTransition.None
-            } else {
-                fadeOut(animationSpec = tween(350))
+            val isRatingExit = initialState.savedStateHandle
+                .get<Boolean>("ratingExit") == true
+            when {
+                isPlayerToStream(from, to) && isAutoPlayNav -> ExitTransition.None
+                // Screen already black from rating animation — skip nav fade
+                from.startsWith("player/") && isRatingExit -> ExitTransition.None
+                else -> fadeOut(animationSpec = tween(350))
             }
         }
     ) {
@@ -634,6 +637,18 @@ fun NuvioNavHost(
             )
         ) { backStackEntry ->
             PlayerScreen(
+                onRatingBackPress = { currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean ->
+                    backStackEntry.savedStateHandle["ratingExit"] = true
+                    // reuse same logic as onBackPress below
+                    val args2 = backStackEntry.arguments
+                    val returnToHomeOnBack2 = args2?.getString("returnToHomeOnBack")
+                        ?.toBooleanStrictOrNull() == true
+                    if (returnToHomeOnBack2) {
+                        navController.popBackStack(Screen.Home.route, inclusive = false)
+                    } else {
+                        navController.popBackStack()
+                    }
+                },
                 onBackPress = { currentSeason, currentEpisode, autoPlayEnabled ->
                     val args = backStackEntry.arguments
                     val initialSeason = args?.getString("season")?.toIntOrNull()
@@ -648,6 +663,12 @@ fun NuvioNavHost(
                     val contentId = args?.getString("contentId").orEmpty()
                     val focusSeason = currentSeason ?: initialSeason
                     val focusEpisode = currentEpisode ?: initialEpisode
+
+                    // Helper to pop with rating exit flag
+                    fun popWithRatingExit() {
+                        backStackEntry.savedStateHandle["ratingExit"] = true
+                        navController.popBackStack()
+                    }
 
                     when {
                         episodeChangedInPlace && autoPlayEnabled -> {

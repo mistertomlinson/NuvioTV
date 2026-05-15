@@ -117,6 +117,7 @@ import kotlinx.coroutines.delay
 fun PlayerScreen(
     viewModel: PlayerViewModel = hiltViewModel(),
     onBackPress: (currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean) -> Unit,
+    onRatingBackPress: ((currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean) -> Unit)? = null,
     onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, false) },
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?) -> Unit)? = null
 ) {
@@ -171,13 +172,61 @@ fun PlayerScreen(
             // If controls are visible, hide them instead of going back
             viewModel.hideControls()
         } else {
-            // If controls are hidden, go back
-            exitPlayer()
+            // If controls are hidden: show rating overlay when ≥1% watched (testing; restore to 85f)
+            val progressPct = if (uiState.duration > 0L) {
+                (uiState.currentPosition.toFloat() / uiState.duration.toFloat()) * 100f
+            } else 0f
+            val isMovie = uiState.contentType?.lowercase() == "movie"
+            val currentSeasonLocal = uiState.currentSeason
+            val currentEpisodeLocal = uiState.currentEpisode
+            val isSeries = uiState.contentType?.lowercase() == "series" ||
+                uiState.contentType?.lowercase() == "tv"
+            // Last episode of current season = highest episode number in this season
+            val isSeasonFinale = isSeries &&
+                currentSeasonLocal != null && currentEpisodeLocal != null &&
+                uiState.episodesAll.isNotEmpty() && run {
+                    val episodesInSeason = uiState.episodesAll
+                        .filter { it.season == currentSeasonLocal && it.episode != null }
+                    val maxEpisode = episodesInSeason.maxOfOrNull { it.episode ?: 0 } ?: 0
+                    currentEpisodeLocal >= maxEpisode && maxEpisode > 0
+                }
+            // Series finale = last episode globally (no next episode at all)
+            val isSeriesFinale = isSeries &&
+                currentSeasonLocal != null && currentEpisodeLocal != null &&
+                uiState.episodesAll.isNotEmpty() &&
+                PlayerNextEpisodeRules.resolveNextEpisode(
+                    videos = uiState.episodesAll,
+                    currentSeason = currentSeasonLocal,
+                    currentEpisode = currentEpisodeLocal
+                ) == null
+            val isFinale = isSeasonFinale || isSeriesFinale
+            val shouldPromptRating = progressPct >= 85f &&
+                !uiState.showRatingOverlay && (isMovie || isFinale)
+            if (shouldPromptRating) {
+                viewModel.onEvent(PlayerEvent.OnShowRatingOverlay)
+            } else {
+                exitPlayer()
+            }
         }
     }
 
     BackHandler {
         handleBackPress()
+    }
+
+    // Exit after rating POST completes
+    LaunchedEffect(uiState.ratingSubmitted) {
+        if (uiState.ratingSubmitted) {
+            // stopAndRelease() is called before navigating so progress is saved
+            // before the screen is disposed
+            viewModel.stopAndRelease()
+            val backFn = onRatingBackPress ?: onBackPress
+            backFn(
+                uiState.currentSeason,
+                uiState.currentEpisode,
+                uiState.streamAutoPlayMode != com.nuvio.tv.data.local.StreamAutoPlayMode.MANUAL
+            )
+        }
     }
 
     LaunchedEffect(uiState.playbackEnded, uiState.error) {
@@ -553,6 +602,21 @@ fun PlayerScreen(
             )
         }
 
+        // Blackout overlay — fades in over video before rating exit animation
+        val blackoutAlpha by androidx.compose.animation.core.animateFloatAsState(
+            targetValue = if (uiState.showPlayerBlackout) 1f else 0f,
+            animationSpec = androidx.compose.animation.core.tween(350),
+            label = "blackout"
+        )
+        if (blackoutAlpha > 0f) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(1.5f)
+                    .background(Color.Black.copy(alpha = blackoutAlpha))
+            )
+        }
+
         LoadingOverlay(
             visible = uiState.showLoadingOverlay && uiState.error == null,
             backdropUrl = uiState.backdrop,
@@ -564,7 +628,7 @@ fun PlayerScreen(
         )
 
         PauseOverlay(
-            visible = uiState.showPauseOverlay && uiState.error == null && !uiState.showLoadingOverlay,
+            visible = uiState.showPauseOverlay && uiState.error == null && !uiState.showLoadingOverlay && !uiState.showRatingOverlay,
             onClose = { viewModel.onEvent(PlayerEvent.OnDismissPauseOverlay) },
             title = uiState.title,
             logo = uiState.logo,
@@ -615,7 +679,7 @@ fun PlayerScreen(
 
         // Skip Intro button (bottom-left, lifted when controls are visible)
         SkipIntroButton(
-            interval = if (uiState.showPauseOverlay || uiState.showLoadingOverlay) null else uiState.activeSkipInterval,
+            interval = if (uiState.showPauseOverlay || uiState.showLoadingOverlay || uiState.showRatingOverlay) null else uiState.activeSkipInterval,
             dismissed = uiState.skipIntervalDismissed,
             controlsVisible = uiState.showControls,
             onSkip = { viewModel.onEvent(PlayerEvent.OnSkipIntro) },
@@ -712,7 +776,7 @@ fun PlayerScreen(
         // Controls overlay
         AnimatedVisibility(
             visible = uiState.showControls && uiState.error == null &&
-                !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
+                !uiState.showLoadingOverlay && !uiState.showPauseOverlay && !uiState.showRatingOverlay &&
                 !uiState.showStreamInfoOverlay &&
                 !uiState.showSubtitleStylePanel &&
                 !uiState.showSubtitleDelayOverlay &&
@@ -827,7 +891,7 @@ fun PlayerScreen(
 
         AnimatedVisibility(
             visible = uiState.showSeekOverlay && !uiState.showControls && uiState.error == null &&
-                !uiState.showLoadingOverlay && !uiState.showPauseOverlay &&
+                !uiState.showLoadingOverlay && !uiState.showPauseOverlay && !uiState.showRatingOverlay &&
                 !uiState.showSubtitleDelayOverlay && !uiState.showMoreDialog,
             enter = fadeIn(animationSpec = tween(150)),
             exit = fadeOut(animationSpec = tween(150)),
@@ -1000,6 +1064,28 @@ fun PlayerScreen(
                 onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay) }
             )
         }
+
+        // Post-playback rating overlay
+        RatingOverlay(
+            visible = uiState.showRatingOverlay,
+            logo = uiState.logo,
+            title = uiState.title,
+            onRate = { rating ->
+                viewModel.onEvent(PlayerEvent.OnSubmitRating(rating))
+            },
+            onDismiss = {
+                viewModel.onEvent(PlayerEvent.OnDismissRatingOverlay)
+            },
+            onReturnToVideo = {
+                viewModel.onEvent(PlayerEvent.OnReturnToVideo)
+            },
+            onExitAnimationComplete = {
+                viewModel.onEvent(PlayerEvent.OnRatingExitComplete)
+            },
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(3f)
+        )
 
     }
 }
@@ -1745,7 +1831,7 @@ private fun SubtitleDelayOverlay(subtitleDelayMs: Int) {
 }
 
 @Composable
-private fun rememberRawSvgPainter(@RawRes iconRes: Int): Painter {
+internal fun rememberRawSvgPainter(@RawRes iconRes: Int): Painter {
     val context = LocalContext.current
     val request = remember(iconRes, context) {
         ImageRequest.Builder(context)

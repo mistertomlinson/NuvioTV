@@ -338,6 +338,11 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     override fun onRenderedFirstFrame() {
                         hasRenderedFirstFrame = true
                         _uiState.update { it.copy(showLoadingOverlay = false) }
+                        // Silently prefetch episode list after first frame so
+                        // season finale detection works without affecting scrobble
+                        if (contentType?.lowercase() in listOf("series", "tv")) {
+                            scope.launch { loadEpisodesIfNeeded() }
+                        }
                     }
 
                     override fun onPlayerError(error: PlaybackException) {

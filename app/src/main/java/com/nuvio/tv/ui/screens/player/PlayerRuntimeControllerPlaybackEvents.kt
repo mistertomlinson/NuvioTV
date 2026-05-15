@@ -853,6 +853,40 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnDismissStreamInfo -> {
             _uiState.update { it.copy(showStreamInfoOverlay = false) }
         }
+        PlayerEvent.OnShowRatingOverlay -> {
+            _exoPlayer?.pause()
+            _uiState.update {
+                it.copy(
+                    showRatingOverlay = true,
+                    showControls = false,
+                    showPauseOverlay = false,
+                    showPlayerBlackout = false,
+                    ratingSubmitted = false
+                )
+            }
+        }
+        is PlayerEvent.OnSubmitRating -> {
+            // Trigger blackout + store rating — animation drives the exit
+            _uiState.update { it.copy(showPlayerBlackout = true, pendingRating = event.rating) }
+        }
+        PlayerEvent.OnDismissRatingOverlay -> {
+            _uiState.update { it.copy(showPlayerBlackout = true, pendingRating = null) }
+        }
+        PlayerEvent.OnReturnToVideo -> {
+            _uiState.update { it.copy(showRatingOverlay = false, showPlayerBlackout = false) }
+            _exoPlayer?.play()
+            userPausedManually = false
+        }
+        PlayerEvent.OnRatingExitComplete -> {
+            val rating = _uiState.value.pendingRating
+            val scrobbleItem = currentScrobbleItem ?: buildScrobbleItem()
+            if (rating != null && scrobbleItem != null) {
+                scope.launch {
+                    traktScrobbleService.postRating(item = scrobbleItem, rating = rating)
+                }
+            }
+            _uiState.update { it.copy(ratingSubmitted = true, showRatingOverlay = false) }
+        }
     }
 }
 

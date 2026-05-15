@@ -6,6 +6,11 @@ import com.nuvio.tv.data.remote.dto.trakt.TraktEpisodeDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktMovieDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktScrobbleRequestDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktAddRatingRequestDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktRatingMovieDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktRatingShowDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktRatingSeasonDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktRatingEpisodeDto
 import com.nuvio.tv.data.remote.dto.trakt.TraktShowDto
 import com.nuvio.tv.core.profile.ProfileManager
 import javax.inject.Inject
@@ -67,12 +72,103 @@ class TraktScrobbleService @Inject constructor(
         sendScrobble(action = "pause", item = item, progressPercent = progressPercent)
     }
 
+    suspend fun postRating(
+        item: TraktScrobbleItem,
+        rating: Int
+    ) {
+        if (!traktAuthService.getCurrentAuthState().isAuthenticated) return
+        if (!traktAuthService.hasRequiredCredentials()) return
+
+        val clampedRating = rating.coerceIn(1, 10)
+        val ratedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US)
+            .apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+            .format(java.util.Date())
+
+        // Resolve full Trakt IDs if we only have an IMDB ID
+        val resolvedIds = when (item) {
+            is TraktScrobbleItem.Movie -> resolveIdsIfNeeded(item.ids, expectedType = "movie")
+            is TraktScrobbleItem.Episode -> resolveIdsIfNeeded(item.showIds, expectedType = "show")
+        }
+
+        val body = when (item) {
+            is TraktScrobbleItem.Movie -> TraktAddRatingRequestDto(
+                movies = listOf(
+                    TraktRatingMovieDto(
+                        title = item.title,
+                        year = item.year,
+                        ids = resolvedIds,
+                        rating = clampedRating,
+                        ratedAt = ratedAt
+                    )
+                )
+            )
+            // Rate at show level so Watchly can read it from /users/me/ratings/shows
+            is TraktScrobbleItem.Episode -> TraktAddRatingRequestDto(
+                shows = listOf(
+                    TraktRatingShowDto(
+                        title = item.showTitle,
+                        year = item.showYear,
+                        ids = resolvedIds,
+                        rating = clampedRating,
+                        ratedAt = ratedAt
+                    )
+                )
+            )
+        }
+
+        android.util.Log.d("TraktRating", "postRating sending: item=$item rating=$clampedRating body=$body")
+        val result = runCatching {
+            traktAuthService.executeAuthorizedWriteRequest { authHeader ->
+                traktApi.addRating(authHeader, body)
+            }
+        }
+        result.onSuccess { response ->
+            val body = response?.body()
+            val errStr = response?.errorBody()?.string()
+            android.util.Log.d("TraktRating", "postRating response: code=${response?.code()} " +
+                "added=[movies=${body?.added?.movies} shows=${body?.added?.shows} episodes=${body?.added?.episodes}] " +
+                "notFound=[movies=${body?.notFound?.movies?.map { it.ids }} shows=${body?.notFound?.shows?.map { it.ids }} " +
+                "episodes=${body?.notFound?.episodes?.map { it.number }}] error=$errStr")
+        }
+        result.onFailure { e ->
+            android.util.Log.w("TraktRating", "postRating exception", e)
+        }
+    }
+
+    private suspend fun resolveIdsIfNeeded(
+        ids: com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto,
+        expectedType: String
+    ): com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto {
+        // If we already have a trakt or tmdb ID, no resolution needed
+        if (ids.trakt != null || ids.tmdb != null) return ids
+        val imdbId = ids.imdb?.takeIf { it.isNotBlank() } ?: return ids
+
+        return runCatching {
+            val response = traktAuthService.executeAuthorizedRequest { authHeader ->
+                traktApi.searchById(
+                    authorization = authHeader,
+                    idType = "imdb",
+                    id = imdbId,
+                    type = expectedType
+                )
+            } ?: return@runCatching ids
+            if (!response.isSuccessful) return@runCatching ids
+            val result = response.body()?.firstOrNull { it.type == expectedType }
+                ?: return@runCatching ids
+            val resolvedIds = if (expectedType == "movie") result.movie?.ids
+                             else result.show?.ids
+            resolvedIds ?: ids
+        }.onFailure { e ->
+            android.util.Log.w("TraktRating", "resolveIdsIfNeeded failed for $imdbId", e)
+        }.getOrDefault(ids)
+    }
+
     private suspend fun sendScrobble(
         action: String,
         item: TraktScrobbleItem,
         progressPercent: Float
     ) {
-        if (profileManager.activeProfileId.value != 1) return
+        android.util.Log.d("TraktScrobble", "sendScrobble: action=$action item=${item.itemKey} progress=$progressPercent authenticated=${traktAuthService.getCurrentAuthState().isAuthenticated}")
         if (!traktAuthService.getCurrentAuthState().isAuthenticated) return
         if (!traktAuthService.hasRequiredCredentials()) return
 

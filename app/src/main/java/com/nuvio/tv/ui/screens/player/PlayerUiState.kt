@@ -129,7 +129,12 @@ data class PlayerUiState(
     val aspectRatioIndicatorText: String = "",
     // Stream info overlay
     val showStreamInfoOverlay: Boolean = false,
-    val streamInfoData: StreamInfoData? = null
+    val streamInfoData: StreamInfoData? = null,
+    // Post-playback rating overlay
+    val showRatingOverlay: Boolean = false,
+    val ratingSubmitted: Boolean = false,
+    val showPlayerBlackout: Boolean = false,
+    val pendingRating: Int? = null
 )
 
 data class TrackInfo(
@@ -216,6 +221,12 @@ sealed class PlayerEvent {
     data object OnToggleAspectRatio : PlayerEvent()
     data object OnShowStreamInfo : PlayerEvent()
     data object OnDismissStreamInfo : PlayerEvent()
+    // Rating overlay
+    data object OnShowRatingOverlay : PlayerEvent()
+    data class OnSubmitRating(val rating: Int) : PlayerEvent()
+    data object OnDismissRatingOverlay : PlayerEvent()
+    data object OnReturnToVideo : PlayerEvent()
+    data object OnRatingExitComplete : PlayerEvent()
 }
 
 data class ParentalWarning(
