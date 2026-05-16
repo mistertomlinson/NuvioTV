@@ -117,18 +117,34 @@ class TraktScrobbleService @Inject constructor(
         }
 
         android.util.Log.d("TraktRating", "postRating sending: item=$item rating=$clampedRating body=$body")
-        val result = runCatching {
+        var result = runCatching {
             traktAuthService.executeAuthorizedWriteRequest { authHeader ->
                 traktApi.addRating(authHeader, body)
             }
         }
+        // If added=0 with no not_found, token may have been stale — force refresh and retry once
+        val addedCount = result.getOrNull()?.body()?.added?.let {
+            (it.movies ?: 0) + (it.shows ?: 0) + (it.episodes ?: 0)
+        } ?: -1
+        val notFoundEmpty = result.getOrNull()?.body()?.notFound?.let {
+            it.movies.isNullOrEmpty() && it.shows.isNullOrEmpty() && it.episodes.isNullOrEmpty()
+        } ?: false
+        if (addedCount == 0 && notFoundEmpty) {
+            android.util.Log.d("TraktRating", "postRating: added=0 with fresh token attempt, forcing token refresh")
+            traktAuthService.refreshTokenIfNeeded(force = true)
+            result = runCatching {
+                traktAuthService.executeAuthorizedWriteRequest { authHeader ->
+                    traktApi.addRating(authHeader, body)
+                }
+            }
+        }
         result.onSuccess { response ->
-            val body = response?.body()
+            val responseBody = response?.body()
             val errStr = response?.errorBody()?.string()
             android.util.Log.d("TraktRating", "postRating response: code=${response?.code()} " +
-                "added=[movies=${body?.added?.movies} shows=${body?.added?.shows} episodes=${body?.added?.episodes}] " +
-                "notFound=[movies=${body?.notFound?.movies?.map { it.ids }} shows=${body?.notFound?.shows?.map { it.ids }} " +
-                "episodes=${body?.notFound?.episodes?.map { it.number }}] error=$errStr")
+                "added=[movies=${responseBody?.added?.movies} shows=${responseBody?.added?.shows} episodes=${responseBody?.added?.episodes}] " +
+                "notFound=[movies=${responseBody?.notFound?.movies?.map { it.ids }} shows=${responseBody?.notFound?.shows?.map { it.ids }} " +
+                "episodes=${responseBody?.notFound?.episodes?.map { it.number }}] error=$errStr")
         }
         result.onFailure { e ->
             android.util.Log.w("TraktRating", "postRating exception", e)
