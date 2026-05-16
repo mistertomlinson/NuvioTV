@@ -94,6 +94,33 @@ class CatalogRepositoryImpl @Inject constructor(
         diskCacheFile(profileId).delete()
     }
 
+    override suspend fun clearAddonCache(addonId: String, profileId: Int) = withContext(Dispatchers.IO) {
+        // Remove all in-memory cache entries for this addon
+        val keysToRemove = catalogCache.keys.filter { key ->
+            key.contains("_${addonId}_") || key.contains("_${addonId.lowercase()}_")
+        }
+        keysToRemove.forEach { catalogCache.remove(it) }
+        Log.d(TAG, "Cleared ${keysToRemove.size} in-memory cache entries for addon $addonId")
+
+        // Rewrite disk cache without this addon's entries
+        // Disk cache keys are: "${addonId}_${rawType}_${catalogId}"
+        try {
+            val file = diskCacheFile(profileId)
+            if (!file.exists()) return@withContext
+            val json = file.readText()
+            val cached = cacheAdapter.fromJson(json) ?: return@withContext
+            val normalizedAddonId = addonId.lowercase()
+            val filtered = cached.filterKeys { key ->
+                // Disk keys start with addonId
+                !key.startsWith("${addonId}_") && !key.startsWith("${normalizedAddonId}_")
+            }
+            file.writeText(cacheAdapter.toJson(filtered))
+            Log.d(TAG, "Removed ${cached.size - filtered.size} disk cache entries for addon $addonId")
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to rewrite disk cache for addon $addonId", e)
+        }
+    }
+
     override fun getCatalog(
         addonBaseUrl: String,
         addonId: String,

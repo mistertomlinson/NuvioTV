@@ -95,20 +95,6 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
 internal fun HomeViewModel.observeInstalledAddonsPipeline() {
     viewModelScope.launch {
         addonRepository.getInstalledAddons()
-            .distinctUntilChanged { old, new ->
-                val same = old.size == new.size &&
-                old.zip(new).all { (a, b) ->
-                    a.id == b.id && a.baseUrl == b.baseUrl && a.catalogs == b.catalogs
-                }
-                if (!same && old.size == new.size) {
-                    old.zip(new).forEachIndexed { i, (a, b) ->
-                        if (a.id != b.id || a.baseUrl != b.baseUrl || a.catalogs != b.catalogs) {
-                            android.util.Log.e("NuvioCache", "addonsDiff[$i] id=${a.id==b.id} url=${a.baseUrl==b.baseUrl} catalogs=${a.catalogs==b.catalogs} oldCats=${a.catalogs.size} newCats=${b.catalogs.size}")
-                        }
-                    }
-                }
-                same
-            }
             .collectLatest { addons ->
                 addonsCache = addons
                 scheduleCatalogPipeline(addons)

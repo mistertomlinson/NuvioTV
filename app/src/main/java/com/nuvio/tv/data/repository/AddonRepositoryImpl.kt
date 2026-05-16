@@ -169,7 +169,22 @@ class AddonRepositoryImpl @Inject constructor(
                         emit(applyDisplayNames(fresh))
                     }
                 } else if (isCacheStale() && urls.isNotEmpty()) {
-                    scheduleManifestRefresh(urls)
+                    // Wait for background refresh and emit fresh addons if anything changed
+                    val refreshed = coroutineScope {
+                        urls.map { url ->
+                            async {
+                                fetchAddon(url)
+                            }
+                        }.awaitAll()
+                    }
+                    val anyUpdated = refreshed.any { it is NetworkResult.Success }
+                    if (anyUpdated) {
+                        lastManifestRefreshTime = System.currentTimeMillis()
+                        val fresh = urls.mapNotNull { manifestCache[canonicalizeUrl(it)] }
+                        if (fresh != cached) {
+                            emit(applyDisplayNames(fresh))
+                        }
+                    }
                 }
             }.flowOn(Dispatchers.IO)
         }
