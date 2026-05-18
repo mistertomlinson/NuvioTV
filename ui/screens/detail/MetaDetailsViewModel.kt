@@ -674,12 +674,29 @@ class MetaDetailsViewModel @Inject constructor(
 
         val tmdbContentType = resolveTmdbContentType(meta)
         val tmdbLookupType = tmdbContentType.toApiString()
-        val tmdbId = tmdbService.ensureTmdbId(meta.id, tmdbLookupType)
-            ?: tmdbService.ensureTmdbId(itemId, itemType)
-            ?: return meta
-
         val isSeries = meta.apiType in listOf("series", "tv")
         val needsEpisodes = settings.useEpisodes && isSeries
+
+        // For series, use season-aware TMDB ID resolution to handle cases where
+        // IMDB and TMDB have different series structures (e.g. sequel listed as
+        // separate TMDB entry but same IMDB series with a higher season number).
+        val requiredSeason = if (isSeries) {
+            meta.videos.mapNotNull { it.season }.filter { it > 1 }.minOrNull()
+        } else null
+
+        val tmdbId = if (isSeries && requiredSeason != null) {
+            tmdbService.imdbToTmdbWithSeasonFallback(
+                imdbId = meta.id.substringBefore(':').trim(),
+                mediaType = tmdbLookupType,
+                showName = meta.name,
+                requiredSeason = requiredSeason
+            )?.toString()
+                ?: tmdbService.ensureTmdbId(meta.id, tmdbLookupType)
+                ?: tmdbService.ensureTmdbId(itemId, itemType)
+        } else {
+            tmdbService.ensureTmdbId(meta.id, tmdbLookupType)
+                ?: tmdbService.ensureTmdbId(itemId, itemType)
+        } ?: return meta
 
         // Fetch main enrichment and episode enrichment in parallel.
         val (enrichment, episodeMap) = coroutineScope {

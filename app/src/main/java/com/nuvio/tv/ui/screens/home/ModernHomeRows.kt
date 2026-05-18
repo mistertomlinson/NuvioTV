@@ -284,6 +284,7 @@ internal fun ModernRowSection(
     onExpandedCatalogFocusKeyChange: (String?) -> Unit,
     useThemeColorForNumbers: Boolean = false,
     isFirstRow: Boolean = false,
+    isSecondRow: Boolean = false,
     onRequestCarouselFocus: () -> Unit = {},
     catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null
 ) {
@@ -314,7 +315,7 @@ internal fun ModernRowSection(
         // Detect last partially-clipped item (first row only) for edge fade effect
         val clippedLastIndex by remember(rowListState) {
             derivedStateOf {
-                if (!isFirstRow) return@derivedStateOf null
+                if (!isFirstRow && !isSecondRow) return@derivedStateOf null
                 val info = rowListState.layoutInfo
                 val viewportEnd = info.viewportEndOffset
                 info.visibleItemsInfo.lastOrNull()?.let { last ->
@@ -323,17 +324,17 @@ internal fun ModernRowSection(
             }
         }
         // Read animatable value in composition — only first row reads it, so only first row recomposes during transition
-        val parentAlpha = if (isFirstRow && catalogSlideAnimatable != null) catalogSlideAnimatable.value else 1f
+        val parentAlpha = if ((isFirstRow || isSecondRow) && catalogSlideAnimatable != null) catalogSlideAnimatable.value else 1f
         val prevAlpha = remember { androidx.compose.runtime.mutableFloatStateOf(parentAlpha) }
         val isFadingIn = parentAlpha > prevAlpha.floatValue
         prevAlpha.floatValue = parentAlpha
         val clippedItemAlpha = when {
-            !isFirstRow -> 1f
+            !isFirstRow && !isSecondRow -> 1f
             parentAlpha >= 1f -> 1f
             isFadingIn -> parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha
             else -> parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha
         }
-        val counteractedAlpha = if (isFirstRow && parentAlpha > 0.001f) (clippedItemAlpha / parentAlpha).coerceIn(0f, 1f) else 1f
+        val counteractedAlpha = if ((isFirstRow || isSecondRow) && parentAlpha > 0.001f) (clippedItemAlpha / parentAlpha).coerceIn(0f, 1f) else 1f
 
         val isRowScrolling by remember(rowListState) {
             derivedStateOf { rowListState.isScrollInProgress }
@@ -642,7 +643,7 @@ internal fun ModernRowSection(
                                     useLandscapePosters = useLandscapePosters || perCatalogLandscape
                                 ) {
                                     ModernCatalogRowItem(
-                                        modifier = if (isFirstRow && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
+                                        modifier = if ((isFirstRow || isSecondRow) && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
                                         item = item,
                                         payload = payload,
                                         requester = requester,
@@ -675,7 +676,7 @@ internal fun ModernRowSection(
                                 }
                             } else {
                                 ModernCatalogRowItem(
-                                    modifier = if (isFirstRow && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
+                                    modifier = if ((isFirstRow || isSecondRow) && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
                                     item = item,
                                     payload = payload,
                                     requester = requester,

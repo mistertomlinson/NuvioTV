@@ -16,6 +16,15 @@ interface TmdbApi {
         @Query("external_source") externalSource: String = "imdb_id"
     ): Response<TmdbFindResponse>
     
+
+    @GET("search/tv")
+    suspend fun searchTv(
+        @Query("api_key") apiKey: String,
+        @Query("query") query: String,
+        @Query("language") language: String = "en-US",
+        @Query("page") page: Int = 1
+    ): Response<TmdbSearchResponse>
+
     @GET("movie/{movie_id}/external_ids")
     suspend fun getMovieExternalIds(
         @Path("movie_id") movieId: Int,
@@ -141,6 +150,25 @@ interface TmdbApi {
         @Query("language") language: String? = null
     ): Response<TmdbPersonCreditsResponse>
 }
+
+@JsonClass(generateAdapter = true)
+data class TmdbSearchResponse(
+    @Json(name = "page") val page: Int? = null,
+    @Json(name = "results") val results: List<TmdbSearchResult> = emptyList(),
+    @Json(name = "total_results") val totalResults: Int? = null,
+    @Json(name = "total_pages") val totalPages: Int? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TmdbSearchResult(
+    @Json(name = "id") val id: Int,
+    @Json(name = "name") val name: String? = null,
+    @Json(name = "original_name") val originalName: String? = null,
+    @Json(name = "first_air_date") val firstAirDate: String? = null,
+    @Json(name = "number_of_seasons") val numberOfSeasons: Int? = null,
+    @Json(name = "poster_path") val posterPath: String? = null,
+    @Json(name = "popularity") val popularity: Double? = null
+)
 
 @JsonClass(generateAdapter = true)
 data class TmdbFindResponse(

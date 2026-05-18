@@ -148,6 +148,80 @@ class TmdbService @Inject constructor(
         }
     }
     
+
+    /**
+     * Like imdbToTmdb, but if the resolved TMDB entry has no episodes for the
+     * requested season, falls back to a TMDB name search to find the correct entry.
+     * Handles cases where IMDB and TMDB have different series structures
+     * (e.g. IMDB treats a sequel as Season 2 while TMDB lists it as a separate series).
+     */
+    suspend fun imdbToTmdbWithSeasonFallback(
+        imdbId: String,
+        mediaType: String,
+        showName: String?,
+        requiredSeason: Int?
+    ): Int? = withContext(Dispatchers.IO) {
+        val primaryId = imdbToTmdb(imdbId, mediaType) ?: return@withContext null
+
+        // If no season validation needed, return primary result
+        if (requiredSeason == null || requiredSeason <= 1 || showName.isNullOrBlank()) {
+            return@withContext primaryId
+        }
+
+        // Check if the resolved entry actually has the required season
+        try {
+            val seasonResponse = tmdbApi.getTvSeasonDetails(
+                tvId = primaryId,
+                seasonNumber = requiredSeason,
+                apiKey = TMDB_API_KEY,
+                language = "en-US"
+            )
+            if (seasonResponse.isSuccessful && !seasonResponse.body()?.episodes.isNullOrEmpty()) {
+                // Primary result has the season, use it
+                return@withContext primaryId
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Season check failed for TMDB $primaryId season $requiredSeason: ${e.message}")
+        }
+
+        // Primary result doesn't have the season — search by name
+        Log.d(TAG, "TMDB $primaryId missing season $requiredSeason, searching by name: $showName")
+        try {
+            val searchResponse = tmdbApi.searchTv(
+                apiKey = TMDB_API_KEY,
+                query = showName,
+                language = "en-US"
+            )
+            if (!searchResponse.isSuccessful) return@withContext primaryId
+
+            val results = searchResponse.body()?.results.orEmpty()
+            if (results.isEmpty()) return@withContext primaryId
+
+            // Prefer exact name match, then fall back to first result
+            val normalizedQuery = showName.trim().lowercase()
+            val best = results.firstOrNull {
+                it.name?.trim()?.lowercase() == normalizedQuery ||
+                it.originalName?.trim()?.lowercase() == normalizedQuery
+            } ?: results.firstOrNull()
+
+            val fallbackId = best?.id ?: return@withContext primaryId
+
+            if (fallbackId != primaryId) {
+                Log.d(TAG, "Season fallback: using TMDB $fallbackId instead of $primaryId for '$showName' season $requiredSeason")
+                // Cache this mapping
+                cacheMutex.withLock {
+                    imdbToTmdbCache[imdbId] = fallbackId
+                    tmdbToImdbCache[fallbackId] = imdbId
+                }
+            }
+
+            fallbackId
+        } catch (e: Exception) {
+            Log.w(TAG, "Name search fallback failed for '$showName': ${e.message}")
+            primaryId
+        }
+    }
+
     /**
      * Get a TMDB ID from a video ID string.
      * Handles both IMDB IDs (tt...) and TMDB IDs.
