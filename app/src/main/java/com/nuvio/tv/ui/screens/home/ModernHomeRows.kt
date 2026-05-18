@@ -328,13 +328,24 @@ internal fun ModernRowSection(
         val prevAlpha = remember { androidx.compose.runtime.mutableFloatStateOf(parentAlpha) }
         val isFadingIn = parentAlpha > prevAlpha.floatValue
         prevAlpha.floatValue = parentAlpha
-        val clippedItemAlpha = when {
-            !isFirstRow && !isSecondRow -> 1f
-            parentAlpha >= 1f -> 1f
-            isFadingIn -> parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha
-            else -> parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha * parentAlpha
+        // Per-card stagger: cards near the right edge fade out first / fade in last.
+        // distanceFromRight=0 → clipped card (steepest curve)
+        // distanceFromRight=1,2,3 → progressively gentler curves
+        // distanceFromRight>=4 → no special treatment (fades with parent)
+        val staggeredCounteractedAlpha: (distanceFromRight: Int) -> Float = { distanceFromRight ->
+            if ((!isFirstRow && !isSecondRow) || parentAlpha >= 1f || parentAlpha <= 0.001f) {
+                1f
+            } else {
+                val (fadeOutExp, fadeInExp) = when (distanceFromRight) {
+                    0 -> 6f to 12f
+                    1 -> 3f to 6f
+                    else -> 1f to 1f
+                }
+                val exp = if (isFadingIn) fadeInExp else fadeOutExp
+                val cardAlpha = Math.pow(parentAlpha.toDouble(), exp.toDouble()).toFloat()
+                (cardAlpha / parentAlpha).coerceIn(0f, 1f)
+            }
         }
-        val counteractedAlpha = if ((isFirstRow || isSecondRow) && parentAlpha > 0.001f) (clippedItemAlpha / parentAlpha).coerceIn(0f, 1f) else 1f
 
         val isRowScrolling by remember(rowListState) {
             derivedStateOf { rowListState.isScrollInProgress }
@@ -643,7 +654,10 @@ internal fun ModernRowSection(
                                     useLandscapePosters = useLandscapePosters || perCatalogLandscape
                                 ) {
                                     ModernCatalogRowItem(
-                                        modifier = if ((isFirstRow || isSecondRow) && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
+                                        modifier = if ((isFirstRow || isSecondRow) && clippedLastIndex != null) {
+                                            val dist = clippedLastIndex!! - index
+                                            if (dist in 0..1) Modifier.graphicsLayer { alpha = staggeredCounteractedAlpha(dist) } else Modifier
+                                        } else Modifier,
                                         item = item,
                                         payload = payload,
                                         requester = requester,
@@ -676,7 +690,10 @@ internal fun ModernRowSection(
                                 }
                             } else {
                                 ModernCatalogRowItem(
-                                    modifier = if ((isFirstRow || isSecondRow) && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
+                                    modifier = if ((isFirstRow || isSecondRow) && clippedLastIndex != null) {
+                                            val dist = clippedLastIndex!! - index
+                                            if (dist in 0..1) Modifier.graphicsLayer { alpha = staggeredCounteractedAlpha(dist) } else Modifier
+                                        } else Modifier,
                                     item = item,
                                     payload = payload,
                                     requester = requester,
