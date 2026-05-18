@@ -30,7 +30,7 @@ class CatalogRepositoryImpl @Inject constructor(
 ) : CatalogRepository {
     companion object {
         private const val TAG = "CatalogRepository"
-        private const val DISK_CACHE_TTL_MS = 24L * 60 * 60 * 1000 // 24 hours
+        private const val DISK_CACHE_TTL_MS = 12L * 60 * 60 * 1000 // 12 hours
         private const val DISK_CACHE_VERSION = 1
     }
 
