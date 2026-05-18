@@ -105,7 +105,7 @@ class HomeViewModel @Inject constructor(
         internal const val MAX_POSTER_STATUS_OBSERVERS = 24
     }
 
-    internal val _uiState = MutableStateFlow(HomeUiState())
+    internal val _uiState = MutableStateFlow(HomeUiState(posterCardWidthDp = 0, posterCardHeightDp = 0))
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
     /** True once the CW pipeline has completed its first emission (items or empty). */
     internal val _initialCwResolved = MutableStateFlow(false)

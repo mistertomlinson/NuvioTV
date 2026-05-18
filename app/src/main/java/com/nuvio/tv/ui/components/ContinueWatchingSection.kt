@@ -244,11 +244,13 @@ fun ContinueWatchingCard(
     val strPercentWatched = stringResource(R.string.cw_percent_watched)
     val strHoursMinLeft = stringResource(R.string.cw_hours_min_left)
     val strMinLeft = stringResource(R.string.cw_min_left)
-    val nextUpBadgeText = nextUp?.let { info ->
-        if (!info.hasAired) {
-            info.airDateLabel?.let { strAirsDate } ?: strUpcoming
-        } else {
-            strNextUp
+    val nextUpBadgeText = remember(nextUp?.hasAired, nextUp?.airDateLabel, strAirsDate, strUpcoming, strNextUp) {
+        nextUp?.let { info ->
+            if (!info.hasAired) {
+                info.airDateLabel?.let { strAirsDate } ?: strUpcoming
+            } else {
+                strNextUp
+            }
         }
     }
     val remainingText = progress?.let {

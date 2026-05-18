@@ -551,7 +551,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                             poster = cached.poster ?: nextUp.info.poster,
                                             logo = cached.logo ?: nextUp.info.logo,
                                             name = cached.name.takeIf { it.isNotBlank() } ?: nextUp.info.name,
-                                            contentLanguage = cached.contentLanguage ?: nextUp.info.contentLanguage
+                                            contentLanguage = cached.contentLanguage ?: nextUp.info.contentLanguage,
+                                            airDateLabel = cached.airDateLabel ?: nextUp.info.airDateLabel,
+                                            hasAired = cached.airDateLabel?.let { nextUp.info.hasAired } ?: nextUp.info.hasAired,
+                                            released = cached.airDateLabel?.let { nextUp.info.released } ?: nextUp.info.released
                                         ))
                                     } else nextUp
                                 }
@@ -2444,7 +2447,10 @@ private suspend fun HomeViewModel.resolveContinueWatchingTmdbData(
         )
         return movieMeta?.let {
             NextUpTmdbData(
-                thumbnail = null,
+                // Use detailBackdrop as thumbnail for movies in CW — it's a different
+                // image from the main backdrop shown behind the row, so it avoids
+                // showing the same image twice. Fall back to poster if not available.
+                thumbnail = it.detailBackdrop.normalizeImageUrl() ?: it.poster.normalizeImageUrl(),
                 backdrop = it.backdrop.normalizeImageUrl(),
                 poster = it.poster.normalizeImageUrl(),
                 logo = it.logo.normalizeImageUrl(),

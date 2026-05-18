@@ -774,6 +774,11 @@ fun ModernHomeContent(
         }
     }
 
+    // posterCardWidthDp starts at 0 until layout prefs pipeline fires — skip
+    // rendering card-size-dependent UI until the real value arrives to avoid
+    // a brief resize flash on cold launch.
+    if (uiState.posterCardWidthDp == 0 || uiState.posterCardHeightDp == 0) return
+
     val portraitBaseWidth = uiState.posterCardWidthDp.dp
     val portraitBaseHeight = uiState.posterCardHeightDp.dp
     val modernPosterScale = if (useLandscapePosters) 1.34f else 1.08f
