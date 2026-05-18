@@ -64,7 +64,7 @@ class TmdbMetadataService @Inject constructor(
         withContext(Dispatchers.IO) {
             ensureDiskCacheLoaded()
             val normalizedLanguage = normalizeTmdbLanguage(language)
-            val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage"
+            val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:v2"
             enrichmentCache[cacheKey]?.let { return@withContext it }
             enrichmentInFlight[cacheKey]?.let { return@withContext it.await() }
 
@@ -173,14 +173,20 @@ class TmdbMetadataService @Inject constructor(
                 val collectionId = details?.belongsToCollection?.id
                 val collectionName = details?.belongsToCollection?.name
 
+                val logoLangCode = normalizedLanguage.substringBefore("-")
                 val logoPath = images?.logos
                     ?.sortedWith(
                         compareByDescending<com.nuvio.tv.data.remote.api.TmdbImage> {
-                            it.iso6391 == normalizedLanguage.substringBefore("-")
+                            it.iso6391 == logoLangCode
                         }
                             .thenByDescending { it.iso6391 == "en" }
                             .thenByDescending { it.iso6391 == null }
+                            .thenByDescending { it.voteAverage ?: 0.0 }
                     )
+                    ?.filter { logo ->
+                        val lang = logo.iso6391
+                        lang == logoLangCode || lang == "en" || lang == null
+                    }
                     ?.firstOrNull()
                     ?.filePath
 

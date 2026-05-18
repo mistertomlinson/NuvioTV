@@ -551,7 +551,13 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     if (currentTmdbSettings.useArtwork) {
                         merged = merged.copy(
                             logo = cached.logo ?: merged.logo,
-                            landscapePoster = cached.detailBackdrop ?: merged.landscapePoster
+                            landscapePoster = cached.detailBackdrop ?: merged.landscapePoster ?: merged.background
+                        )
+                    } else {
+                        // Even with artwork disabled, set landscapePoster to background
+                        // so landscape rows show an image (same as home backdrop)
+                        merged = merged.copy(
+                            landscapePoster = merged.landscapePoster ?: merged.background
                         )
                     }
                     if (currentTmdbSettings.useDetails) {
