@@ -203,7 +203,7 @@ private fun ModernCatalogRowItem(
         cardCornerRadius = posterCardCornerRadius,
         cardWidth = modernCatalogCardWidth,
         cardHeight = modernCatalogCardHeight,
-        focusedPosterBackdropExpandEnabled = effectiveExpandEnabled,
+        focusedPosterBackdropExpandEnabled = effectiveExpandEnabled && !useLandscapePosters,
         isBackdropExpanded = isBackdropExpanded,
         playTrailerInExpandedCard = playTrailerInExpandedCard,
         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
@@ -639,14 +639,14 @@ internal fun ModernRowSection(
                                     preMeasuredTextWidth = preMeasuredWidth,
                                     numberStyle = numberStyle,
                                     useThemeColorForNumbers = useThemeColorForNumbers,
-                                    useLandscapePosters = useLandscapePosters
+                                    useLandscapePosters = useLandscapePosters || perCatalogLandscape
                                 ) {
                                     ModernCatalogRowItem(
                                         modifier = if (isFirstRow && clippedLastIndex == index) Modifier.graphicsLayer { alpha = counteractedAlpha } else Modifier,
                                         item = item,
                                         payload = payload,
                                         requester = requester,
-                                        useLandscapePosters = useLandscapePosters,
+                                        useLandscapePosters = useLandscapePosters || perCatalogLandscape,
                                         showLabels = showLabels,
                                         posterCardCornerRadius = posterCardCornerRadius,
                                         modernCatalogCardWidth = modernCatalogCardWidth,
@@ -679,7 +679,7 @@ internal fun ModernRowSection(
                                     item = item,
                                     payload = payload,
                                     requester = requester,
-                                    useLandscapePosters = useLandscapePosters,
+                                    useLandscapePosters = useLandscapePosters || perCatalogLandscape,
                                     showLabels = showLabels,
                                     posterCardCornerRadius = posterCardCornerRadius,
                                     modernCatalogCardWidth = modernCatalogCardWidth,
@@ -828,7 +828,7 @@ private fun ModernCarouselCard(
     }
     val effectiveLogoUrl = frozenLogoUrl.value
 
-    val logoModel = remember(context, effectiveLogoUrl, maxLogoWidthPx, logoHeightPx) {
+    val logoModel = remember(item.key, effectiveLogoUrl) {
         effectiveLogoUrl?.let {
             ImageRequest.Builder(context)
                 .data(it)
