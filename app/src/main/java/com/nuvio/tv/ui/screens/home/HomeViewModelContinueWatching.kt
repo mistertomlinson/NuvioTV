@@ -502,6 +502,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     )
                     // Persist in-progress snapshot early so force-close doesn't lose items
                     if (inProgressOnly.isNotEmpty()) {
+                        val ipSnapProfileId = profileManager.activeProfileId.value
                         viewModelScope.launch(Dispatchers.IO) {
                             val brokenUrls = com.nuvio.tv.ui.components.brokenImageUrls
                             val ipSnap = inProgressOnly.map { item ->
@@ -520,7 +521,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                     contentLanguage = item.contentLanguage
                                 )
                             }
-                            runCatching { cwEnrichmentCache.saveInProgressSnapshot(ipSnap, profileId = profileManager.activeProfileId.value) }
+                            runCatching { cwEnrichmentCache.saveInProgressSnapshot(ipSnap, profileId = ipSnapProfileId) }
                         }
                     }
                 }
@@ -1002,6 +1003,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
 
                 // Save lightweight CW snapshot to disk immediately so cache stays fresh
                 // even if enrichment is cancelled by collectLatest.
+                val enrichmentSnapshotProfileId = profileManager.activeProfileId.value
                 viewModelScope.launch(Dispatchers.IO) {
                     val currentItems = _uiState.value.continueWatchingItems
                     val brokenUrls = com.nuvio.tv.ui.components.brokenImageUrls
@@ -1037,8 +1039,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             contentLanguage = ip.contentLanguage
                         )
                     }
-                    runCatching { cwEnrichmentCache.saveNextUpSnapshot(nextUpSnap, force = true, profileId = profileManager.activeProfileId.value) }
-                    runCatching { cwEnrichmentCache.saveInProgressSnapshot(ipSnap, force = true, profileId = profileManager.activeProfileId.value) }
+                    runCatching { cwEnrichmentCache.saveNextUpSnapshot(nextUpSnap, force = true, profileId = enrichmentSnapshotProfileId) }
+                    runCatching { cwEnrichmentCache.saveInProgressSnapshot(ipSnap, force = true, profileId = enrichmentSnapshotProfileId) }
                 }
 
                 // Rich metadata only runs after the final lightweight CW list is visible.
@@ -1657,8 +1659,16 @@ private suspend fun HomeViewModel.enrichNextUpItem(
     } else {
         null
     }
-    val released = (if (currentTmdbSettings.useReleaseDates) tmdbData?.airDate else null)
-        ?: video?.released?.trim()?.takeIf { it.isNotEmpty() }
+    // Normalize air dates to plain YYYY-MM-DD to avoid timezone boundary issues
+    // where e.g. "2025-05-22T00:00:00.000Z" shifts to May 21 in local time.
+    val dateOnlyRegex = Regex("""\d{4}-\d{2}-\d{2}""")
+    val normalizedTmdbAirDate = tmdbData?.airDate?.trim()?.let { raw ->
+        dateOnlyRegex.find(raw)?.value ?: raw
+    }
+    val released = (if (currentTmdbSettings.useReleaseDates) normalizedTmdbAirDate else null)
+        ?: video?.released?.trim()?.let { raw ->
+            dateOnlyRegex.find(raw)?.value ?: raw
+        }?.takeIf { it.isNotEmpty() }
         ?: item.info.released
     val releaseDate = parseEpisodeReleaseDate(released)
     val todayLocal = LocalDate.now(ZoneId.systemDefault())
@@ -2217,12 +2227,17 @@ private fun HomeViewModel.persistLocalContinueWatchingMetadata(
         )
     }
 
+    // Capture profile ID NOW before launching coroutine — if a profile switch
+    // happens before the IO dispatcher executes, activeProfileId.value would
+    // return the NEW profile's ID, causing profile 1's data to overwrite
+    // profile 2's cache file.
+    val snapshotProfileId = profileManager.activeProfileId.value
     viewModelScope.launch(Dispatchers.IO) {
         if (nextUpSnapshot.isNotEmpty()) {
-            runCatching { cwEnrichmentCache.saveNextUpSnapshot(nextUpSnapshot, force = true) }
+            runCatching { cwEnrichmentCache.saveNextUpSnapshot(nextUpSnapshot, force = true, profileId = snapshotProfileId) }
         }
         if (inProgressSnapshot.isNotEmpty()) {
-            runCatching { cwEnrichmentCache.saveInProgressSnapshot(inProgressSnapshot, force = true) }
+            runCatching { cwEnrichmentCache.saveInProgressSnapshot(inProgressSnapshot, force = true, profileId = snapshotProfileId) }
         }
         val persistable = localItems.filter { it.hasRenderableMetadata() }
         if (persistable.isEmpty()) return@launch
