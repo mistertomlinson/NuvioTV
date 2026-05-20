@@ -138,6 +138,16 @@ android {
             applicationIdSuffix = ".debug"
             matchingFallbacks += "release"
         }
+        create("sideload") {
+            initWith(buildTypes.getByName("release"))
+            isMinifyEnabled = false
+            isShrinkResources = false
+            signingConfig = signingConfigs.getByName("release")
+            isDebuggable = false
+            applicationIdSuffix = ".sideload"
+            matchingFallbacks += "release"
+            buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
+        }
     }
 
     splits {

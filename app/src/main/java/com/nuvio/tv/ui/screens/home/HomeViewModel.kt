@@ -253,6 +253,8 @@ class HomeViewModel @Inject constructor(
             profileManager.activeProfileId.collect { newId ->
                 if (newId != previousProfileId) {
                     previousProfileId = newId
+                    val activeProf = profileManager.activeProfile
+                    android.util.Log.d("NuvioProfile", "Switched to profile $newId name=${activeProf?.name} usesPrimaryPlugins=${activeProf?.usesPrimaryPlugins} isPrimary=${activeProf?.isPrimary}")
                     cwMetaCache.clear()
                     cwMetaNegativeCacheTimestamps.clear()
                     cwBadgeEpisodeCache.clear()

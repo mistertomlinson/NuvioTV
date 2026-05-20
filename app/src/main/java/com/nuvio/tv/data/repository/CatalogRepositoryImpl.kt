@@ -241,6 +241,10 @@ class CatalogRepositoryImpl @Inject constructor(
         return URLEncoder.encode(value, "UTF-8").replace("+", "%20")
     }
 
+    override fun clearInMemoryCache() {
+        catalogCache.clear()
+    }
+
     private fun buildCacheKey(
         addonBaseUrl: String,
         addonId: String,

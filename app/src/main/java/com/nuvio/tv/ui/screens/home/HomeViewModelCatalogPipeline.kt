@@ -133,6 +133,9 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
     catalogOrder.clear()
     catalogsMap.clear()
+    // Clear repository-level cache on pipeline restart to prevent cross-profile
+    // key collisions when multiple instances of the same addon exist across profiles.
+    catalogRepository.clearInMemoryCache()
     posterStatusReconcileJob?.cancel()
     reconcilePosterStatusObserversPipeline(emptyList())
     _fullCatalogRows.value = emptyList()

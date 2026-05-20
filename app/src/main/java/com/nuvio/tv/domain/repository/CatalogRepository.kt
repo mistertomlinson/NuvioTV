@@ -22,4 +22,5 @@ interface CatalogRepository {
     suspend fun loadCatalogsFromDisk(profileId: Int): Map<String, CatalogRow>
     fun clearDiskCache(profileId: Int)
     suspend fun clearAddonCache(addonId: String, profileId: Int)
+    fun clearInMemoryCache()
 }
