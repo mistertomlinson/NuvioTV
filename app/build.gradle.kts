@@ -142,11 +142,15 @@ android {
             initWith(buildTypes.getByName("release"))
             isMinifyEnabled = false
             isShrinkResources = false
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = if (file("../nuviotv.jks").exists()) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
             isDebuggable = false
             applicationIdSuffix = ".sideload"
             matchingFallbacks += "release"
-            buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
+            buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
         }
     }
 
