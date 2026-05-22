@@ -274,8 +274,8 @@ Triple(
             "watchly.creators.series" -> "Creators • Series"
             "watchly.all.loved.movie" -> "Based on What You Loved • Movies"
             "watchly.all.loved.series" -> "Based on What You Loved • Series"
-            "watchly.loved.movie" -> "Based on What You Loved • Movies"
-            "watchly.loved.series" -> "Based on What You Loved • Series"
+            "watchly.loved.movie" -> "More Like • Movies"
+            "watchly.loved.series" -> "More Like • Series"
             "watchly.liked.movie" -> "Based on What You Liked • Movies"
             "watchly.liked.series" -> "Based on What You Liked • Series"
             else -> "Watchly"
@@ -294,9 +294,49 @@ Triple(
         val availableMap = defaultEntries.associateBy { it.key }
         val defaultOrderKeys = defaultEntries.map { it.key }
 
+        // For dynamic Watchly catalogs (e.g. watchly.loved.ttXXX, watchly.watched.ttXXX,
+        // watchly.theme.*), the catalog ID changes each session based on the user's
+        // recently loved/watched item. We match saved keys by their Watchly group prefix
+        // so that a saved key like "watchly.loved.tt0111161" is treated as a valid
+        // placeholder for the current session's "watchly.loved.tt0468569" key.
+        fun watchlyGroupPrefix(key: String): String? {
+            return when {
+                key.contains("watchly.loved.") -> "watchly.loved."
+                key.contains("watchly.watched.") -> "watchly.watched."
+                key.contains("watchly.theme.") -> "watchly.theme."
+                else -> null
+            }
+        }
+
+        // Build a map from group prefix -> current available keys in that group
+        val groupPrefixToAvailableKeys = mutableMapOf<String, MutableList<String>>()
+        defaultOrderKeys.forEach { key ->
+            val prefix = watchlyGroupPrefix(key)
+            if (prefix != null) {
+                groupPrefixToAvailableKeys.getOrPut(prefix) { mutableListOf() }.add(key)
+            }
+        }
+
+        // Track which available keys have already been claimed by a saved key
+        val claimedAvailableKeys = mutableSetOf<String>()
+
         val savedValid = savedOrderKeys
             .asSequence()
-            .filter { it in availableMap }
+            .mapNotNull { savedKey ->
+                when {
+                    savedKey in availableMap -> savedKey // exact match
+                    else -> {
+                        // Try group prefix match for dynamic catalogs
+                        val prefix = watchlyGroupPrefix(savedKey)
+                        if (prefix != null) {
+                            val available = groupPrefixToAvailableKeys[prefix]
+                                ?.firstOrNull { it !in claimedAvailableKeys }
+                            available
+                        } else null
+                    }
+                }
+            }
+            .onEach { claimedAvailableKeys.add(it) }
             .distinct()
             .toList()
 

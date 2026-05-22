@@ -47,9 +47,43 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     val defaultOrder = buildDefaultCatalogOrder(addons)
     val availableSet = defaultOrder.toSet()
 
+    // For dynamic Watchly catalogs (e.g. watchly.loved.ttXXX, watchly.watched.ttXXX,
+    // watchly.theme.*), the catalog ID changes each session. Match saved keys by
+    // group prefix so ordering is preserved across sessions.
+    fun watchlyGroupPrefix(key: String): String? {
+        return when {
+            key.contains("watchly.loved.") -> "watchly.loved."
+            key.contains("watchly.watched.") -> "watchly.watched."
+            key.contains("watchly.theme.") -> "watchly.theme."
+            else -> null
+        }
+    }
+
+    val groupPrefixToAvailableKeys = mutableMapOf<String, MutableList<String>>()
+    defaultOrder.forEach { key ->
+        val prefix = watchlyGroupPrefix(key)
+        if (prefix != null) {
+            groupPrefixToAvailableKeys.getOrPut(prefix) { mutableListOf() }.add(key)
+        }
+    }
+
+    val claimedAvailableKeys = mutableSetOf<String>()
+
     val savedValid = homeCatalogOrderKeys
         .asSequence()
-        .filter { it in availableSet }
+        .mapNotNull { savedKey ->
+            when {
+                savedKey in availableSet -> savedKey
+                else -> {
+                    val prefix = watchlyGroupPrefix(savedKey)
+                    if (prefix != null) {
+                        groupPrefixToAvailableKeys[prefix]
+                            ?.firstOrNull { it !in claimedAvailableKeys }
+                    } else null
+                }
+            }
+        }
+        .onEach { claimedAvailableKeys.add(it) }
         .distinct()
         .toList()
 
