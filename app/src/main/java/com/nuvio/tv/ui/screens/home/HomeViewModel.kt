@@ -616,6 +616,14 @@ class HomeViewModel @Inject constructor(
         _focusState.value = nextState
     }
 
+    fun clearTrailerUrlCacheIfStale(backgroundedAtMs: Long) {
+        val staleThresholdMs = 5 * 60 * 60 * 1000L // 5 hours
+        if (backgroundedAtMs > 0 && System.currentTimeMillis() - backgroundedAtMs >= staleThresholdMs) {
+            trailerPreviewUrlsState.clear()
+            trailerPreviewAudioUrlsState.clear()
+        }
+    }
+
     fun clearFocusState() {
         _focusState.value = HomeScreenFocusState()
     }

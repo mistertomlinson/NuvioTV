@@ -85,6 +85,16 @@ fun HomeScreen(
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    // Clear stale trailer URLs after 5+ hours in background — YouTube stream
+    // URLs expire after 6 hours, causing a frozen first-frame on wake.
+    val appInForegroundForTrailer = com.nuvio.tv.LocalAppInForeground.current
+    val backgroundedAtMs = com.nuvio.tv.LocalBackgroundedAtMs.current
+    androidx.compose.runtime.LaunchedEffect(appInForegroundForTrailer) {
+        if (appInForegroundForTrailer) {
+            viewModel.clearTrailerUrlCacheIfStale(backgroundedAtMs)
+        }
+    }
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsStateWithLifecycle(
         initialValue = false
     )

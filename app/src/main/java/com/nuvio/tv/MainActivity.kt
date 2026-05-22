@@ -141,6 +141,7 @@ import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 
 val LocalIsScrolling = compositionLocalOf { false }
+val LocalBackgroundedAtMs = compositionLocalOf { 0L }
 val LocalSidebarExpanded = compositionLocalOf { false }
 val LocalAppInForeground = compositionLocalOf { true }
 val LocalNoBackdropImage = compositionLocalOf { false }
@@ -476,6 +477,7 @@ class MainActivity : ComponentActivity() {
                     if (modernSidebarEnabled) {
                         ModernSidebarScaffold(
                             appInForeground = appInForeground,
+                            backgroundedAtMs = _backgroundedAtMs,
                             navController = navController,
                             startDestination = startDestination,
                             currentRoute = currentRoute,
@@ -499,6 +501,7 @@ class MainActivity : ComponentActivity() {
                     } else {
                         LegacySidebarScaffold(
                             appInForeground = appInForeground,
+                            backgroundedAtMs = _backgroundedAtMs,
                             navController = navController,
                             startDestination = startDestination,
                             currentRoute = currentRoute,
@@ -555,6 +558,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         super.onPause()
         _appInForeground.value = false
+        _backgroundedAtMs = System.currentTimeMillis()
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = false
     }
 
@@ -563,6 +567,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val _appInForeground = androidx.compose.runtime.mutableStateOf(true)
+    private var _backgroundedAtMs = 0L
     private var _pendingDeepLinkIntent: androidx.compose.runtime.MutableState<android.content.Intent?>? = null
 
     override fun onNewIntent(intent: android.content.Intent) {
@@ -577,6 +582,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun LegacySidebarScaffold(
     appInForeground: Boolean,
+    backgroundedAtMs: Long,
     navController: NavHostController,
     startDestination: String,
     currentRoute: String?,
@@ -806,6 +812,7 @@ private fun LegacySidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalAppInForeground provides appInForeground,
+                LocalBackgroundedAtMs provides backgroundedAtMs,
                 LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalSidebarOpenRequest provides { pendingSidebarFocusRequest = true; drawerState.setValue(DrawerValue.Open) },
@@ -903,6 +910,7 @@ private fun LegacySidebarButton(
 @Composable
 private fun ModernSidebarScaffold(
     appInForeground: Boolean,
+    backgroundedAtMs: Long,
     navController: NavHostController,
     startDestination: String,
     currentRoute: String?,
@@ -1185,6 +1193,7 @@ private fun ModernSidebarScaffold(
         ) {
             CompositionLocalProvider(
                 LocalAppInForeground provides appInForeground,
+                LocalBackgroundedAtMs provides backgroundedAtMs,
                 LocalSidebarExpanded provides isSidebarExpanded,
                 LocalContentFocusRequester provides contentFocusRequester,
                 LocalSidebarOpenRequest provides { isSidebarExpanded = true; sidebarCollapsePending = false; pendingSidebarFocusRequest = true }
