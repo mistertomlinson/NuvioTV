@@ -30,6 +30,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
+import coil.request.CachePolicy
+import coil.memory.MemoryCache
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -100,9 +103,43 @@ internal fun ModernHeroMediaLayer(
     backdropCrossfadeDuration: Int = 350
 ) {
     val localContext = LocalContext.current
+    val imageLoader = remember(localContext) { coil.Coil.imageLoader(localContext) }
+
+    // Hold the URL we actually display — only advances once the new image is
+    // in Coil's memory cache, so Crossfade always transitions between two
+    // already-decoded bitmaps instead of snapping in a blank slot.
+    var displayedUrl by remember { mutableStateOf(heroBackdrop) }
+
+    LaunchedEffect(heroBackdrop) {
+        val target = heroBackdrop
+        if (target == null) {
+            displayedUrl = null
+            return@LaunchedEffect
+        }
+        // If already memory-cached, flip immediately — no visible delay.
+        val cacheKey = coil.memory.MemoryCache.Key(target)
+        if (imageLoader.memoryCache?.get(cacheKey) != null) {
+            displayedUrl = target
+            return@LaunchedEffect
+        }
+        // Pre-load into memory cache, then flip.  2 s timeout so a slow
+        // network still eventually shows the image rather than being stuck.
+        val preload = ImageRequest.Builder(localContext)
+            .data(target)
+            .size(width = requestWidthPx, height = requestHeightPx)
+            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+            .build()
+        val result = kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+            imageLoader.execute(preload)
+        }
+        // Whether it succeeded or timed out, show it now — at worst we get
+        // the old snap behaviour on a very slow connection, never a hang.
+        displayedUrl = target
+    }
+
     Box(modifier = modifier.clipToBounds()) {
         Crossfade(
-            targetState = heroBackdrop,
+            targetState = displayedUrl,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = heroBackdropAlpha },
