@@ -85,16 +85,6 @@ fun HomeScreen(
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-
-    // Clear cached trailer URLs when returning to foreground — YouTube stream
-    // URLs expire after ~6 hours. Stale URLs cause the player to render one
-    // buffered frame then stall silently. Clearing forces a fresh fetch.
-    val appInForegroundForTrailer = com.nuvio.tv.LocalAppInForeground.current
-    androidx.compose.runtime.LaunchedEffect(appInForegroundForTrailer) {
-        if (appInForegroundForTrailer) {
-            viewModel.clearTrailerUrlCache()
-        }
-    }
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsStateWithLifecycle(
         initialValue = false
     )

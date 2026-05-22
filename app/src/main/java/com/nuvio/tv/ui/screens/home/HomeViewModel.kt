@@ -505,13 +505,7 @@ class HomeViewModel @Inject constructor(
                         lastWatched = cached.lastWatched,
                         imdbRating = cached.imdbRating,
                         genres = cached.genres,
-                        releaseInfo = cached.releaseInfo,
-                        sortTimestamp = cached.sortTimestamp,
-                        releaseTimestamp = cached.releaseTimestamp,
-                        isReleaseAlert = cached.isReleaseAlert,
-                        isNewSeasonRelease = cached.isNewSeasonRelease,
-                        seedSeason = cached.seedSeason,
-                        seedEpisode = cached.seedEpisode
+                        releaseInfo = cached.releaseInfo
                     )
                 )
             }
@@ -620,11 +614,6 @@ class HomeViewModel @Inject constructor(
         )
         if (_focusState.value == nextState) return
         _focusState.value = nextState
-    }
-
-    fun clearTrailerUrlCache() {
-        trailerPreviewUrlsState.clear()
-        trailerPreviewAudioUrlsState.clear()
     }
 
     fun clearFocusState() {
