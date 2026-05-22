@@ -283,12 +283,43 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             android.util.Log.w("NuvioEnrich", "[RELOAD] key=$key pre-enriched=$preEnriched post-enriched=$postEnriched")
                         }
                         catalogsMap[key] = mergedRow
-                        // Proactively enrich landscape rows as pages arrive
-                        val isLandscapeRow = layoutPreferenceDataStore.modernLandscapePostersEnabled.first() ||
-                            key in _uiState.value.landscapeCatalogKeys
-                        if (isLandscapeRow) {
-                            mergedRow.items.take(25).forEach { item ->
-                                preloadAdjacentItemPipeline(item)
+                        // Proactively enrich per-catalog landscape rows as pages arrive.
+                        // Uses a dedicated concurrent batch instead of the single-slot
+                        // preloadAdjacentItemPipeline which cancels on every call.
+                        val isPerCatalogLandscapeRow = key in _uiState.value.landscapeCatalogKeys
+                        if (isPerCatalogLandscapeRow && currentTmdbSettings.enabled) {
+                            val itemsToEnrich = mergedRow.items.take(25)
+                                .filter { it.id !in prefetchedTmdbIds }
+                            if (itemsToEnrich.isNotEmpty()) {
+                                val tmdbSettingsSnapshot = currentTmdbSettings
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    val semaphore = kotlinx.coroutines.sync.Semaphore(4)
+                                    coroutineScope {
+                                        itemsToEnrich.map { item ->
+                                            async {
+                                                if (item.id in prefetchedTmdbIds) return@async
+                                                semaphore.acquire()
+                                                try {
+                                                    val tmdbId = runCatching {
+                                                        tmdbService.ensureTmdbId(item.id, item.apiType)
+                                                    }.getOrNull() ?: return@async
+                                                    val enrichment = runCatching {
+                                                        tmdbMetadataService.fetchEnrichment(
+                                                            tmdbId = tmdbId,
+                                                            contentType = item.type,
+                                                            language = tmdbSettingsSnapshot.language
+                                                        )
+                                                    }.getOrNull() ?: return@async
+                                                    prefetchedTmdbIds.add(item.id)
+                                                    prefetchedExternalMetaIds.add(item.id)
+                                                    updateCatalogItemWithTmdb(item.id, enrichment)
+                                                } finally {
+                                                    semaphore.release()
+                                                }
+                                            }
+                                        }.awaitAll()
+                                    }
+                                }
                             }
                         }
                         // Hide spinner immediately on first catalog result — don't wait for debounce
@@ -554,7 +585,9 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     if (currentTmdbSettings.useArtwork) {
                         merged = merged.copy(
                             logo = cached.logo ?: merged.logo,
-                            landscapePoster = cached.detailBackdrop ?: merged.landscapePoster ?: merged.background
+                            // Only use detailBackdrop — don't fall back to background to avoid
+                            // a visible flash when TMDB enrichment later provides the real image.
+                            landscapePoster = cached.detailBackdrop ?: merged.landscapePoster
                         )
                     } else {
                         // Even with artwork disabled, set landscapePoster to background

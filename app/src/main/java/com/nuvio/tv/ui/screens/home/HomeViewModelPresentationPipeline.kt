@@ -483,7 +483,9 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
         if (currentTmdbSettings.useArtwork) {
             merged = merged.copy(
                 logo = enrichment.logo ?: merged.logo,
-                landscapePoster = enrichment.detailBackdrop ?: merged.landscapePoster
+                // Prefer detailBackdrop (unique TMDB image), fall back to existing
+                // landscapePoster, then background if neither is available.
+                landscapePoster = enrichment.detailBackdrop ?: merged.landscapePoster ?: merged.background
             )
         } else {
             // Even with artwork disabled, set landscapePoster to background
