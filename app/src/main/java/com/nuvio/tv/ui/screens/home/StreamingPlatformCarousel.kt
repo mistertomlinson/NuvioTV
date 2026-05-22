@@ -93,7 +93,8 @@ fun StreamingPlatformCarousel(
     var containerWidthPx by remember { mutableStateOf(0f) }
     val itemWidths = remember(activePlatforms) { HashMap<Int, Float>() }
     val itemOffsets = remember(activePlatforms) { HashMap<Int, Float>() }  // actual X in full width mode
-    var itemOffsetsReady by remember { mutableStateOf(false) }
+    var itemLayoutCount by remember(activePlatforms) { mutableStateOf(0) }
+    val itemOffsetsReady = itemLayoutCount >= activePlatforms.size
     val spacingPx = with(density) { 4.dp.toPx() }
 
     fun defaultW() = with(density) { 88.dp.toPx() }
@@ -338,9 +339,10 @@ fun StreamingPlatformCarousel(
                         Box(
                             modifier = Modifier
                                 .onGloballyPositioned { coords ->
+                                    val wasSet = itemOffsets.containsKey(index)
                                     itemWidths[index] = coords.size.width.toFloat()
                                     itemOffsets[index] = coords.positionInParent().x
-                                    if (index == 0) itemOffsetsReady = true
+                                    if (!wasSet) itemLayoutCount++
                                 }
                                 .height(34.dp)
                                 .padding(horizontal = 14.dp)
@@ -421,7 +423,9 @@ fun StreamingPlatformCarousel(
                             Box(
                                 modifier = Modifier
                                     .onGloballyPositioned { coords ->
+                                        val wasSet = itemWidths.containsKey(index)
                                         itemWidths[index] = coords.size.width.toFloat()
+                                        if (!wasSet) itemLayoutCount++
                                     }
                                     .height(34.dp)
                                     .padding(horizontal = 14.dp)
