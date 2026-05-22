@@ -63,6 +63,7 @@ import coil.request.ImageRequest
 import kotlin.math.roundToInt
 import java.util.concurrent.TimeUnit
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
+import com.nuvio.tv.ui.util.computeAirDateBadgeText
 
 internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -70,6 +71,8 @@ internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetO
 private val CwCardShape = RoundedCornerShape(12.dp)
 private val CwClipShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
 private val BadgeShape = RoundedCornerShape(4.dp)
+private val CwNewEpisodeBadgeColor = Color(0xFF1D4ED8)
+private val CwNewSeasonBadgeColor = Color(0xFFB45309)
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -240,14 +243,19 @@ fun ContinueWatchingCard(
     val strAirsDate = stringResource(R.string.cw_airs_date, nextUp?.airDateLabel ?: "")
     val strUpcoming = stringResource(R.string.cw_upcoming)
     val strNextUp = stringResource(R.string.cw_next_up)
+    val strNewEpisode = stringResource(R.string.cw_new_episode)
+    val strNewSeason = stringResource(R.string.cw_new_season)
     val strResume = stringResource(R.string.cw_resume)
     val strPercentWatched = stringResource(R.string.cw_percent_watched)
     val strHoursMinLeft = stringResource(R.string.cw_hours_min_left)
     val strMinLeft = stringResource(R.string.cw_min_left)
-    val nextUpBadgeText = remember(nextUp?.hasAired, nextUp?.airDateLabel, strAirsDate, strUpcoming, strNextUp) {
+    val cardContext = LocalContext.current
+    val nextUpBadgeText = remember(nextUp?.hasAired, nextUp?.isReleaseAlert, nextUp?.isNewSeasonRelease, nextUp?.released, nextUp?.airDateLabel, strUpcoming, strNextUp, strNewEpisode, strNewSeason) {
         nextUp?.let { info ->
-            if (!info.hasAired) {
-                info.airDateLabel?.let { strAirsDate } ?: strUpcoming
+            if (info.isReleaseAlert) {
+                if (info.isNewSeasonRelease) strNewSeason else strNewEpisode
+            } else if (!info.hasAired) {
+                computeAirDateBadgeText(cardContext, info.released, info.airDateLabel) ?: strUpcoming
             } else {
                 strNextUp
             }
@@ -289,7 +297,7 @@ fun ContinueWatchingCard(
     }
     val titleText = remember(progress, nextUp) { progress?.name ?: nextUp?.name.orEmpty() }
     val context = LocalContext.current
-    val strAirsDateForEpisode = nextUp?.airDateLabel?.let { stringResource(R.string.cw_airs_date, it) }
+    val strAirsDateForEpisode = computeAirDateBadgeText(context, nextUp?.released, nextUp?.airDateLabel)
     val episodeTitle = remember(progress, nextUp, context, strAirsDateForEpisode) {
         when {
             progress != null -> progress.episodeTitle?.localizeEpisodeTitle(context)
@@ -314,7 +322,13 @@ fun ContinueWatchingCard(
     }
 
     val bgColor = NuvioColors.Background
-    val badgeBackground = remember(bgColor) { bgColor.copy(alpha = 0.8f) }
+    val badgeBackground = remember(bgColor, nextUp?.isReleaseAlert, nextUp?.isNewSeasonRelease) {
+        when {
+            nextUp?.isNewSeasonRelease == true -> CwNewSeasonBadgeColor
+            nextUp?.isReleaseAlert == true -> CwNewEpisodeBadgeColor
+            else -> bgColor.copy(alpha = 0.8f)
+        }
+    }
 
     Card(
         onClick = {
