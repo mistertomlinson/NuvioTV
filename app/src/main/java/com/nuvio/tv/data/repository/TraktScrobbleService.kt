@@ -72,6 +72,11 @@ class TraktScrobbleService @Inject constructor(
         sendScrobble(action = "pause", item = item, progressPercent = progressPercent)
     }
 
+    suspend fun isTraktAuthenticated(): Boolean {
+        return traktAuthService.getCurrentAuthState().isAuthenticated &&
+            traktAuthService.hasRequiredCredentials()
+    }
+
     suspend fun postRating(
         item: TraktScrobbleItem,
         rating: Int

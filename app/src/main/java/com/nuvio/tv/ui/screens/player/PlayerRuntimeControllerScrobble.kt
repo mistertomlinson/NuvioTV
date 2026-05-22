@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.update
 
 internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
     url: String,
@@ -11,6 +12,8 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
     playbackPreparationJob = scope.launch {
         warmTraktEpisodeMappingForCurrentPlayback()
         refreshScrobbleItem()
+        val isTraktConnected = traktScrobbleService.isTraktAuthenticated()
+        _uiState.update { it.copy(isTraktConnected = isTraktConnected) }
         initializePlayer(url, headers)
         if (loadSavedProgress) {
             loadSavedProgressFor(currentSeason, currentEpisode)
