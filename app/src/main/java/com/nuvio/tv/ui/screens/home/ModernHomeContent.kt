@@ -1014,7 +1014,9 @@ fun ModernHomeContent(
             bgColor = bgColor,
             allowLetterboxing = uiState.heroTrailerAllowLetterboxing,
             trailerTransitionProgress = heroGradientProgress,
-            modifier = heroMediaModifier,
+            modifier = heroMediaModifier.graphicsLayer {
+                translationX = backdropParallaxOffset.value
+            },
             cinematicMode = cinematicHeroMode,
             shouldPlayHeroTrailer = shouldPlayHeroTrailer
         )
