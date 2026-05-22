@@ -132,6 +132,10 @@ class HomeViewModel @Inject constructor(
     internal val catalogsMap: MutableMap<String, CatalogRow> = Collections.synchronizedMap(LinkedHashMap())
     internal val catalogOrder = mutableListOf<String>()
     internal var addonsCache: List<Addon> = emptyList()
+
+    fun forceReloadCatalogs() {
+        scheduleCatalogPipeline(addonsCache, forceReload = true)
+    }
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()
     internal var _numberedCatalogKeysSet = MutableStateFlow<Set<String>>(emptySet())

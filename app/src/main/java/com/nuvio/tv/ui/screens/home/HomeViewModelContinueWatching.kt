@@ -555,7 +555,13 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                             contentLanguage = cached.contentLanguage ?: nextUp.info.contentLanguage,
                                             airDateLabel = cached.airDateLabel ?: nextUp.info.airDateLabel,
                                             hasAired = cached.airDateLabel?.let { nextUp.info.hasAired } ?: nextUp.info.hasAired,
-                                            released = cached.airDateLabel?.let { nextUp.info.released } ?: nextUp.info.released
+                                            released = cached.airDateLabel?.let { nextUp.info.released } ?: nextUp.info.released,
+                                            // Preserve cached episode/season during partial updates to prevent
+                                            // brief flash of wrong episode number before full resolution completes
+                                            season = cached.season ?: nextUp.info.season,
+                                            episode = cached.episode ?: nextUp.info.episode,
+                                            episodeTitle = cached.episodeTitle ?: nextUp.info.episodeTitle,
+                                            sortTimestamp = cached.sortTimestamp.takeIf { it > 0L } ?: nextUp.info.sortTimestamp
                                         ))
                                     } else nextUp
                                 }
@@ -1328,7 +1334,6 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
     val jobs = latestCompletedBySeries.map { progress ->
         launch(Dispatchers.IO) {
             lookupSemaphore.withPermit {
-                processedContentIds.add(progress.contentId)
                 val nextUp = buildNextUpItem(
                     progress = progress,
                     showUnairedNextUp = showUnairedNextUp,
@@ -1337,6 +1342,9 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
                     logNextUpDecision("drop contentId=${progress.contentId} name=${progress.name} reason=buildNextUpItem-null")
                     return@withPermit
                 }
+                // Only mark as processed after successful buildNextUpItem so unaired
+                // items aren't incorrectly added to rejectedByFreshPipeline.
+                processedContentIds.add(progress.contentId)
                 val shouldPublish: Boolean
                 val partialItems = mergeMutex.withLock {
                     nextUpByContent[progress.contentId] = nextUp
@@ -1826,8 +1834,20 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
             ),
         episodeTitle = nextVideo.title?.takeIf { it.isNotBlank() },
         released = nextVideo.released?.trim()?.takeIf { it.isNotBlank() },
-        hasAired = nextVideo.released?.let(::parseEpisodeReleaseDate)?.let { !it.isAfter(LocalDate.now(ZoneId.systemDefault())) } ?: true,
-        airDateLabel = nextVideo.released?.let(::parseEpisodeReleaseDate)?.takeIf { it.isAfter(LocalDate.now(ZoneId.systemDefault())) }?.let(::formatEpisodeAirDateLabel),
+        hasAired = run {
+            val rawReleased = nextVideo.released?.trim()?.takeIf { it.isNotBlank() }
+            val normalizedReleased = rawReleased?.let { raw ->
+                Regex("""\d{4}-\d{2}-\d{2}""").find(raw)?.value ?: raw
+            }
+            normalizedReleased?.let(::parseEpisodeReleaseDate)?.let { !it.isAfter(LocalDate.now(ZoneId.systemDefault())) } ?: true
+        },
+        airDateLabel = run {
+            val rawReleased = nextVideo.released?.trim()?.takeIf { it.isNotBlank() }
+            val normalizedReleased = rawReleased?.let { raw ->
+                Regex("""\d{4}-\d{2}-\d{2}""").find(raw)?.value ?: raw
+            }
+            normalizedReleased?.let(::parseEpisodeReleaseDate)?.takeIf { it.isAfter(LocalDate.now(ZoneId.systemDefault())) }?.let(::formatEpisodeAirDateLabel)
+        },
         lastWatched = progress.lastWatched
     )
     debug?.recordNextUpResult(
@@ -2298,6 +2318,7 @@ private fun HomeViewModel.applyContinueWatchingEnrichmentOverlay(
                     isReleaseAlert = overlay.isReleaseAlert,
                     isNewSeasonRelease = overlay.isNewSeasonRelease,
                     releaseTimestamp = overlay.releaseTimestamp ?: item.info.releaseTimestamp,
+                    sortTimestamp = overlay.sortTimestamp.takeIf { it > 0L } ?: item.info.sortTimestamp,
                     contentLanguage = overlay.contentLanguage ?: item.info.contentLanguage
                 ))
             }

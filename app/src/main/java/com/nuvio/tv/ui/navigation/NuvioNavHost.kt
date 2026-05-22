@@ -19,6 +19,8 @@ import com.nuvio.tv.ui.screens.LayoutSelectionScreen
 import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
+import com.nuvio.tv.ui.screens.home.HomeViewModel
+import androidx.hilt.navigation.compose.hiltViewModel
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
 import com.nuvio.tv.ui.screens.player.PlayerScreen
@@ -930,9 +932,12 @@ fun NuvioNavHost(
         }
 
         composable(Screen.AddonManager.route) {
+            val homeBackStackEntry = navController.getBackStackEntry(Screen.Home.route)
+            val homeViewModel: HomeViewModel = hiltViewModel(homeBackStackEntry)
             AddonManagerScreen(
                 showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) }
+                onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
+                onRefreshCatalogs = { homeViewModel.forceReloadCatalogs() }
             )
         }
 

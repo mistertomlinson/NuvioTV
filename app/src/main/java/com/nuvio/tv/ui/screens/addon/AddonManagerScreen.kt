@@ -37,6 +37,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Reorder
+import androidx.compose.material.icons.filled.Refresh
+import kotlinx.coroutines.delay
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.ui.graphics.SolidColor
@@ -97,7 +99,8 @@ import kotlinx.coroutines.delay
 fun AddonManagerScreen(
     viewModel: AddonManagerViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
-    onNavigateToCatalogOrder: () -> Unit = {}
+    onNavigateToCatalogOrder: () -> Unit = {},
+    onRefreshCatalogs: () -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -105,6 +108,15 @@ fun AddonManagerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val surfaceFocusRequester = remember { FocusRequester() }
+
+    val defaultRefreshCatalogsSubtitle = "Re-fetch content from all installed addons"
+    var refreshCatalogsSubtitle by remember { mutableStateOf(defaultRefreshCatalogsSubtitle) }
+    LaunchedEffect(refreshCatalogsSubtitle) {
+        if (refreshCatalogsSubtitle != defaultRefreshCatalogsSubtitle) {
+            delay(5_000)
+            refreshCatalogsSubtitle = defaultRefreshCatalogsSubtitle
+        }
+    }
     val installButtonFocusRequester = remember { FocusRequester() }
     val textFieldFocusRequester = remember { FocusRequester() }
     var isEditing by remember { mutableStateOf(false) }
@@ -326,6 +338,15 @@ fun AddonManagerScreen(
                 if (hasHomeVisibleCatalogs) {
                     item {
                         CatalogOrderEntryCard(onClick = onNavigateToCatalogOrder)
+                    }
+                    item {
+                        RefreshCatalogsEntryCard(
+                            subtitle = refreshCatalogsSubtitle,
+                            onClick = {
+                                onRefreshCatalogs()
+                                refreshCatalogsSubtitle = "Catalogs refreshing…"
+                            }
+                        )
                     }
                 }
             }
@@ -569,6 +590,70 @@ private fun CatalogOrderEntryCard(onClick: () -> Unit) {
             }
             Icon(
                 imageVector = Icons.Default.ArrowDownward,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint = NuvioColors.TextSecondary
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun RefreshCatalogsEntryCard(
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused },
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = NuvioColors.BackgroundCard,
+            focusedContainerColor = NuvioColors.FocusBackground
+        ),
+        border = ClickableSurfaceDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                shape = RoundedCornerShape(18.dp)
+            )
+        ),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = null,
+                    modifier = Modifier.size(28.dp),
+                    tint = if (isFocused) NuvioColors.Secondary else NuvioColors.TextSecondary
+                )
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = "Refresh Catalogs",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = NuvioColors.TextPrimary
+                    )
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.TextSecondary
+                    )
+                }
+            }
+            Icon(
+                imageVector = Icons.Default.Refresh,
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
                 tint = NuvioColors.TextSecondary
