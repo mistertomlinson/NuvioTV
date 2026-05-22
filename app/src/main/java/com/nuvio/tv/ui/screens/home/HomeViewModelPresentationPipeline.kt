@@ -497,7 +497,8 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
         if (currentTmdbSettings.useDetails) {
             merged = merged.copy(
                 ageRating = enrichment.ageRating ?: merged.ageRating,
-                status = enrichment.status ?: merged.status
+                status = enrichment.status ?: merged.status,
+                runtime = enrichment.runtimeMinutes?.toString() ?: merged.runtime
             )
         }
         return merged
