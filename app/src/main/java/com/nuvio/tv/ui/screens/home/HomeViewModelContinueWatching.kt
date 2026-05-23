@@ -1420,13 +1420,15 @@ private suspend fun HomeViewModel.enrichVisibleContinueWatchingItems(
         originalItems = finalItems,
         enrichedItems = enrichedItems
     )
-    // Refresh home screen channel after enrichment (logos/thumbnails now available)
-    val finalItems2 = _uiState.value.continueWatchingItems
-    if (finalItems2.isNotEmpty()) {
+    // Refresh home screen channel after enrichment (logos/thumbnails now available).
+    // Always use the full uiState item list — not just enrichedItems — so the channel
+    // reflects all current CW items, not only those that changed in this enrichment pass.
+    val channelItems = _uiState.value.continueWatchingItems
+    if (channelItems.isNotEmpty()) {
         val profileId = profileManager.activeProfileId.value
         val profileName = profileManager.activeProfile?.name ?: "Profile $profileId"
         viewModelScope.launch(Dispatchers.IO) {
-            runCatching { homeScreenChannelManager.refreshFromItems(finalItems2, profileId, profileName) }
+            runCatching { homeScreenChannelManager.refreshFromItems(channelItems, profileId, profileName) }
         }
     }
     true
@@ -2719,20 +2721,34 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
         viewModelScope.launch {
             traktSettingsDataStore.addDismissedNextUpKey(dismissKey)
         }
+        // Refresh channel immediately with the already-filtered list
+        val channelItemsAfterDismiss = _uiState.value.continueWatchingItems
+        viewModelScope.launch(Dispatchers.IO) {
+            val profileId = profileManager.activeProfileId.value
+            val profileName = profileManager.activeProfile?.name ?: "Profile $profileId"
+            runCatching { homeScreenChannelManager.refreshFromItems(channelItemsAfterDismiss, profileId, profileName) }
+        }
         return
     }
     viewModelScope.launch {
         // Optimistic UI: remove the item from the CW list immediately
         // so the user sees instant feedback while the DataStore write propagates.
+        // Compute filtered list first so we can pass it directly to the channel refresh
+        // without racing against the StateFlow update committing.
+        val filteredItems = _uiState.value.continueWatchingItems.filterNot { item ->
+            when (item) {
+                is ContinueWatchingItem.InProgress -> item.progress.contentId == contentId
+                is ContinueWatchingItem.NextUp -> item.info.contentId == contentId
+            }
+        }
         _uiState.update { state ->
-            state.copy(
-                continueWatchingItems = state.continueWatchingItems.filterNot { item ->
-                    when (item) {
-                        is ContinueWatchingItem.InProgress -> item.progress.contentId == contentId
-                        is ContinueWatchingItem.NextUp -> item.info.contentId == contentId
-                    }
-                }
-            )
+            state.copy(continueWatchingItems = filteredItems)
+        }
+        // Refresh channel immediately with the already-filtered list
+        val profileId = profileManager.activeProfileId.value
+        val profileName = profileManager.activeProfile?.name ?: "Profile $profileId"
+        launch(Dispatchers.IO) {
+            runCatching { homeScreenChannelManager.refreshFromItems(filteredItems, profileId, profileName) }
         }
         val targetSeason = if (isNextUp) season else null
         val targetEpisode = if (isNextUp) episode else null

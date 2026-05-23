@@ -3,6 +3,7 @@ package com.nuvio.tv.core.sync
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.homechannel.HomeScreenChannelManager
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.LibraryPreferences
 import com.nuvio.tv.data.local.TraktAuthDataStore
@@ -41,7 +42,8 @@ class StartupSyncService @Inject constructor(
     private val watchProgressPreferences: WatchProgressPreferences,
     private val libraryPreferences: LibraryPreferences,
     private val watchedItemsPreferences: WatchedItemsPreferences,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    private val homeScreenChannelManager: HomeScreenChannelManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var startupPullJob: Job? = null
@@ -143,6 +145,13 @@ class StartupSyncService @Inject constructor(
             // Pull profiles list first so profile selection stays up-to-date
             profileSyncService.pullFromRemote().getOrElse { throw it }
             Log.d(TAG, "Pulled profiles from remote")
+
+            // Clean up any orphaned or stale home screen channels.
+            // Must run after profiles are pulled so we have the current valid set.
+            runCatching {
+                val validProfileIds = profileManager.profiles.value.map { it.id }.toSet()
+                homeScreenChannelManager.cleanupOrphanChannels(validProfileIds)
+            }
 
             pluginManager.isSyncingFromRemote = true
             try {

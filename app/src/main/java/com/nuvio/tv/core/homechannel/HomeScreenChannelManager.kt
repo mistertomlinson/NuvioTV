@@ -10,13 +10,21 @@ import androidx.core.content.ContextCompat
 import androidx.tvprovider.media.tv.Channel
 import androidx.tvprovider.media.tv.ChannelLogoUtils
 import androidx.tvprovider.media.tv.PreviewProgram
+import androidx.tvprovider.media.tv.WatchNextProgram
 import androidx.tvprovider.media.tv.TvContractCompat
+import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.screens.home.NextUpInfo
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -34,8 +42,13 @@ private fun channelDisplayName(profileName: String) = "$profileName — Continue
 @Singleton
 class HomeScreenChannelManager @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val watchProgressRepository: WatchProgressRepository
+    private val watchProgressRepository: WatchProgressRepository,
+    private val watchProgressPreferences: WatchProgressPreferences,
+    private val profileManager: ProfileManager
 ) {
+    private val watchNextScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile private var watchNextDebounceJob: Job? = null
+
     private fun encode(value: String): String =
         URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
@@ -134,7 +147,9 @@ class HomeScreenChannelManager @Inject constructor(
                 }
             }.take(MAX_PROGRAMS)
 
-            // Diff approach: query existing programs, only delete stale ones
+            // Always clear existing programs before inserting fresh data.
+            // This prevents stale items from persisting if the pipeline emits
+            // an empty list (e.g. Trakt not yet loaded) after a non-empty one.
             val existingCursor = context.contentResolver.query(
                 TvContractCompat.buildPreviewProgramsUriForChannel(channelId),
                 arrayOf("_id", "title"), null, null, null
@@ -145,13 +160,10 @@ class HomeScreenChannelManager @Inject constructor(
                     existingIds.add(cur.getLong(0))
                 }
             }
-            // Delete all existing first only if we have a full list ready
-            if (limited.isNotEmpty()) {
-                existingIds.forEach { id ->
-                    context.contentResolver.delete(
-                        TvContractCompat.buildPreviewProgramUri(id), null, null
-                    )
-                }
+            existingIds.forEach { id ->
+                context.contentResolver.delete(
+                    TvContractCompat.buildPreviewProgramUri(id), null, null
+                )
             }
 
             limited.forEachIndexed { index, item ->
@@ -236,10 +248,219 @@ class HomeScreenChannelManager @Inject constructor(
                 }
             }
             Log.d(TAG, "Refreshed channel with ${limited.size} items")
+            // Debounce: cancel any pending WatchNext refresh and schedule a new one
+            // so rapid back-to-back calls (e.g. profile 1 then profile 2) only run once
+            watchNextDebounceJob?.cancel()
+            val itemsSnapshot = limited.toList()
+            val profileIdSnapshot = profileId
+            watchNextDebounceJob = watchNextScope.launch {
+                delay(500)
+                refreshWatchNext(itemsSnapshot, profileIdSnapshot)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "refreshFromItems failed", e)
         }
     }
+
+    private suspend fun refreshWatchNext(currentItems: List<ContinueWatchingItem>, currentProfileId: Int) {
+        try {
+            val allFields = mutableListOf<WatchNextFields>()
+            val seenIds = mutableSetOf<String>()
+
+            // Current profile — fully enriched items
+            currentItems.forEach { item ->
+                when (item) {
+                    is ContinueWatchingItem.InProgress -> {
+                        val p = item.progress
+                        if (seenIds.add(p.contentId)) {
+                            allFields.add(WatchNextFields(
+                                contentId = p.contentId,
+                                contentType = p.contentType,
+                                name = p.name,
+                                poster = p.poster,
+                                backdrop = p.backdrop,
+                                logo = p.logo,
+                                addonBaseUrl = p.addonBaseUrl,
+                                season = p.season,
+                                episode = p.episode,
+                                episodeTitle = p.episodeTitle,
+                                episodeDescription = item.episodeDescription,
+                                episodeThumbnail = item.episodeThumbnail,
+                                isInProgress = true,
+                                position = p.position.toInt(),
+                                duration = p.duration.takeIf { it > 0 }?.toInt() ?: 0,
+                                lastWatched = p.lastWatched
+                            ))
+                        }
+                    }
+                    is ContinueWatchingItem.NextUp -> {
+                        val info = item.info
+                        if (seenIds.add(info.contentId)) {
+                            allFields.add(WatchNextFields(
+                                contentId = info.contentId,
+                                contentType = info.contentType,
+                                name = info.name,
+                                poster = info.poster,
+                                backdrop = info.backdrop,
+                                logo = info.logo,
+                                addonBaseUrl = null,
+                                season = info.season,
+                                episode = info.episode,
+                                episodeTitle = info.episodeTitle,
+                                episodeDescription = info.episodeDescription,
+                                episodeThumbnail = info.thumbnail,
+                                isInProgress = false,
+                                position = 0,
+                                duration = 0,
+                                lastWatched = info.lastWatched
+                            ))
+                        }
+                    }
+                }
+            }
+
+            // Other profiles — load from disk cache
+            val allProfiles = profileManager.profiles.value
+            allProfiles.filter { it.id != currentProfileId }.forEach { profile ->
+                runCatching {
+                    val rawProgress = watchProgressPreferences.loadContinueWatchingForProfile(profile.id)
+                    val enrichmentCache = watchProgressPreferences.loadInProgressEnrichmentCache(profile.id)
+                        .associateBy { it.contentId }
+                    rawProgress.forEach { p ->
+                        if (seenIds.add(p.contentId)) {
+                            val enrichment = enrichmentCache[p.contentId]
+                            allFields.add(WatchNextFields(
+                                contentId = p.contentId,
+                                contentType = p.contentType,
+                                name = p.name,
+                                poster = p.poster,
+                                backdrop = p.backdrop,
+                                logo = enrichment?.logo ?: p.logo,
+                                addonBaseUrl = p.addonBaseUrl,
+                                season = p.season,
+                                episode = p.episode,
+                                episodeTitle = p.episodeTitle,
+                                episodeDescription = enrichment?.episodeDescription,
+                                episodeThumbnail = enrichment?.episodeThumbnail,
+                                isInProgress = true,
+                                position = p.position.toInt(),
+                                duration = p.duration.takeIf { it > 0 }?.toInt() ?: 0,
+                                lastWatched = p.lastWatched
+                            ))
+                        }
+                    }
+                    val nextUpCache = watchProgressPreferences.loadNextUpCache(profile.id)
+                    nextUpCache.forEach { info ->
+                        if (seenIds.add(info.contentId)) {
+                            allFields.add(WatchNextFields(
+                                contentId = info.contentId,
+                                contentType = info.contentType,
+                                name = info.name,
+                                poster = info.poster,
+                                backdrop = info.backdrop,
+                                logo = info.logo,
+                                addonBaseUrl = null,
+                                season = info.season,
+                                episode = info.episode,
+                                episodeTitle = info.episodeTitle,
+                                episodeDescription = info.episodeDescription,
+                                episodeThumbnail = info.thumbnail,
+                                isInProgress = false,
+                                position = 0,
+                                duration = 0,
+                                lastWatched = info.lastWatched
+                            ))
+                        }
+                    }
+                }.onFailure { Log.w(TAG, "Failed to load CW for profile ${profile.id}", it) }
+            }
+
+            // Clear our own Watch Next entries only, filtered by package
+            val existingWatchNext = context.contentResolver.query(
+                TvContractCompat.WatchNextPrograms.CONTENT_URI,
+                arrayOf("_id", "package_name"),
+                null, null, null
+            )
+            existingWatchNext?.use { cur ->
+                while (cur.moveToNext()) {
+                    val id = cur.getLong(0)
+                    val pkg = runCatching { cur.getString(1) }.getOrNull()
+                    if (pkg == context.packageName) {
+                        context.contentResolver.delete(
+                            TvContractCompat.buildWatchNextProgramUri(id), null, null
+                        )
+                    }
+                }
+            }
+
+            // Insert sorted by most recent first
+            allFields.sortByDescending { it.lastWatched }
+            allFields.forEach { fields ->
+                try {
+                    val deepLink = Uri.parse(
+                        "nuvio://detail/${encode(fields.contentId)}/${encode(fields.contentType)}?addonBaseUrl=${fields.addonBaseUrl?.let { encode(it) } ?: ""}"
+                    )
+                    val rawPoster = fields.poster?.takeIf { !it.contains("rpdb") && !it.contains("/posters/rpdb") }
+                    val cardImageUri = (fields.episodeThumbnail ?: fields.backdrop ?: rawPoster)?.let { Uri.parse(it) }
+                    val posterUri = rawPoster?.let { Uri.parse(it) }
+                    val logoUri = fields.logo?.let { Uri.parse(it) }
+                    val watchNextType = if (fields.isInProgress)
+                        TvContractCompat.WatchNextPrograms.WATCH_NEXT_TYPE_CONTINUE
+                    else
+                        TvContractCompat.WatchNextPrograms.WATCH_NEXT_TYPE_NEXT
+                    val mediaType = if (fields.contentType == "series")
+                        TvContractCompat.WatchNextPrograms.TYPE_TV_EPISODE
+                    else
+                        TvContractCompat.WatchNextPrograms.TYPE_MOVIE
+                    val program = WatchNextProgram.Builder()
+                        .setWatchNextType(watchNextType)
+                        .setType(mediaType)
+                        .setTitle(fields.name)
+                        .apply { fields.season?.let { setSeasonNumber(it) } }
+                        .apply { fields.episode?.let { setEpisodeNumber(it) } }
+                        .apply { fields.episodeTitle?.let { setEpisodeTitle(it) } }
+                        .apply { fields.episodeDescription?.let { setDescription(it) } }
+                        .apply { cardImageUri?.let { setThumbnailUri(it) } }
+                        .apply { posterUri?.let { setPosterArtUri(it) } }
+                        .apply { logoUri?.let { setLogoUri(it) } }
+                        .setLastEngagementTimeUtcMillis(fields.lastWatched.takeIf { it > 0 } ?: System.currentTimeMillis())
+                        .setLastPlaybackPositionMillis(fields.position)
+                        .setDurationMillis(fields.duration)
+                        .setIntentUri(deepLink)
+                        .build()
+                    context.contentResolver.insert(
+                        TvContractCompat.WatchNextPrograms.CONTENT_URI,
+                        program.toContentValues()
+                    )
+                    Log.d(TAG, "WatchNext inserted: ${fields.name} inProgress=${fields.isInProgress}")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to insert WatchNext: ${fields.name}", e)
+                }
+            }
+            Log.d(TAG, "WatchNext refreshed with ${allFields.size} items across all profiles")
+        } catch (e: Exception) {
+            Log.e(TAG, "refreshWatchNext failed", e)
+        }
+    }
+
+    private data class WatchNextFields(
+        val contentId: String,
+        val contentType: String,
+        val name: String,
+        val poster: String?,
+        val backdrop: String?,
+        val logo: String?,
+        val addonBaseUrl: String?,
+        val season: Int?,
+        val episode: Int?,
+        val episodeTitle: String?,
+        val episodeDescription: String?,
+        val episodeThumbnail: String?,
+        val isInProgress: Boolean,
+        val position: Int,
+        val duration: Int,
+        val lastWatched: Long
+    )
 
     private data class ItemFields(
         val contentId: String,
@@ -256,101 +477,89 @@ class HomeScreenChannelManager @Inject constructor(
     )
 
 
-    suspend fun refresh() = withContext(Dispatchers.IO) {
-        try {
-            Log.d(TAG, "refresh() called")
-            val channelId = getOrCreateChannelId(1, "Profile 1") ?: run {
-                Log.w(TAG, "Could not get or create channel")
-                return@withContext
-            }
-            Log.d(TAG, "Channel ID: $channelId")
+    /**
+     * Reconciles stored channel IDs against the TV provider and valid profiles.
+     * Also sweeps the TV provider for any channels registered by this package
+     * that are not tracked in SharedPreferences (orphans from old code paths).
+     * Safe to call on every app start.
+     */
+    fun cleanupOrphanChannels(validProfileIds: Set<Int>) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val editor = prefs.edit()
 
-            // Wait up to 20s for items with metadata (posters/backdrops).
-            // The flow emits non-empty early but metadata hydration is async —
-            // wait until at least one item has artwork before inserting.
-            val items = withTimeoutOrNull(20_000L) {
-                watchProgressRepository.continueWatching
-                    .first { items ->
-                        items.isNotEmpty() && items.any { it.poster != null || it.backdrop != null }
-                    }
-            } ?: withTimeoutOrNull(5_000L) {
-                watchProgressRepository.continueWatching.first { it.isNotEmpty() }
-            } ?: watchProgressRepository.continueWatching.first()
+        // Build set of channel IDs we currently track in prefs
+        val allKeys = prefs.all.keys.filter { it.startsWith("home_channel_id_p") }
+        val trackedChannelIds = mutableSetOf<Long>()
 
-            // Deduplicate by contentId — same title can appear as both InProgress and NextUp
-            val limited = items.distinctBy { it.contentId }.take(MAX_PROGRAMS)
-            Log.d(TAG, "Got ${items.size} raw items, ${limited.size} after dedup")
-            items.forEach { Log.d(TAG, "  item: ${it.name} contentId=${it.contentId} poster=${it.poster} backdrop=${it.backdrop}") }
+        for (key in allKeys) {
+            val profileId = key.removePrefix("home_channel_id_p").toIntOrNull()
+            val channelId = prefs.getLong(key, -1L)
+            if (channelId == -1L) continue
 
-            // Diff approach: only clear and rebuild when we have items ready
-            if (limited.isNotEmpty()) {
-                val existingCursor2 = context.contentResolver.query(
-                    TvContractCompat.buildPreviewProgramsUriForChannel(channelId),
+            // Check if this channel still exists in the TV provider
+            val exists = try {
+                val cursor = context.contentResolver.query(
+                    TvContractCompat.buildChannelUri(channelId),
                     arrayOf("_id"), null, null, null
                 )
-                val existingIds2 = mutableListOf<Long>()
-                existingCursor2?.use { cur ->
-                    while (cur.moveToNext()) { existingIds2.add(cur.getLong(0)) }
-                }
-                existingIds2.forEach { id ->
-                    context.contentResolver.delete(
-                        TvContractCompat.buildPreviewProgramUri(id), null, null
-                    )
-                }
+                cursor?.use { it.moveToFirst() } ?: false
+            } catch (e: Exception) {
+                false
             }
 
-            limited.forEachIndexed { index, progress ->
+            if (!exists) {
+                // Channel gone from provider — remove stale prefs entry
+                editor.remove(key)
+                Log.i(TAG, "Removed stale prefs entry key=$key channelId=$channelId")
+                continue
+            }
+
+            trackedChannelIds.add(channelId)
+
+            // Channel exists but profile was deleted — delete it
+            if (profileId != null && profileId !in validProfileIds) {
                 try {
-                    val deepLink = buildDeepLink(progress)
-                    // Use backdrop as primary card image (direct URL, landscape, Projectivy-compatible).
-                    // Fall back to poster only if no backdrop available.
-                    // Skip RPDB proxy URLs — Projectivy can't resolve them.
-                    val rawPoster = progress.poster?.takeIf { !it.contains("rpdb") && !it.contains("/posters/rpdb") }
-                    val rawBackdrop = progress.backdrop
-                    val cardImageUri = (rawBackdrop ?: rawPoster)?.let { Uri.parse(it) }
-                    val posterUri = rawPoster?.let { Uri.parse(it) }
-                    val backdropUri = rawBackdrop?.let { Uri.parse(it) }
-                    val logoUri = progress.logo?.let { Uri.parse(it) }
-
-                    val subtitle = when {
-                        progress.season != null && progress.episode != null ->
-                            "S${progress.season}E${progress.episode}" +
-                                progress.episodeTitle?.let { " · $it" }.orEmpty()
-                        else -> null
-                    }
-
-                    val program = PreviewProgram.Builder()
-                        .setChannelId(channelId)
-                        .setType(
-                            if (progress.contentType == "series")
-                                TvContractCompat.PreviewPrograms.TYPE_TV_EPISODE
-                            else
-                                TvContractCompat.PreviewPrograms.TYPE_MOVIE
-                        )
-                        .setTitle(progress.name)
-                        .apply { subtitle?.let { setEpisodeTitle(it) } }
-                        .apply { cardImageUri?.let { setThumbnailUri(it) } }
-                        .apply { posterUri?.let { setPosterArtUri(it) } }
-                        .apply { logoUri?.let { setLogoUri(it) } }
-                        .setWeight(limited.size - index)
-                        .setDurationMillis(progress.duration.takeIf { it > 0 }?.toInt() ?: 0)
-                        .setLastPlaybackPositionMillis(progress.position.toInt())
-                        .setIntentUri(deepLink)
-                        .build()
-
-                    context.contentResolver.insert(
-                        TvContractCompat.PreviewPrograms.CONTENT_URI,
-                        program.toContentValues()
+                    context.contentResolver.delete(
+                        TvContractCompat.buildChannelUri(channelId), null, null
                     )
-                    Log.d(TAG, "Inserted: ${progress.name} cardImage=$cardImageUri")
+                    Log.i(TAG, "Deleted channel for removed profile=$profileId channelId=$channelId")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to insert program for ${progress.name}", e)
+                    Log.w(TAG, "Failed to delete channel profileId=$profileId", e)
+                }
+                editor.remove(key)
+                trackedChannelIds.remove(channelId)
+            }
+        }
+
+        // Sweep provider for any channels registered by our package that
+        // are NOT in our prefs — these are orphans from old code paths.
+        try {
+            val cursor = context.contentResolver.query(
+                TvContractCompat.Channels.CONTENT_URI,
+                arrayOf("_id", "package_name"),
+                null, null, null
+            )
+            cursor?.use { cur ->
+                while (cur.moveToNext()) {
+                    val channelId = cur.getLong(0)
+                    val pkg = runCatching { cur.getString(1) }.getOrNull()
+                    if (pkg == context.packageName && channelId !in trackedChannelIds) {
+                        try {
+                            context.contentResolver.delete(
+                                TvContractCompat.buildChannelUri(channelId), null, null
+                            )
+                            Log.i(TAG, "Deleted untracked orphan channel channelId=$channelId")
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to delete orphan channel channelId=$channelId", e)
+                        }
+                    }
                 }
             }
-
-            Log.d(TAG, "Refreshed channel with ${limited.size} items")
         } catch (e: Exception) {
-            Log.e(TAG, "Failed to refresh home screen channel", e)
+            Log.w(TAG, "Failed to sweep provider for orphan channels", e)
         }
+
+        editor.apply()
     }
+
 }
