@@ -221,11 +221,20 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         if (intent?.data?.scheme == "nuvio") {
             splashScreen.setKeepOnScreenCondition { false }
+            val profileId = DeepLinkHandler.extractProfileId(intent)
+            _incomingProfileId.value = profileId
+            if (profileId != null) _deepLinkSkipProfilePicker.value = true
         }
         val effectiveBundle = if (intent?.data?.scheme == "nuvio") null else savedInstanceState
         super.onCreate(effectiveBundle)
         setContent {
-            var hasSelectedProfileThisSession by remember { mutableStateOf(false) }
+            // If launched from a home screen channel deep link with a profileId,
+            // pre-select that profile and skip the profile picker entirely.
+            val deepLinkProfileId by _incomingProfileId.collectAsState(initial = _incomingProfileId.value)
+            val skipPickerForDeepLink by _deepLinkSkipProfilePicker.collectAsState(initial = _deepLinkSkipProfilePicker.value)
+            var hasSelectedProfileThisSession by remember {
+                mutableStateOf(false)
+            }
             var onboardingCompletedThisSession by remember { mutableStateOf(false) }
             var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
             val hasSeenAuthQrOnFirstLaunch by appOnboardingDataStore
@@ -344,8 +353,25 @@ class MainActivity : ComponentActivity() {
                         return@Surface
                     }
 
+                    // Auto-select profile from deep link on cold start.
+                    // Runs after profiles are loaded from DataStore so the profile
+                    // is guaranteed to exist before we call setActiveProfile.
+                    // Handles both cold-start and already-running (onNewIntent) cases.
+                    // deepLinkProfileId is backed by a StateFlow so it updates on onNewIntent.
+                    LaunchedEffect(deepLinkProfileId, profiles) {
+                        val profileId = deepLinkProfileId ?: return@LaunchedEffect
+                        if (profiles.any { it.id == profileId }) {
+                            profileManager.setActiveProfile(profileId)
+                            hasSelectedProfileThisSession = true
+                            if (authManager.authState.value is AuthState.FullAccount) {
+                                startupSyncService.requestSyncNow()
+                            }
+                        }
+                    }
+
                     val shouldShowProfileSelection =
-                        !hasSelectedProfileThisSession && profiles.size > 1
+                        !hasSelectedProfileThisSession && profiles.size > 1 &&
+                        !skipPickerForDeepLink
 
                     if (shouldShowProfileSelection) {
                         ProfileSelectionScreen(
@@ -569,11 +595,18 @@ class MainActivity : ComponentActivity() {
     private val _appInForeground = androidx.compose.runtime.mutableStateOf(true)
     private var _backgroundedAtMs = 0L
     private var _pendingDeepLinkIntent: androidx.compose.runtime.MutableState<android.content.Intent?>? = null
+    private val _incomingProfileId = kotlinx.coroutines.flow.MutableStateFlow<Int?>(null)
+    // True when app was launched or resumed via a channel deep link with a profileId.
+    // Set before setContent runs so first composition already sees the correct value.
+    private val _deepLinkSkipProfilePicker = kotlinx.coroutines.flow.MutableStateFlow(false)
 
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
         _pendingDeepLinkIntent?.value = intent
+        val profileId = DeepLinkHandler.extractProfileId(intent)
+        _incomingProfileId.value = profileId
+        if (profileId != null) _deepLinkSkipProfilePicker.value = true
     }
 
 }

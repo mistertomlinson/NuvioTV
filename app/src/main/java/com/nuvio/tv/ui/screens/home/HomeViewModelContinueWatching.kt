@@ -1049,6 +1049,18 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     runCatching { cwEnrichmentCache.saveInProgressSnapshot(ipSnap, force = true, profileId = enrichmentSnapshotProfileId) }
                 }
 
+                // Refresh home screen channel with lightweight data immediately.
+                // This ensures the channel is updated even if enrichment is cancelled
+                // by collectLatest restarting the pipeline (e.g. Trakt data arriving).
+                // Enrichment will call refreshFromItems again with richer data if it completes.
+                if (normalItems.isNotEmpty()) {
+                    val lwProfileId = profileManager.activeProfileId.value
+                    val lwProfileName = profileManager.activeProfile?.name ?: "Profile $lwProfileId"
+                    viewModelScope.launch(Dispatchers.IO) {
+                        runCatching { homeScreenChannelManager.refreshFromItems(normalItems, lwProfileId, lwProfileName) }
+                    }
+                }
+
                 // Rich metadata only runs after the final lightweight CW list is visible.
                 // If TMDB enrichment is enabled for CW, skip grace period to avoid
                 // visible flash of addon data being replaced by TMDB data.

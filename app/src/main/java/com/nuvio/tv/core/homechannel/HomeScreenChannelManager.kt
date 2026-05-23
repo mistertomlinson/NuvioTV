@@ -198,8 +198,9 @@ class HomeScreenChannelManager @Inject constructor(
                     }
 
                     val deepLink = Uri.parse(
-                        "nuvio://detail/${encode(contentId)}/${encode(contentType)}?addonBaseUrl=${addonBaseUrl?.let { encode(it) } ?: ""}"
+                        "nuvio://detail/${encode(contentId)}/${encode(contentType)}?addonBaseUrl=${addonBaseUrl?.let { encode(it) } ?: ""}&profileId=$profileId"
                     )
+
 
                     val rawPoster = poster?.takeIf { !it.contains("rpdb") && !it.contains("/posters/rpdb") }
                     val rawBackdrop = backdrop

@@ -449,9 +449,12 @@ class HomeViewModel @Inject constructor(
     private fun loadContinueWatching() {
         // Pre-render cached CW instantly before pipeline starts — user sees content
         // immediately on launch without waiting for Trakt/allProgress to respond.
+        // Capture profileId synchronously on the calling thread to avoid a race where
+        // the IO coroutine reads activeProfileId.value before the DataStore write commits.
+        val preRenderProfileId = profileManager.activeProfileId.value
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val cachedInProgress = runCatching { cwEnrichmentCache.getInProgressSnapshot() }.getOrElse { emptyList<com.nuvio.tv.data.local.CachedInProgressItem>() }
-            val cachedNextUp = runCatching { cwEnrichmentCache.getNextUpSnapshot() }.getOrElse { emptyList<com.nuvio.tv.data.local.CachedNextUpItem>() }
+            val cachedInProgress = runCatching { cwEnrichmentCache.getInProgressSnapshot(preRenderProfileId) }.getOrElse { emptyList<com.nuvio.tv.data.local.CachedInProgressItem>() }
+            val cachedNextUp = runCatching { cwEnrichmentCache.getNextUpSnapshot(preRenderProfileId) }.getOrElse { emptyList<com.nuvio.tv.data.local.CachedNextUpItem>() }
             android.util.Log.d("CW_TIMING", "💾 pre-render: inProgress=${cachedInProgress.size} nextUp=${cachedNextUp.size}")
             if (cachedInProgress.isEmpty() && cachedNextUp.isEmpty()) {
                 android.util.Log.d("CW_TIMING", "💾 pre-render: cache empty, skipping")

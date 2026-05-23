@@ -13,6 +13,16 @@ import com.nuvio.tv.ui.navigation.Screen
  */
 object DeepLinkHandler {
 
+    /**
+     * Extracts the profileId query parameter from a home screen channel deep link.
+     * Returns null if not present or not a valid integer.
+     */
+    fun extractProfileId(intent: Intent?): Int? {
+        val uri = intent?.data ?: return null
+        if (uri.scheme != "nuvio") return null
+        return uri.getQueryParameter("profileId")?.toIntOrNull()
+    }
+
     fun handle(intent: Intent?, navController: NavHostController): Boolean {
         val uri = intent?.data ?: return false
         if (uri.scheme != "nuvio") return false
