@@ -45,6 +45,9 @@ class ProfileManager @Inject constructor(
     val isPrimaryProfileActive: Boolean
         get() = activeProfileId.value == 1
 
+    val canCreateProfile: Boolean
+        get() = profiles.value.size < 4
+
     suspend fun setActiveProfile(id: Int) {
         val exists = profiles.value.any { it.id == id }
         if (exists) {

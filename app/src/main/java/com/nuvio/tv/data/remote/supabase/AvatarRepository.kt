@@ -34,10 +34,7 @@ class AvatarRepository @Inject constructor(
                 sortOrder = item.sortOrder,
                 bgColor = item.bgColor
             )
-        } + listOf(
-            AvatarCatalogItem(id = "local_angela", displayName = "Angela", imageUrl = "res://avatar_angela", category = "personal", sortOrder = 0),
-            AvatarCatalogItem(id = "local_brandon", displayName = "Brandon", imageUrl = "res://avatar_brandon", category = "personal", sortOrder = 1)
-        )
+        }
         cachedCatalog = catalog
         return catalog
     }
