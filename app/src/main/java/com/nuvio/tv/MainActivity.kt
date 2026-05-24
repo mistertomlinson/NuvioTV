@@ -589,6 +589,12 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             traktProgressService.refreshNow()
         }
+        // If resumed without a deep link intent, reset the skip-picker flag
+        // so the profile picker works normally on next manual open.
+        if (intent?.data?.scheme != "nuvio") {
+            _deepLinkSkipProfilePicker.value = false
+            _incomingProfileId.value = null
+        }
     }
 
     override fun onPause() {
