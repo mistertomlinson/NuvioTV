@@ -372,6 +372,30 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
+                    // Compute startDestination and create navController BEFORE the profile
+                    // picker check so they survive picker show/hide recompositions.
+                    // Using remember ensures intentDeepLinkRoute is only computed once
+                    // from the original launch intent, not re-evaluated after profile switch.
+                    val intentDeepLinkRoute = remember {
+                        val uri = intent?.data ?: return@remember null
+                        if (uri.scheme != "nuvio") return@remember null
+                        val host = uri.host ?: return@remember null
+                        val path = uri.path?.trimStart('/') ?: ""
+                        val fullPath = if (path.isBlank()) host else "$host/$path"
+                        if (fullPath.startsWith("detail/")) {
+                            val parts = fullPath.removePrefix("detail/").split("/")
+                            if (parts.size >= 2) {
+                                val contentId = parts[0]
+                                val contentType = parts[1]
+                                val addonBaseUrl = uri.getQueryParameter("addonBaseUrl") ?: ""
+                                Screen.Detail.createRoute(contentId, contentType, addonBaseUrl, returnToHomeOnBack = true)
+                            } else null
+                        } else null
+                    }
+                    val navController = rememberNavController()
+                    val navBackStackEntry by navController.currentBackStackEntryAsState()
+                    val currentRoute = navBackStackEntry?.destination?.route
+
                     val shouldShowProfileSelection =
                         !hasSelectedProfileThisSession && profiles.size > 1 &&
                         !skipPickerForDeepLink
@@ -403,29 +427,10 @@ class MainActivity : ComponentActivity() {
                         mainUiPrefs.modernSidebarBlurPref && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
                     val hideBuiltInHeadersForFloatingPill = modernSidebarEnabled && !sidebarCollapsed
 
+                    val startDestination = intentDeepLinkRoute ?: if (layoutChosen) Screen.Home.route else Screen.LayoutSelection.route
+
                     val updateViewModel: UpdateViewModel = hiltViewModel(this@MainActivity)
                     val updateState by updateViewModel.uiState.collectAsState()
-
-                    val intentDeepLinkRoute = run {
-                        val uri = intent?.data ?: return@run null
-                        if (uri.scheme != "nuvio") return@run null
-                        val host = uri.host ?: return@run null
-                        val path = uri.path?.trimStart('/') ?: ""
-                        val fullPath = if (path.isBlank()) host else "$host/$path"
-                        if (fullPath.startsWith("detail/")) {
-                            val parts = fullPath.removePrefix("detail/").split("/")
-                            if (parts.size >= 2) {
-                                val contentId = parts[0]
-                                val contentType = parts[1]
-                                val addonBaseUrl = uri.getQueryParameter("addonBaseUrl") ?: ""
-                                Screen.Detail.createRoute(contentId, contentType, addonBaseUrl, returnToHomeOnBack = true)
-                            } else null
-                        } else null
-                    }
-                    val startDestination = intentDeepLinkRoute ?: if (layoutChosen) Screen.Home.route else Screen.LayoutSelection.route
-                    val navController = rememberNavController()
-                    val navBackStackEntry by navController.currentBackStackEntryAsState()
-                    val currentRoute = navBackStackEntry?.destination?.route
 
                     val pendingDeepLinkIntentState = remember { androidx.compose.runtime.mutableStateOf<android.content.Intent?>(null) }
                     var pendingDeepLinkIntent by pendingDeepLinkIntentState
@@ -437,6 +442,8 @@ class MainActivity : ComponentActivity() {
                             pendingDeepLinkIntent = null
                         }
                     }
+
+
 
                     val view = LocalView.current
                     LaunchedEffect(currentRoute) {
