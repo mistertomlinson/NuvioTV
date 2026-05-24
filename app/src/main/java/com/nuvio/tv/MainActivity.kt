@@ -366,6 +366,9 @@ class MainActivity : ComponentActivity() {
                             if (authManager.authState.value is AuthState.FullAccount) {
                                 startupSyncService.requestSyncNow()
                             }
+                            // Reset after handling so the picker works normally next time
+                            _deepLinkSkipProfilePicker.value = false
+                            _incomingProfileId.value = null
                         }
                     }
 

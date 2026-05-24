@@ -168,7 +168,7 @@ class HomeScreenChannelManager @Inject constructor(
 
             limited.forEachIndexed { index, item ->
                 try {
-                    val (contentId, contentType, name, poster, backdrop, logo, addonBaseUrl, season, episode, episodeTitle, episodeThumbnail) = when (item) {
+                    val (contentId, contentType, name, poster, backdrop, logo, addonBaseUrl, season, episode, episodeTitle, episodeThumbnail, episodeDescription) = when (item) {
                         is ContinueWatchingItem.InProgress -> ItemFields(
                             contentId = item.progress.contentId,
                             contentType = item.progress.contentType,
@@ -180,7 +180,8 @@ class HomeScreenChannelManager @Inject constructor(
                             season = item.progress.season,
                             episode = item.progress.episode,
                             episodeTitle = item.progress.episodeTitle,
-                            episodeThumbnail = item.episodeThumbnail
+                            episodeThumbnail = item.episodeThumbnail,
+                            episodeDescription = item.episodeDescription
                         )
                         is ContinueWatchingItem.NextUp -> ItemFields(
                             contentId = item.info.contentId,
@@ -193,7 +194,8 @@ class HomeScreenChannelManager @Inject constructor(
                             season = item.info.season,
                             episode = item.info.episode,
                             episodeTitle = item.info.episodeTitle,
-                            episodeThumbnail = item.info.thumbnail
+                            episodeThumbnail = item.info.thumbnail,
+                            episodeDescription = item.info.episodeDescription
                         )
                     }
 
@@ -228,8 +230,10 @@ class HomeScreenChannelManager @Inject constructor(
                     val program = PreviewProgram.Builder()
                         .setChannelId(channelId)
                         .setType(type)
-                        .setTitle(name)
+                        // Title intentionally omitted — we don't want the show/movie
+                        // name displayed under the thumbnail in the launcher channel row.
                         .apply { subtitle?.let { setEpisodeTitle(it) } }
+                        .apply { episodeDescription?.let { setDescription(it) } }
                         .apply { cardImageUri?.let { setThumbnailUri(it) } }
                         .apply { posterUri?.let { setPosterArtUri(it) } }
                         .apply { logoUri?.let { setLogoUri(it) } }
@@ -474,7 +478,8 @@ class HomeScreenChannelManager @Inject constructor(
         val season: Int?,
         val episode: Int?,
         val episodeTitle: String?,
-        val episodeThumbnail: String? = null
+        val episodeThumbnail: String? = null,
+        val episodeDescription: String? = null
     )
 
 
