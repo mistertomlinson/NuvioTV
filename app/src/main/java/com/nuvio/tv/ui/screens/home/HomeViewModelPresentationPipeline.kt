@@ -482,7 +482,10 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
         }
         if (currentTmdbSettings.useArtwork) {
             merged = merged.copy(
-                logo = enrichment.logo ?: merged.logo,
+                // When TMDB enrichment is enabled, trust its logo result as authoritative.
+                // If TMDB returns null (no English logo exists), use null rather than
+                // falling back to the addon logo which may be a foreign language logo.
+                logo = enrichment.logo,
                 // Prefer detailBackdrop (unique TMDB image), fall back to existing
                 // landscapePoster, then background if neither is available.
                 landscapePoster = enrichment.detailBackdrop ?: merged.landscapePoster ?: merged.background

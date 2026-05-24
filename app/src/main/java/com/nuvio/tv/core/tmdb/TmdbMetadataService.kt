@@ -185,7 +185,11 @@ class TmdbMetadataService @Inject constructor(
                     )
                     ?.filter { logo ->
                         val lang = logo.iso6391
-                        lang == logoLangCode || lang == "en" || lang == null
+                        lang == logoLangCode || lang == "en" ||
+                        // Allow null-language logos only if they have votes —
+                        // network/service logos (Netflix, HBO etc.) appear as
+                        // null-language with zero vote average.
+                        (lang == null && (logo.voteAverage ?: 0.0) > 0.0)
                     }
                     ?.firstOrNull()
                     ?.filePath
@@ -618,10 +622,12 @@ class TmdbMetadataService @Inject constructor(
                     .thenByDescending { it.iso6391 == languageCode }
                     .thenByDescending { it.iso6391 == "en" }
                     .thenByDescending { it.iso6391 == null }
+                    .thenByDescending { it.voteAverage ?: 0.0 }
             )
             .firstOrNull()
             ?.filePath
     }
+
 
     suspend fun fetchPersonDetail(
         personId: Int,

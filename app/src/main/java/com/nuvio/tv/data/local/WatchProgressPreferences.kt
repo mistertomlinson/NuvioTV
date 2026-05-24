@@ -323,6 +323,23 @@ class WatchProgressPreferences @Inject constructor(
         }
     }
 
+    suspend fun loadContinueWatchingForProfile(profileId: Int): List<WatchProgress> {
+        return try {
+            val json = store(profileId).data.first()[watchProgressKey] ?: "{}"
+            val allItems = parseProgressMap(json)
+            // Mirror the continueWatching filter: started but not completed
+            allItems.values
+                .filter { it.isInProgress() }
+                .groupBy { it.contentId }
+                .mapValues { (_, entries) -> entries.maxByOrNull { it.lastWatched }!! }
+                .values
+                .sortedByDescending { it.lastWatched }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load CW for profile $profileId", e)
+            emptyList()
+        }
+    }
+
     private fun parseProgressMap(json: String): Map<String, WatchProgress> {
         return try {
             // Parse entry-by-entry so one malformed value doesn't wipe the entire map.
