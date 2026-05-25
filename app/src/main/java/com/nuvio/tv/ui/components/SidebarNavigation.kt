@@ -33,6 +33,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import com.nuvio.tv.R
 import androidx.compose.ui.unit.IntOffset
@@ -89,10 +92,11 @@ fun SidebarNavigation(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        items.forEach { item ->
+        items.forEachIndexed { index, item ->
             SidebarNavItem(
                 item = item,
                 isSelected = item.route == selectedRoute,
+                isFirst = index == 0,
                 focusRequester = if (item.route == selectedRoute) focusRequester else null,
                 onNavigate = onNavigate
             )
@@ -105,6 +109,7 @@ fun SidebarNavigation(
 private fun SidebarNavItem(
     item: SidebarItem,
     isSelected: Boolean,
+    isFirst: Boolean,
     focusRequester: FocusRequester?,
     onNavigate: (String) -> Unit
 ) {
@@ -128,6 +133,9 @@ private fun SidebarNavItem(
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged { state ->
                 isFocused = state.isFocused
+            }
+            .onPreviewKeyEvent { event ->
+                if (isFirst && event.key == Key.DirectionUp) true else false
             }
             .clickable { onNavigate(item.route) }
             .padding(horizontal = 12.dp),

@@ -342,7 +342,10 @@ private fun SidebarProfileItem(
             }
             .focusable(enabled = focusEnabled)
             .onPreviewKeyEvent { event ->
-                if (focusEnabled && event.type == KeyEventType.KeyUp &&
+                if (focusEnabled && event.key == Key.DirectionUp) {
+                    // Consume UP at the top item — profile is the ceiling
+                    true
+                } else if (focusEnabled && event.type == KeyEventType.KeyUp &&
                     (event.key == Key.Enter || event.key == Key.DirectionCenter || event.key == Key.NumPadEnter)
                 ) {
                     onClick()

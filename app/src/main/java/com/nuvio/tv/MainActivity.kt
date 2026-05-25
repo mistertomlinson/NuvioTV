@@ -227,6 +227,29 @@ class MainActivity : ComponentActivity() {
         }
         val effectiveBundle = if (intent?.data?.scheme == "nuvio") null else savedInstanceState
         super.onCreate(effectiveBundle)
+
+        // Prefetch avatar images early so they are cached before profile picker shows.
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val catalog = avatarRepository.getAvatarCatalog()
+                val imageLoader = coil.Coil.imageLoader(applicationContext)
+                val urlsToPrefetch = buildList {
+                    catalog.filter { !it.imageUrl.startsWith("res://") }
+                        .forEach { add(it.imageUrl) }
+                    profileManager.profiles.value
+                        .mapNotNull { p -> p.avatarUrl?.takeIf { it.isNotBlank() } }
+                        .forEach { add(it) }
+                }.distinct()
+                urlsToPrefetch.forEach { url ->
+                    imageLoader.enqueue(
+                        coil.request.ImageRequest.Builder(applicationContext)
+                            .data(url)
+                            .build()
+                    )
+                }
+            }
+        }
+
         setContent {
             // If launched from a home screen channel deep link with a profileId,
             // pre-select that profile and skip the profile picker entirely.
@@ -260,10 +283,31 @@ class MainActivity : ComponentActivity() {
             LaunchedEffect(Unit) {
                 avatarCatalog = runCatching { avatarRepository.getAvatarCatalog() }
                     .getOrDefault(emptyList())
+                // Prefetch all remote avatar images into Coil's disk cache so
+                // they appear instantly when the profile picker opens.
+
             }
 
             val activeProfileAvatarImageUrl = remember(activeProfile, avatarCatalog) {
                 activeProfile?.avatarId?.let { avatarRepository.getAvatarImageUrl(it, avatarCatalog) }
+            }
+
+            // Prefetch avatar URLs for all profiles whenever profiles list changes
+            LaunchedEffect(profiles) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        val imageLoader = coil.Coil.imageLoader(applicationContext)
+                        profiles.mapNotNull { p -> p.avatarUrl?.takeIf { it.isNotBlank() } }
+                            .distinct()
+                            .forEach { url ->
+                                imageLoader.enqueue(
+                                    coil.request.ImageRequest.Builder(applicationContext)
+                                        .data(url)
+                                        .build()
+                                )
+                            }
+                    }
+                }
             }
 
             val mainUiPrefsFlow = remember(themeDataStore, layoutPreferenceDataStore) {
@@ -754,6 +798,9 @@ private fun LegacySidebarScaffold(
                                         .clip(profileItemShape)
                                         .background(color = profileBgColor, shape = profileItemShape)
                                         .onFocusChanged { isProfileFocused = it.isFocused }
+                                        .onPreviewKeyEvent { event ->
+                                            event.key == Key.DirectionUp
+                                        }
                                         .clickable {
                                             onSwitchProfile()
                                             drawerState.setValue(DrawerValue.Closed)
