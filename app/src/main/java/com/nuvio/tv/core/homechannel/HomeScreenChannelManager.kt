@@ -61,9 +61,11 @@ class HomeScreenChannelManager @Inject constructor(
 
     private fun storeAppIconAsChannelLogo(channelId: Long) {
         try {
-            val drawable = context.packageManager.getApplicationIcon(context.packageName)
-            val w = drawable.intrinsicWidth.coerceAtLeast(80)
-            val h = drawable.intrinsicHeight.coerceAtLeast(80)
+            val drawable = androidx.core.content.ContextCompat.getDrawable(
+                context, com.nuvio.tv.R.drawable.ic_launcher
+            ) ?: context.packageManager.getApplicationIcon(context.packageName)
+            val w = 320
+            val h = 320
             val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
             val canvas = Canvas(bitmap)
             drawable.setBounds(0, 0, w, h)
@@ -166,23 +168,43 @@ class HomeScreenChannelManager @Inject constructor(
                 )
             }
 
+            // Load enrichment cache for this profile to fill gaps in unenriched pipeline items
+            val profileEnrichmentCache = try {
+                val dir = java.io.File(context.filesDir, "cw_enrichment")
+                val file = java.io.File(dir, "inprogress_${profileId}.json")
+                if (file.exists()) {
+                    val type = com.google.gson.reflect.TypeToken.getParameterized(
+                        List::class.java,
+                        com.nuvio.tv.data.local.CachedInProgressItem::class.java
+                    ).type
+                    val parsed: List<com.nuvio.tv.data.local.CachedInProgressItem>? =
+                        com.google.gson.Gson().fromJson(file.readText(), type)
+                    (parsed ?: emptyList()).associateBy { it.contentId }
+                } else emptyMap()
+            } catch (e: Exception) {
+                emptyMap<String, com.nuvio.tv.data.local.CachedInProgressItem>()
+            }
+
             limited.forEachIndexed { index, item ->
                 try {
                     val (contentId, contentType, name, poster, backdrop, logo, addonBaseUrl, season, episode, episodeTitle, episodeThumbnail, episodeDescription) = when (item) {
-                        is ContinueWatchingItem.InProgress -> ItemFields(
-                            contentId = item.progress.contentId,
-                            contentType = item.progress.contentType,
-                            name = item.progress.name,
-                            poster = item.progress.poster,
-                            backdrop = item.progress.backdrop,
-                            logo = item.progress.logo,
-                            addonBaseUrl = item.progress.addonBaseUrl,
-                            season = item.progress.season,
-                            episode = item.progress.episode,
-                            episodeTitle = item.progress.episodeTitle,
-                            episodeThumbnail = item.episodeThumbnail,
-                            episodeDescription = item.episodeDescription
-                        )
+                        is ContinueWatchingItem.InProgress -> {
+                            val cached = profileEnrichmentCache[item.progress.contentId]
+                            ItemFields(
+                                contentId = item.progress.contentId,
+                                contentType = item.progress.contentType,
+                                name = cached?.name?.takeIf { it.isNotBlank() } ?: item.progress.name,
+                                poster = item.progress.poster ?: cached?.poster,
+                                backdrop = item.progress.backdrop ?: cached?.backdrop,
+                                logo = item.progress.logo ?: cached?.logo,
+                                addonBaseUrl = item.progress.addonBaseUrl,
+                                season = item.progress.season ?: cached?.season,
+                                episode = item.progress.episode ?: cached?.episode,
+                                episodeTitle = item.progress.episodeTitle ?: cached?.episodeTitle,
+                                episodeThumbnail = item.episodeThumbnail ?: cached?.episodeThumbnail,
+                                episodeDescription = item.episodeDescription ?: cached?.episodeDescription
+                            )
+                        }
                         is ContinueWatchingItem.NextUp -> ItemFields(
                             contentId = item.info.contentId,
                             contentType = item.info.contentType,
@@ -210,10 +232,6 @@ class HomeScreenChannelManager @Inject constructor(
                     val posterUri = rawPoster?.let { Uri.parse(it) }
                     val logoUri = logo?.let { Uri.parse(it) }
 
-                    val subtitle = if (season != null && episode != null) {
-                        "S${season}E${episode}" + episodeTitle?.let { " · $it" }.orEmpty()
-                    } else null
-
                     val type = if (contentType == "series")
                         TvContractCompat.PreviewPrograms.TYPE_TV_EPISODE
                     else
@@ -227,12 +245,13 @@ class HomeScreenChannelManager @Inject constructor(
                             is ContinueWatchingItem.InProgress -> item.progress.position.toInt()
                             is ContinueWatchingItem.NextUp -> 0
                         }
+
                     val program = PreviewProgram.Builder()
                         .setChannelId(channelId)
                         .setType(type)
-                        // Title intentionally omitted — we don't want the show/movie
-                        // name displayed under the thumbnail in the launcher channel row.
-                        .apply { subtitle?.let { setEpisodeTitle(it) } }
+                        .apply { season?.let { setSeasonNumber(it) } }
+                        .apply { episode?.let { setEpisodeNumber(it) } }
+                        .apply { episodeTitle?.let { setEpisodeTitle(it) } }
                         .apply { episodeDescription?.let { setDescription(it) } }
                         .apply { cardImageUri?.let { setThumbnailUri(it) } }
                         .apply { posterUri?.let { setPosterArtUri(it) } }
@@ -247,7 +266,7 @@ class HomeScreenChannelManager @Inject constructor(
                         TvContractCompat.PreviewPrograms.CONTENT_URI,
                         program.toContentValues()
                     )
-                    Log.d(TAG, "Inserted: $name cardImage=$cardImageUri")
+                    Log.d(TAG, "Inserted: $name s=$season e=$episode desc=${episodeDescription?.take(20)} cardImage=$cardImageUri")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to insert item", e)
                 }
@@ -329,22 +348,82 @@ class HomeScreenChannelManager @Inject constructor(
             allProfiles.filter { it.id != currentProfileId }.forEach { profile ->
                 runCatching {
                     val rawProgress = watchProgressPreferences.loadContinueWatchingForProfile(profile.id)
-                    val enrichmentCache = watchProgressPreferences.loadInProgressEnrichmentCache(profile.id)
-                        .associateBy { it.contentId }
+                    // Load enrichment from the file-based cache (ContinueWatchingEnrichmentCache)
+                    // which is what the active pipeline writes to. The old DataStore-based
+                    // InProgressEnrichmentEntry is no longer populated by the pipeline.
+                    val enrichmentCache = run {
+                        try {
+                            val dir = java.io.File(context.filesDir, "cw_enrichment")
+                            val file = java.io.File(dir, "inprogress_${profile.id}.json")
+                            if (file.exists()) {
+                                val type = com.google.gson.reflect.TypeToken.getParameterized(
+                                    List::class.java,
+                                    com.nuvio.tv.data.local.CachedInProgressItem::class.java
+                                ).type
+                                val parsed: List<com.nuvio.tv.data.local.CachedInProgressItem>? =
+                                    com.google.gson.Gson().fromJson(file.readText(), type)
+                                (parsed ?: emptyList()).associateBy { it.contentId }
+                            } else emptyMap()
+                        } catch (e: Exception) {
+                            Log.w(TAG, "Failed to read file-based enrichment cache for profile ${profile.id}", e)
+                            emptyMap()
+                        }
+                    }
+                    // Refresh this profile's channel row with enriched data now that
+                    // the enrichment file is available (it may not have been ready when
+                    // that profile was last active).
+                    if (enrichmentCache.isNotEmpty()) {
+                        val enrichedChannelItems = rawProgress.mapNotNull { p ->
+                            val enrichment = enrichmentCache[p.contentId] ?: return@mapNotNull null
+                            ContinueWatchingItem.InProgress(
+                                progress = com.nuvio.tv.domain.model.WatchProgress(
+                                    contentId = p.contentId,
+                                    contentType = p.contentType,
+                                    name = enrichment?.name?.takeIf { it.isNotBlank() } ?: p.name,
+                                    poster = enrichment?.poster ?: p.poster,
+                                    backdrop = enrichment?.backdrop ?: p.backdrop,
+                                    logo = enrichment?.logo ?: p.logo,
+                                    videoId = p.videoId,
+                                    season = enrichment?.season ?: p.season,
+                                    episode = enrichment?.episode ?: p.episode,
+                                    episodeTitle = enrichment?.episodeTitle ?: p.episodeTitle,
+                                    position = p.position,
+                                    duration = p.duration,
+                                    lastWatched = p.lastWatched,
+                                    addonBaseUrl = p.addonBaseUrl,
+                                    progressPercent = p.progressPercent
+                                ),
+                                episodeThumbnail = enrichment?.episodeThumbnail,
+                                episodeDescription = enrichment?.episodeDescription,
+                                episodeImdbRating = enrichment?.episodeImdbRating,
+                                genres = enrichment?.genres ?: emptyList(),
+                                releaseInfo = enrichment?.releaseInfo
+                            )
+                        }
+                        if (enrichedChannelItems.isNotEmpty()) {
+                            val profileName = profile.name
+                            kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                                runCatching {
+                                    refreshFromItems(enrichedChannelItems, profile.id, profileName)
+                                }
+                            }
+                        }
+                    }
+
                     rawProgress.forEach { p ->
                         if (seenIds.add(p.contentId)) {
                             val enrichment = enrichmentCache[p.contentId]
                             allFields.add(WatchNextFields(
                                 contentId = p.contentId,
                                 contentType = p.contentType,
-                                name = p.name,
-                                poster = p.poster,
-                                backdrop = p.backdrop,
+                                name = enrichment?.name?.takeIf { it.isNotBlank() } ?: p.name,
+                                poster = enrichment?.poster ?: p.poster,
+                                backdrop = enrichment?.backdrop ?: p.backdrop,
                                 logo = enrichment?.logo ?: p.logo,
                                 addonBaseUrl = p.addonBaseUrl,
-                                season = p.season,
-                                episode = p.episode,
-                                episodeTitle = p.episodeTitle,
+                                season = enrichment?.season ?: p.season,
+                                episode = enrichment?.episode ?: p.episode,
+                                episodeTitle = enrichment?.episodeTitle ?: p.episodeTitle,
                                 episodeDescription = enrichment?.episodeDescription,
                                 episodeThumbnail = enrichment?.episodeThumbnail,
                                 isInProgress = true,
@@ -424,10 +503,9 @@ class HomeScreenChannelManager @Inject constructor(
                         .apply { fields.season?.let { setSeasonNumber(it) } }
                         .apply { fields.episode?.let { setEpisodeNumber(it) } }
                         .apply { fields.episodeTitle?.let { setEpisodeTitle(it) } }
-                        .apply { fields.episodeDescription?.let { setDescription(it) } }
+                        .apply { fields.episodeDescription?.takeIf { it.isNotBlank() }?.let { setDescription(it) } }
                         .apply { cardImageUri?.let { setThumbnailUri(it) } }
                         .apply { posterUri?.let { setPosterArtUri(it) } }
-                        .apply { logoUri?.let { setLogoUri(it) } }
                         .setLastEngagementTimeUtcMillis(fields.lastWatched.takeIf { it > 0 } ?: System.currentTimeMillis())
                         .setLastPlaybackPositionMillis(fields.position)
                         .setDurationMillis(fields.duration)

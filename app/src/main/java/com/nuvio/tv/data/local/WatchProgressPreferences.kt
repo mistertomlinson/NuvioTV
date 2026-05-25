@@ -168,7 +168,8 @@ class WatchProgressPreferences @Inject constructor(
      * Save or update watch progress
      */
     suspend fun saveProgress(progress: WatchProgress) {
-        store().edit { preferences ->
+        val profileId = profileManager.activeProfileId.value
+        store(profileId).edit { preferences ->
             val json = preferences[watchProgressKey] ?: "{}"
             val map = parseProgressMap(json).toMutableMap()
             
