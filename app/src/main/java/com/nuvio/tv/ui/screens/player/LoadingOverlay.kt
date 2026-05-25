@@ -77,6 +77,7 @@ fun LoadingOverlay(
             backdropUrl?.takeIf { it.isNotBlank() }?.let { url ->
                 ImageRequest.Builder(context)
                     .data(url)
+                    .decoderFactory(coil.decode.SvgDecoder.Factory())
                     .crossfade(true)
                     .build()
             }
@@ -85,6 +86,7 @@ fun LoadingOverlay(
             logoUrl?.takeIf { it.isNotBlank() }?.let { url ->
                 ImageRequest.Builder(context)
                     .data(url)
+                    .decoderFactory(coil.decode.SvgDecoder.Factory())
                     .crossfade(true)
                     .build()
             }

@@ -230,7 +230,7 @@ class HomeScreenChannelManager @Inject constructor(
                     val rawBackdrop = backdrop
                     val cardImageUri = (episodeThumbnail ?: rawBackdrop ?: rawPoster)?.let { Uri.parse(it) }
                     val posterUri = rawPoster?.let { Uri.parse(it) }
-                    val logoUri = logo?.let { Uri.parse(it) }
+                    val logoUri = logo?.let { Uri.parse(it.replace(".svg", ".png")) }
 
                     val type = if (contentType == "series")
                         TvContractCompat.PreviewPrograms.TYPE_TV_EPISODE
@@ -266,7 +266,6 @@ class HomeScreenChannelManager @Inject constructor(
                         TvContractCompat.PreviewPrograms.CONTENT_URI,
                         program.toContentValues()
                     )
-                    Log.d(TAG, "Inserted: $name s=$season e=$episode desc=${episodeDescription?.take(20)} cardImage=$cardImageUri")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to insert item", e)
                 }
@@ -487,7 +486,7 @@ class HomeScreenChannelManager @Inject constructor(
                     val rawPoster = fields.poster?.takeIf { !it.contains("rpdb") && !it.contains("/posters/rpdb") }
                     val cardImageUri = (fields.episodeThumbnail ?: fields.backdrop ?: rawPoster)?.let { Uri.parse(it) }
                     val posterUri = rawPoster?.let { Uri.parse(it) }
-                    val logoUri = fields.logo?.let { Uri.parse(it) }
+                    val logoUri = fields.logo?.let { Uri.parse(it.replace(".svg", ".png")) }
                     val watchNextType = if (fields.isInProgress)
                         TvContractCompat.WatchNextPrograms.WATCH_NEXT_TYPE_CONTINUE
                     else

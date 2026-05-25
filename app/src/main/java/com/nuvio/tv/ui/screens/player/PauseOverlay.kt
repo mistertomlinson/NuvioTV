@@ -166,6 +166,7 @@ private fun PauseMetadataView(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(logo)
                             .memoryCacheKey(logo)
+                            .decoderFactory(coil.decode.SvgDecoder.Factory())
                             .crossfade(true)
                             .build(),
                         contentDescription = title,
