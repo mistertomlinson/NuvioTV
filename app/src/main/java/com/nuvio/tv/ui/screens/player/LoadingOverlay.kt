@@ -51,6 +51,18 @@ fun LoadingOverlay(
     var logoLoadFailed by remember(logoUrl) { mutableStateOf(false) }
     val showLogo = !logoUrl.isNullOrBlank() && !logoLoadFailed
 
+    // Keep animation outside AnimatedVisibility so message changes don't stutter the pulse
+    val infiniteTransition = rememberInfiniteTransition(label = "loadingLogoPulse")
+    val logoScale by infiniteTransition.animateFloat(
+        initialValue = 1f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2000, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "loadingLogoScale"
+    )
+
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(animationSpec = tween(250)),
@@ -62,16 +74,6 @@ fun LoadingOverlay(
             targetValue = 1f,
             animationSpec = tween(durationMillis = 700, delayMillis = 400, easing = LinearEasing),
             label = "loadingLogoAlpha"
-        )
-        val infiniteTransition = rememberInfiniteTransition(label = "loadingLogoPulse")
-        val logoScale by infiniteTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.04f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2000, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "loadingLogoScale"
         )
         val backdropRequest = remember(context, backdropUrl) {
             backdropUrl?.takeIf { it.isNotBlank() }?.let { url ->
@@ -170,16 +172,14 @@ fun LoadingOverlay(
                 }
 
                 if (!message.isNullOrBlank()) {
-                    val messageOffset = if (showLogo || !title.isNullOrBlank()) 94.dp else 86.dp
                     Text(
                         text = message,
                         style = MaterialTheme.typography.labelMedium,
                         color = Color.White.copy(alpha = 0.72f),
-                        textAlign = TextAlign.Center,
+                        textAlign = TextAlign.End,
                         modifier = Modifier
-                            .align(Alignment.Center)
-                            .offset(y = messageOffset)
-                            .padding(horizontal = 24.dp)
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 48.dp, bottom = 36.dp)
                     )
                 }
             }

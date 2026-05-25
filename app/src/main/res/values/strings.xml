@@ -1109,5 +1109,19 @@
         <item quantity="one">Airs in %d day</item>
         <item quantity="other">Airs in %d days</item>
     </plurals>
+    <string name="player_loading_buffering">Buffering…</string>
+    <string name="player_error_stream_blocked">\n\nThe stream source is blocked or restricted. Try a different source.</string>
+    <string name="player_error_stream_removed">\n\nThe stream link has expired or been removed. Try a different source.</string>
+    <string name="player_error_stream_expired">\n\nThe stream link has expired. Try a different source.</string>
+    <string name="player_error_stream_rate_limited">\n\nToo many requests to the stream source. Wait a moment and try again.</string>
+    <string name="player_error_stream_unavailable">\n\nThe stream server is currently unavailable. Try a different source.</string>
+    <string name="player_error_source_invalid_content">Source error: The stream source returned invalid or unplayable content. The link may have expired or the server returned an error page instead of video.\n\nTry a different source. [%1$s]</string>
+    <string name="player_error_decoder">Decoder error</string>
+    <string name="player_error_unsupported_format">This stream uses a format your device may not support. Try a different source. [%1$s]</string>
+    <string name="player_error_playback_fallback">Playback error</string>
+    <string name="player_loading_detecting_format">Detecting stream format…</string>
+    <string name="player_loading_building">Building player…</string>
+    <string name="player_loading_starting">Starting stream…</string>
+    <string name="player_loading_trying_next_source">Trying next source…</string>
 </resources>
 

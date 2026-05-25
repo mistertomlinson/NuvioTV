@@ -236,6 +236,16 @@ class PlayerRuntimeController(
     internal var pendingPreviewSeekPosition: Long? = null
     internal var pendingResumeProgress: WatchProgress? = null
     internal var hasRetriedCurrentStreamAfter416: Boolean = false
+    internal var cachedDecoderPriority: Int = 1
+    internal var hasTriedAudioPcmFallback: Boolean = false
+    internal var pendingAudioPcmFallbackRebuild: Boolean = false
+    internal var hasTriedDv7HevcFallback: Boolean = false
+    internal var forceDv7ToHevc: Boolean = false
+    internal var startupRetryCount: Int = 0
+    internal var errorRetryCount: Int = 0
+    internal var autoAdvanceStreamIndex: Int = 0
+    internal var errorRetryJob: kotlinx.coroutines.Job? = null
+    internal var stableProgressResetJob: kotlinx.coroutines.Job? = null
     internal var currentScrobbleItem: TraktScrobbleItem? = null
     internal var currentTraktEpisodeMapping: EpisodeMappingEntry? = null
     internal var currentTraktEpisodeMappingKey: String? = null

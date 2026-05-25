@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.R
 import android.content.Context
 import android.content.res.Resources
 import android.os.Build
@@ -74,7 +75,8 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
             _uiState.update {
                 it.copy(
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
-                    resizeMode = playerSettings.resizeMode
+                    resizeMode = playerSettings.resizeMode,
+                    loadingMessage = context.getString(R.string.player_loading_detecting_format)
                 )
             }
             runAfrPreflightIfEnabled(
@@ -185,6 +187,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     .build()
             }
 
+            _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_building)) }
             _exoPlayer = if (useLibass) {
                 ExoPlayer.Builder(context)
                     .setLoadControl(loadControl)
@@ -247,6 +250,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                         mimeTypeOverride = currentStreamMimeType
                     )
                 )
+                _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_starting)) }
                 playWhenReady = true
                 prepare()
 
@@ -268,9 +272,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                         if (playbackState == Player.STATE_BUFFERING && !hasRenderedFirstFrame) {
                             _uiState.update { state ->
                                 if (state.loadingOverlayEnabled && !state.showLoadingOverlay) {
-                                    state.copy(showLoadingOverlay = true, showControls = false)
+                                    state.copy(showLoadingOverlay = true, showControls = false, loadingMessage = context.getString(R.string.player_loading_buffering))
                                 } else {
-                                    state
+                                    state.copy(loadingMessage = context.getString(R.string.player_loading_buffering))
                                 }
                             }
                         }
@@ -306,6 +310,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        refreshStableProgressResetGate()
                         _uiState.update { it.copy(isPlaying = isPlaying) }
                         if (isPlaying) {
                             userPausedManually = false
@@ -336,6 +341,8 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onRenderedFirstFrame() {
+                        refreshStableProgressResetGate()
+                        _uiState.update { it.copy(loadingMessage = null) }
                         hasRenderedFirstFrame = true
                         _uiState.update { it.copy(showLoadingOverlay = false) }
                         // Silently prefetch episode list after first frame so
@@ -346,22 +353,26 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
-                        val detailedError = buildString {
-                            append(error.message ?: "Playback error")
-                            val cause = error.cause
-                            if (cause is androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException) {
-                                append(" (HTTP ${cause.responseCode})")
-                            } else if (cause != null) {
-                                append(": ${cause.message}")
-                            }
-                            append(" [${error.errorCode}]")
-                        }
-                        val responseCode =
-                            (error.cause as? androidx.media3.datasource.HttpDataSource.InvalidResponseCodeException)?.responseCode
+                        cancelStableProgressReset()
+                        val detailedError = error.toDisplayMessage(context)
+
+                        // HTTP 416 special case — retry from start
+                        val responseCode = error.findInvalidResponseCodeException()?.responseCode
                         if (responseCode == 416 && !hasRetriedCurrentStreamAfter416) {
                             retryCurrentStreamFromStartAfter416()
                             return
                         }
+
+                        // Startup recovery — retry before first frame rendered
+                        if (attemptStartupRecovery(error, detailedError)) return
+
+                        // Mid-playback auto-retry
+                        if (attemptAutoRetry(error, detailedError)) return
+
+                        // Retries exhausted — try next source stream
+                        if (attemptNextSourceStream()) return
+
+                        // All sources exhausted — show error to user
                         _uiState.update {
                             it.copy(
                                 error = detailedError,
