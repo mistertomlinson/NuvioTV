@@ -81,6 +81,20 @@ internal fun HomeViewModel.loadNumberedHomeCatalogPreferencePipeline() {
     }
 }
 
+internal fun HomeViewModel.loadShuffleHomeCatalogPreferencePipeline() {
+    viewModelScope.launch {
+        layoutPreferenceDataStore.shuffledHomeCatalogKeys.collectLatest { keys ->
+            shuffledCatalogKeys = keys.toSet()
+            scheduleUpdateCatalogRows()
+        }
+    }
+    viewModelScope.launch {
+        layoutPreferenceDataStore.lastShuffleTimestampMs.collectLatest { ts ->
+            lastShuffleTimestampMs = ts
+        }
+    }
+}
+
 internal fun HomeViewModel.observeTmdbSettingsPipeline() {
     viewModelScope.launch {
         tmdbSettingsDataStore.settings
@@ -440,11 +454,27 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
 
     val (displayRows, baseHeroItems, baseGridItems, fullRowsFiltered) = withContext(Dispatchers.Default) {
         val rawRows = orderedKeys.mapNotNull { key -> catalogSnapshot[key] }
-        val orderedRows = if (hideUnreleased) {
+        val filteredRows = if (hideUnreleased) {
             val today = LocalDate.now()
             rawRows.map { it.filterReleasedItems(today) }
         } else {
             rawRows
+        }
+
+        // Apply per-catalog shuffle: randomise items for rows with shuffle enabled.
+        // Seed is stable per 12h bucket so order only changes every 12 hours.
+        val shuffleKeys = shuffledCatalogKeys
+        val shuffleTs = lastShuffleTimestampMs
+        val twelveHoursMs = 12L * 60 * 60 * 1000
+        val seed = shuffleTs / twelveHoursMs
+        val orderedRows = if (shuffleKeys.isEmpty()) {
+            filteredRows
+        } else {
+            filteredRows.map { row ->
+                val key = row.addonId + "_" + row.apiType + "_" + row.catalogId
+                if (key in shuffleKeys) row.copy(items = row.items.shuffled(java.util.Random(seed + key.hashCode().toLong())))
+                else row
+            }
         }
         val selectedHeroCatalogSet = heroCatalogKeys.toSet()
         val selectedHeroRows = if (selectedHeroCatalogSet.isNotEmpty()) {

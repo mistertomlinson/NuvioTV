@@ -137,6 +137,8 @@ class HomeViewModel @Inject constructor(
         scheduleCatalogPipeline(addonsCache, forceReload = true)
     }
     internal var homeCatalogOrderKeys: List<String> = emptyList()
+    internal var shuffledCatalogKeys: Set<String> = emptySet()
+    internal var lastShuffleTimestampMs: Long = 0L
     internal var disabledHomeCatalogKeys: Set<String> = emptySet()
     internal var _numberedCatalogKeysSet = MutableStateFlow<Set<String>>(emptySet())
     val numberedHomeCatalogKeys: Set<String>
@@ -234,6 +236,7 @@ class HomeViewModel @Inject constructor(
             observeExternalMetaPrefetchPreference()
             loadHomeCatalogOrderPreference()
             loadDisabledHomeCatalogPreference()
+            loadShuffleHomeCatalogPreference()
             loadNumberedHomeCatalogPreference()
             observeLibraryState()
             observeTmdbSettings()
@@ -335,6 +338,7 @@ class HomeViewModel @Inject constructor(
     private fun loadHomeCatalogOrderPreference() = loadHomeCatalogOrderPreferencePipeline()
 
     private fun loadDisabledHomeCatalogPreference() = loadDisabledHomeCatalogPreferencePipeline()
+    private fun loadShuffleHomeCatalogPreference() = loadShuffleHomeCatalogPreferencePipeline()
     private fun loadNumberedHomeCatalogPreference() = loadNumberedHomeCatalogPreferencePipeline()
 
     private fun observeTmdbSettings() = observeTmdbSettingsPipeline()

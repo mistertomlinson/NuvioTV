@@ -75,6 +75,8 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val dimIconsOnRowExitKey = booleanPreferencesKey("dim_icons_on_row_exit")
     private val showAllCatalogsOnHomeKey = booleanPreferencesKey("show_all_catalogs_on_home")
     private val cachedVisiblePlatformIdsKey = stringPreferencesKey("cached_visible_platform_ids")
+    private val shuffledHomeCatalogKeysKey = stringPreferencesKey("shuffled_home_catalog_keys")
+    private val lastShuffleTimestampMsKey = androidx.datastore.preferences.core.longPreferencesKey("last_shuffle_timestamp_ms")
 
     private fun <T> profileFlow(extract: (prefs: androidx.datastore.preferences.core.Preferences) -> T): Flow<T> =
         profileManager.activeProfileId.flatMapLatest { pid ->
@@ -538,7 +540,15 @@ class LayoutPreferenceDataStore @Inject constructor(
         }
     }
 
-    val cachedVisiblePlatformIds: Flow<Set<String>> = profileFlow { prefs ->
+    val shuffledHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
+        parseCatalogKeys(prefs[shuffledHomeCatalogKeysKey])
+    }
+
+    val lastShuffleTimestampMs: Flow<Long> = profileFlow { prefs ->
+        prefs[lastShuffleTimestampMsKey] ?: 0L
+    }
+
+        val cachedVisiblePlatformIds: Flow<Set<String>> = profileFlow { prefs ->
 
         val json = prefs[cachedVisiblePlatformIdsKey]
         if (json.isNullOrBlank()) emptySet()
@@ -556,7 +566,24 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[androidx.datastore.preferences.core.booleanPreferencesKey("memory_only_vertical_scroll")] ?: false
     }
 
-    suspend fun setCachedVisiblePlatformIds(ids: Set<String>) {
+    suspend fun setShuffledHomeCatalogKeys(keys: List<String>) {
+        val normalizedKeys = normalizeCatalogOrderKeys(keys)
+        store().edit { prefs ->
+            if (normalizedKeys.isEmpty()) {
+                prefs.remove(shuffledHomeCatalogKeysKey)
+            } else {
+                prefs[shuffledHomeCatalogKeysKey] = gson.toJson(normalizedKeys)
+            }
+        }
+    }
+
+    suspend fun setLastShuffleTimestampMs(timestampMs: Long) {
+        store().edit { prefs ->
+            prefs[lastShuffleTimestampMsKey] = timestampMs
+        }
+    }
+
+        suspend fun setCachedVisiblePlatformIds(ids: Set<String>) {
         store().edit { prefs ->
             prefs[cachedVisiblePlatformIdsKey] = gson.toJson(ids.toList())
         }

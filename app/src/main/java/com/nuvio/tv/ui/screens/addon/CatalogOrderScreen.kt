@@ -201,6 +201,7 @@ fun CatalogOrderScreen(
                             onToggleEnabled = { viewModel.toggleCatalogEnabled(item.disableKey) },
                             onToggleNumbered = { viewModel.toggleCatalogNumbered(item.key) },
                             onToggleLandscape = { viewModel.toggleCatalogLandscape(item.key) },
+                            onToggleShuffle = { viewModel.toggleCatalogShuffle(item.key) },
                             globalLandscapeEnabled = uiState.globalLandscapePostersEnabled
                         )
                     }
@@ -219,6 +220,7 @@ private fun CatalogOrderCard(
     onToggleEnabled: () -> Unit,
     onToggleNumbered: () -> Unit,
     onToggleLandscape: () -> Unit,
+    onToggleShuffle: () -> Unit,
     globalLandscapeEnabled: Boolean
 ) {
     Card(
@@ -403,6 +405,30 @@ private fun CatalogOrderCard(
                     Icon(
                         painter = painterResource(id = R.drawable.ic_landscape_poster),
                         contentDescription = "Toggle landscape posters",
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                Button(
+                    onClick = onToggleShuffle,
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (item.isShuffled) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                        contentColor = if (item.isShuffled) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContentColor = if (item.isShuffled) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
+                    ),
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                    contentPadding = ButtonDefaults.ContentPadding
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_shuffle_catalog),
+                        contentDescription = "Toggle shuffle",
                         modifier = Modifier.size(24.dp)
                     )
                 }

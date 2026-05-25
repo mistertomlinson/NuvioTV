@@ -28,6 +28,7 @@ class CatalogOrderViewModel @Inject constructor(
     private var numberedKeysCache: Set<String> = emptySet()
     private var outlineNumberedKeysCache: Set<String> = emptySet()
     private var landscapeKeysCache: Set<String> = emptySet()
+    private var shuffleKeysCache: Set<String> = emptySet()
 
     init {
         observeCatalogs()
@@ -74,7 +75,18 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
-    fun toggleCatalogNumbered(key: String) {
+    fun toggleCatalogShuffle(key: String) {
+        val updatedShuffle = shuffleKeysCache.toMutableSet().apply {
+            if (key in this) remove(key) else add(key)
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setShuffledHomeCatalogKeys(updatedShuffle.toList())
+            // Reset shuffle timestamp so the 12h timer restarts from now
+            layoutPreferenceDataStore.setLastShuffleTimestampMs(System.currentTimeMillis())
+        }
+    }
+
+        fun toggleCatalogNumbered(key: String) {
         val isSolid = key in numberedKeysCache
         val isOutline = key in outlineNumberedKeysCache
         val updatedSolid = numberedKeysCache.toMutableSet()
@@ -167,6 +179,21 @@ class CatalogOrderViewModel @Inject constructor(
     }
 
     private fun observeCatalogs() {
+        // Observe shuffled keys separately (combine() is capped at 12 args)
+        viewModelScope.launch {
+            layoutPreferenceDataStore.shuffledHomeCatalogKeys.collectLatest { keys ->
+                shuffleKeysCache = keys.toSet()
+                // Re-apply isShuffled flag to existing items without full rebuild
+                _uiState.update { state ->
+                    state.copy(
+                        shuffledCatalogKeys = shuffleKeysCache,
+                        items = state.items.map { item ->
+                            item.copy(isShuffled = item.key in shuffleKeysCache)
+                        }
+                    )
+                }
+            }
+        }
         viewModelScope.launch {
             combine(
                 addonRepository.getInstalledAddons(),
@@ -182,6 +209,7 @@ class CatalogOrderViewModel @Inject constructor(
             layoutPreferenceDataStore.fastPlatformScrollEnabled,
             layoutPreferenceDataStore.dimIconsOnRowExitEnabled
             ) { args ->
+                // args[12] not available in 12-arg combine — shuffledKeys observed separately
                 val addons = args[0] as List<*>
                 val savedOrderKeys = args[1] as List<*>
                 val disabledKeys = args[2] as List<*>
@@ -231,7 +259,8 @@ Triple(
                         fullWidthIconRowEnabled = fullWidthIconRow,
                         fastPlatformScrollEnabled = fastPlatformScroll,
                         dimIconsOnRowExitEnabled = dimIconsOnRowExit,
-                        globalLandscapePostersEnabled = globalLandscapePosters
+                        globalLandscapePostersEnabled = globalLandscapePosters,
+                        shuffledCatalogKeys = shuffleKeysCache
                     )
                 }
             }
@@ -416,6 +445,7 @@ Triple(
                     else -> com.nuvio.tv.ui.screens.home.NumberStyle.OFF
                 },
                 isLandscape = entry.key in landscapeKeys,
+                isShuffled = entry.key in shuffleKeysCache,
                 canMoveUp = index > 0,
                 canMoveDown = index < collapsedOrder.lastIndex,
                 isGroup = isGroup,
@@ -487,7 +517,8 @@ data class CatalogOrderUiState(
     val showAllCatalogsOnHome: Boolean = false,
     val fullWidthIconRowEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
-    val dimIconsOnRowExitEnabled: Boolean = false
+    val dimIconsOnRowExitEnabled: Boolean = false,
+    val shuffledCatalogKeys: Set<String> = emptySet()
 )
 
 data class CatalogOrderItem(
@@ -499,6 +530,7 @@ data class CatalogOrderItem(
     val isDisabled: Boolean,
     val numberStyle: com.nuvio.tv.ui.screens.home.NumberStyle = com.nuvio.tv.ui.screens.home.NumberStyle.OFF,
     val isLandscape: Boolean = false,
+    val isShuffled: Boolean = false,
     val canMoveUp: Boolean,
     val canMoveDown: Boolean,
     // Group support for dynamic addon catalogs (e.g. Watchly)
