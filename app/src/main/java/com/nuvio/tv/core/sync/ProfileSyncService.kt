@@ -84,7 +84,9 @@ class ProfileSyncService @Inject constructor(
                     avatarColorHex = entry.avatarColorHex,
                     usesPrimaryAddons = entry.usesPrimaryAddons,
                     usesPrimaryPlugins = entry.usesPrimaryPlugins,
-                    avatarId = entry.avatarId,
+                    // Preserve local_ avatarIds (device-only drawables) since they
+                    // can't be stored in Supabase. Fall back to remote avatarId otherwise.
+                    avatarId = localAvatarId ?: entry.avatarId,
                     avatarUrl = entry.avatarUrl
                 )
             }

@@ -35,8 +35,13 @@ class AvatarRepository @Inject constructor(
                 bgColor = item.bgColor
             )
         }
-        cachedCatalog = catalog
-        return catalog
+        val localAvatars = listOf(
+            AvatarCatalogItem(id = "local_angela", displayName = "Angela", imageUrl = "res://avatar_angela", category = "personal", sortOrder = 0),
+            AvatarCatalogItem(id = "local_brandon", displayName = "Brandon", imageUrl = "res://avatar_brandon", category = "personal", sortOrder = 1)
+        )
+        val finalCatalog = localAvatars + catalog
+        cachedCatalog = finalCatalog
+        return finalCatalog
     }
 
     fun getAvatarImageUrl(avatarId: String, catalog: List<AvatarCatalogItem>): String? {
