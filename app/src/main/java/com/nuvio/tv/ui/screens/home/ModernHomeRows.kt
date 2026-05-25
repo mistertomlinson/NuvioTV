@@ -1226,7 +1226,8 @@ private fun NumberedCatalogCardWrapper(
                     }
                     onDrawBehind {
                         val textW = paint.measureText(numberText)
-                        val x = size.width - textW
+                        val oneAdjust = if (numberText == "1") 5f * density.density else 0f
+                        val x = size.width - textW + oneAdjust
                         if (numberStyle == NumberStyle.OUTLINE) {
                             // Outline style: thin stroke with black fill inside
                             val strokePaint = android.graphics.Paint().apply {
