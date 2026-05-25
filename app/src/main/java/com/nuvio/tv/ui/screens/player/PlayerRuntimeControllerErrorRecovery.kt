@@ -181,6 +181,7 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
         PlayerRuntimeController.TAG,
         "Auto-retry ${attempt + 1}/$MAX_AUTO_RETRIES after ${RETRY_DELAY_MS}ms for: $detailedError"
     )
+    android.util.Log.d("PlayerRecovery", "Auto-retry attempt ${attempt + 1}/$MAX_AUTO_RETRIES for stream: $currentStreamUrl")
 
     val savedPosition = _exoPlayer?.currentPosition?.takeIf { it > 0L } ?: 0L
     val isFirstAttempt = attempt == 0
@@ -225,13 +226,56 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
 
 internal fun PlayerRuntimeController.attemptNextSourceStream(): Boolean {
     val streams = _uiState.value.sourceAllStreams
-    if (streams.isEmpty()) return false
+    android.util.Log.d("PlayerRecovery", "attemptNextSourceStream: ${streams.size} streams available, currentIndex=$autoAdvanceStreamIndex")
 
     val nextIndex = autoAdvanceStreamIndex + 1
-    if (nextIndex >= MAX_AUTO_ADVANCE_STREAMS || nextIndex >= streams.size) return false
+
+    // If streams not loaded yet, fetch them then retry
+    if (streams.isEmpty()) {
+        android.util.Log.d("PlayerRecovery", "Streams not loaded — fetching on demand before trying next source")
+        errorRetryJob?.cancel()
+        errorRetryJob = scope.launch {
+            _uiState.update {
+                it.copy(
+                    error = null,
+                    showLoadingOverlay = it.loadingOverlayEnabled,
+                    loadingMessage = context.getString(R.string.player_loading_trying_next_source),
+                    showPauseOverlay = false
+                )
+            }
+            loadSourceStreams(forceRefresh = false)
+            // Wait for streams to populate (max 10s)
+            var waited = 0
+            while (_uiState.value.sourceAllStreams.isEmpty() && waited < 10_000) {
+                delay(500L)
+                waited += 500
+            }
+            val loadedStreams = _uiState.value.sourceAllStreams
+            android.util.Log.d("PlayerRecovery", "On-demand stream load complete: ${loadedStreams.size} streams")
+            if (loadedStreams.isEmpty() || nextIndex >= MAX_AUTO_ADVANCE_STREAMS || nextIndex >= loadedStreams.size) {
+                android.util.Log.w("PlayerRecovery", "No streams available after load — giving up")
+                _uiState.update { it.copy(showLoadingOverlay = false, loadingMessage = null) }
+                return@launch
+            }
+            autoAdvanceStreamIndex = nextIndex
+            val nextStream = loadedStreams[nextIndex]
+            android.util.Log.d("PlayerRecovery", "Switching to source $nextIndex: ${nextStream.name ?: nextStream.getStreamUrl()?.take(60)}")
+            errorRetryCount = 0
+            startupRetryCount = 0
+            hasRenderedFirstFrame = false
+            switchToSourceStream(nextStream)
+        }
+        return true
+    }
+
+    if (nextIndex >= MAX_AUTO_ADVANCE_STREAMS || nextIndex >= streams.size) {
+        android.util.Log.w("PlayerRecovery", "All $MAX_AUTO_ADVANCE_STREAMS sources exhausted — showing error")
+        return false
+    }
 
     autoAdvanceStreamIndex = nextIndex
     val nextStream = streams[nextIndex]
+    android.util.Log.d("PlayerRecovery", "Switching to source $nextIndex: ${nextStream.name ?: nextStream.getStreamUrl()?.take(60)}")
 
     errorRetryCount = 0
     startupRetryCount = 0

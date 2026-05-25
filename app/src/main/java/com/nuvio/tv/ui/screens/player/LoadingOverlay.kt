@@ -70,11 +70,7 @@ fun LoadingOverlay(
         modifier = modifier
     ) {
         val context = LocalContext.current
-        val logoAlpha by animateFloatAsState(
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 700, delayMillis = 400, easing = LinearEasing),
-            label = "loadingLogoAlpha"
-        )
+        val logoAlpha = 1f
         val backdropRequest = remember(context, backdropUrl) {
             backdropUrl?.takeIf { it.isNotBlank() }?.let { url ->
                 ImageRequest.Builder(context)
@@ -128,48 +124,14 @@ fun LoadingOverlay(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    if (showLogo) {
-                        AsyncImage(
-                            model = logoRequest,
-                            contentDescription = "Loading logo",
-                            onError = { logoLoadFailed = true },
-                            modifier = Modifier
-                                .width(320.dp)
-                                .height(180.dp)
-                                .graphicsLayer {
-                                    alpha = logoAlpha
-                                    scaleX = logoScale
-                                    scaleY = logoScale
-                                },
-                            contentScale = ContentScale.Fit
-                        )
-                    } else if (!title.isNullOrBlank()) {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color.White,
-                            textAlign = TextAlign.Center,
-                            maxLines = 2,
-                            modifier = Modifier
-                                .padding(horizontal = 24.dp)
-                                .graphicsLayer {
-                                    alpha = logoAlpha
-                                    scaleX = logoScale
-                                    scaleY = logoScale
-                                }
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier.size(180.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            LoadingIndicator()
-                        }
-                    }
-                }
+                LoadingOverlayLogo(
+                    showLogo = showLogo,
+                    logoRequest = logoRequest,
+                    logoAlpha = logoAlpha,
+                    logoScale = logoScale,
+                    title = title,
+                    onLogoError = { logoLoadFailed = true }
+                )
 
                 if (!message.isNullOrBlank()) {
                     Text(
@@ -183,6 +145,55 @@ fun LoadingOverlay(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun LoadingOverlayLogo(
+    showLogo: Boolean,
+    logoRequest: coil.request.ImageRequest?,
+    logoAlpha: Float,
+    logoScale: Float,
+    title: String?,
+    onLogoError: () -> Unit
+) {
+    if (showLogo) {
+        AsyncImage(
+            model = logoRequest,
+            contentDescription = "Loading logo",
+            onError = { onLogoError() },
+            modifier = Modifier
+                .width(320.dp)
+                .height(180.dp)
+                .graphicsLayer {
+                    alpha = logoAlpha
+                    scaleX = logoScale
+                    scaleY = logoScale
+                },
+            contentScale = ContentScale.Fit
+        )
+    } else if (!title.isNullOrBlank()) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            modifier = Modifier
+                .padding(horizontal = 24.dp)
+                .graphicsLayer {
+                    alpha = logoAlpha
+                    scaleX = logoScale
+                    scaleY = logoScale
+                }
+        )
+    } else {
+        Box(
+            modifier = Modifier.size(180.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            LoadingIndicator()
         }
     }
 }
