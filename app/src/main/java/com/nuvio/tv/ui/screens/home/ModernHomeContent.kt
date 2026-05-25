@@ -1359,6 +1359,7 @@ fun ModernHomeContent(
                             }
                             if (focusedItemByRow[rowKey] != index) {
                                 focusedItemByRow[rowKey] = index
+                                uiCaches.userInteractedRows.add(rowKey)
                             }
                             if (isContinueWatchingRow) {
                                 if (lastFocusedContinueWatchingIndexRef.get() != index) {

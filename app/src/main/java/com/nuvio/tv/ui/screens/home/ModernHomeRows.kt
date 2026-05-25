@@ -569,11 +569,12 @@ internal fun ModernRowSection(
                     .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L)
                     .focusRestorer(
                         run {
+                            val hasInteracted = uiCaches.userInteractedRows.contains(row.key)
                             val rememberedIndex = (focusedItemByRow[row.key] ?: 0)
                                 .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
                             val fallbackIndex = rowListState.firstVisibleItemIndex
                                 .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-                            val restoreIndex = if (rememberedIndex in row.items.indices) {
+                            val restoreIndex = if (hasInteracted && rememberedIndex in row.items.indices) {
                                 rememberedIndex
                             } else {
                                 fallbackIndex

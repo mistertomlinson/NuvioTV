@@ -116,6 +116,7 @@ internal data class ModernCatalogRowBuildCacheEntry(
 @Stable
 internal class ModernHomeUiCaches {
     val focusedItemByRow = mutableMapOf<String, Int>()
+    val userInteractedRows = mutableSetOf<String>()
     val itemFocusRequesters = mutableMapOf<String, MutableMap<String, FocusRequester>>()
     val rowListStates = mutableMapOf<String, LazyListState>()
     val loadMoreRequestedTotals = mutableMapOf<String, Int>()
