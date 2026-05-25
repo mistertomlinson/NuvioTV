@@ -134,7 +134,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import coil.Coil
 import coil.compose.rememberAsyncImagePainter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
@@ -259,7 +258,6 @@ class MainActivity : ComponentActivity() {
             var hasSelectedProfileThisSession by remember {
                 mutableStateOf(false)
             }
-            var avatarsReady by remember { mutableStateOf(false) }
             var onboardingCompletedThisSession by remember { mutableStateOf(false) }
             var onboardingProfileSyncInProgress by remember { mutableStateOf(false) }
             val hasSeenAuthQrOnFirstLaunch by appOnboardingDataStore
@@ -295,31 +293,21 @@ class MainActivity : ComponentActivity() {
             }
 
             // Prefetch avatar URLs for all profiles whenever profiles list changes
-            LaunchedEffect(profiles, avatarsReady) {
-                if (avatarsReady) return@LaunchedEffect
-                val urls = profiles
-                    .mapNotNull { p -> p.avatarUrl?.takeIf { it.isNotBlank() } }
-                    .distinct()
-                    .filter { !it.startsWith("res://") }
-                if (urls.isEmpty()) {
-                    avatarsReady = true
-                    return@LaunchedEffect
-                }
+            LaunchedEffect(profiles) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val imageLoader = Coil.imageLoader(applicationContext)
-                    urls.forEach { url ->
-                        runCatching {
-                            imageLoader.execute(
-                                coil.request.ImageRequest.Builder(applicationContext)
-                                    .data(url)
-                                    .memoryCacheKey(url)
-                                    .diskCacheKey(url)
-                                    .build()
-                            )
-                        }
+                    runCatching {
+                        val imageLoader = coil.Coil.imageLoader(applicationContext)
+                        profiles.mapNotNull { p -> p.avatarUrl?.takeIf { it.isNotBlank() } }
+                            .distinct()
+                            .forEach { url ->
+                                imageLoader.enqueue(
+                                    coil.request.ImageRequest.Builder(applicationContext)
+                                        .data(url)
+                                        .build()
+                                )
+                            }
                     }
                 }
-                avatarsReady = true
             }
 
             val mainUiPrefsFlow = remember(themeDataStore, layoutPreferenceDataStore) {
@@ -454,7 +442,7 @@ class MainActivity : ComponentActivity() {
 
                     val shouldShowProfileSelection =
                         !hasSelectedProfileThisSession && profiles.size > 1 &&
-                        !skipPickerForDeepLink && avatarsReady
+                        !skipPickerForDeepLink
 
                     if (shouldShowProfileSelection) {
                         ProfileSelectionScreen(
@@ -584,10 +572,7 @@ class MainActivity : ComponentActivity() {
                             activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
                             activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
                             showProfileSelector = profiles.size > 1,
-                            onSwitchProfile = {
-                                avatarsReady = false
-                                hasSelectedProfileThisSession = false
-                            },
+                            onSwitchProfile = { hasSelectedProfileThisSession = false },
                             onExitApp = {
                                 finishAffinity()
                                 finishAndRemoveTask()
@@ -609,10 +594,7 @@ class MainActivity : ComponentActivity() {
                             activeProfileColorHex = activeProfile?.avatarColorHex ?: "#1E88E5",
                             activeProfileAvatarImageUrl = activeProfileAvatarImageUrl,
                             showProfileSelector = profiles.size > 1,
-                            onSwitchProfile = {
-                                avatarsReady = false
-                                hasSelectedProfileThisSession = false
-                            },
+                            onSwitchProfile = { hasSelectedProfileThisSession = false },
                             onExitApp = {
                                 finishAffinity()
                                 finishAndRemoveTask()
