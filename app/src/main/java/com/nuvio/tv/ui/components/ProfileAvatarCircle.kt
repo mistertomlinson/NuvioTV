@@ -69,7 +69,7 @@ fun ProfileAvatarCircle(
                 AsyncImage(
                     model = ImageRequest.Builder(context)
                         .data(avatarImageUrl)
-                        .crossfade(true)
+                        .crossfade(false)
                         .build(),
                     contentDescription = name,
                     modifier = Modifier
