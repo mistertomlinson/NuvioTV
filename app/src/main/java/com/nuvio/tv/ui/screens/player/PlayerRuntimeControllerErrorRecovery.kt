@@ -172,6 +172,8 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
 ): Boolean {
     if (!isRetryablePlaybackError(error)) return false
     if (errorRetryCount >= MAX_AUTO_RETRIES) return false
+    // Don't retry debrid/download streams — they need special handling
+    if (isCurrentStreamDebridOrDownload()) return false
 
     val paused = userPausedManually
     val attempt = errorRetryCount
@@ -225,6 +227,11 @@ internal fun PlayerRuntimeController.attemptAutoRetry(
 }
 
 internal fun PlayerRuntimeController.attemptNextSourceStream(): Boolean {
+    // Don't advance streams if current stream is a debrid/download stream
+    if (isCurrentStreamDebridOrDownload()) {
+        android.util.Log.d("PlayerRecovery", "Current stream is debrid/download — skipping auto-advance")
+        return false
+    }
     val streams = _uiState.value.sourceAllStreams
     android.util.Log.d("PlayerRecovery", "attemptNextSourceStream: ${streams.size} streams available, currentIndex=$autoAdvanceStreamIndex")
 
@@ -295,6 +302,20 @@ internal fun PlayerRuntimeController.attemptNextSourceStream(): Boolean {
         switchToSourceStream(nextStream)
     }
     return true
+}
+
+internal fun PlayerRuntimeController.isCurrentStreamDebridOrDownload(): Boolean {
+    val streams = _uiState.value.sourceAllStreams
+    val currentStream = streams.getOrNull(autoAdvanceStreamIndex)
+    if (currentStream != null) {
+        if (currentStream.isTorrent()) return true
+        if (currentStream.isExternal()) return true
+        if (currentStream.behaviorHints?.notWebReady == true) return true
+    }
+    // Also check current URL against known debrid patterns
+    val url = currentStreamUrl.lowercase()
+    return url.contains("torbox") || url.contains("debrid") || url.contains("alldebrid") ||
+        url.contains("realdebrid") || url.contains("premiumize") || url.contains("offcloud")
 }
 
 internal fun PlayerRuntimeController.resetErrorRetryState() {
