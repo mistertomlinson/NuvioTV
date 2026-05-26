@@ -10,7 +10,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-private const val MAX_STARTUP_AUTO_RETRIES = 2
+private const val MAX_STARTUP_AUTO_RETRIES = 1
 private const val MAX_AUTO_RETRIES = 1
 private const val MAX_AUTO_ADVANCE_STREAMS = 3
 private const val RETRY_DELAY_MS = 1_500L
