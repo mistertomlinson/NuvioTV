@@ -91,6 +91,27 @@ internal fun HomeViewModel.loadShuffleHomeCatalogPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.lastShuffleTimestampMs.collectLatest { ts ->
             lastShuffleTimestampMs = ts
+            // Auto-advance the shuffle timestamp on launch if 12 hours have elapsed.
+            if (shuffledCatalogKeys.isNotEmpty() && ts > 0L) {
+                val twelveHoursMs = 12L * 60 * 60 * 1000
+                val now = System.currentTimeMillis()
+                if (now - ts >= twelveHoursMs) {
+                    layoutPreferenceDataStore.setLastShuffleTimestampMs(now)
+                }
+            }
+        }
+    }
+    // Periodic timer: check every hour if shuffle needs advancing while app is open.
+    viewModelScope.launch {
+        while (true) {
+            kotlinx.coroutines.delay(60 * 60 * 1000L)
+            if (shuffledCatalogKeys.isEmpty()) continue
+            val twelveHoursMs = 12L * 60 * 60 * 1000
+            val now = System.currentTimeMillis()
+            val ts = lastShuffleTimestampMs
+            if (ts > 0L && now - ts >= twelveHoursMs) {
+                layoutPreferenceDataStore.setLastShuffleTimestampMs(now)
+            }
         }
     }
 }

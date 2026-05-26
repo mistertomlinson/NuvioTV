@@ -1210,7 +1210,7 @@ private fun MetaDetailsContent(
                         isMovieWatchedPending = isMovieWatchedPending,
                         onToggleMovieWatched = onToggleMovieWatched,
                         mdbListRatings = mdbListRatings,
-                        hideMetaInfoImdb = showMdbListImdb,
+                        hideMetaInfoImdb = true,
                         trailerAvailable = trailerButtonEnabled && !trailerUrl.isNullOrBlank(),
                         onTrailerClick = onTrailerButtonClick,
                         hideLogoDuringTrailer = hideLogoDuringTrailer,

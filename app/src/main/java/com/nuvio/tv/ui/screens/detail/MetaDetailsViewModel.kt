@@ -959,7 +959,6 @@ class MetaDetailsViewModel @Inject constructor(
             if (enrichment.genres.isNotEmpty()) {
                 updated = updated.copy(genres = enrichment.genres)
             }
-            updated = updated.copy(imdbRating = enrichment.rating?.toFloat() ?: updated.imdbRating)
         }
 
         if (enrichment != null && settings.useDetails) {
