@@ -1277,6 +1277,13 @@ class MetaDetailsViewModel @Inject constructor(
             }
 
             showMessage(context.getString(R.string.detail_marked_episodes_watched, marked))
+
+            // Clean up any stale Trakt playback records so CW shows correct Next Up
+            runCatching {
+                watchProgressRepository.removeProgress(itemId, season = null, episode = null)
+            }.onFailure { error ->
+                Log.w(TAG, "Failed to remove stale playback records after markSeasonWatched: ${error.message}")
+            }
         }
     }
 

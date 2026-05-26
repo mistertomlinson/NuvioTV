@@ -338,9 +338,54 @@ class WatchProgressRepositoryImpl @Inject constructor(
                                         )
                                     }
                             }
+                            .onStart { emit(emptyList()) },
+                        watchedItemsPreferences.allItems
+                            .map { items ->
+                                items
+                                    .filter { item ->
+                                        (item.contentType.equals("series", ignoreCase = true) ||
+                                            item.contentType.equals("tv", ignoreCase = true)) &&
+                                            item.season != null &&
+                                            item.episode != null &&
+                                            item.season != 0 &&
+                                            !isMalformedNextUpSeedContentId(item.contentId)
+                                    }
+                                    .groupBy { it.contentId }
+                                    .mapNotNull { (_, episodes) ->
+                                        val latest = episodes.maxWithOrNull(
+                                            compareBy<WatchedItem>({ it.season ?: 0 }, { it.episode ?: 0 }, { it.watchedAt })
+                                        ) ?: return@mapNotNull null
+                                        WatchProgress(
+                                            contentId = latest.contentId,
+                                            contentType = latest.contentType,
+                                            name = latest.title,
+                                            poster = null, backdrop = null, logo = null,
+                                            videoId = latest.contentId,
+                                            season = latest.season,
+                                            episode = latest.episode,
+                                            episodeTitle = null,
+                                            position = 1L, duration = 1L,
+                                            lastWatched = latest.watchedAt,
+                                            progressPercent = 100f,
+                                            source = WatchProgress.SOURCE_LOCAL
+                                        )
+                                    }
+                            }
                             .onStart { emit(emptyList()) }
-                    ) { optimisticSeeds, canonicalSeeds ->
-                        mergeNextUpSeeds(canonicalSeeds, optimisticSeeds)
+                    ) { optimisticSeeds, canonicalSeeds, localSeeds ->
+                        // Only use local seeds for shows Trakt already knows about,
+                        // to avoid surfacing stale Nuvio Sync era entries.
+                        val traktContentIds = (canonicalSeeds + optimisticSeeds).map { it.contentId }.toSet()
+                        val filteredLocalSeeds = localSeeds.filter { it.contentId in traktContentIds }
+                        // Merge local seeds with canonical — pick furthest episode per show
+                        val allCanonical = (canonicalSeeds + filteredLocalSeeds)
+                            .groupBy { it.contentId }
+                            .mapNotNull { (_, items) ->
+                                items.maxWithOrNull(
+                                    compareBy<WatchProgress>({ it.season ?: -1 }, { it.episode ?: -1 }, { it.lastWatched })
+                                )
+                            }
+                        mergeNextUpSeeds(allCanonical, optimisticSeeds)
                     }
                 } else {
                     watchedItemsPreferences.allItems.map { items ->
@@ -524,6 +569,19 @@ class WatchProgressRepositoryImpl @Inject constructor(
         if (shouldUseTraktProgress()) {
             traktProgressService.applyOptimisticProgress(progress)
             watchProgressPreferences.saveProgress(progress)
+            val isSeriesEp = (progress.contentType.equals("series", ignoreCase = true) || progress.contentType.equals("tv", ignoreCase = true)) && progress.season != null && progress.episode != null && progress.season != 0
+            if (progress.isCompleted() && isSeriesEp) {
+                watchedItemsPreferences.markAsWatched(
+                    WatchedItem(
+                        contentId = progress.contentId,
+                        contentType = progress.contentType,
+                        title = progress.name,
+                        season = progress.season,
+                        episode = progress.episode,
+                        watchedAt = progress.lastWatched
+                    )
+                )
+            }
             return
         }
         watchProgressPreferences.saveProgress(progress)

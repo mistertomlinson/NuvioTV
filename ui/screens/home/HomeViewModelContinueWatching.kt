@@ -598,6 +598,7 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromProgressMap(
     val furthestIndex = episodes.indexOfFirst {
         it.season == furthestSeason && it.episode == furthestEpisode
     }
+    android.util.Log.d("CW_DEBUG", "findNextUp contentId=$contentId furthestSeason=$furthestSeason furthestEpisode=$furthestEpisode furthestIndex=$furthestIndex completedProgress=${completedProgress.map { "s${it.season}e${it.episode}" }} watchedEpisodes=${watchedEpisodes.take(10)}")
     if (furthestIndex < 0) return null
 
     val nextEpisode = episodes

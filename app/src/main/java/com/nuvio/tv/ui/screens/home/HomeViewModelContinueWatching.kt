@@ -1101,9 +1101,12 @@ private fun deduplicateInProgress(items: List<WatchProgress>): List<WatchProgres
 }
 
 private fun shouldTreatAsInProgressForContinueWatching(progress: WatchProgress): Boolean {
-    if (progress.isInProgress()) return true
-    if (progress.isCompleted()) return false
-
+    if (progress.isInProgress()) {
+        return true
+    }
+    if (progress.isCompleted()) {
+        return false
+    }
     // Rewatch edge case: a started replay can be below the default 2% "in progress"
     // threshold, but should still suppress Next Up and appear as resume.
     val hasStartedPlayback = progress.position > 0L || progress.progressPercent?.let { it > 0f } == true
