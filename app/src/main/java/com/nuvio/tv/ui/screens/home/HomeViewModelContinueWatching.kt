@@ -1544,6 +1544,17 @@ private suspend fun HomeViewModel.buildNextUpItem(
         nextReleased = nextUp.released,
         hasAired = nextUp.hasAired
     )
+    // Suppress release alert if the next episode is already in local watched state
+    val nextEpisodeAlreadyWatched = runCatching {
+        watchedItemsPreferences.getWatchedEpisodesForContent(progress.contentId)
+            .first()
+            .contains(nextUp.season to nextUp.episode)
+    }.getOrDefault(false)
+    val effectiveReleaseState = if (nextEpisodeAlreadyWatched) {
+        releaseState.copy(isReleaseAlert = false, isNewSeasonRelease = false)
+    } else {
+        releaseState
+    }
     val nextUpVideo = seedMeta?.videos?.firstOrNull {
         it.season == nextUp.season && it.episode == nextUp.episode
     }
@@ -1567,10 +1578,10 @@ private suspend fun HomeViewModel.buildNextUpItem(
         imdbRating = null,
         genres = emptyList(),
         releaseInfo = null,
-        sortTimestamp = releaseState.sortTimestamp,
-        releaseTimestamp = releaseState.releaseTimestamp,
-        isReleaseAlert = releaseState.isReleaseAlert,
-        isNewSeasonRelease = releaseState.isNewSeasonRelease,
+        sortTimestamp = effectiveReleaseState.sortTimestamp,
+        releaseTimestamp = effectiveReleaseState.releaseTimestamp,
+        isReleaseAlert = effectiveReleaseState.isReleaseAlert,
+        isNewSeasonRelease = effectiveReleaseState.isNewSeasonRelease,
         seedSeason = progress.season,
         seedEpisode = progress.episode
     )
@@ -1704,6 +1715,18 @@ private suspend fun HomeViewModel.enrichNextUpItem(
         nextReleased = released,
         hasAired = hasAired
     )
+    val nextEpisodeAlreadyWatchedEnrich = runCatching {
+        val nextSeason = video?.season ?: item.info.season
+        val nextEpisode = video?.episode ?: item.info.episode
+        watchedItemsPreferences.getWatchedEpisodesForContent(progressSeed.contentId)
+            .first()
+            .contains(nextSeason to nextEpisode)
+    }.getOrDefault(false)
+    val effectiveReleaseState = if (nextEpisodeAlreadyWatchedEnrich) {
+        releaseState.copy(isReleaseAlert = false, isNewSeasonRelease = false)
+    } else {
+        releaseState
+    }
 
     val settings = currentTmdbSettings
     val enrichedInfo = item.info.copy(
@@ -1730,9 +1753,9 @@ private suspend fun HomeViewModel.enrichNextUpItem(
         genres = meta.genres.take(3).ifEmpty { item.info.genres },
         releaseInfo = meta.releaseInfo?.takeIf { it.isNotBlank() } ?: item.info.releaseInfo,
         sortTimestamp = item.info.sortTimestamp,
-        releaseTimestamp = releaseState.releaseTimestamp,
-        isReleaseAlert = releaseState.isReleaseAlert,
-        isNewSeasonRelease = releaseState.isNewSeasonRelease,
+        releaseTimestamp = effectiveReleaseState.releaseTimestamp,
+        isReleaseAlert = effectiveReleaseState.isReleaseAlert,
+        isNewSeasonRelease = effectiveReleaseState.isNewSeasonRelease,
         contentLanguage = tmdbData?.contentLanguage
             ?: normalizeLanguageCode(meta.language)
             ?: countryToLanguageCode(meta.country)
@@ -2666,13 +2689,9 @@ private fun resolveNextUpReleaseState(
 ): NextUpReleaseState {
     val releaseTimestamp = parseEpisodeReleaseInstant(nextReleased)?.toEpochMilli()
     val nowMs = System.currentTimeMillis()
-    val sixtyDaysMs = 60L * 24 * 60 * 60 * 1000
     val isReleaseAlert = hasAired &&
         releaseTimestamp != null &&
-        releaseTimestamp > seedProgress.lastWatched &&
-        // Suppress release alerts for episodes that aired more than 60 days ago —
-        // the user likely abandoned the show.
-        (nowMs - releaseTimestamp) < sixtyDaysMs
+        releaseTimestamp > seedProgress.lastWatched
 
     // Use midnight of the release date for sorting instead of the full
     // timestamp.  Meta sources sometimes report a future hour on the
