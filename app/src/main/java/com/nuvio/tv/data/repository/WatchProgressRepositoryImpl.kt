@@ -571,6 +571,13 @@ class WatchProgressRepositoryImpl @Inject constructor(
             watchProgressPreferences.saveProgress(progress)
             val isSeriesEp = (progress.contentType.equals("series", ignoreCase = true) || progress.contentType.equals("tv", ignoreCase = true)) && progress.season != null && progress.episode != null && progress.season != 0
             if (progress.isCompleted() && isSeriesEp) {
+                // Optimistically remove the in-progress playback record so CW doesn't
+                // show both InProgress and NextUp simultaneously while scrobble completes.
+                traktProgressService.applyOptimisticRemoval(
+                    contentId = progress.contentId,
+                    season = progress.season,
+                    episode = progress.episode
+                )
                 watchedItemsPreferences.markAsWatched(
                     WatchedItem(
                         contentId = progress.contentId,

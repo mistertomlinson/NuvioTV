@@ -738,7 +738,9 @@ fun ModernHomeContent(
             val focusedRowKey = row?.key
             val catalogRowScrollStates = latestCarouselRows
                 .filter { it.globalRowIndex >= 0 }
-                .associate { rowState -> rowState.key to (focusedItemByRow[rowState.key] ?: 0) }
+                .associate { rowState ->
+                    rowState.key to (rowListStates[rowState.key]?.firstVisibleItemIndex ?: focusedItemByRow[rowState.key] ?: 0)
+                }
             android.util.Log.d("NuvioFocus", "SAVING: rowKey=$focusedRowKey platform=$latestSelectedPlatformId itemIndex=$latestActiveItemIndex")
             onSaveFocusState(
                 latestVerticalRowListState.firstVisibleItemIndex,
@@ -760,7 +762,9 @@ fun ModernHomeContent(
             val focusedRowKey = row?.key
             val catalogRowScrollStates = latestCarouselRows
                 .filter { it.globalRowIndex >= 0 }
-                .associate { rowState -> rowState.key to (focusedItemByRow[rowState.key] ?: 0) }
+                .associate { rowState ->
+                    rowState.key to (rowListStates[rowState.key]?.firstVisibleItemIndex ?: focusedItemByRow[rowState.key] ?: 0)
+                }
 
             onSaveFocusState(
                 latestVerticalRowListState.firstVisibleItemIndex,

@@ -378,7 +378,10 @@ internal fun ModernRowSection(
                     return@repeat
                 }
                 if (!didScrollToTarget) {
-                    runCatching { rowListState.scrollToItem(targetIndex) }
+                    val visibleIndices = rowListState.layoutInfo.visibleItemsInfo.map { it.index }
+                    if (targetIndex !in visibleIndices) {
+                        runCatching { rowListState.scrollToItem(targetIndex) }
+                    }
                     didScrollToTarget = true
                 }
                 withFrameNanos { }
