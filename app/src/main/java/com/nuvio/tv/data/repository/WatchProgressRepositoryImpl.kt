@@ -373,10 +373,14 @@ class WatchProgressRepositoryImpl @Inject constructor(
                             }
                             .onStart { emit(emptyList()) }
                     ) { optimisticSeeds, canonicalSeeds, localSeeds ->
-                        // Only use local seeds for shows Trakt already knows about,
-                        // to avoid surfacing stale Nuvio Sync era entries.
+                        // Use local seeds for shows Trakt already knows about,
+                        // OR for seeds written very recently (within 5 min) — catches the case
+                        // where a just-completed episode hasn't yet appeared in Trakt history.
                         val traktContentIds = (canonicalSeeds + optimisticSeeds).map { it.contentId }.toSet()
-                        val filteredLocalSeeds = localSeeds.filter { it.contentId in traktContentIds }
+                        val recentThresholdMs = System.currentTimeMillis() - 5 * 60 * 1000L
+                        val filteredLocalSeeds = localSeeds.filter { seed ->
+                            seed.contentId in traktContentIds || seed.lastWatched >= recentThresholdMs
+                        }
                         // Merge local seeds with canonical — pick furthest episode per show
                         val allCanonical = (canonicalSeeds + filteredLocalSeeds)
                             .groupBy { it.contentId }
