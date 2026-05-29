@@ -624,7 +624,9 @@ internal fun ModernRowSection(
 
                         is ModernPayload.Catalog -> {
                             val nextCatalogItem = row.items.getOrNull(index + 1)?.metaPreview
-                            val isWatched = item.metaPreview?.let(isCatalogItemWatched) == true
+                            val isWatched = remember(item.key, isCatalogItemWatched) {
+                                item.metaPreview?.let(isCatalogItemWatched) == true
+                            }
                             val onLongPress: () -> Unit = remember(item.metaPreview, payload.addonBaseUrl) {
                                 {
                                     item.metaPreview?.let { preview ->
@@ -1176,23 +1178,27 @@ private fun NumberedCatalogCardWrapper(
             ?: android.graphics.Typeface.DEFAULT_BOLD
     }
     val themeColor = NuvioColors.Secondary
-    val numberColor = if (useThemeColorForNumbers) {
-        android.graphics.Color.argb(
-            255,
-            (themeColor.red * 255 * 0.40f + 8).toInt(),
-            (themeColor.green * 255 * 0.40f + 8).toInt(),
-            (themeColor.blue * 255 * 0.40f + 8).toInt()
-        )
-    } else {
-        android.graphics.Color.argb(255, 136, 136, 136)
+    val numberColor = remember(useThemeColorForNumbers, themeColor) {
+        if (useThemeColorForNumbers) {
+            android.graphics.Color.argb(
+                255,
+                (themeColor.red * 255 * 0.40f + 8).toInt(),
+                (themeColor.green * 255 * 0.40f + 8).toInt(),
+                (themeColor.blue * 255 * 0.40f + 8).toInt()
+            )
+        } else {
+            android.graphics.Color.argb(255, 136, 136, 136)
+        }
     }
 
     val textMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val baseStyle = androidx.compose.ui.text.TextStyle(
-        fontSize = numberFontSize,
-        fontWeight = androidx.compose.ui.text.font.FontWeight.W500,
-        color = androidx.compose.ui.graphics.Color(0xFF888888)
-    )
+    val baseStyle = remember(numberFontSize) {
+        androidx.compose.ui.text.TextStyle(
+            fontSize = numberFontSize,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.W500,
+            color = androidx.compose.ui.graphics.Color(0xFF888888)
+        )
+    }
 
     val referenceText = when {
         number >= 100 -> "888"

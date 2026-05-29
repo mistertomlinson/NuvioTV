@@ -251,13 +251,16 @@ class WatchProgressRepositoryImpl @Inject constructor(
             val localByKey = localItems.associateBy { "${it.contentId}_${it.season}_${it.episode}" }
             remoteItems.map { remote ->
                 val enriched = enrichWithMetadata(remote, metadataMap)
-                if (enriched.duration <= 0L) {
-                    val key = "${enriched.contentId}_${enriched.season}_${enriched.episode}"
-                    val local = localByKey[key]
-                    if (local != null && local.duration > 0L) {
-                        enriched.copy(duration = local.duration)
-                    } else enriched
-                } else enriched
+                val key = "${enriched.contentId}_${enriched.season}_${enriched.episode}"
+                val local = localByKey[key]
+                var result = enriched
+                if (result.duration <= 0L && local != null && local.duration > 0L) {
+                    result = result.copy(duration = local.duration)
+                }
+                if (result.position <= 0L && local != null && local.position > 0L) {
+                    result = result.copy(position = local.position)
+                }
+                result
             }
         }.distinctUntilChanged()
     }

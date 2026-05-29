@@ -28,6 +28,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.net.URLEncoder
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -47,7 +49,11 @@ class HomeScreenChannelManager @Inject constructor(
     private val profileManager: ProfileManager
 ) {
     private val watchNextScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val watchNextMutex = Mutex()
     @Volatile private var watchNextDebounceJob: Job? = null
+    private val lastKnownItemsByProfile = java.util.concurrent.ConcurrentHashMap<Int, List<ContinueWatchingItem>>()
+    private val channelWriteMutexes = java.util.concurrent.ConcurrentHashMap<Int, Mutex>()
+    private fun channelMutexFor(profileId: Int) = channelWriteMutexes.getOrPut(profileId) { Mutex() }
 
     private fun encode(value: String): String =
         URLEncoder.encode(value, "UTF-8").replace("+", "%20")
@@ -135,8 +141,10 @@ class HomeScreenChannelManager @Inject constructor(
     }
 
     suspend fun refreshFromItems(items: List<ContinueWatchingItem>, profileId: Int, profileName: String) = withContext(Dispatchers.IO) {
+        channelMutexFor(profileId).withLock {
         try {
             Log.d(TAG, "refreshFromItems() called with ${items.size} items for profile $profileId")
+            lastKnownItemsByProfile[profileId] = items
             val channelId = getOrCreateChannelId(profileId, profileName) ?: run {
                 Log.w(TAG, "Could not get or create channel")
                 return@withContext
@@ -266,6 +274,7 @@ class HomeScreenChannelManager @Inject constructor(
                         TvContractCompat.PreviewPrograms.CONTENT_URI,
                         program.toContentValues()
                     )
+                    Log.d(TAG, "PreviewProgram inserted: $name S${season}E${episode} '$episodeTitle' type=$contentType")
                 } catch (e: Exception) {
                     Log.e(TAG, "Failed to insert item", e)
                 }
@@ -277,15 +286,17 @@ class HomeScreenChannelManager @Inject constructor(
             val itemsSnapshot = limited.toList()
             val profileIdSnapshot = profileId
             watchNextDebounceJob = watchNextScope.launch {
-                delay(500)
+                delay(1500)
                 refreshWatchNext(itemsSnapshot, profileIdSnapshot)
             }
         } catch (e: Exception) {
             Log.e(TAG, "refreshFromItems failed", e)
         }
+        } // end channelMutexFor(profileId).withLock
     }
 
     private suspend fun refreshWatchNext(currentItems: List<ContinueWatchingItem>, currentProfileId: Int) {
+        watchNextMutex.withLock {
         try {
             val allFields = mutableListOf<WatchNextFields>()
             val seenIds = mutableSetOf<String>()
@@ -312,7 +323,8 @@ class HomeScreenChannelManager @Inject constructor(
                                 isInProgress = true,
                                 position = p.position.toInt(),
                                 duration = p.duration.takeIf { it > 0 }?.toInt() ?: 0,
-                                lastWatched = p.lastWatched
+                                lastWatched = p.lastWatched,
+                                profileId = currentProfileId
                             ))
                         }
                     }
@@ -335,17 +347,74 @@ class HomeScreenChannelManager @Inject constructor(
                                 isInProgress = false,
                                 position = 0,
                                 duration = 0,
-                                lastWatched = info.lastWatched
+                                lastWatched = info.lastWatched,
+                                profileId = currentProfileId
                             ))
                         }
                     }
                 }
             }
 
-            // Other profiles — load from disk cache
+            // Other profiles — use last known items if available, fall back to disk cache
             val allProfiles = profileManager.profiles.value
             allProfiles.filter { it.id != currentProfileId }.forEach { profile ->
                 runCatching {
+                    val cachedItems = lastKnownItemsByProfile[profile.id]
+                    if (cachedItems != null) {
+                        cachedItems.forEach { item ->
+                            when (item) {
+                                is ContinueWatchingItem.InProgress -> {
+                                    val p = item.progress
+                                    if (seenIds.add(p.contentId)) {
+                                        allFields.add(WatchNextFields(
+                                            contentId = p.contentId,
+                                            contentType = p.contentType,
+                                            name = p.name,
+                                            poster = p.poster,
+                                            backdrop = p.backdrop,
+                                            logo = p.logo,
+                                            addonBaseUrl = p.addonBaseUrl,
+                                            season = p.season,
+                                            episode = p.episode,
+                                            episodeTitle = p.episodeTitle,
+                                            episodeDescription = item.episodeDescription,
+                                            episodeThumbnail = item.episodeThumbnail,
+                                            isInProgress = true,
+                                            position = p.position.toInt(),
+                                            duration = p.duration.takeIf { it > 0 }?.toInt() ?: 0,
+                                            lastWatched = p.lastWatched,
+                                            profileId = profile.id
+                                        ))
+                                    }
+                                }
+                                is ContinueWatchingItem.NextUp -> {
+                                    val info = item.info
+                                    if (seenIds.add(info.contentId)) {
+                                        allFields.add(WatchNextFields(
+                                            contentId = info.contentId,
+                                            contentType = info.contentType,
+                                            name = info.name,
+                                            poster = info.poster,
+                                            backdrop = info.backdrop,
+                                            logo = info.logo,
+                                            addonBaseUrl = null,
+                                            season = info.season,
+                                            episode = info.episode,
+                                            episodeTitle = info.episodeTitle,
+                                            episodeDescription = info.episodeDescription,
+                                            episodeThumbnail = info.thumbnail,
+                                            isInProgress = false,
+                                            position = 0,
+                                            duration = 0,
+                                            lastWatched = info.lastWatched,
+                                            profileId = profile.id
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                        return@runCatching
+                    }
                     val rawProgress = watchProgressPreferences.loadContinueWatchingForProfile(profile.id)
                     // Load enrichment from the file-based cache (ContinueWatchingEnrichmentCache)
                     // which is what the active pipeline writes to. The old DataStore-based
@@ -409,6 +478,7 @@ class HomeScreenChannelManager @Inject constructor(
                         }
                     }
 
+                    Log.d(TAG, "Profile ${profile.id} rawProgress=${rawProgress.size} nextUpCache=${watchProgressPreferences.loadNextUpCache(profile.id).size}")
                     rawProgress.forEach { p ->
                         if (seenIds.add(p.contentId)) {
                             val enrichment = enrichmentCache[p.contentId]
@@ -428,7 +498,8 @@ class HomeScreenChannelManager @Inject constructor(
                                 isInProgress = true,
                                 position = p.position.toInt(),
                                 duration = p.duration.takeIf { it > 0 }?.toInt() ?: 0,
-                                lastWatched = p.lastWatched
+                                lastWatched = p.lastWatched,
+                                profileId = profile.id
                             ))
                         }
                     }
@@ -451,14 +522,18 @@ class HomeScreenChannelManager @Inject constructor(
                                 isInProgress = false,
                                 position = 0,
                                 duration = 0,
-                                lastWatched = info.lastWatched
+                                lastWatched = info.lastWatched,
+                                profileId = profile.id
                             ))
                         }
                     }
                 }.onFailure { Log.w(TAG, "Failed to load CW for profile ${profile.id}", it) }
             }
 
-            // Clear our own Watch Next entries only, filtered by package
+            // Collect existing Watch Next IDs before inserting — we insert first,
+            // then delete old entries. This ensures the provider is never empty during
+            // the write, so Projectivy's post-resume poll always sees valid data.
+            val oldWatchNextIds = mutableListOf<Long>()
             val existingWatchNext = context.contentResolver.query(
                 TvContractCompat.WatchNextPrograms.CONTENT_URI,
                 arrayOf("_id", "package_name"),
@@ -469,9 +544,7 @@ class HomeScreenChannelManager @Inject constructor(
                     val id = cur.getLong(0)
                     val pkg = runCatching { cur.getString(1) }.getOrNull()
                     if (pkg == context.packageName) {
-                        context.contentResolver.delete(
-                            TvContractCompat.buildWatchNextProgramUri(id), null, null
-                        )
+                        oldWatchNextIds.add(id)
                     }
                 }
             }
@@ -481,7 +554,7 @@ class HomeScreenChannelManager @Inject constructor(
             allFields.forEach { fields ->
                 try {
                     val deepLink = Uri.parse(
-                        "nuvio://detail/${encode(fields.contentId)}/${encode(fields.contentType)}?addonBaseUrl=${fields.addonBaseUrl?.let { encode(it) } ?: ""}"
+                        "nuvio://detail/${encode(fields.contentId)}/${encode(fields.contentType)}?addonBaseUrl=${fields.addonBaseUrl?.let { encode(it) } ?: ""}&profileId=${fields.profileId}"
                     )
                     val rawPoster = fields.poster?.takeIf { !it.contains("rpdb") && !it.contains("/posters/rpdb") }
                     val cardImageUri = (fields.episodeThumbnail ?: fields.backdrop ?: rawPoster)?.let { Uri.parse(it) }
@@ -519,10 +592,18 @@ class HomeScreenChannelManager @Inject constructor(
                     Log.e(TAG, "Failed to insert WatchNext: ${fields.name}", e)
                 }
             }
+
+            // Now delete the old entries — provider was never empty during the write
+            oldWatchNextIds.forEach { id ->
+                context.contentResolver.delete(
+                    TvContractCompat.buildWatchNextProgramUri(id), null, null
+                )
+            }
             Log.d(TAG, "WatchNext refreshed with ${allFields.size} items across all profiles")
         } catch (e: Exception) {
             Log.e(TAG, "refreshWatchNext failed", e)
         }
+        } // end watchNextMutex.withLock
     }
 
     private data class WatchNextFields(
@@ -541,7 +622,8 @@ class HomeScreenChannelManager @Inject constructor(
         val isInProgress: Boolean,
         val position: Int,
         val duration: Int,
-        val lastWatched: Long
+        val lastWatched: Long,
+        val profileId: Int
     )
 
     private data class ItemFields(
