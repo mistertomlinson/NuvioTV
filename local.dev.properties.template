@@ -1,0 +1,5 @@
+# Copy this to local.dev.properties and fill in values
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+TV_LOGIN_WEB_BASE_URL=
+INTRODB_API_URL=https://api.introdb.app/
