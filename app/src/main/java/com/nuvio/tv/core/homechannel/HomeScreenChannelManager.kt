@@ -55,6 +55,98 @@ class HomeScreenChannelManager @Inject constructor(
     private val channelWriteMutexes = java.util.concurrent.ConcurrentHashMap<Int, Mutex>()
     private fun channelMutexFor(profileId: Int) = channelWriteMutexes.getOrPut(profileId) { Mutex() }
 
+    private fun watchNextCacheFile(profileId: Int) =
+        java.io.File(context.filesDir, "cw_watchnext_cache_p${profileId}.json")
+
+    private fun persistWatchNextCache(profileId: Int, items: List<ContinueWatchingItem>) {
+        try {
+            val maps = items.map { item ->
+                when (item) {
+                    is ContinueWatchingItem.InProgress -> mapOf(
+                        "type" to "inprogress",
+                        "contentId" to item.progress.contentId,
+                        "contentType" to item.progress.contentType,
+                        "name" to item.progress.name,
+                        "poster" to item.progress.poster,
+                        "backdrop" to item.progress.backdrop,
+                        "logo" to item.progress.logo,
+                        "addonBaseUrl" to item.progress.addonBaseUrl,
+                        "season" to item.progress.season,
+                        "episode" to item.progress.episode,
+                        "episodeTitle" to item.progress.episodeTitle,
+                        "episodeDescription" to item.episodeDescription,
+                        "episodeThumbnail" to item.episodeThumbnail,
+                        "position" to item.progress.position,
+                        "duration" to item.progress.duration,
+                        "lastWatched" to item.progress.lastWatched
+                    )
+                    is ContinueWatchingItem.NextUp -> mapOf(
+                        "type" to "nextup",
+                        "contentId" to item.info.contentId,
+                        "contentType" to item.info.contentType,
+                        "name" to item.info.name,
+                        "poster" to item.info.poster,
+                        "backdrop" to item.info.backdrop,
+                        "logo" to item.info.logo,
+                        "season" to item.info.season,
+                        "episode" to item.info.episode,
+                        "episodeTitle" to item.info.episodeTitle,
+                        "episodeDescription" to item.info.episodeDescription,
+                        "episodeThumbnail" to item.info.thumbnail,
+                        "lastWatched" to item.info.lastWatched
+                    )
+                }
+            }
+            watchNextCacheFile(profileId).writeText(com.google.gson.Gson().toJson(maps))
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to persist watch next cache for profile $profileId", e)
+        }
+    }
+
+    private fun loadWatchNextCache(profileId: Int): List<ContinueWatchingItem>? {
+        return try {
+            val file = watchNextCacheFile(profileId)
+            if (!file.exists()) return null
+            val type = com.google.gson.reflect.TypeToken.getParameterized(
+                List::class.java, Map::class.java
+            ).type
+            val items: List<Map<String, Any?>> = com.google.gson.Gson().fromJson(file.readText(), type)
+                ?: return null
+            items.mapNotNull { map ->
+                val contentId = map["contentId"] as? String ?: return@mapNotNull null
+                val contentType = map["contentType"] as? String ?: return@mapNotNull null
+                val name = map["name"] as? String ?: return@mapNotNull null
+                val lastWatched = (map["lastWatched"] as? Number)?.toLong() ?: 0L
+                when (map["type"] as? String) {
+                    "inprogress" -> ContinueWatchingItem.InProgress(
+                        progress = com.nuvio.tv.domain.model.WatchProgress(
+                            contentId = contentId,
+                            contentType = contentType,
+                            name = name,
+                            poster = map["poster"] as? String,
+                            backdrop = map["backdrop"] as? String,
+                            logo = map["logo"] as? String,
+                            videoId = contentId,
+                            addonBaseUrl = map["addonBaseUrl"] as? String,
+                            season = (map["season"] as? Number)?.toInt(),
+                            episode = (map["episode"] as? Number)?.toInt(),
+                            episodeTitle = map["episodeTitle"] as? String,
+                            position = (map["position"] as? Number)?.toLong() ?: 0L,
+                            duration = (map["duration"] as? Number)?.toLong() ?: 0L,
+                            lastWatched = lastWatched
+                        ),
+                        episodeThumbnail = map["episodeThumbnail"] as? String,
+                        episodeDescription = map["episodeDescription"] as? String
+                    )
+                    else -> null
+                }
+            }.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to load watch next cache for profile $profileId", e)
+            null
+        }
+    }
+
     private fun encode(value: String): String =
         URLEncoder.encode(value, "UTF-8").replace("+", "%20")
 
@@ -144,7 +236,10 @@ class HomeScreenChannelManager @Inject constructor(
         channelMutexFor(profileId).withLock {
         try {
             Log.d(TAG, "refreshFromItems() called with ${items.size} items for profile $profileId")
-            lastKnownItemsByProfile[profileId] = items
+            if (items.isNotEmpty()) {
+                lastKnownItemsByProfile[profileId] = items
+                watchNextScope.launch { persistWatchNextCache(profileId, items) }
+            }
             val channelId = getOrCreateChannelId(profileId, profileName) ?: run {
                 Log.w(TAG, "Could not get or create channel")
                 return@withContext
@@ -415,7 +510,67 @@ class HomeScreenChannelManager @Inject constructor(
                         }
                         return@runCatching
                     }
-                    val rawProgress = watchProgressPreferences.loadContinueWatchingForProfile(profile.id)
+                    // No in-memory cache — try disk cache
+                    val diskCached = loadWatchNextCache(profile.id)
+                    if (diskCached != null) {
+                        lastKnownItemsByProfile[profile.id] = diskCached
+                        diskCached.forEach { item ->
+                            when (item) {
+                                is ContinueWatchingItem.InProgress -> {
+                                    val p = item.progress
+                                    if (seenIds.add(p.contentId)) {
+                                        allFields.add(WatchNextFields(
+                                            contentId = p.contentId,
+                                            contentType = p.contentType,
+                                            name = p.name,
+                                            poster = p.poster,
+                                            backdrop = p.backdrop,
+                                            logo = p.logo,
+                                            addonBaseUrl = p.addonBaseUrl,
+                                            season = p.season,
+                                            episode = p.episode,
+                                            episodeTitle = p.episodeTitle,
+                                            episodeDescription = item.episodeDescription,
+                                            episodeThumbnail = item.episodeThumbnail,
+                                            isInProgress = true,
+                                            position = p.position.toInt(),
+                                            duration = p.duration.takeIf { it > 0 }?.toInt() ?: 0,
+                                            lastWatched = p.lastWatched,
+                                            profileId = profile.id
+                                        ))
+                                    }
+                                }
+                                is ContinueWatchingItem.NextUp -> {
+                                    val info = item.info
+                                    if (seenIds.add(info.contentId)) {
+                                        allFields.add(WatchNextFields(
+                                            contentId = info.contentId,
+                                            contentType = info.contentType,
+                                            name = info.name,
+                                            poster = info.poster,
+                                            backdrop = info.backdrop,
+                                            logo = info.logo,
+                                            addonBaseUrl = null,
+                                            season = info.season,
+                                            episode = info.episode,
+                                            episodeTitle = info.episodeTitle,
+                                            episodeDescription = info.episodeDescription,
+                                            episodeThumbnail = info.thumbnail,
+                                            isInProgress = false,
+                                            position = 0,
+                                            duration = 0,
+                                            lastWatched = info.lastWatched,
+                                            profileId = profile.id
+                                        ))
+                                    }
+                                }
+                            }
+                        }
+                        return@runCatching
+                    }
+                    // No cache at all — skip until profile activates
+                    Log.d(TAG, "No watch next cache for profile ${profile.id}, skipping")
+                    val rawProgress = emptyList<com.nuvio.tv.domain.model.WatchProgress>()
                     // Load enrichment from the file-based cache (ContinueWatchingEnrichmentCache)
                     // which is what the active pipeline writes to. The old DataStore-based
                     // InProgressEnrichmentEntry is no longer populated by the pipeline.
