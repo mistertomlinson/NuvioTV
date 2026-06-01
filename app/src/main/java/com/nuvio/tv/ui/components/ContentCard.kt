@@ -232,7 +232,7 @@ fun ContentCard(
             }
         }
 
-        val imageUrl = if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded && !focusedPosterNoBackdropImage) {
+        val imageUrl = if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded && !focusedPosterNoBackdropImage && item.poster != null) {
             item.backdropUrl ?: item.poster
         } else {
             item.poster

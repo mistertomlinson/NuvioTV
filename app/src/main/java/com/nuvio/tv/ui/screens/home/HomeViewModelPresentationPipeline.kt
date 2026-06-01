@@ -212,7 +212,8 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
                         dimIconsOnRowExitEnabled = dimIconsOnRowExitEnabled,
                         fastPlatformScrollEnabled = fastPlatformScrollEnabled,
-                        landscapeCatalogKeys = landscapeCatalogKeys
+                        landscapeCatalogKeys = landscapeCatalogKeys,
+                        layoutPreferencesReady = true
                     )
                 }
                 if (shouldRefreshCatalogPresentation) {
@@ -418,7 +419,7 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
 
 internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
     if (startupGracePeriodActive) return
-    if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) return
+    if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds || item.id in enrichmentCache) return
     if (pendingTmdbEnrichItemId == item.id || pendingAdjacentPrefetchItemId == item.id) return
 
     pendingAdjacentPrefetchItemId = item.id
@@ -482,6 +483,9 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
         }
         if (currentTmdbSettings.useArtwork) {
             merged = merged.copy(
+                // Only use TMDB poster if item has no existing poster —
+                // avoids replacing Trakt/addon poster with different TMDB URL causing resize flash
+                poster = merged.poster ?: enrichment.poster,
                 // When TMDB enrichment is enabled, trust its logo result as authoritative.
                 // If TMDB returns null (no English logo exists), use null rather than
                 // falling back to the addon logo which may be a foreign language logo.

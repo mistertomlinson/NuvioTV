@@ -83,8 +83,8 @@
     <string name="hero_writer">Writer: %1$s</string>
     <string name="hero_play">Play</string>
     <string name="hero_play_episode">Play S%1$d, E%2$d</string>
-    <string name="hero_add_to_library">Add to library</string>
-    <string name="hero_remove_from_library">Remove from library</string>
+    <string name="hero_add_to_library">Add to My List</string>
+    <string name="hero_remove_from_library">Remove from My List</string>
     <string name="hero_mark_watched">Mark as watched</string>
     <string name="hero_mark_unwatched">Mark as unwatched</string>
     <string name="hero_play_trailer">Play trailer</string>
@@ -107,8 +107,9 @@
     <string name="episodes_season_actions">Season actions</string>
 
     <!-- MetaDetailsViewModel -->
-    <string name="detail_added_to_library">Added to library</string>
-    <string name="detail_removed_from_library">Removed from library</string>
+    <string name="detail_added_to_library">Added to My List</string>
+    <string name="detail_removed_from_library">Removed from My List</string>
+    <string name="my_list_row_title">My List</string>
     <string name="detail_episode_marked_watched">Episode marked as watched</string>
     <string name="detail_episode_marked_unwatched">Episode marked as unwatched</string>
     <string name="detail_lists_updated">Lists updated</string>

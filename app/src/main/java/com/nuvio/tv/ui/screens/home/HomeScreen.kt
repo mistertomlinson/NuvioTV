@@ -59,7 +59,8 @@ import kotlin.math.roundToInt
 
 private data class HomePosterOptionsTarget(
     val item: MetaPreview,
-    val addonBaseUrl: String
+    val addonBaseUrl: String,
+    val isFromMyList: Boolean = false
 )
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -93,6 +94,11 @@ fun HomeScreen(
     androidx.compose.runtime.LaunchedEffect(appInForegroundForTrailer) {
         if (appInForegroundForTrailer) {
             viewModel.clearTrailerUrlCacheIfStale(backgroundedAtMs)
+            // Only re-trigger My List on real app resume, not detail page back-navigation
+            val backgroundedDurationMs = if (backgroundedAtMs > 0L) System.currentTimeMillis() - backgroundedAtMs else 0L
+            if (backgroundedDurationMs > 30_000L) {
+                viewModel.observeMyList()
+            }
         }
     }
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsStateWithLifecycle(
@@ -176,7 +182,8 @@ fun HomeScreen(
             }
 
             else -> {
-                val shouldShowLoadingGate = !hasEnteredCatalogContent && !hasCatalogContent
+                val shouldShowLoadingGate = !hasEnteredCatalogContent && !hasCatalogContent ||
+                    !uiState.layoutPreferencesReady
                 LaunchedEffect(shouldShowLoadingGate) {
                     if (shouldShowLoadingGate) {
                         showHomeContentWithAnimation = false
@@ -219,7 +226,13 @@ fun HomeScreen(
                                         uiState.seriesWatchedStatus[key] == true
                                 },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
-                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                                    val statusKey = homeItemStatusKey(item.id, item.apiType)
+                                    posterOptionsTarget = HomePosterOptionsTarget(
+                                        item = item,
+                                        addonBaseUrl = addonBaseUrl,
+                                        isFromMyList = addonBaseUrl.isEmpty() &&
+                                            uiState.librarySourceMode == LibrarySourceMode.TRAKT
+                                    )
                                 }
                             )
 
@@ -239,7 +252,13 @@ fun HomeScreen(
                                         uiState.seriesWatchedStatus[key] == true
                                 },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
-                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                                    val statusKey = homeItemStatusKey(item.id, item.apiType)
+                                    posterOptionsTarget = HomePosterOptionsTarget(
+                                        item = item,
+                                        addonBaseUrl = addonBaseUrl,
+                                        isFromMyList = addonBaseUrl.isEmpty() &&
+                                            uiState.librarySourceMode == LibrarySourceMode.TRAKT
+                                    )
                                 }
                             )
 
@@ -257,7 +276,13 @@ fun HomeScreen(
                                         uiState.seriesWatchedStatus[key] == true
                                 },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
-                                    posterOptionsTarget = HomePosterOptionsTarget(item, addonBaseUrl)
+                                    val statusKey = homeItemStatusKey(item.id, item.apiType)
+                                    posterOptionsTarget = HomePosterOptionsTarget(
+                                        item = item,
+                                        addonBaseUrl = addonBaseUrl,
+                                        isFromMyList = addonBaseUrl.isEmpty() &&
+                                            uiState.librarySourceMode == LibrarySourceMode.TRAKT
+                                    )
                                 }
                             )
                         }
@@ -274,9 +299,11 @@ fun HomeScreen(
         val isMovie = item.apiType.equals("movie", ignoreCase = true)
         HomePosterOptionsDialog(
             title = item.name,
-            isInLibrary = uiState.posterLibraryMembership[statusKey] == true,
+            isInLibrary = selectedPoster.isFromMyList || uiState.posterLibraryMembership[statusKey] == true,
             isLibraryPending = statusKey in uiState.posterLibraryPending,
-            showManageLists = uiState.librarySourceMode == LibrarySourceMode.TRAKT,
+            showManageLists = uiState.librarySourceMode == LibrarySourceMode.TRAKT &&
+                !selectedPoster.isFromMyList,
+            isFromMyList = selectedPoster.isFromMyList,
             isMovie = isMovie,
             isWatched = uiState.movieWatchedStatus[statusKey] == true,
             isWatchedPending = statusKey in uiState.movieWatchedPending,
@@ -286,11 +313,7 @@ fun HomeScreen(
                 posterOptionsTarget = null
             },
             onToggleLibrary = {
-                if (uiState.librarySourceMode == LibrarySourceMode.TRAKT) {
-                    viewModel.openPosterListPicker(item, selectedPoster.addonBaseUrl)
-                } else {
-                    viewModel.togglePosterLibrary(item, selectedPoster.addonBaseUrl)
-                }
+                viewModel.togglePosterLibrary(item, selectedPoster.addonBaseUrl)
                 posterOptionsTarget = null
             },
             onToggleWatched = {
@@ -559,6 +582,7 @@ private fun HomePosterOptionsDialog(
     isInLibrary: Boolean,
     isLibraryPending: Boolean,
     showManageLists: Boolean,
+    isFromMyList: Boolean = false,
     isMovie: Boolean,
     isWatched: Boolean,
     isWatchedPending: Boolean,
@@ -601,14 +625,10 @@ private fun HomePosterOptionsDialog(
             )
         ) {
             Text(
-                if (showManageLists) {
-                    stringResource(R.string.library_manage_lists)
+                if (isInLibrary) {
+                    stringResource(R.string.hero_remove_from_library)
                 } else {
-                    if (isInLibrary) {
-                        stringResource(R.string.hero_remove_from_library)
-                    } else {
-                        stringResource(R.string.hero_add_to_library)
-                    }
+                    stringResource(R.string.hero_add_to_library)
                 }
             )
         }

@@ -3,6 +3,7 @@ package com.nuvio.tv.ui.screens.addon
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
+import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.repository.AddonRepository
@@ -19,10 +20,12 @@ import javax.inject.Inject
 @HiltViewModel
 class CatalogOrderViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
-    private val layoutPreferenceDataStore: LayoutPreferenceDataStore
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
+    private val traktAuthDataStore: TraktAuthDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CatalogOrderUiState())
+    private var isTraktAuthenticated: Boolean = false
     val uiState: StateFlow<CatalogOrderUiState> = _uiState.asStateFlow()
     private var disabledKeysCache: Set<String> = emptySet()
     private var numberedKeysCache: Set<String> = emptySet()
@@ -31,6 +34,11 @@ class CatalogOrderViewModel @Inject constructor(
     private var shuffleKeysCache: Set<String> = emptySet()
 
     init {
+        viewModelScope.launch {
+            traktAuthDataStore.isEffectivelyAuthenticated.collect { isAuth ->
+                isTraktAuthenticated = isAuth
+            }
+        }
         observeCatalogs()
     }
 
@@ -458,6 +466,22 @@ Triple(
     private fun buildDefaultCatalogEntries(addons: List<Addon>): List<CatalogOrderEntry> {
         val entries = mutableListOf<CatalogOrderEntry>()
         val seenKeys = mutableSetOf<String>()
+
+        // Inject My List as the first entry when Trakt is connected
+        if (isTraktAuthenticated) {
+            val myListKey = com.nuvio.tv.ui.screens.home.HomeViewModel.MY_LIST_CATALOG_KEY
+            if (seenKeys.add(myListKey)) {
+                entries.add(
+                    CatalogOrderEntry(
+                        key = myListKey,
+                        disableKey = myListKey,
+                        catalogName = "My List",
+                        addonName = "Built-In",
+                        typeLabel = "mixed"
+                    )
+                )
+            }
+        }
 
         addons.forEach { addon ->
             addon.catalogs

@@ -168,6 +168,40 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
     catalogOrder.clear()
     catalogsMap.clear()
+    // Re-inject ML row from disk cache immediately so it survives pipeline restart
+    val mlProfileId = profileManager.activeProfileId.value
+    val mlCached = myListDiskCache.load(mlProfileId)
+    if (mlCached.isNotEmpty()) {
+        val mlItems = mlCached.map { c ->
+            com.nuvio.tv.domain.model.MetaPreview(
+                id = c.id,
+                type = com.nuvio.tv.domain.model.ContentType.fromString(c.type),
+                rawType = c.type,
+                name = c.name,
+                poster = c.poster,
+                posterShape = com.nuvio.tv.domain.model.PosterShape.POSTER,
+                background = c.background,
+                logo = c.logo,
+                description = c.description,
+                releaseInfo = c.releaseInfo,
+                imdbRating = c.imdbRating,
+                genres = c.genres
+            )
+        }
+        catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = com.nuvio.tv.domain.model.CatalogRow(
+            addonId = HomeViewModel.MY_LIST_ADDON_ID,
+            addonName = "Built-In",
+            addonBaseUrl = "",
+            catalogId = HomeViewModel.MY_LIST_CATALOG_ID,
+            catalogName = "My List",
+            type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
+            rawType = "mixed",
+            items = mlItems,
+            isLoading = true,
+            hasMore = false,
+            supportsSkip = false
+        )
+    }
     // Clear repository-level cache on pipeline restart to prevent cross-profile
     // key collisions when multiple instances of the same addon exist across profiles.
     catalogRepository.clearInMemoryCache()
@@ -679,8 +713,61 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             }
             merged
         }
+        // Apply enrichment to ML row too — it's not in displayRows so freshRows misses it
+        // Always include ML row — prefer catalogSnapshot, fall back to state.catalogRows
+        // so the row survives even if catalogsMap was snapshotted before observeMyList injected it
+        val rawMlRow = catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY]
+        val enrichedMlRow = rawMlRow?.let { mlRow ->
+            if (enrichmentCache.isEmpty()) mlRow
+            else {
+                val enrichedItems = mlRow.items.map { item ->
+                    val cached = enrichmentCache[item.id] ?: return@map item
+                    var merged = item
+                    if (currentTmdbSettings.useBasicInfo) {
+                        merged = merged.copy(
+                            name = cached.localizedTitle ?: merged.name,
+                            description = cached.description ?: merged.description,
+                            genres = if (cached.genres.isNotEmpty()) cached.genres else merged.genres
+                        )
+                    }
+                    if (currentTmdbSettings.useArtwork) {
+                        merged = merged.copy(
+                            logo = cached.logo ?: merged.logo,
+                            landscapePoster = cached.detailBackdrop ?: merged.landscapePoster
+                        )
+                    }
+                    if (currentTmdbSettings.useDetails) {
+                        merged = merged.copy(
+                            ageRating = cached.ageRating ?: merged.ageRating,
+                            status = cached.status ?: merged.status,
+                            runtime = cached.runtimeMinutes?.toString() ?: merged.runtime
+                        )
+                    }
+                    if (currentTmdbSettings.useBasicInfo) {
+                        merged = merged.copy(
+                            imdbRating = cached.rating?.toFloat() ?: merged.imdbRating
+                        )
+                    }
+                    merged
+                }
+                mlRow.copy(items = enrichedItems)
+            }
+        }
+        // Build finalRows: freshRows (addon catalogs) + ML row at its catalogOrder position
+        val finalRows = if (enrichedMlRow != null) {
+            val withoutMl = freshRows.filter { it.addonId != HomeViewModel.MY_LIST_ADDON_ID }
+            val mlIndex = orderedKeys.indexOf(HomeViewModel.MY_LIST_CATALOG_KEY)
+            if (mlIndex <= 0) {
+                listOf(enrichedMlRow) + withoutMl
+            } else {
+                val insertAt = mlIndex.coerceAtMost(withoutMl.size)
+                withoutMl.toMutableList().apply { add(insertAt, enrichedMlRow) }
+            }
+        } else {
+            freshRows.filter { it.addonId != HomeViewModel.MY_LIST_ADDON_ID }
+        }
         state.copy(
-            catalogRows = if (state.catalogRows == freshRows) state.catalogRows else freshRows,
+            catalogRows = if (state.catalogRows == finalRows) state.catalogRows else finalRows,
             heroItems = if (state.heroItems == enrichedHeroItems) state.heroItems else enrichedHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
             isLoading = false,
@@ -741,18 +828,26 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val rowIndexById = displayRows
             .flatMapIndexed { rowIdx, row -> row.items.map { it.id to rowIdx } }
             .toMap()
-        val allItems = displayRows
-            .flatMap { it.items }
+        // Include My List items in enrichment — they're in catalogsMap but not displayRows
+        val myListRow = catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY]
+        val myListItems = myListRow?.items ?: emptyList()
+        val allItems = (displayRows.flatMap { it.items } + myListItems)
             .distinctBy { it.id }
             .filter { it.id !in prefetchedTmdbIds && it.id !in enrichmentCache }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
+        val myListItemIds = myListItems.map { it.id }.toSet()
         android.util.Log.d("NuvioEnrich", "[PROACTIVE] pipeline run: ${displayRows.size} rows, ${displayRows.flatMap { it.items }.distinctBy { it.id }.size} total items, ${allItems.size} need enrichment")
         if (allItems.isNotEmpty()) {
             val tmdbSettingsSnapshot = currentTmdbSettings
             // Split first row items for priority enrichment vs rest for background batch
             val firstRowIndex = rowIndexById.values.minOrNull() ?: 0
-            val firstRowItems = allItems.filter { (rowIndexById[it.id] ?: Int.MAX_VALUE) == firstRowIndex }
-            val remainingItems = allItems.filter { (rowIndexById[it.id] ?: Int.MAX_VALUE) != firstRowIndex }
+            // ML items get first-row priority — full concurrency, no semaphore
+            val firstRowItems = allItems.filter { item ->
+                (rowIndexById[item.id] ?: Int.MAX_VALUE) == firstRowIndex || item.id in myListItemIds
+            }
+            val remainingItems = allItems.filter { item ->
+                (rowIndexById[item.id] ?: Int.MAX_VALUE) != firstRowIndex && item.id !in myListItemIds
+            }
             proactiveEnrichJob?.cancel()
             proactiveEnrichJob = viewModelScope.launch(Dispatchers.IO) {
                 // Enrich first row with full concurrency, no semaphore — these are immediately visible

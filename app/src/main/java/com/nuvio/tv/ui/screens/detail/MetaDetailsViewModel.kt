@@ -1282,10 +1282,10 @@ class MetaDetailsViewModel @Inject constructor(
             val wasInLibrary = _uiState.value.isInLibrary
             runCatching {
                 libraryRepository.toggleDefault(input)
-                val message = if (_uiState.value.librarySourceMode == LibrarySourceMode.TRAKT) {
-                    if (wasInWatchlist) context.getString(R.string.watchlist_removed) else context.getString(R.string.watchlist_added)
+                val message = if (wasInLibrary) {
+                    context.getString(R.string.detail_removed_from_library)
                 } else {
-                    if (wasInLibrary) context.getString(R.string.detail_removed_from_library) else context.getString(R.string.detail_added_to_library)
+                    context.getString(R.string.detail_added_to_library)
                 }
                 showMessage(message)
             }.onFailure { error ->

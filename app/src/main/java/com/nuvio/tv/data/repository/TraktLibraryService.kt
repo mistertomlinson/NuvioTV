@@ -17,6 +17,7 @@ import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.ListMembershipSnapshot
 import com.nuvio.tv.domain.model.TraktListPrivacy
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.repository.MetaRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,7 +45,8 @@ import javax.inject.Singleton
 class TraktLibraryService @Inject constructor(
     private val traktApi: TraktApi,
     private val traktAuthService: TraktAuthService,
-    private val metaRepository: MetaRepository
+    private val metaRepository: MetaRepository,
+    private val profileManager: ProfileManager
 ) {
     private data class LibraryMetadata(
         val name: String?,
@@ -74,8 +76,24 @@ class TraktLibraryService @Inject constructor(
     private val inFlightMetadataKeys = mutableSetOf<String>()
     private var lastRefreshMs: Long = 0L
 
+    @Volatile private var myListSlug: String? = null
+    @Volatile private var myListTraktId: Long? = null
+
     private val cacheTtlMs = 60_000L
     private val metadataHydrationLimit = 500
+
+    /**
+     * Clears all cached state so the next call to ensureFresh() fetches
+     * data for the currently active profile's Trakt account.
+     * Called by HomeViewModel when the active profile changes.
+     */
+    fun resetSnapshot() {
+        snapshotState.value = Snapshot()
+        metadataState.value = emptyMap()
+        lastRefreshMs = 0L
+        myListSlug = null
+        myListTraktId = null
+    }
     private val listFetchConcurrency = 3
     private val metadataFetchSemaphore = Semaphore(5)
 
@@ -114,6 +132,120 @@ class TraktLibraryService @Inject constructor(
             tab.key to memberships.contains(tab.key)
         }
         return ListMembershipSnapshot(listMembership = map)
+    }
+
+    /**
+     * Ensures the "My List" personal list exists on Trakt, creating it if needed.
+     * Returns the list slug (used as the path identifier for API calls).
+     */
+    private suspend fun ensureMyList(): String {
+        // Return cached slug if already resolved this session
+        myListSlug?.let { return it }
+
+        // Fetch existing personal lists and look for "My List"
+        val listResponse = traktAuthService.executeAuthorizedRequest { authHeader ->
+            traktApi.getUserLists(authorization = authHeader, id = ME_PATH)
+        } ?: throw IllegalStateException("Failed to fetch Trakt lists")
+
+        if (listResponse.isSuccessful) {
+            val existing = listResponse.body().orEmpty()
+                .firstOrNull { it.name.equals(MY_LIST_NAME, ignoreCase = true) }
+            if (existing != null) {
+                val slug = existing.ids?.slug ?: existing.ids?.trakt?.toString()
+                    ?: throw IllegalStateException("My List found but has no identifier")
+                myListSlug = slug
+                myListTraktId = existing.ids?.trakt
+                return slug
+            }
+        }
+
+        // Not found — create it
+        val createResponse = traktAuthService.executeAuthorizedRequest { authHeader ->
+            traktApi.createUserList(
+                authorization = authHeader,
+                id = ME_PATH,
+                body = TraktCreateOrUpdateListRequestDto(
+                    name = MY_LIST_NAME,
+                    description = "My List — managed by Nuvio",
+                    privacy = "private"
+                )
+            )
+        } ?: throw IllegalStateException("Failed to create My List")
+
+        if (!createResponse.isSuccessful) {
+            throw IllegalStateException(errorMessageForCode(createResponse.code(), "Failed to create My List"))
+        }
+
+        val created = createResponse.body()
+            ?: throw IllegalStateException("My List created but response body was null")
+        val slug = created.ids?.slug ?: created.ids?.trakt?.toString()
+            ?: throw IllegalStateException("My List created but has no identifier")
+
+        myListSlug = slug
+        myListTraktId = created.ids?.trakt
+
+        // Inject the new list tab into the snapshot immediately so the home row appears
+        val newTab = mapListTab(created)
+        if (newTab != null) {
+            val current = snapshotState.value
+            if (current.listTabs.none { it.key == newTab.key }) {
+                val updatedTabs = current.listTabs + newTab
+                val updatedEntries = current.entriesByList + (newTab.key to emptyList())
+                snapshotState.value = rebuildSnapshot(updatedTabs, updatedEntries)
+            }
+        }
+
+        return slug
+    }
+
+    /**
+     * Toggles membership of [item] in the "My List" personal list.
+     * Auto-creates the list on Trakt if it doesn't exist yet.
+     */
+    suspend fun toggleMyList(item: LibraryEntryInput) {
+        ensureFresh()
+        val slug = ensureMyList()
+        val listKey = PERSONAL_KEY_PREFIX + slug
+        val key = contentKey(itemId = item.itemId, itemType = item.itemType)
+        val currentMembership = snapshotState.value.membershipByContent[key].orEmpty()
+        val isInMyList = currentMembership.contains(listKey)
+        if (isInMyList) {
+            performOptimisticMutation(
+                optimistic = { snapshot -> removeItemFromList(snapshot, item, listKey) }
+            ) {
+                removeFromPersonalList(slug, item)
+            }
+        } else {
+            performOptimisticMutation(
+                optimistic = { snapshot -> addItemToList(snapshot, item, listKey) }
+            ) {
+                addToPersonalList(slug, item)
+            }
+        }
+    }
+
+    /**
+     * Returns a Flow<Boolean> indicating whether [item] is in "My List".
+     */
+    fun observeIsInMyList(itemId: String, itemType: String): kotlinx.coroutines.flow.Flow<Boolean> {
+        return snapshotState
+            .map { snapshot ->
+                val key = contentKey(itemId = itemId, itemType = itemType)
+                val memberships = snapshot.membershipByContent[key].orEmpty()
+                val slug = myListSlug
+                if (slug != null) {
+                    memberships.contains(PERSONAL_KEY_PREFIX + slug)
+                } else {
+                    // Fallback: check if any personal list named "My List" contains this item
+                    val myListTab = snapshot.listTabs.firstOrNull {
+                        it.title.equals(MY_LIST_NAME, ignoreCase = true) &&
+                            it.type == LibraryListTab.Type.PERSONAL
+                    }
+                    if (myListTab != null) memberships.contains(myListTab.key) else false
+                }
+            }
+            .distinctUntilChanged()
+            .onStart { ensureFresh() }
     }
 
     suspend fun toggleWatchlist(item: LibraryEntryInput) {
@@ -511,7 +643,7 @@ class TraktLibraryService @Inject constructor(
         )
     }
 
-    private suspend fun fetchWatchlistEntries(): List<LibraryEntry> {
+    internal suspend fun fetchWatchlistEntries(): List<LibraryEntry> {
         val moviesResponse = traktAuthService.executeAuthorizedRequest { authHeader ->
             traktApi.getWatchlist(
                 authorization = authHeader,
@@ -921,6 +1053,8 @@ class TraktLibraryService @Inject constructor(
     companion object {
         const val WATCHLIST_KEY = "watchlist"
         const val PERSONAL_KEY_PREFIX = "personal:"
+        const val MY_LIST_KEY_PREFIX = "mylist:"
+        const val MY_LIST_NAME = "My List"
         private const val ME_PATH = "me"
     }
 }

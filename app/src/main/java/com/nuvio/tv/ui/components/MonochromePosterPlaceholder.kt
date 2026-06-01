@@ -39,39 +39,11 @@ fun MonochromePosterPlaceholder(
             )
         )
     }
-    val context = LocalContext.current
-    val playPainter = rememberRawSvgPainter(context = context, rawRes = R.raw.ic_player_play)
-
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(backgroundGradient)
-    ) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(46.dp)
-                .border(width = 1.dp, color = strokeColor, shape = CircleShape)
-        )
-
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(42.dp)
-                .background(Color.White.copy(alpha = 0.92f), CircleShape)
-                .border(BorderStroke(1.dp, centerButtonBorder), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = playPainter,
-                contentDescription = null,
-                tint = Color.Unspecified,
-                modifier = Modifier
-                    .size(18.dp)
-                    .offset(x = 1.dp)
-            )
-        }
-    }
+    )
 }
 
 @Composable

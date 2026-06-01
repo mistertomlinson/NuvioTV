@@ -93,6 +93,10 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     // For missing Watchly catalogs, insert at group position rather than bottom
     val mergedOrder = savedValid.toMutableList()
     missing.forEach { missingKey ->
+        if (missingKey == HomeViewModel.MY_LIST_CATALOG_KEY) {
+            mergedOrder.add(0, missingKey)
+            return@forEach
+        }
         val group = watchlyGroup(missingKey)
         if (group == null) {
             mergedOrder.add(missingKey)
@@ -138,6 +142,9 @@ private fun watchlyGroup(key: String): String? {
 
 private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {
     val orderedKeys = mutableListOf<String>()
+    // My List is always a valid catalog key — observeMyList() controls whether
+    // the row actually appears based on Trakt auth and watchlist content.
+    orderedKeys.add(HomeViewModel.MY_LIST_CATALOG_KEY)
     addons.forEach { addon ->
         addon.catalogs
             .filterNot {

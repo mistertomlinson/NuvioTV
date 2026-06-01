@@ -83,6 +83,60 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
         _uiState.update { state ->
             state.copy(posterLibraryPending = state.posterLibraryPending - statusKey)
         }
+        // Update ML row directly — avoid full Trakt re-fetch which causes poster flash
+        val currentMlRow = catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY]
+        val isCurrentlyInList = currentMlRow?.items?.any { it.id == item.id } == true
+        if (isCurrentlyInList) {
+            // Remove item from ML row
+            val updatedItems = currentMlRow!!.items.filter { it.id != item.id }
+            if (updatedItems.isEmpty()) {
+                catalogsMap.remove(HomeViewModel.MY_LIST_CATALOG_KEY)
+            } else {
+                catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = currentMlRow.copy(items = updatedItems)
+            }
+        } else {
+            // Add item to ML row — apply enrichment cache immediately
+            val cached = enrichmentCache[item.id]
+            val enrichedItem = if (cached != null) {
+                item.copy(
+                    poster = item.poster ?: cached.poster,
+                    logo = cached.logo ?: item.logo,
+                    landscapePoster = cached.detailBackdrop ?: item.landscapePoster,
+                    name = cached.localizedTitle ?: item.name,
+                    description = cached.description ?: item.description,
+                    genres = if (cached.genres.isNotEmpty()) cached.genres else item.genres,
+                    imdbRating = cached.rating?.toFloat() ?: item.imdbRating,
+                    ageRating = cached.ageRating ?: item.ageRating,
+                    status = cached.status ?: item.status,
+                    runtime = cached.runtimeMinutes?.toString() ?: item.runtime
+                )
+            } else item
+            if (currentMlRow != null) {
+                catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = currentMlRow.copy(
+                    items = listOf(enrichedItem) + currentMlRow.items
+                )
+            } else {
+                catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = com.nuvio.tv.domain.model.CatalogRow(
+                    addonId = HomeViewModel.MY_LIST_ADDON_ID,
+                    addonName = "Built-In",
+                    addonBaseUrl = "",
+                    catalogId = HomeViewModel.MY_LIST_CATALOG_ID,
+                    catalogName = "My List",
+                    type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
+                    rawType = "mixed",
+                    items = listOf(enrichedItem),
+                    isLoading = false,
+                    hasMore = false,
+                    supportsSkip = false
+                )
+                if (HomeViewModel.MY_LIST_CATALOG_KEY !in catalogOrder) {
+                    catalogOrder.add(0, HomeViewModel.MY_LIST_CATALOG_KEY)
+                }
+            }
+        }
+        scheduleUpdateCatalogRows()
+        // Sync Trakt snapshot in background so subsequent toggles read correct membership
+        viewModelScope.launch { traktLibraryService.refreshNow() }
     }
 }
 
@@ -177,6 +231,7 @@ fun HomeViewModel.savePosterListPickerMembership() {
                 )
             }
             activePosterListPickerInput = null
+            observeMyList()
         }.onFailure { error ->
             Log.w(HomeViewModel.TAG, "Failed to save poster list picker: ${error.message}")
             _uiState.update { state ->

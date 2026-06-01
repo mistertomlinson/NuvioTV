@@ -578,6 +578,7 @@ fun ModernHomeContent(
             if (row.items.isNotEmpty() && row.key !in focusedItemByRow) {
                 focusedItemByRow[row.key] = 0
             }
+
         }
 
         android.util.Log.d("NuvioFocus", "RESTORE CHECK: hasSavedFocus=${focusState.hasSavedFocus} restoredFromSavedState=$restoredFromSavedState focusedRowKey=${focusState.focusedRowKey} platform=${focusState.selectedPlatformId}")
@@ -837,7 +838,6 @@ fun ModernHomeContent(
             firstNonBlank(
                 resolvedHero?.backdrop,
                 resolvedHero?.imageUrl,
-                resolvedHero?.poster,
                 if (heroItem == null) activeRowFallbackBackdrop else null
             )
         }
