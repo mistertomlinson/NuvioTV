@@ -486,6 +486,9 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 // Only use TMDB poster if item has no existing poster —
                 // avoids replacing Trakt/addon poster with different TMDB URL causing resize flash
                 poster = merged.poster ?: enrichment.poster,
+                // Fill in missing background from TMDB backdrop — covers newly added ML items
+                // where Trakt returns background=null, causing hero to show detailBackdrop instead
+                background = merged.background ?: enrichment.backdrop,
                 // When TMDB enrichment is enabled, trust its logo result as authoritative.
                 // If TMDB returns null (no English logo exists), use null rather than
                 // falling back to the addon logo which may be a foreign language logo.
