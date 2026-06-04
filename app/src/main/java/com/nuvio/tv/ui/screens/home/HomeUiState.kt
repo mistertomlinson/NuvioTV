@@ -61,7 +61,8 @@ data class HomeUiState(
     val stableVisiblePlatformIds: Set<String> = emptySet(),
     val blurUnwatchedEpisodes: Boolean = false,
     val memoryOnlyVerticalScroll: Boolean = false,
-    val layoutPreferencesReady: Boolean = false
+    val layoutPreferencesReady: Boolean = false,
+    val userMessage: HomeUserMessage? = null
 )
 
 @Immutable
@@ -149,6 +150,8 @@ sealed class HomeEvent {
     ) : HomeEvent()
     data object OnRetry : HomeEvent()
 }
+
+data class HomeUserMessage(val message: String, val isError: Boolean = false)
 
 fun homeItemStatusKey(itemId: String, itemType: String): String {
     return "${itemType.lowercase()}|$itemId"

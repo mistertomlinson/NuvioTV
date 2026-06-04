@@ -248,6 +248,74 @@ class HomeViewModel @Inject constructor(
             observeLibraryState()
             observeMyList()
             observeTmdbSettings()
+            launch {
+                traktLibraryService.watchlistChangedSignal.collect { change ->
+// Apply immediate optimistic update to ML row — covers detail screen add/remove
+                    val currentMlRow = catalogsMap[MY_LIST_CATALOG_KEY]
+                    if (change.added) {
+                        // Add item to ML row if not already present
+                        val alreadyPresent = currentMlRow?.items?.any { it.id == change.item.itemId } == true
+                        if (!alreadyPresent) {
+                            val newItem = com.nuvio.tv.domain.model.MetaPreview(
+                                id = change.item.itemId,
+                                type = com.nuvio.tv.domain.model.ContentType.fromString(change.item.itemType),
+                                rawType = change.item.itemType,
+                                name = change.item.title,
+                                poster = change.item.poster,
+                                posterShape = change.item.posterShape ?: com.nuvio.tv.domain.model.PosterShape.POSTER,
+                                background = change.item.background,
+                                logo = change.item.logo,
+                                description = change.item.description,
+                                releaseInfo = change.item.releaseInfo,
+                                imdbRating = change.item.imdbRating,
+                                genres = change.item.genres
+                            )
+                            val cached = enrichmentCache[newItem.id]
+                            val enrichedItem = if (cached != null) {
+                                newItem.copy(
+                                    poster = newItem.poster ?: cached.poster,
+                                    background = newItem.background ?: cached.backdrop,
+                                    logo = cached.logo ?: newItem.logo,
+                                    landscapePoster = cached.detailBackdrop ?: newItem.landscapePoster
+                                )
+                            } else newItem
+                            if (currentMlRow != null) {
+                                catalogsMap[MY_LIST_CATALOG_KEY] = currentMlRow.copy(
+                                    items = listOf(enrichedItem) + currentMlRow.items
+                                )
+                            } else {
+                                catalogsMap[MY_LIST_CATALOG_KEY] = com.nuvio.tv.domain.model.CatalogRow(
+                                    addonId = MY_LIST_ADDON_ID,
+                                    addonName = "Built-In",
+                                    addonBaseUrl = "",
+                                    catalogId = MY_LIST_CATALOG_ID,
+                                    catalogName = "My List",
+                                    type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
+                                    rawType = "mixed",
+                                    items = listOf(enrichedItem),
+                                    isLoading = false,
+                                    hasMore = false,
+                                    supportsSkip = false
+                                )
+                                if (MY_LIST_CATALOG_KEY !in catalogOrder) {
+                                    catalogOrder.add(0, MY_LIST_CATALOG_KEY)
+                                }
+                            }
+                        }
+                    } else {
+                        // Remove item from ML row
+                        if (currentMlRow != null) {
+                            val updatedItems = currentMlRow.items.filter { it.id != change.item.itemId }
+                            if (updatedItems.isEmpty()) {
+                                catalogsMap.remove(MY_LIST_CATALOG_KEY)
+                            } else {
+                                catalogsMap[MY_LIST_CATALOG_KEY] = currentMlRow.copy(items = updatedItems)
+                            }
+                        }
+                    }
+                    scheduleUpdateCatalogRows()
+                }
+            }
             observeMdbListSettings()
             observeBlurUnwatchedEpisodes()
             observeMemoryOnlyVerticalScroll()
@@ -447,6 +515,22 @@ class HomeViewModel @Inject constructor(
 
     private var myListJob: kotlinx.coroutines.Job? = null
 
+    fun showHomeMessage(message: String, isError: Boolean = false) {
+        _uiState.update { it.copy(userMessage = HomeUserMessage(message, isError)) }
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2500)
+            _uiState.update { state ->
+                if (state.userMessage?.message == message) state.copy(userMessage = null)
+                else state
+            }
+        }
+    }
+
+    fun isInWatchlist(itemId: String, itemType: String): Boolean {
+        if (_uiState.value.librarySourceMode != com.nuvio.tv.domain.model.LibrarySourceMode.TRAKT) return false
+        return traktLibraryService.isInWatchlistSync(itemId, itemType)
+    }
+
     internal fun observeMyList() {
         myListJob?.cancel()
         myListJob = viewModelScope.launch {
@@ -524,10 +608,8 @@ class HomeViewModel @Inject constructor(
                             .sortedByDescending { it.listedAt }
                     }.getOrNull()
 
-                    // Sync snapshotState so toggleWatchlist reads correct membership
-                    if (entries != null) {
-                        viewModelScope.launch { traktLibraryService.refreshNow() }
-                    }
+                    // snapshotState is kept in sync via performOptimisticMutation in toggleWatchlist
+                    // No need to call refreshNow() here — it causes race conditions with Trakt API eventual consistency
 
                     if (entries == null) {
                         // Network failed — keep showing cache, mark as not loading
@@ -595,6 +677,7 @@ class HomeViewModel @Inject constructor(
                         val cached = enrichmentCache[item.id] ?: return@map item
                         item.copy(
                             poster = item.poster ?: cached.poster,
+                            background = item.background ?: cached.backdrop,
                             logo = cached.logo ?: item.logo,
                             landscapePoster = cached.detailBackdrop ?: item.landscapePoster,
                             name = cached.localizedTitle ?: item.name,

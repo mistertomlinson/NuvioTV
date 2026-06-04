@@ -18,6 +18,7 @@ data class MetaDetailsUiState(
     val seasons: List<Int> = emptyList(),
     val episodesForSeason: List<Video> = emptyList(),
     val isInLibrary: Boolean = false,
+    val resolvedTmdbId: Int? = null,
     val nextToWatch: NextToWatch? = null,
     val episodeProgressMap: Map<Pair<Int, Int>, WatchProgress> = emptyMap(),
     val trailerUrl: String? = null,

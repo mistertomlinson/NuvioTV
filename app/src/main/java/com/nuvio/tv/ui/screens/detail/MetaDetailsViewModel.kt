@@ -273,7 +273,7 @@ class MetaDetailsViewModel @Inject constructor(
             libraryRepository.isInLibrary(itemId = itemId, itemType = itemType)
                 .distinctUntilChanged()
                 .collectLatest { inLibrary ->
-                    _uiState.update { state ->
+_uiState.update { state ->
                         if (state.isInLibrary == inLibrary) state else state.copy(isInLibrary = inLibrary)
                     }
                 }
@@ -909,6 +909,9 @@ class MetaDetailsViewModel @Inject constructor(
             ?: tmdbService.ensureTmdbId(itemId, itemType)
             ?: return meta
 
+        // Store resolved TMDB ID so toLibraryEntryInput() can use it for cross-ID resolution
+        _uiState.update { it.copy(resolvedTmdbId = tmdbId.toIntOrNull()) }
+
         val isSeries = meta.apiType in listOf("series", "tv")
         val needsEpisodes = settings.useEpisodes && isSeries
 
@@ -1281,7 +1284,7 @@ class MetaDetailsViewModel @Inject constructor(
             val wasInWatchlist = _uiState.value.isInWatchlist
             val wasInLibrary = _uiState.value.isInLibrary
             runCatching {
-                libraryRepository.toggleDefault(input)
+                libraryRepository.toggleDefaultWithSignal(input)
                 val message = if (wasInLibrary) {
                     context.getString(R.string.detail_removed_from_library)
                 } else {
@@ -1676,8 +1679,8 @@ class MetaDetailsViewModel @Inject constructor(
             title = name,
             year = year,
             traktId = parsedIds.trakt,
-            imdbId = parsedIds.imdb,
-            tmdbId = parsedIds.tmdb,
+            imdbId = parsedIds.imdb ?: this.imdbId,
+            tmdbId = parsedIds.tmdb ?: _uiState.value.resolvedTmdbId,
             poster = poster,
             posterShape = posterShape,
             background = background,

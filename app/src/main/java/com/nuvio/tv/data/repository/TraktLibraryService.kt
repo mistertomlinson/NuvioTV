@@ -82,6 +82,10 @@ class TraktLibraryService @Inject constructor(
     private val cacheTtlMs = 60_000L
     private val metadataHydrationLimit = 500
 
+    data class WatchlistChange(val item: com.nuvio.tv.domain.model.LibraryEntryInput, val added: Boolean)
+    private val _watchlistChangedSignal = kotlinx.coroutines.flow.MutableSharedFlow<WatchlistChange>(extraBufferCapacity = 1)
+    val watchlistChangedSignal: kotlinx.coroutines.flow.SharedFlow<WatchlistChange> = _watchlistChangedSignal
+
     /**
      * Clears all cached state so the next call to ensureFresh() fetches
      * data for the currently active profile's Trakt account.
@@ -111,10 +115,53 @@ class TraktLibraryService @Inject constructor(
             .onStart { ensureFresh() }
     }
 
+    fun isInWatchlistSync(itemId: String, itemType: String): Boolean {
+        val normalizedType = normalizeItemType(itemType)
+        val parsed = parseContentIds(itemId)
+        val snapshot = snapshotState.value
+        val staticKeys = buildSet {
+            add(contentKey(itemId = itemId, itemType = itemType))
+            parsed.imdb?.takeIf { it.isNotBlank() }?.let { add("$normalizedType:$it") }
+            parsed.tmdb?.let { add("$normalizedType:tmdb:$it") }
+            parsed.trakt?.let { add("$normalizedType:trakt:$it") }
+        }
+        val resolvedKeys = if (parsed.tmdb != null) {
+            val tmdbKey = "$normalizedType:tmdb:${parsed.tmdb}"
+            val entry = snapshot.allEntries.firstOrNull { e -> allContentKeys(e).contains(tmdbKey) }
+            if (entry != null) allContentKeys(entry) else emptySet()
+        } else emptySet()
+        val allKeys = staticKeys + resolvedKeys
+        return allKeys.any { key ->
+            snapshot.membershipByContent[key]?.contains(WATCHLIST_KEY) == true
+        }
+    }
+
     fun observeMembership(itemId: String, itemType: String): Flow<Set<String>> {
-        val key = contentKey(itemId = itemId, itemType = itemType)
+        val normalizedType = normalizeItemType(itemType)
+        val parsed = parseContentIds(itemId)
+        val staticKeys = buildSet {
+            add(contentKey(itemId = itemId, itemType = itemType))
+            parsed.imdb?.takeIf { it.isNotBlank() }?.let { add("$normalizedType:$it") }
+            parsed.tmdb?.let { add("$normalizedType:tmdb:$it") }
+            parsed.trakt?.let { add("$normalizedType:trakt:$it") }
+        }
         return snapshotState
-            .map { snapshot -> snapshot.membershipByContent[key].orEmpty() }
+            .map { snapshot ->
+                // Re-resolve cross-ID keys on every snapshot update so newly added
+                // items (tmdb:xxx) resolve to their IMDB keys after optimistic mutation
+                val resolvedKeys = if (parsed.tmdb != null) {
+                    val tmdbKey = "$normalizedType:tmdb:${parsed.tmdb}"
+                    val entry = snapshot.allEntries.firstOrNull { e ->
+                        allContentKeys(e).contains(tmdbKey)
+                    }
+                    if (entry != null) allContentKeys(entry) else emptySet()
+                } else emptySet()
+                val allKeys = staticKeys + resolvedKeys
+                val m = allKeys.firstNotNullOfOrNull { key ->
+                    snapshot.membershipByContent[key]?.takeIf { it.isNotEmpty() }
+                } ?: emptySet()
+m
+            }
             .distinctUntilChanged()
             .onStart { ensureFresh() }
     }
@@ -248,7 +295,7 @@ class TraktLibraryService @Inject constructor(
             .onStart { ensureFresh() }
     }
 
-    suspend fun toggleWatchlist(item: LibraryEntryInput) {
+    suspend fun toggleWatchlist(item: LibraryEntryInput, emitSignal: Boolean = true) {
         ensureFresh()
         val key = contentKey(item.itemId, item.itemType)
         val currentMembership = snapshotState.value.membershipByContent[key].orEmpty()
@@ -257,13 +304,13 @@ class TraktLibraryService @Inject constructor(
             performOptimisticMutation(
                 optimistic = { snapshot -> removeItemFromList(snapshot, item, WATCHLIST_KEY) }
             ) {
-                removeFromWatchlist(item)
+                removeFromWatchlist(item, emitSignal)
             }
         } else {
             performOptimisticMutation(
                 optimistic = { snapshot -> addItemToList(snapshot, item, WATCHLIST_KEY) }
             ) {
-                addToWatchlist(item)
+                addToWatchlist(item, emitSignal)
             }
         }
     }
@@ -503,6 +550,10 @@ class TraktLibraryService @Inject constructor(
         val normalizedId = normalizeContentId(resolveIds(item), fallback = item.itemId.trim())
             .ifBlank { item.itemId.trim() }
         val existing = snapshot.allEntries.firstOrNull { contentKey(it.id, it.type) == key }
+        // If itemId is a tmdb: ID, extract the TMDB numeric ID for alias resolution
+        val tmdbIdFromItemId = if (item.itemId.startsWith("tmdb:", ignoreCase = true)) {
+            item.itemId.substringAfter(':').toIntOrNull()
+        } else null
         val entry = (existing ?: LibraryEntry(
             id = normalizedId,
             type = normalizedType,
@@ -517,7 +568,7 @@ class TraktLibraryService @Inject constructor(
             genres = item.genres,
             addonBaseUrl = item.addonBaseUrl,
             imdbId = item.imdbId,
-            tmdbId = item.tmdbId,
+            tmdbId = item.tmdbId ?: tmdbIdFromItemId,
             traktId = item.traktId
         )).copy(
             listedAt = System.currentTimeMillis(),
@@ -810,7 +861,7 @@ class TraktLibraryService @Inject constructor(
         )
     }
 
-    private suspend fun addToWatchlist(item: LibraryEntryInput) {
+    private suspend fun addToWatchlist(item: LibraryEntryInput, emitSignal: Boolean = true) {
         val body = buildMutationBody(item)
         val response = traktAuthService.executeAuthorizedRequest { authHeader ->
             traktApi.addToWatchlist(
@@ -822,9 +873,10 @@ class TraktLibraryService @Inject constructor(
         if (!response.isSuccessful || !isSuccessfulAddResponse(response.body())) {
             throw IllegalStateException(errorMessageForCode(response.code(), "Failed to add to watchlist"))
         }
+        if (emitSignal) _watchlistChangedSignal.tryEmit(WatchlistChange(item, added = true))
     }
 
-    private suspend fun removeFromWatchlist(item: LibraryEntryInput) {
+    private suspend fun removeFromWatchlist(item: LibraryEntryInput, emitSignal: Boolean = true) {
         val body = buildMutationBody(item)
         val response = traktAuthService.executeAuthorizedRequest { authHeader ->
             traktApi.removeFromWatchlist(
@@ -836,6 +888,7 @@ class TraktLibraryService @Inject constructor(
         if (!response.isSuccessful) {
             throw IllegalStateException(errorMessageForCode(response.code(), "Failed to remove from watchlist"))
         }
+        if (emitSignal) _watchlistChangedSignal.tryEmit(WatchlistChange(item, added = false))
     }
 
     private suspend fun addToPersonalList(listId: String, item: LibraryEntryInput) {

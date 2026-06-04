@@ -230,8 +230,7 @@ fun HomeScreen(
                                     posterOptionsTarget = HomePosterOptionsTarget(
                                         item = item,
                                         addonBaseUrl = addonBaseUrl,
-                                        isFromMyList = addonBaseUrl.isEmpty() &&
-                                            uiState.librarySourceMode == LibrarySourceMode.TRAKT
+                                        isFromMyList = viewModel.isInWatchlist(item.id, item.apiType)
                                     )
                                 }
                             )
@@ -256,8 +255,7 @@ fun HomeScreen(
                                     posterOptionsTarget = HomePosterOptionsTarget(
                                         item = item,
                                         addonBaseUrl = addonBaseUrl,
-                                        isFromMyList = addonBaseUrl.isEmpty() &&
-                                            uiState.librarySourceMode == LibrarySourceMode.TRAKT
+                                        isFromMyList = viewModel.isInWatchlist(item.id, item.apiType)
                                     )
                                 }
                             )
@@ -280,14 +278,38 @@ fun HomeScreen(
                                     posterOptionsTarget = HomePosterOptionsTarget(
                                         item = item,
                                         addonBaseUrl = addonBaseUrl,
-                                        isFromMyList = addonBaseUrl.isEmpty() &&
-                                            uiState.librarySourceMode == LibrarySourceMode.TRAKT
+                                        isFromMyList = viewModel.isInWatchlist(item.id, item.apiType)
                                     )
                                 }
                             )
                         }
                     }
                 }
+            }
+        }
+    }
+
+    val userMessage = uiState.userMessage
+    if (userMessage != null) {
+        androidx.compose.foundation.layout.Box(
+            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+            contentAlignment = androidx.compose.ui.Alignment.BottomCenter
+        ) {
+            androidx.compose.foundation.layout.Box(
+                modifier = androidx.compose.ui.Modifier
+                    .padding(bottom = 8.dp)
+                    .background(
+                        color = if (userMessage.isError) androidx.compose.ui.graphics.Color(0xFF5A1C1C)
+                        else com.nuvio.tv.ui.theme.NuvioColors.BackgroundElevated,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                    )
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                androidx.compose.material3.Text(
+                    text = userMessage.message,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    color = com.nuvio.tv.ui.theme.NuvioColors.TextPrimary
+                )
             }
         }
     }

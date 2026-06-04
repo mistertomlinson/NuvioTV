@@ -133,7 +133,8 @@ class LibraryRepositoryImpl @Inject constructor(
 
     override suspend fun toggleDefault(item: LibraryEntryInput) {
         if (traktAuthDataStore.isEffectivelyAuthenticated.first()) {
-            traktLibraryService.toggleWatchlist(item)
+            // emitSignal=false — home screen handles catalogsMap update directly
+            traktLibraryService.toggleWatchlist(item, emitSignal = false)
             return
         }
 
@@ -144,6 +145,14 @@ class LibraryRepositoryImpl @Inject constructor(
             libraryPreferences.addItem(item.toSavedLibraryItem())
         }
         triggerRemoteSync()
+    }
+
+    override suspend fun toggleDefaultWithSignal(item: LibraryEntryInput) {
+        if (traktAuthDataStore.isEffectivelyAuthenticated.first()) {
+            traktLibraryService.toggleWatchlist(item, emitSignal = true)
+            return
+        }
+        toggleDefault(item)
     }
 
     override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {

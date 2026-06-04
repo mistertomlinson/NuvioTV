@@ -94,6 +94,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
             } else {
                 catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = currentMlRow.copy(items = updatedItems)
             }
+            showHomeMessage(appContext.getString(com.nuvio.tv.R.string.detail_removed_from_library))
         } else {
             // Add item to ML row — apply enrichment cache immediately
             val cached = enrichmentCache[item.id]
@@ -111,6 +112,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
                     runtime = cached.runtimeMinutes?.toString() ?: item.runtime
                 )
             } else item
+            showHomeMessage(appContext.getString(com.nuvio.tv.R.string.detail_added_to_library))
             if (currentMlRow != null) {
                 catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = currentMlRow.copy(
                     items = listOf(enrichedItem) + currentMlRow.items
@@ -135,8 +137,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
             }
         }
         scheduleUpdateCatalogRows()
-        // Sync Trakt snapshot in background so subsequent toggles read correct membership
-        viewModelScope.launch { traktLibraryService.refreshNow() }
+        // snapshotState stays in sync via performOptimisticMutation in toggleWatchlist
     }
 }
 
