@@ -324,8 +324,11 @@ class HomeScreenChannelManager @Inject constructor(
                         )
                     }
 
+                    val episodeSegment = if (contentType == "series" && season != null && episode != null) {
+                        "&season=$season&episode=$episode"
+                    } else ""
                     val deepLink = Uri.parse(
-                        "nuvio://detail/${encode(contentId)}/${encode(contentType)}?addonBaseUrl=${addonBaseUrl?.let { encode(it) } ?: ""}&profileId=$profileId"
+                        "nuvio://detail/${encode(contentId)}/${encode(contentType)}?addonBaseUrl=${addonBaseUrl?.let { encode(it) } ?: ""}&profileId=$profileId$episodeSegment"
                     )
 
 
@@ -708,8 +711,11 @@ class HomeScreenChannelManager @Inject constructor(
             allFields.sortByDescending { it.lastWatched }
             allFields.forEach { fields ->
                 try {
+                    val episodeSegment = if (fields.contentType == "series" && fields.season != null && fields.episode != null) {
+                        "&season=${fields.season}&episode=${fields.episode}"
+                    } else ""
                     val deepLink = Uri.parse(
-                        "nuvio://detail/${encode(fields.contentId)}/${encode(fields.contentType)}?addonBaseUrl=${fields.addonBaseUrl?.let { encode(it) } ?: ""}&profileId=${fields.profileId}"
+                        "nuvio://detail/${encode(fields.contentId)}/${encode(fields.contentType)}?addonBaseUrl=${fields.addonBaseUrl?.let { encode(it) } ?: ""}&profileId=${fields.profileId}$episodeSegment"
                     )
                     val rawPoster = fields.poster?.takeIf { !it.contains("rpdb") && !it.contains("/posters/rpdb") }
                     val cardImageUri = (fields.episodeThumbnail ?: fields.backdrop ?: rawPoster)?.let { Uri.parse(it) }
