@@ -190,12 +190,21 @@ data class PlayerSettings(
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
+    val showPlayerLoadingStatus: Boolean = true,
+    val streamAutoPlayReuseBingeGroup: Boolean = true,
+    val externalPlayerForwardSubtitles: Boolean = false,
     val streamReuseLastLinkEnabled: Boolean = false,
     val streamReuseLastLinkCacheHours: Int = 24,
     val subtitleOrganizationMode: SubtitleOrganizationMode = SubtitleOrganizationMode.NONE,
     val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.ALL_SUBTITLES,
-    val resizeMode: Int = 0 
-)
+    val resizeMode: Int = 0
+) {
+    companion object {
+        const val STREAM_AUTOPLAY_TIMEOUT_UNLIMITED = Int.MAX_VALUE
+        fun isBoundedTimeout(timeoutSeconds: Int): Boolean =
+            timeoutSeconds > 0 && timeoutSeconds != STREAM_AUTOPLAY_TIMEOUT_UNLIMITED
+    }
+}
 
 enum class StreamAutoPlayMode {
     MANUAL,

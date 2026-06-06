@@ -2,7 +2,10 @@
 
 package com.nuvio.tv.ui.screens.stream
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -66,7 +69,9 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import coil.request.ImageRequest
+
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
@@ -79,11 +84,14 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import com.nuvio.tv.core.player.ExternalPlayerLauncher
+import com.nuvio.tv.core.streams.StreamBadgeSettings
 import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.ui.components.SourceChipItem
 import com.nuvio.tv.ui.components.SourceChipStatus
 import com.nuvio.tv.ui.components.SourceStatusFilterChip
+import com.nuvio.tv.ui.components.P2pConsentDialog
+import com.nuvio.tv.ui.components.StreamBadgeChips
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.components.StreamsSkeletonList
 import com.nuvio.tv.ui.screens.player.LoadingOverlay
@@ -97,6 +105,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import android.util.Log
 
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -118,20 +127,64 @@ fun StreamScreen(
     var pendingRestoreOnResume by rememberSaveable { mutableStateOf(false) }
     var showPlayerChoiceDialog by remember { mutableStateOf(false) }
     var pendingPlaybackInfo by remember { mutableStateOf<StreamPlaybackInfo?>(null) }
+    var showP2pConsentDialog by remember { mutableStateOf(false) }
+    var pendingTorrentPlaybackInfo by remember { mutableStateOf<StreamPlaybackInfo?>(null) }
+    val p2pEnabled by viewModel.p2pEnabled.collectAsStateWithLifecycle(initialValue = false)
+    val streamBadgeSettings by viewModel.streamBadgeSettings.collectAsStateWithLifecycle(
+        initialValue = StreamBadgeSettings()
+    )
+    val scope = rememberCoroutineScope()
+
+    fun launchExternalPlayer(playbackInfo: StreamPlaybackInfo) {
+        val url = playbackInfo.url ?: return
+        scope.coroutineLaunch {
+            viewModel.launchExternalPlayer(
+                playbackInfo = playbackInfo,
+                url = url,
+                context = context
+            )
+        }
+    }
+
+    fun openExternalInBrowser(playbackInfo: StreamPlaybackInfo): Boolean {
+        if (!playbackInfo.isExternal) return false
+        val url = playbackInfo.url?.takeIf { it.isNotBlank() } ?: return false
+        val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+            .addCategory(Intent.CATEGORY_BROWSABLE)
+        runCatching {
+            context.startActivity(browserIntent)
+        }.onFailure {
+            ExternalPlayerLauncher.launch(
+                context = context,
+                url = url,
+                title = playbackInfo.title,
+                headers = playbackInfo.headers
+            )
+        }
+        return true
+    }
+
+    fun launchInternalPlayer(playbackInfo: StreamPlaybackInfo) {
+        viewModel.onInternalPlayerLaunching()
+        onStreamSelected(playbackInfo)
+    }
 
     fun routePlayback(playbackInfo: StreamPlaybackInfo) {
+        if (openExternalInBrowser(playbackInfo)) {
+            return
+        }
+        if (playbackInfo.isTorrent && !p2pEnabled) {
+            pendingTorrentPlaybackInfo = playbackInfo
+            showP2pConsentDialog = true
+            return
+        }
         when (playerPreference) {
             PlayerPreference.INTERNAL -> {
-                onStreamSelected(playbackInfo)
+                launchInternalPlayer(playbackInfo)
             }
             PlayerPreference.EXTERNAL -> {
-                playbackInfo.url?.let { url ->
-                    ExternalPlayerLauncher.launch(
-                        context = context,
-                        url = url,
-                        title = playbackInfo.title,
-                        headers = playbackInfo.headers
-                    )
+                playbackInfo.url?.let {
+                    launchExternalPlayer(playbackInfo)
                 }
             }
             PlayerPreference.ASK_EVERY_TIME -> {
@@ -142,8 +195,45 @@ fun StreamScreen(
     }
 
     fun routeAutoPlay(playbackInfo: StreamPlaybackInfo) {
+        if (openExternalInBrowser(playbackInfo)) {
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+            return
+        }
+        // Always check P2P consent for torrents, even in direct auto-play flow
+        if (playbackInfo.isTorrent && !p2pEnabled) {
+            pendingTorrentPlaybackInfo = playbackInfo
+            showP2pConsentDialog = true
+            return
+        }
         if (uiState.isDirectAutoPlayFlow) {
-            onAutoPlayResolved(playbackInfo)
+            // Respect player preference even in direct autoplay flow
+            when (playerPreference) {
+                PlayerPreference.EXTERNAL -> {
+                    playbackInfo.url?.let { url ->
+                        scope.coroutineLaunch {
+                            viewModel.launchExternalPlayer(
+                                playbackInfo = playbackInfo,
+                                url = url,
+                                autoLaunch = true,
+                                context = context
+                            )
+                            // Delay pop so external player appears on top
+                            coroutineDelay(1000)
+                            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                            onBackPress()
+                        }
+                    }
+                }
+                PlayerPreference.ASK_EVERY_TIME -> {
+                    pendingPlaybackInfo = playbackInfo
+                    showPlayerChoiceDialog = true
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+                else -> {
+                    viewModel.onInternalPlayerLaunching()
+                    onAutoPlayResolved(playbackInfo)
+                }
+            }
             return
         } else {
             pendingRestoreOnResume = true
@@ -158,24 +248,77 @@ fun StreamScreen(
 
     LaunchedEffect(uiState.autoPlayStream) {
         val stream = uiState.autoPlayStream ?: return@LaunchedEffect
-        val playbackInfo = viewModel.getStreamForPlayback(stream)
-        if (playbackInfo.url != null) {
+        val playbackInfo = viewModel.resolveStreamForPlayback(stream)
+        if (playbackInfo == null) {
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+            return@LaunchedEffect
+        }
+        // Torrent streams have url == null but carry an infoHash; navigation
+        // builds a torrent:// sentinel URL downstream.
+        if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
+            viewModel.awaitStreamLinkCacheSave()
             routeAutoPlay(playbackInfo)
         }
+    }
+
+    LaunchedEffect(uiState.playbackErrorMessage) {
+        val message = uiState.playbackErrorMessage ?: return@LaunchedEffect
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        viewModel.onPlaybackErrorShown()
     }
 
     LaunchedEffect(uiState.autoPlayPlaybackInfo) {
         val playbackInfo = uiState.autoPlayPlaybackInfo ?: return@LaunchedEffect
-        if (playbackInfo.url != null) {
-            routeAutoPlay(playbackInfo)
+        if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
+            // Torrent cached links still need P2P consent
+            if (playbackInfo.isTorrent && !p2pEnabled) {
+                pendingTorrentPlaybackInfo = playbackInfo
+                showP2pConsentDialog = true
+                return@LaunchedEffect
+            }
+            // Respect player preference for cached links too
+            when (playerPreference) {
+                PlayerPreference.EXTERNAL -> {
+                    playbackInfo.url?.let { url ->
+                        Log.d("StreamScreen", "autoPlayPlaybackInfo EXTERNAL: launching player, will pop after 800ms")
+                        viewModel.launchExternalPlayer(
+                            playbackInfo = playbackInfo,
+                            url = url,
+                            autoLaunch = true,
+                            context = context
+                        )
+                    }
+                    // Delay pop so external player appears on top, keep overlay visible
+                    coroutineDelay(1000)
+                    Log.d("StreamScreen", "autoPlayPlaybackInfo EXTERNAL: popping now")
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                    onBackPress()
+                }
+                PlayerPreference.ASK_EVERY_TIME -> {
+                    pendingPlaybackInfo = playbackInfo
+                    showPlayerChoiceDialog = true
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+                else -> {
+                    viewModel.onInternalPlayerLaunching()
+                    onAutoPlayResolved(playbackInfo)
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+            }
         }
     }
 
-    DisposableEffect(lifecycleOwner, pendingRestoreOnResume) {
+    DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && pendingRestoreOnResume) {
-                restoreFocusedStream = true
-                pendingRestoreOnResume = false
+            if (event == Lifecycle.Event.ON_RESUME) {
+                viewModel.onEvent(StreamScreenEvent.OnResume)
+                // Always dismiss overlay and stop tracking on resume
+                // covers both ActivityResult path and fire-and-forget path.
+                viewModel.stopExternalPlayerTracking()
+                if (pendingRestoreOnResume) {
+                    restoreFocusedStream = true
+                    pendingRestoreOnResume = false
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -185,9 +328,7 @@ fun StreamScreen(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuvioColors.Background)
+        modifier = Modifier.fillMaxSize()
     ) {
         // Full screen backdrop
         StreamBackdrop(
@@ -195,14 +336,15 @@ fun StreamScreen(
             isLoading = uiState.isLoading
         )
 
-        if (uiState.showDirectAutoPlayOverlay) {
+        val showOverlay = uiState.showDirectAutoPlayOverlay || uiState.externalPlayerOverlayVisible
+        if (showOverlay) {
             LoadingOverlay(
                 visible = true,
                 backdropUrl = uiState.backdrop ?: uiState.poster,
                 logoUrl = uiState.logo,
                 title = uiState.title,
                 message = if (uiState.directAutoPlayMessage != null) {
-                    stringResource(R.string.stream_finding_source)
+                    uiState.directAutoPlayMessage
                 } else {
                     null
                 },
@@ -237,6 +379,7 @@ fun StreamScreen(
                     availableAddons = uiState.availableAddons,
                     sourceChips = uiState.sourceChips,
                     selectedAddonFilter = uiState.selectedAddonFilter,
+                    showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
                     onAddonFilterSelected = { viewModel.onEvent(StreamScreenEvent.OnAddonFilterSelected(it)) },
                     onStreamSelected = { stream ->
                         val currentIndex = uiState.filteredStreams.indexOfFirst {
@@ -248,10 +391,14 @@ fun StreamScreen(
                         if (currentIndex >= 0) {
                             focusedStreamIndex = currentIndex
                         }
-                        val playbackInfo = viewModel.getStreamForPlayback(stream)
-                        pendingRestoreOnResume = true
-                        viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
-                        routePlayback(playbackInfo)
+                        scope.coroutineLaunch {
+                            val playbackInfo = viewModel.resolveStreamForPlayback(stream)
+                            if (playbackInfo != null) {
+                                pendingRestoreOnResume = true
+                                routePlayback(playbackInfo)
+                                viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                            }
+                        }
                     },
                     focusedStreamIndex = focusedStreamIndex,
                     shouldRestoreFocusedStream = restoreFocusedStream,
@@ -269,19 +416,14 @@ fun StreamScreen(
             PlayerChoiceDialog(
                 onInternalSelected = {
                     showPlayerChoiceDialog = false
-                    pendingPlaybackInfo?.let { onStreamSelected(it) }
+                    pendingPlaybackInfo?.let { launchInternalPlayer(it) }
                     pendingPlaybackInfo = null
                 },
                 onExternalSelected = {
                     showPlayerChoiceDialog = false
                     pendingPlaybackInfo?.let { info ->
-                        info.url?.let { url ->
-                            ExternalPlayerLauncher.launch(
-                                context = context,
-                                url = url,
-                                title = info.title,
-                                headers = info.headers
-                            )
+                        info.url?.let {
+                            launchExternalPlayer(info)
                         }
                     }
                     pendingPlaybackInfo = null
@@ -292,6 +434,25 @@ fun StreamScreen(
                 }
             )
         }
+
+        if (showP2pConsentDialog && pendingTorrentPlaybackInfo != null) {
+            P2pConsentDialog(
+                onEnableP2p = {
+                    viewModel.enableP2p()
+                    showP2pConsentDialog = false
+                    val info = pendingTorrentPlaybackInfo!!
+                    pendingTorrentPlaybackInfo = null
+                    launchInternalPlayer(info)
+                },
+                onDismiss = {
+                    showP2pConsentDialog = false
+                    pendingTorrentPlaybackInfo = null
+                    // Cancelled P2P consent — fall back to manual stream selection
+                    viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                }
+            )
+        }
+
     }
 }
 
@@ -310,10 +471,10 @@ private fun StreamBackdrop(
                 .build()
         }
     }
-    val alpha by animateFloatAsState(
-        targetValue = if (isLoading) 0.3f else 0.5f,
+    val imageAlpha by animateFloatAsState(
+        targetValue = if (isLoading) 0.7f else 0.5f,
         animationSpec = tween(500),
-        label = "backdrop_alpha"
+        label = "backdrop_image_alpha"
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -322,17 +483,13 @@ private fun StreamBackdrop(
             AsyncImage(
                 model = backdropModel,
                 contentDescription = null,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.Crop
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = imageAlpha },
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopEnd
             )
         }
-
-        // Dark overlay
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(NuvioColors.Background.copy(alpha = alpha))
-        )
 
         StreamGradientLayer(
             bgColor = backgroundColor,
@@ -348,39 +505,22 @@ private fun StreamGradientLayer(
 ) {
     Box(
         modifier = modifier
-            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
             .drawWithCache {
-                val leftGradient = Brush.horizontalGradient(
+                val combinedGradient = Brush.horizontalGradient(
                     colorStops = arrayOf(
                         0.0f to bgColor,
-                        0.12f to bgColor.copy(alpha = 0.92f),
-                        0.26f to bgColor.copy(alpha = 0.78f),
-                        0.44f to bgColor.copy(alpha = 0.58f),
-                        0.62f to bgColor.copy(alpha = 0.36f),
-                        0.78f to bgColor.copy(alpha = 0.16f),
-                        0.90f to bgColor.copy(alpha = 0.05f),
-                        1.0f to Color.Transparent
-                    ),
-                    startX = 0f,
-                    endX = size.width * 0.65f
-                )
-                val rightGradient = Brush.horizontalGradient(
-                    colorStops = arrayOf(
-                        0.0f to Color.Transparent,
-                        0.10f to bgColor.copy(alpha = 0.05f),
-                        0.22f to bgColor.copy(alpha = 0.16f),
-                        0.38f to bgColor.copy(alpha = 0.36f),
-                        0.56f to bgColor.copy(alpha = 0.58f),
-                        0.74f to bgColor.copy(alpha = 0.78f),
-                        0.88f to bgColor.copy(alpha = 0.92f),
+                        0.15f to bgColor.copy(alpha = 0.85f),
+                        0.30f to bgColor.copy(alpha = 0.40f),
+                        0.50f to bgColor.copy(alpha = 0.15f),
+                        0.70f to bgColor.copy(alpha = 0.40f),
+                        0.85f to bgColor.copy(alpha = 0.85f),
                         1.0f to bgColor
                     ),
-                    startX = size.width * 0.35f,
+                    startX = 0f,
                     endX = size.width
                 )
                 onDrawBehind {
-                    drawRect(brush = leftGradient)
-                    drawRect(brush = rightGradient)
+                    drawRect(brush = combinedGradient)
                 }
             }
     )
@@ -401,6 +541,7 @@ private fun LeftContentSection(
 ) {
     val context = LocalContext.current
     var logoLoadFailed by remember(logo) { mutableStateOf(false) }
+    val density = LocalDensity.current
     val logoModel = remember(context, logo) {
         logo?.let { image ->
             ImageRequest.Builder(context)
@@ -448,7 +589,7 @@ private fun LeftContentSection(
                 // Episode info
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "S$season E$episode",
+                    text = stringResource(R.string.stream_episode_label, season, episode),
                     style = MaterialTheme.typography.titleLarge,
                     color = NuvioTheme.extendedColors.textSecondary,
                     textAlign = TextAlign.Center
@@ -505,6 +646,7 @@ private fun RightStreamSection(
     availableAddons: List<String>,
     sourceChips: List<SourceChipItem>,
     selectedAddonFilter: String?,
+    showFileSizeBadges: Boolean,
     onAddonFilterSelected: (String?) -> Unit,
     onStreamSelected: (Stream) -> Unit,
     focusedStreamIndex: Int,
@@ -513,6 +655,7 @@ private fun RightStreamSection(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     var enter by remember { mutableStateOf(false) }
     var shouldFocusFirstStream by remember { mutableStateOf(false) }
     var wasLoading by remember { mutableStateOf(true) }
@@ -617,6 +760,7 @@ private fun RightStreamSection(
                             onInitialFocusConsumed = { shouldFocusFirstStream = false },
                             availableAddons = availableAddons,
                             selectedAddonFilter = selectedAddonFilter,
+                            showFileSizeBadges = showFileSizeBadges,
                             onAddonFilterSelected = { onAddonFilterSelectedGuarded(it) },
                             chipFocusRequesters = chipFocusRequesters,
                             orderedAddonNames = orderedAddonNames,
@@ -639,23 +783,60 @@ private fun AddonFilterChips(
     focusRequesters: List<FocusRequester>,
     orderedNames: List<String>
 ) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val chipMap = sourceChips.associateBy { it.name }
     var chipRowHasFocus by remember { mutableStateOf(false) }
+    // Track the focused chip index to handle duplicate addon names correctly.
+    // indexOf(selectedAddon) would always return the first duplicate.
+    var focusedChipIndex by remember { mutableStateOf(
+        if (selectedAddon == null) 0 else (orderedNames.indexOf(selectedAddon) + 1).coerceAtLeast(0)
+    ) }
+    LaunchedEffect(selectedAddon, orderedNames) {
+        val idx = if (selectedAddon == null) 0 else (orderedNames.indexOf(selectedAddon) + 1).coerceAtLeast(0)
+        focusedChipIndex = idx
+    }
+    val scope = rememberCoroutineScope()
+    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     LazyRow(
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         modifier = Modifier
-            .onFocusChanged { chipRowHasFocus = it.hasFocus }
+            .onFocusChanged { focusState ->
+                val hasFocus = focusState.hasFocus
+                if (hasFocus && !chipRowHasFocus && isRtl) {
+                    scope.coroutineLaunch {
+                        withFrameNanos {}
+                        focusRequesters.getOrNull(focusedChipIndex)?.requestFocus()
+                    }
+                }
+                chipRowHasFocus = hasFocus
+            }
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action != android.view.KeyEvent.ACTION_DOWN) return@onKeyEvent false
+
+                // Throttle rapid key repeats (long-press)
+                if (event.nativeKeyEvent.repeatCount > 0) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
+                    lastKeyRepeatDispatchRef.set(now)
+                }
+
                 val allOptions = listOf<String?>(null) + orderedNames
-                val currentIdx = allOptions.indexOf(selectedAddon)
+                val currentIdx = focusedChipIndex.coerceIn(0, allOptions.lastIndex)
                 when (event.key) {
                     androidx.compose.ui.input.key.Key.DirectionLeft -> {
-                        if (currentIdx > 0) { onAddonSelected(allOptions[currentIdx - 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx < allOptions.lastIndex) { focusedChipIndex = currentIdx + 1; onAddonSelected(allOptions[currentIdx + 1]); true } else false
+                        } else {
+                            if (currentIdx > 0) { focusedChipIndex = currentIdx - 1; onAddonSelected(allOptions[currentIdx - 1]); true } else false
+                        }
                     }
                     androidx.compose.ui.input.key.Key.DirectionRight -> {
-                        if (currentIdx < allOptions.lastIndex) { onAddonSelected(allOptions[currentIdx + 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx > 0) { focusedChipIndex = currentIdx - 1; onAddonSelected(allOptions[currentIdx - 1]); true } else false
+                        } else {
+                            if (currentIdx < allOptions.lastIndex) { focusedChipIndex = currentIdx + 1; onAddonSelected(allOptions[currentIdx + 1]); true } else false
+                        }
                     }
                     else -> false
                 }
@@ -663,7 +844,7 @@ private fun AddonFilterChips(
     ) {
         item {
             SourceStatusFilterChip(
-                name = "All",
+                name = stringResource(R.string.stream_filter_all),
                 isSelected = selectedAddon == null,
                 status = SourceChipStatus.SUCCESS,
                 isSelectable = true,
@@ -788,12 +969,15 @@ private fun StreamsList(
     onInitialFocusConsumed: () -> Unit = {},
     availableAddons: List<String> = emptyList(),
     selectedAddonFilter: String? = null,
+    showFileSizeBadges: Boolean = true,
     onAddonFilterSelected: (String?) -> Unit = {},
     chipFocusRequesters: List<FocusRequester> = emptyList(),
     orderedAddonNames: List<String> = emptyList(),
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
+    val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val firstCardFocusRequester = remember { FocusRequester() }
+    val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val restoreFocusRequester = remember { FocusRequester() }
     val firstStreamKey = streams.firstOrNull()?.let { first ->
         "${first.addonName}_${first.url ?: first.infoHash ?: first.ytId ?: "unknown"}"
@@ -830,41 +1014,59 @@ private fun StreamsList(
             .onFocusChanged { onFocusChanged(it.hasFocus) }
             .onKeyEvent { event ->
                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+
+                // Throttle rapid key repeats (long-press)
+                if (event.nativeKeyEvent.repeatCount > 0) {
+                    val now = android.os.SystemClock.uptimeMillis()
+                    if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
+                    lastKeyRepeatDispatchRef.set(now)
+                }
                 if (availableAddons.isEmpty()) return@onKeyEvent false
                 val allOptions = listOf<String?>(null) + availableAddons
                 val currentIdx = allOptions.indexOf(selectedAddonFilter)
                 when (event.key) {
                     Key.DirectionLeft -> {
-                        if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
+                        } else {
+                            if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
+                        }
                     }
                     Key.DirectionRight -> {
-                        if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
+                        if (isRtl) {
+                            if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
+                        } else {
+                            if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
+                        }
                     }
                     else -> false
                 }
             },
         verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)
+        contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 32.dp)
     ) {
         itemsIndexed(streams, key = { index, stream ->
-            "${stream.addonName}_${stream.url ?: stream.infoHash ?: stream.ytId ?: "unknown"}_$index"
+            stream.stableKey(index)
         }) { index, stream ->
-            StreamCard(
-                stream = stream,
-                onClick = { onStreamSelected(stream) },
-                focusRequester = when {
-                    shouldRestoreFocusedStream && index == focusedStreamIndex.coerceIn(0, (streams.lastIndex).coerceAtLeast(0)) -> restoreFocusRequester
-                    index == 0 -> firstCardFocusRequester
-                    else -> null
-                },
-                onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
-                    val idx = if (selectedAddonFilter == null) 0
-                              else orderedAddonNames.indexOf(selectedAddonFilter) + 1
-                    if (idx >= 0 && idx < chipFocusRequesters.size) {
-                        try { chipFocusRequesters[idx].requestFocus() } catch (_: Exception) {}
-                    }
-                }} else null
-            )
+            Box(modifier = Modifier.padding(vertical = 4.dp)) {
+                StreamCard(
+                    stream = stream,
+                    showFileSizeBadges = showFileSizeBadges,
+                    onClick = { onStreamSelected(stream) },
+                    focusRequester = when {
+                        shouldRestoreFocusedStream && index == focusedStreamIndex.coerceIn(0, (streams.lastIndex).coerceAtLeast(0)) -> restoreFocusRequester
+                        index == 0 -> firstCardFocusRequester
+                        else -> null
+                    },
+                    onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
+                        val idx = if (selectedAddonFilter == null) 0
+                                  else orderedAddonNames.indexOf(selectedAddonFilter) + 1
+                        if (idx >= 0 && idx < chipFocusRequesters.size) {
+                            try { chipFocusRequesters[idx].requestFocus() } catch (_: Exception) {}
+                        }
+                    }} else null
+                )
+            }
         }
     }
 }
@@ -873,6 +1075,7 @@ private fun StreamsList(
 @Composable
 private fun StreamCard(
     stream: Stream,
+    showFileSizeBadges: Boolean,
     onClick: () -> Unit,
     focusRequester: FocusRequester? = null,
     onUpKey: (() -> Unit)? = null
@@ -904,7 +1107,7 @@ private fun StreamCard(
             focusedContainerColor = NuvioColors.BackgroundElevated
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.08f)
+        scale = CardDefaults.scale(focusedScale = 1f)
     ) {
         Row(
             modifier = Modifier
@@ -933,18 +1136,13 @@ private fun StreamCard(
                     }
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (stream.isTorrent()) {
-                        StreamTypeChip(text = stringResource(R.string.stream_type_torrent), color = NuvioColors.Secondary)
-                    }
-                    if (stream.isYouTube()) {
-                        StreamTypeChip(text = stringResource(R.string.stream_type_youtube), color = Color(0xFFFF0000))
-                    }
-                    if (stream.isExternal()) {
-                        StreamTypeChip(text = stringResource(R.string.stream_type_external), color = NuvioColors.Primary)
-                    }
+                if (stream.badges.isNotEmpty() || (showFileSizeBadges && stream.behaviorHints?.videoSize != null)) {
+                    StreamBadgeChips(
+                        badges = stream.badges,
+                        fileSizeBytes = stream.behaviorHints?.videoSize,
+                        showFileSizeBadge = showFileSizeBadges,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
                 }
             }
 
@@ -972,25 +1170,6 @@ private fun StreamCard(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun StreamTypeChip(
-    text: String,
-    color: Color
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(8.dp))
-            .background(color.copy(alpha = 0.2f))
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-    ) {
-        Text(
-            text = text,
-            style = MaterialTheme.typography.labelSmall,
-            color = color
-        )
     }
 }
 

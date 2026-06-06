@@ -85,6 +85,8 @@ class PluginManager @Inject constructor(
     private val scraperSemaphore = Semaphore(MAX_CONCURRENT_SCRAPERS)
     
     // Flow of all repositories
+    val groupStreamsByRepository: Flow<Boolean> = kotlinx.coroutines.flow.flowOf(false)
+
     val repositories: Flow<List<PluginRepository>> = dataStore.repositories
     
     // Flow of all scrapers

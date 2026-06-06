@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 
 @Immutable
 data class Addon(
+    val enabled: Boolean = true,
     val id: String,
     val name: String,
     val displayName: String = name,
@@ -69,3 +70,5 @@ data class StremioAddonsConfig(
     val issuer: String? = null,
     val signature: String? = null
 )
+
+fun List<Addon>.enabledAddons(): List<Addon> = filter { it.enabled }

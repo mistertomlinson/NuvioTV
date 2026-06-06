@@ -94,6 +94,7 @@
             android:foregroundServiceType="mediaProjection"
             android:exported="false" />
 
+        <service android:name=".core.player.ExternalPlaybackKeepAliveService" android:foregroundServiceType="mediaPlayback" android:exported="false" />
     </application>
 
 </manifest>

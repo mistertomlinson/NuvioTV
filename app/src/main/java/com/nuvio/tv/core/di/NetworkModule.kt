@@ -13,6 +13,9 @@ import com.nuvio.tv.data.remote.api.TraktApi
 import com.nuvio.tv.data.remote.api.TrailerApi
 import com.nuvio.tv.data.remote.api.IntroDbApi
 import com.nuvio.tv.data.remote.api.ImdbTapframeApi
+import com.nuvio.tv.data.remote.api.TorboxApi
+import com.nuvio.tv.data.remote.api.PremiumizeApi
+import com.nuvio.tv.data.remote.api.RealDebridApi
 import com.nuvio.tv.data.remote.api.MDBListApi
 import com.nuvio.tv.data.remote.api.ParentalGuideApi
 import com.nuvio.tv.data.remote.api.SeriesGraphApi
@@ -383,4 +386,51 @@ object NetworkModule {
     @Singleton
     fun provideImdbTapframeApi(@Named("imdbTapframe") retrofit: Retrofit): ImdbTapframeApi =
         retrofit.create(ImdbTapframeApi::class.java)
+
+    // --- Debrid APIs ---
+
+    @Provides
+    @Singleton
+    @Named("torbox")
+    fun provideTorboxRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit =
+        Retrofit.Builder()
+            .baseUrl("https://api.torbox.app/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideTorboxApi(@Named("torbox") retrofit: Retrofit): TorboxApi =
+        retrofit.create(TorboxApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("premiumize")
+    fun providePremiumizeRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit =
+        Retrofit.Builder()
+            .baseUrl("https://www.premiumize.me/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+    @Provides
+    @Singleton
+    fun providePremiumizeApi(@Named("premiumize") retrofit: Retrofit): PremiumizeApi =
+        retrofit.create(PremiumizeApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("realdebrid")
+    fun provideRealDebridRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit =
+        Retrofit.Builder()
+            .baseUrl("https://api.real-debrid.com/rest/1.0/")
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+
+    @Provides
+    @Singleton
+    fun provideRealDebridApi(@Named("realdebrid") retrofit: Retrofit): RealDebridApi =
+        retrofit.create(RealDebridApi::class.java)
 }
