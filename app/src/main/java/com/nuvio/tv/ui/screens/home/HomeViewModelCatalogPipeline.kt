@@ -527,8 +527,21 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         } else {
             filteredRows.map { row ->
                 val key = row.addonId + "_" + row.apiType + "_" + row.catalogId
-                if (key in shuffleKeys) row.copy(items = row.items.shuffled(java.util.Random(seed + key.hashCode().toLong())))
-                else row
+                if (key !in shuffleKeys) return@map row
+                val rng = java.util.Random(seed + key.hashCode().toLong())
+                // Find how many items were already shuffled in the current uiState
+                val alreadyShuffled = _uiState.value.catalogRows
+                    .find { r -> r.addonId == row.addonId && r.apiType == row.apiType && r.catalogId == row.catalogId }
+                    ?.items ?: emptyList<com.nuvio.tv.domain.model.MetaPreview>()
+                val alreadyShuffledIds = alreadyShuffled.map { it.id }.toSet()
+                val newItems = row.items.filter { it.id !in alreadyShuffledIds }
+                if (alreadyShuffled.isEmpty()) {
+                    // First load — shuffle everything
+                    row.copy(items = row.items.shuffled(rng))
+                } else {
+                    // Pagination — preserve existing order, shuffle only new items and append
+                    row.copy(items = alreadyShuffled + newItems.shuffled(rng))
+                }
             }
         }
         val selectedHeroCatalogSet = heroCatalogKeys.toSet()

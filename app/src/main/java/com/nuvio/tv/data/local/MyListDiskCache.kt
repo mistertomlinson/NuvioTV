@@ -22,7 +22,12 @@ data class CachedMyListItem(
     val description: String?,
     val releaseInfo: String?,
     val imdbRating: Float?,
-    val genres: List<String>
+    val genres: List<String>,
+    val status: String? = null,
+    val ageRating: String? = null,
+    val runtime: String? = null,
+    val country: String? = null,
+    val language: String? = null
 )
 
 @Singleton

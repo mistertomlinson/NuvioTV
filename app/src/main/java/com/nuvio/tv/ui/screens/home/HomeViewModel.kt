@@ -554,7 +554,12 @@ class HomeViewModel @Inject constructor(
                                 description = c.description,
                                 releaseInfo = c.releaseInfo,
                                 imdbRating = c.imdbRating,
-                                genres = c.genres
+                                genres = c.genres,
+                                status = c.status,
+                                ageRating = c.ageRating,
+                                runtime = c.runtime,
+                                country = c.country,
+                                language = c.language
                             )
                         }
                         com.nuvio.tv.domain.model.CatalogRow(
@@ -723,7 +728,12 @@ class HomeViewModel @Inject constructor(
                                 description = item.description,
                                 releaseInfo = item.releaseInfo,
                                 imdbRating = item.imdbRating,
-                                genres = item.genres
+                                genres = item.genres,
+                                status = item.status,
+                                ageRating = item.ageRating,
+                                runtime = item.runtime,
+                                country = item.country,
+                                language = item.language
                             )
                         }
                         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
