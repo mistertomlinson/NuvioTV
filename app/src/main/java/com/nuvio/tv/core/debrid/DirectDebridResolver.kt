@@ -115,7 +115,11 @@ class DirectDebridResolver @Inject constructor(
         }
     }
 
-    suspend fun shouldResolveToPlayableStream(stream: Stream): Boolean {
+    suspend fun isDebridConfigured(): Boolean {
+        return dataStore.settings.first().canResolvePlayableLinks
+    }
+
+        suspend fun shouldResolveToPlayableStream(stream: Stream): Boolean {
         val settings = dataStore.settings.first()
         if (!settings.canResolvePlayableLinks) return false
         if (stream.needsLocalDebridResolve()) {

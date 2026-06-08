@@ -68,6 +68,10 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
         return
     }
 
+    val isDebridStream = url.lowercase().let {
+        it.contains("tb-cdn") || it.contains("torbox") || it.contains("real-debrid") ||
+        it.contains("premiumize") || it.contains("alldebrid") || it.contains("offcloud")
+    }
     scope.launch {
         try {
             resetLoadingOverlayForNewStream()
@@ -76,7 +80,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                 it.copy(
                     frameRateMatchingMode = playerSettings.frameRateMatchingMode,
                     resizeMode = playerSettings.resizeMode,
-                    loadingMessage = context.getString(R.string.player_loading_detecting_format)
+                    loadingMessage = if (isDebridStream) null else context.getString(R.string.player_loading_detecting_format)
                 )
             }
             runAfrPreflightIfEnabled(
@@ -187,7 +191,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     .build()
             }
 
-            _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_building)) }
+            _uiState.update { it.copy(loadingMessage = if (isDebridStream) null else context.getString(R.string.player_loading_building)) }
             _exoPlayer = if (useLibass) {
                 ExoPlayer.Builder(context)
                     .setLoadControl(loadControl)
@@ -250,7 +254,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                         mimeTypeOverride = currentStreamMimeType
                     )
                 )
-                _uiState.update { it.copy(loadingMessage = context.getString(R.string.player_loading_starting)) }
+                _uiState.update { it.copy(loadingMessage = if (isDebridStream) null else context.getString(R.string.player_loading_starting)) }
                 playWhenReady = true
                 prepare()
 

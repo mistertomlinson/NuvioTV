@@ -298,7 +298,7 @@ class StreamScreenViewModel @Inject constructor(
                     it.copy(
                         isDirectAutoPlayFlow = true,
                         showDirectAutoPlayOverlay = true,
-                        directAutoPlayMessage = if (playerSettings.showPlayerLoadingStatus) {
+                        directAutoPlayMessage = if (!directDebridResolver.isDebridConfigured()) {
                             context.getString(R.string.stream_finding_source)
                         } else {
                             null
@@ -1006,15 +1006,10 @@ class StreamScreenViewModel @Inject constructor(
             return getStreamForPlayback(stream)
         }
 
-        val showLoadingStatus = playerSettingsDataStore.playerSettings.first().showPlayerLoadingStatus
         updateUiStateIfChanged {
             it.copy(
                 showDirectAutoPlayOverlay = true,
-                directAutoPlayMessage = if (showLoadingStatus) {
-                    context.getString(R.string.debrid_resolving_stream)
-                } else {
-                    null
-                },
+                directAutoPlayMessage = null,
                 playbackErrorMessage = null
             )
         }
@@ -1025,7 +1020,7 @@ class StreamScreenViewModel @Inject constructor(
                 updateUiStateIfChanged {
                     it.copy(
                         showDirectAutoPlayOverlay = true,
-                        directAutoPlayMessage = context.getString(R.string.stream_starting)
+                        directAutoPlayMessage = null
                     )
                 }
                 cancelStreamsLoad()
