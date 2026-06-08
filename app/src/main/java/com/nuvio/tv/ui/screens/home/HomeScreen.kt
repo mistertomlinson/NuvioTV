@@ -48,6 +48,7 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
 import androidx.compose.ui.res.stringResource
@@ -344,6 +345,12 @@ fun HomeScreen(
             }
         )
     }
+
+    WatchedRatingOverlay(
+        visible = uiState.showWatchedRatingOverlay,
+        onRate = { rating -> viewModel.submitWatchedRating(rating) },
+        onDismiss = { viewModel.dismissWatchedRating() }
+    )
 
     if (uiState.showPosterListPicker) {
         HomeLibraryListPickerDialog(

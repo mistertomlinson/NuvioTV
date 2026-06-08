@@ -49,6 +49,10 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.HomeEnrichmentDiskCache
 import com.nuvio.tv.data.repository.TraktLibraryService
+import com.nuvio.tv.data.repository.TraktScrobbleService
+import com.nuvio.tv.data.repository.parseContentIds
+import com.nuvio.tv.data.repository.TraktScrobbleItem
+import com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto
 import com.nuvio.tv.data.repository.TraktProgressService
 import javax.inject.Inject
 import android.os.SystemClock
@@ -93,6 +97,7 @@ class HomeViewModel @Inject constructor(
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     internal val homeEnrichmentDiskCache: HomeEnrichmentDiskCache,
     internal val myListDiskCache: MyListDiskCache,
+    internal val traktScrobbleService: TraktScrobbleService,
 ) : ViewModel() {
     companion object {
         @Volatile internal var activeInstanceId: Int = -1
@@ -744,6 +749,32 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+
+    fun dismissWatchedRating() {
+        _uiState.update { it.copy(showWatchedRatingOverlay = false) }
+    }
+
+    fun submitWatchedRating(rating: Int) {
+        val state = _uiState.value
+        val itemId = state.watchedRatingItemId ?: return
+        val itemType = state.watchedRatingItemType ?: return
+        _uiState.update { it.copy(showWatchedRatingOverlay = false) }
+        viewModelScope.launch {
+            runCatching {
+                val parsedIds = parseContentIds(itemId)
+                val imdbId = state.watchedRatingImdbId ?: parsedIds.imdb
+                val traktIds = TraktIdsDto(imdb = imdbId, tmdb = parsedIds.tmdb)
+                val scrobbleItem = TraktScrobbleItem.Movie(
+                    title = state.watchedRatingTitle,
+                    year = state.watchedRatingYear,
+                    ids = traktIds
+                )
+                traktScrobbleService.postRating(item = scrobbleItem, rating = rating)
+            }.onFailure { error ->
+                android.util.Log.w(TAG, "Failed to submit watched rating: ${error.message}")
+            }
+        }
+    }
 
     fun onEvent(event: HomeEvent) {
         when (event) {

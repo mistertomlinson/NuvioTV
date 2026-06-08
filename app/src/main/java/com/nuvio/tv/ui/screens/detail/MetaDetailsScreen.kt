@@ -99,6 +99,7 @@ import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.MetaDetailsSkeleton
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
@@ -256,6 +257,12 @@ fun MetaDetailsScreen(
             trailerSeekOverlayState.durationMs = duration
         }
     }
+
+    WatchedRatingOverlay(
+        visible = uiState.showWatchedRatingOverlay,
+        onRate = { rating -> viewModel.submitWatchedRating(rating) },
+        onDismiss = { viewModel.dismissWatchedRating() }
+    )
 
     LaunchedEffect(uiState.userMessage) {
         if (uiState.userMessage != null) {

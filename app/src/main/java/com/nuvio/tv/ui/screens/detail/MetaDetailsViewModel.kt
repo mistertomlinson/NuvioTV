@@ -30,6 +30,9 @@ import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.repository.TraktCommentsService
+import com.nuvio.tv.data.repository.TraktScrobbleService
+import com.nuvio.tv.data.repository.TraktScrobbleItem
+import com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.core.util.isUnreleased
@@ -76,6 +79,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val traktCommentsService: TraktCommentsService,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
+    private val traktScrobbleService: TraktScrobbleService,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private val itemId: String = savedStateHandle["itemId"] ?: ""
@@ -195,6 +199,31 @@ class MetaDetailsViewModel @Inject constructor(
                 if (!settings.enabled) {
                     idleTimerJob?.cancel()
                 }
+            }
+        }
+    }
+
+    fun dismissWatchedRating() {
+        _uiState.update { it.copy(showWatchedRatingOverlay = false) }
+    }
+
+    fun submitWatchedRating(rating: Int) {
+        _uiState.update { it.copy(showWatchedRatingOverlay = false) }
+        val meta = _uiState.value.meta ?: return
+        viewModelScope.launch {
+            runCatching {
+                val parsedIds = parseContentIds(itemId)
+                val imdbId = meta.imdbId ?: parsedIds.imdb
+                val traktIds = TraktIdsDto(imdb = imdbId, tmdb = parsedIds.tmdb)
+                val year = meta.releaseInfo?.let { Regex("(\\d{4})").find(it)?.groupValues?.getOrNull(1)?.toIntOrNull() }
+                val scrobbleItem = TraktScrobbleItem.Movie(
+                    title = meta.name,
+                    year = year,
+                    ids = traktIds
+                )
+                traktScrobbleService.postRating(item = scrobbleItem, rating = rating)
+            }.onFailure { error ->
+                android.util.Log.w(TAG, "Failed to submit watched rating: ${error.message}")
             }
         }
     }
@@ -1399,6 +1428,10 @@ _uiState.update { state ->
                 } else {
                     watchProgressRepository.markAsCompleted(buildCompletedMovieProgress(meta))
                     showMessage(context.getString(R.string.detail_movie_marked_watched))
+                    // Show rating overlay if Trakt is connected
+                    if (traktScrobbleService.isTraktAuthenticated()) {
+                        _uiState.update { it.copy(showWatchedRatingOverlay = true) }
+                    }
                 }
             }.onFailure { error ->
                 showMessage(

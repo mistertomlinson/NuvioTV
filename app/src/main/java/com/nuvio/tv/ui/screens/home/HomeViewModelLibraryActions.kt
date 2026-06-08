@@ -273,6 +273,22 @@ fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
                 watchProgressRepository.removeFromHistory(item.id, videoId = item.imdbId)
             } else {
                 watchProgressRepository.markAsCompleted(buildCompletedMovieProgress(item))
+                // Show rating overlay if Trakt is connected
+                if (traktScrobbleService.isTraktAuthenticated()) {
+                    val parsedIds = parseContentIds(item.id)
+                    val year = Regex("(\\d{4})").find(item.releaseInfo ?: "")
+                        ?.groupValues?.getOrNull(1)?.toIntOrNull()
+                    _uiState.update { state ->
+                        state.copy(
+                            showWatchedRatingOverlay = true,
+                            watchedRatingItemId = item.id,
+                            watchedRatingItemType = item.apiType,
+                            watchedRatingTitle = item.name,
+                            watchedRatingImdbId = item.imdbId ?: parsedIds.imdb,
+                            watchedRatingYear = year
+                        )
+                    }
+                }
             }
         }.onFailure { error ->
             Log.w(HomeViewModel.TAG, "Failed to toggle poster watched status for ${item.id}: ${error.message}")
