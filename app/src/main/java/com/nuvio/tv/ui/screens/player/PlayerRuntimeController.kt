@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
@@ -49,7 +50,8 @@ class PlayerRuntimeController(
     internal val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     internal val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     savedStateHandle: SavedStateHandle,
-    internal val scope: CoroutineScope
+    internal val scope: CoroutineScope,
+    internal val directDebridResolver: DirectDebridResolver
 ) {
 
     companion object {
@@ -103,6 +105,7 @@ class PlayerRuntimeController(
     internal val contentType: String? = navigationArgs.contentType
     internal val contentName: String? = navigationArgs.contentName
     internal val poster: String? = navigationArgs.poster
+    internal val manualSelection: Boolean = navigationArgs.manualSelection
     internal val backdrop: String? = navigationArgs.backdrop
     internal val logo: String? = navigationArgs.logo
     internal val videoId: String? = navigationArgs.videoId

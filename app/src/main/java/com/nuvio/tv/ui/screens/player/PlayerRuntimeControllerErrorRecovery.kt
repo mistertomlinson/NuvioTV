@@ -35,6 +35,8 @@ internal fun PlayerRuntimeController.attemptStartupRecovery(
     if (hasRenderedFirstFrame) return false
     if (!isRetryablePlaybackError(error)) return false
     if (startupRetryCount >= MAX_STARTUP_AUTO_RETRIES) return false
+    // Debrid streams skip startup recovery — go straight to attemptNextDebridStream
+    if (isCurrentStreamDebridOrDownload()) return false
 
     val paused = userPausedManually
     val attempt = startupRetryCount
@@ -314,8 +316,117 @@ internal fun PlayerRuntimeController.isCurrentStreamDebridOrDownload(): Boolean 
     }
     // Also check current URL against known debrid patterns
     val url = currentStreamUrl.lowercase()
-    return url.contains("torbox") || url.contains("debrid") || url.contains("alldebrid") ||
-        url.contains("realdebrid") || url.contains("premiumize") || url.contains("offcloud")
+    return url.contains("torbox") || url.contains("tb-cdn") || url.contains("debrid") ||
+        url.contains("alldebrid") || url.contains("realdebrid") || url.contains("premiumize") ||
+        url.contains("offcloud")
+}
+
+
+internal fun PlayerRuntimeController.isDebridExtractorFailure(error: PlaybackException): Boolean {
+    return error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ||
+        error.errorCode == PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED ||
+        error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED ||
+        error.errorCode == PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED
+}
+
+internal fun PlayerRuntimeController.isDebridLinkExpired(error: PlaybackException): Boolean {
+    val code = error.findInvalidResponseCodeException()?.responseCode
+    return code == 410 || code == 403 || code == 404
+}
+
+internal fun PlayerRuntimeController.attemptNextDebridStream(error: PlaybackException): Boolean {
+    // Only for debrid streams
+    if (!isCurrentStreamDebridOrDownload()) return false
+    // Only on extractor failure or expired link
+    if (!isDebridExtractorFailure(error) && !isDebridLinkExpired(error)) return false
+
+    val streams = _uiState.value.sourceAllStreams
+    val nextIndex = autoAdvanceStreamIndex + 1
+
+    android.util.Log.d("PlayerRecovery", "attemptNextDebridStream: index=$autoAdvanceStreamIndex, available=${streams.size}")
+
+    if (streams.isEmpty()) {
+        android.util.Log.d("PlayerRecovery", "Debrid next stream: no streams loaded yet, fetching on demand")
+        autoAdvanceStreamIndex = nextIndex
+        errorRetryJob?.cancel()
+        errorRetryJob = scope.launch {
+            // Silent — keep backdrop/logo, just keep loading overlay as-is
+            _uiState.update { it.copy(error = null, showPauseOverlay = false) }
+            loadSourceStreams(forceRefresh = false)
+            var waited = 0
+            while (_uiState.value.sourceAllStreams.isEmpty() && waited < 10_000) {
+                kotlinx.coroutines.delay(500L)
+                waited += 500
+            }
+            val loadedStreams = _uiState.value.sourceAllStreams
+            if (loadedStreams.isEmpty() || nextIndex >= loadedStreams.size) {
+                android.util.Log.w("PlayerRecovery", "Debrid next stream: no streams after load — giving up")
+                return@launch
+            }
+            switchToNextDebridStream(loadedStreams, nextIndex)
+        }
+        return true
+    }
+
+    if (nextIndex >= streams.size) {
+        android.util.Log.w("PlayerRecovery", "Debrid next stream: exhausted all ${streams.size} streams")
+        return false
+    }
+
+    autoAdvanceStreamIndex = nextIndex
+    errorRetryJob?.cancel()
+    errorRetryJob = scope.launch {
+        // Silent — no loadingMessage change, backdrop stays
+        _uiState.update { it.copy(error = null, showPauseOverlay = false) }
+        kotlinx.coroutines.delay(500L)
+        switchToNextDebridStream(streams, nextIndex)
+    }
+    return true
+}
+
+private suspend fun PlayerRuntimeController.switchToNextDebridStream(
+    streams: List<com.nuvio.tv.domain.model.Stream>,
+    nextIndex: Int
+) {
+    val nextStream = streams[nextIndex]
+    android.util.Log.d("PlayerRecovery", "Debrid: resolving stream $nextIndex: ${nextStream.name ?: nextStream.getStreamUrl()?.take(60)}")
+
+    autoAdvanceStreamIndex = nextIndex
+    errorRetryCount = 0
+    startupRetryCount = 0
+    hasRenderedFirstFrame = false
+
+    // Resolve via debrid silently
+    val season = currentSeason
+    val episode = currentEpisode
+    val resolved = try {
+        val result = directDebridResolver.resolve(nextStream, season, episode)
+        when (result) {
+            is com.nuvio.tv.core.debrid.DirectDebridResolveResult.Success -> {
+                android.util.Log.d("PlayerRecovery", "Debrid: resolved to ${result.url?.take(80)}")
+                result.url
+            }
+            else -> {
+                android.util.Log.w("PlayerRecovery", "Debrid: resolve failed with $result — trying stream URL directly")
+                nextStream.getStreamUrl()
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("PlayerRecovery", "Debrid: resolve threw ${e.message} — trying stream URL directly")
+        nextStream.getStreamUrl()
+    }
+
+    if (resolved.isNullOrBlank()) {
+        android.util.Log.w("PlayerRecovery", "Debrid: no URL for stream $nextIndex — skipping to next")
+        val furtherIndex = nextIndex + 1
+        if (furtherIndex < streams.size) {
+            switchToNextDebridStream(streams, furtherIndex)
+        }
+        return
+    }
+
+    releasePlayer(flushPlaybackState = false)
+    initializePlayer(resolved, emptyMap())
 }
 
 internal fun PlayerRuntimeController.resetErrorRetryState() {

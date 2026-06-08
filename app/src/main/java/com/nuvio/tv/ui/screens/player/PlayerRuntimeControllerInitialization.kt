@@ -360,6 +360,18 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                         cancelStableProgressReset()
                         val detailedError = error.toDisplayMessage(context)
 
+                        // Manual selection — skip all recovery, show error immediately
+                        if (manualSelection) {
+                            _uiState.update {
+                                it.copy(
+                                    error = detailedError,
+                                    showLoadingOverlay = false,
+                                    showPauseOverlay = false
+                                )
+                            }
+                            return
+                        }
+
                         // HTTP 416 special case — retry from start
                         val responseCode = error.findInvalidResponseCodeException()?.responseCode
                         if (responseCode == 416 && !hasRetriedCurrentStreamAfter416) {
@@ -372,6 +384,9 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
 
                         // Mid-playback auto-retry
                         if (attemptAutoRetry(error, detailedError)) return
+
+                        // Debrid stream failed — silently try next debrid stream
+                        if (attemptNextDebridStream(error)) return
 
                         // Retries exhausted — try next source stream
                         if (attemptNextSourceStream()) return
