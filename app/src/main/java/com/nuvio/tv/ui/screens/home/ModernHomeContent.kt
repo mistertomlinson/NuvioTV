@@ -60,6 +60,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
@@ -1197,9 +1198,21 @@ fun ModernHomeContent(
         // Unified slide+fade wrapper — HeroTitleBlock and LazyColumn animate as one
         // block so recomposition at the flip point is invisible (happens at alpha=0).
         // Only driven by platform navigation, never by catalog row focus changes.
+        // Expand layout width by max slide distance so LazyRows render the
+        // off-screen card that slides into view during platform parallax transition.
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .layout { measurable, constraints ->
+                    val extraPx = catalogSlideDistancePx.toInt()
+                    val widened = constraints.copy(
+                        maxWidth = (constraints.maxWidth + extraPx).coerceAtMost(constraints.maxWidth * 2)
+                    )
+                    val placeable = measurable.measure(widened)
+                    layout(constraints.maxWidth, placeable.height) {
+                        placeable.placeRelative(0, 0)
+                    }
+                }
                 .graphicsLayer {
                     alpha = catalogSlideAlpha.value
                     translationX = catalogSlideOffset.value
