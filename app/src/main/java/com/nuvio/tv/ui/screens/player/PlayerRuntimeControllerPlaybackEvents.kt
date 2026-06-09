@@ -774,7 +774,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             _uiState.update { it.copy(skipIntervalDismissed = true) }
         }
         PlayerEvent.OnPlayNextEpisode -> {
-            playNextEpisode()
+            playNextEpisode(userInitiated = true)
         }
         PlayerEvent.OnDismissNextEpisodeCard -> {
             nextEpisodeAutoPlayJob?.cancel()
