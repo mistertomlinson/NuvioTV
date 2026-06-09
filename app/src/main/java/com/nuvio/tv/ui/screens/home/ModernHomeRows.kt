@@ -73,6 +73,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -413,6 +414,7 @@ internal fun ModernRowSection(
         }
 
         val density = LocalDensity.current
+        val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.roundToPx().toFloat() }
         val rowStartPadding = 52.dp
 
         // End-of-row scroll travel padding (portrait expand modes only).
@@ -447,10 +449,16 @@ internal fun ModernRowSection(
         // for the last card as for any other. Also keep enough room for the expanded
         // card not to clip the viewport edge.
         val fullTravelPadding = modernCatalogCardWidth + 12.dp
+        // When platform parallax is active, the layout is measured wider by
+        // catalogSlideDistancePx. Add equivalent dp to end padding so the expanded
+        // card doesn't clip against the real screen edge.
+        val parallaxExtraPadding = if (catalogSlideAnimatable != null) {
+            with(density) { (screenWidthPx * 0.15f).toDp() }
+        } else 0.dp
         val endPaddingTarget = when {
-            !canExpand -> rowStartPadding
-            isNearRowEndVisible -> maxOf(expansionDelta + 8.dp, fullTravelPadding)
-            else -> expansionDelta + 20.dp
+            !canExpand -> rowStartPadding + parallaxExtraPadding
+            isNearRowEndVisible -> maxOf(expansionDelta + 8.dp, fullTravelPadding) + parallaxExtraPadding
+            else -> expansionDelta + 20.dp + parallaxExtraPadding
         }
         val animatedEndPadding by animateDpAsState(
             targetValue = endPaddingTarget,
@@ -459,7 +467,7 @@ internal fun ModernRowSection(
         )
 
         val useCenteredScroll = effectiveExpandEnabled && trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
-        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, useCenteredScroll) {
+        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, useCenteredScroll, screenWidthPx) {
             val parentStartOffsetPx = with(density) { rowStartPadding.roundToPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
@@ -471,16 +479,20 @@ internal fun ModernRowSection(
                     size: Float,
                     containerSize: Float
                 ): Float {
+                    // Clamp containerSize to real screen width — parallax layout modifier
+                    // widens the measured container, but scroll calculations must use
+                    // the actual visible screen width for correct end padding behavior.
+                    val effectiveContainerSize = containerSize.coerceAtMost(screenWidthPx)
                     val childSize = abs(size)
                     val targetForLeadingEdge = if (useCenteredScroll) {
-                        val centeredTarget = (containerSize - childSize) / 2f
+                        val centeredTarget = (effectiveContainerSize - childSize) / 2f
                         centeredTarget.coerceAtLeast(parentStartOffsetPx.toFloat())
                     } else {
-                        val childSmallerThanParent = childSize <= containerSize
+                        val childSmallerThanParent = childSize <= effectiveContainerSize
                         val initialTarget = parentStartOffsetPx.toFloat()
-                        val spaceAvailable = containerSize - initialTarget
+                        val spaceAvailable = effectiveContainerSize - initialTarget
                         if (childSmallerThanParent && spaceAvailable < childSize) {
-                            containerSize - childSize
+                            effectiveContainerSize - childSize
                         } else {
                             initialTarget
                         }

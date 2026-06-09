@@ -1200,17 +1200,20 @@ fun ModernHomeContent(
         // Only driven by platform navigation, never by catalog row focus changes.
         // Expand layout width by max slide distance so LazyRows render the
         // off-screen card that slides into view during platform parallax transition.
+        // BringIntoViewSpec in ModernHomeRows clamps containerSize to real screen width
+        // so end padding / expansion scroll behavior is unaffected.
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .layout { measurable, constraints ->
                     val extraPx = catalogSlideDistancePx.toInt()
                     val widened = constraints.copy(
-                        maxWidth = (constraints.maxWidth + extraPx).coerceAtMost(constraints.maxWidth * 2)
+                        maxWidth = (constraints.maxWidth + extraPx).coerceAtMost(constraints.maxWidth * 2),
+                        minWidth = constraints.minWidth
                     )
                     val placeable = measurable.measure(widened)
                     layout(constraints.maxWidth, placeable.height) {
-                        placeable.placeRelative(0, 0)
+                        placeable.placeRelativeWithLayer(0, 0)
                     }
                 }
                 .graphicsLayer {
