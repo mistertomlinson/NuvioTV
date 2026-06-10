@@ -256,6 +256,28 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
     fallbackYtId: String? = null
 ) {
     if (startupGracePeriodActive) return
+
+    // Debounce: cancel any pending trailer request and wait before firing
+    trailerPreviewDebounceJob?.cancel()
+    trailerPreviewDebounceJob = viewModelScope.launch {
+        delay(500L)
+        requestTrailerPreviewPipelineImmediate(
+            itemId = itemId,
+            title = title,
+            releaseInfo = releaseInfo,
+            apiType = apiType,
+            fallbackYtId = fallbackYtId
+        )
+    }
+}
+
+private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
+    itemId: String,
+    title: String,
+    releaseInfo: String?,
+    apiType: String,
+    fallbackYtId: String? = null
+) {
     if (activeTrailerPreviewItemId != itemId) {
         activeTrailerPreviewItemId = itemId
         trailerPreviewRequestVersion++

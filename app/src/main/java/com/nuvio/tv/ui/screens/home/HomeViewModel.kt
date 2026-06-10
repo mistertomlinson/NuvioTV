@@ -215,6 +215,7 @@ class HomeViewModel @Inject constructor(
     internal val prefetchedTmdbIds = Collections.synchronizedSet(mutableSetOf<String>())
     internal val enrichmentCache: MutableMap<String, TmdbEnrichment> = Collections.synchronizedMap(LinkedHashMap())
     internal var tmdbEnrichFocusJob: Job? = null
+    internal var trailerPreviewDebounceJob: Job? = null
     internal var proactiveEnrichJob: Job? = null
     internal var pendingTmdbEnrichItemId: String? = null
     internal var adjacentItemPrefetchJob: Job? = null

@@ -157,8 +157,15 @@ class TrailerService @Inject constructor(
             val youtubeKey = extractYouTubeVideoId(youtubeUrl)
             if (!youtubeKey.isNullOrBlank()) {
                 youtubeSourceCache[youtubeKey]?.let { cached ->
-                    Log.d(TAG, "YouTube session cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
-                    return@withContext cached
+                    val expireParam = Regex("[?&]expire=(\\d+)").find(cached.videoUrl)?.groupValues?.get(1)?.toLongOrNull()
+                    val isExpired = expireParam != null && expireParam < Instant.now().epochSecond
+                    if (isExpired) {
+                        Log.d(TAG, "YouTube cache expired for key=${obfuscateYoutubeKey(youtubeKey)}, expire=$expireParam — evicting")
+                        youtubeSourceCache.remove(youtubeKey)
+                    } else {
+                        Log.d(TAG, "YouTube session cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
+                        return@withContext cached
+                    }
                 }
             }
 
