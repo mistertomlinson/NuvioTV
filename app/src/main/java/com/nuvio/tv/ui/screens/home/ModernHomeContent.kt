@@ -570,9 +570,20 @@ fun ModernHomeContent(
             val allowedKeys = activeItemKeysByRow[row.key] ?: emptySet()
             rowRequesters.keys.retainAll(allowedKeys)
         }
+        // Only clear focused selection if the entire row is gone, not just because
+        // the item isn't in activeCatalogItemIds yet (e.g. paginated items beyond #25
+        // aren't in the truncated row until loadMore fires).
         if (focusedCatalogSelection?.payload?.itemId !in activeCatalogItemIds) {
-            focusedCatalogSelection = null
-            expandedCatalogFocusKey = null
+            val focusedItemId = focusedCatalogSelection?.payload?.itemId
+            val itemStillExistsInAnyRow = focusedItemId != null && carouselRows.any { row ->
+                row.items.any { item ->
+                    (item.payload as? ModernPayload.Catalog)?.itemId == focusedItemId
+                }
+            }
+            if (!itemStillExistsInAnyRow) {
+                focusedCatalogSelection = null
+                expandedCatalogFocusKey = null
+            }
         }
 
         carouselRows.forEach { row ->
@@ -845,15 +856,11 @@ fun ModernHomeContent(
         val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
             focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
         }
-        val heroTrailerUrl by remember(expandedFocusedSelection) {
-            derivedStateOf {
-                expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
-            }
+        val heroTrailerUrl by derivedStateOf {
+            expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
         }
-        val heroTrailerAudioUrl by remember(expandedFocusedSelection) {
-            derivedStateOf {
-                expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewAudioUrls[it] }
-            }
+        val heroTrailerAudioUrl by derivedStateOf {
+            expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewAudioUrls[it] }
         }
         val expandedCatalogTrailerUrl = heroTrailerUrl
         val expandedCatalogTrailerAudioUrl = heroTrailerAudioUrl
@@ -1410,8 +1417,11 @@ fun ModernHomeContent(
                     val rowExpandedFocusKey = expandedCatalogFocusKey
                     val rowHasExpanded by remember(row.key) {
                         derivedStateOf {
-                            expandedCatalogFocusKey != null &&
-                                row.items.any { (it.payload as? ModernPayload.Catalog)?.focusKey == expandedCatalogFocusKey }
+                            val expandedKey = expandedCatalogFocusKey
+                            expandedKey != null && (
+                                row.items.any { (it.payload as? ModernPayload.Catalog)?.focusKey == expandedKey } ||
+                                expandedKey.startsWith(row.key + "::")
+                            )
                         }
                     }
                     ModernRowSection(

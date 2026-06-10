@@ -831,6 +831,68 @@ class InAppYouTubeExtractor @Inject constructor() {
         }
         return headers.build()
     }
+
+    /**
+     * Search YouTube for a trailer and return the first video ID found.
+     * Used as a fallback when TMDB has no trailer candidates for a title.
+     */
+    suspend fun searchForTrailerVideoId(title: String, year: String?): String? = withContext(Dispatchers.IO) {
+        try {
+            val query = buildString {
+                append(title)
+                if (!year.isNullOrBlank()) append(" $year")
+                append(" official trailer")
+            }
+            val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
+            val searchUrl = "https://www.youtube.com/results?search_query=$encodedQuery"
+
+            val request = Request.Builder()
+                .url(searchUrl)
+                .header("User-Agent", DEFAULT_USER_AGENT)
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .get()
+                .build()
+
+            val html = httpClient.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "YouTube search failed (${response.code}) for: $query")
+                    return@withContext null
+                }
+                response.body?.string() ?: return@withContext null
+            }
+
+            // YouTube serves ytInitialData as a hex-escaped JS string — decode it first
+            val rawDataMatch = Regex("ytInitialData = '(.*?)';", RegexOption.DOT_MATCHES_ALL).find(html)
+            val searchableHtml = if (rawDataMatch != null) {
+                // Decode \xNN hex escapes to readable characters
+                val raw = rawDataMatch.groupValues[1]
+                val sb = StringBuilder()
+                var i = 0
+                while (i < raw.length) {
+                    if (i + 3 < raw.length && raw[i] == '\\' && raw[i + 1] == 'x') {
+                        val hex = raw.substring(i + 2, i + 4)
+                        sb.append(hex.toInt(16).toChar())
+                        i += 4
+                    } else {
+                        sb.append(raw[i])
+                        i++
+                    }
+                }
+                sb.toString()
+            } else html
+            val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
+            val videoId = videoIdRegex.find(searchableHtml)?.groupValues?.get(1)
+            if (videoId != null) {
+                Log.d(TAG, "YouTube search found videoId for '$title': ${videoId.take(4)}***")
+            } else {
+                Log.w(TAG, "YouTube search returned no videoId for '$title'")
+            }
+            videoId
+        } catch (e: Exception) {
+            Log.e(TAG, "YouTube search error for '$title': ${e.message}")
+            null
+        }
+    }
 }
 
 private data class RequestResponse(

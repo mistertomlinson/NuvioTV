@@ -65,7 +65,22 @@ class TrailerService @Inject constructor(
                 cache[cacheKey] = tmdbSource
                 return@withContext tmdbSource
             }
-            Log.w(TAG, "TMDB path exhausted; no YouTube trailer key resolved for backend /trailer fallback")
+            Log.w(TAG, "TMDB path exhausted; trying YouTube search fallback for '$title'")
+            val searchVideoId = inAppYouTubeExtractor.searchForTrailerVideoId(title, year)
+            if (searchVideoId != null) {
+                val searchUrl = "https://www.youtube.com/watch?v=$searchVideoId"
+                val searchSource = getTrailerPlaybackSourceFromYouTubeUrl(
+                    youtubeUrl = searchUrl,
+                    title = title,
+                    year = year
+                )
+                if (searchSource != null) {
+                    Log.d(TAG, "YouTube search fallback succeeded for '$title'")
+                    cache[cacheKey] = searchSource
+                    return@withContext searchSource
+                }
+            }
+            Log.w(TAG, "YouTube search fallback also exhausted for '$title'")
             cache[cacheKey] = NEGATIVE_CACHE
             null
         } catch (e: Exception) {

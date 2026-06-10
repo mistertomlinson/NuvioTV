@@ -290,6 +290,7 @@ private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
     val requestVersion = trailerPreviewRequestVersion
 
     viewModelScope.launch {
+        try {
         val tmdbId = try {
             tmdbService.ensureTmdbId(itemId, apiType)
         } catch (_: Exception) {
@@ -306,7 +307,6 @@ private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
         val isLatestFocusedItem =
             activeTrailerPreviewItemId == itemId && trailerPreviewRequestVersion == requestVersion
         if (!isLatestFocusedItem) {
-            trailerPreviewLoadingIds.remove(itemId)
             return@launch
         }
 
@@ -346,7 +346,9 @@ private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
             }
         }
 
-        trailerPreviewLoadingIds.remove(itemId)
+        } finally {
+            trailerPreviewLoadingIds.remove(itemId)
+        }
     }
 }
 
