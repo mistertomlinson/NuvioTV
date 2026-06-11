@@ -699,7 +699,8 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     if (currentTmdbSettings.useDetails) {
                         merged = merged.copy(
                             ageRating = cached.ageRating ?: merged.ageRating,
-                            status = cached.status ?: merged.status
+                            status = cached.status ?: merged.status,
+                            runtime = cached.runtimeMinutes?.toString() ?: merged.runtime
                         )
                     }
                     merged
