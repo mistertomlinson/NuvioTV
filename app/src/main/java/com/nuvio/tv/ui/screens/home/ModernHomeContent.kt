@@ -156,6 +156,7 @@ fun ModernHomeContent(
     onPreloadAdjacentItem: (MetaPreview) -> Unit = {},
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>, String?, String) -> Unit,
     onAtTopChanged: (Boolean) -> Unit = {},
+    sharedTrailerPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
     carouselGradientAlpha: Float = 0f,
     onCarouselOpenRequested: () -> Unit = {},
     isCarouselFocused: Boolean = false,
@@ -1018,6 +1019,7 @@ fun ModernHomeContent(
                     muted = uiState.focusedPosterBackdropTrailerMuted,
                     cropToFill = true,
                     overscanZoom = 1f,
+                    externalPlayer = sharedTrailerPlayer,
                     modifier = Modifier.fillMaxSize()
                 )
             }

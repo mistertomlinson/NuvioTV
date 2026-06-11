@@ -141,6 +141,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     addons: List<Addon>,
     forceReload: Boolean = false
 ) {
+android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} force=$forceReload ts=${System.currentTimeMillis()}")
     if (!isActiveInstance) {
         android.util.Log.e("NuvioCache", "loadAllCatalogsPipeline SKIPPED stale instance=${System.identityHashCode(this)}")
         return
@@ -410,6 +411,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         )
                         if (pendingCatalogLoads == 0) {
                             catalogsLoadInProgress = false
+                            android.util.Log.d("NuvioTiming", "Catalog load COMPLETE rows=${catalogsMap.size} ts=${System.currentTimeMillis()}")
                             val saveProfileId = profileManager.activeProfileId.value
                             viewModelScope.launch {
                                 // Small delay to let the final scheduleUpdateCatalogRows settle

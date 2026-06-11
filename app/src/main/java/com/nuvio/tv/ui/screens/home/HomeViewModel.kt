@@ -98,6 +98,7 @@ class HomeViewModel @Inject constructor(
     internal val homeEnrichmentDiskCache: HomeEnrichmentDiskCache,
     internal val myListDiskCache: MyListDiskCache,
     internal val traktScrobbleService: TraktScrobbleService,
+    internal val homeTrailerPlayerHolder: com.nuvio.tv.ui.components.HomeTrailerPlayerHolder,
 ) : ViewModel() {
     companion object {
         @Volatile internal var activeInstanceId: Int = -1

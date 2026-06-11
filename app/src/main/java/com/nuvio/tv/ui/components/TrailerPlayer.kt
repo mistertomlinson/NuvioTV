@@ -54,6 +54,7 @@ fun TrailerPlayer(
     onRemoteKey: (keyCode: Int, action: Int, repeatCount: Int) -> Boolean = { _, _, _ -> false },
     cropToFill: Boolean = false,
     overscanZoom: Float = 1f,
+    externalPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
     modifier: Modifier = Modifier,
     enter: EnterTransition = fadeIn(animationSpec = tween(800)),
     exit: ExitTransition = fadeOut(animationSpec = tween(500))
@@ -76,31 +77,36 @@ fun TrailerPlayer(
         label = "trailerFirstFrameAlpha"
     )
 
-    val trailerPlayer = remember(trailerUrl, trailerAudioUrl) {
-        if (trailerUrl != null) {
-            val loadControl = DefaultLoadControl.Builder()
-                .setBufferDurationsMs(
-                    /* minBufferMs = */ 30_000,
-                    /* maxBufferMs = */ 120_000,
-                    /* bufferForPlaybackMs = */ 5_000,
-                    /* bufferForPlaybackAfterRebufferMs = */ 10_000
-                )
-                .build()
-            ExoPlayer.Builder(context)
-                .setLoadControl(loadControl)
-                .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
-                .build()
-                .apply {
-                    repeatMode = Player.REPEAT_MODE_OFF
-                    volume = if (muted) 0f else 1f
-                    videoScalingMode = if (cropToFill) {
-                        C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-                    } else {
-                        C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+    val isExternalPlayer = externalPlayer != null
+    val trailerPlayer = if (isExternalPlayer) {
+        externalPlayer
+    } else {
+        remember(trailerUrl, trailerAudioUrl) {
+            if (trailerUrl != null) {
+                val loadControl = DefaultLoadControl.Builder()
+                    .setBufferDurationsMs(
+                        /* minBufferMs = */ 30_000,
+                        /* maxBufferMs = */ 120_000,
+                        /* bufferForPlaybackMs = */ 5_000,
+                        /* bufferForPlaybackAfterRebufferMs = */ 10_000
+                    )
+                    .build()
+                ExoPlayer.Builder(context)
+                    .setLoadControl(loadControl)
+                    .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
+                    .build()
+                    .apply {
+                        repeatMode = Player.REPEAT_MODE_OFF
+                        volume = if (muted) 0f else 1f
+                        videoScalingMode = if (cropToFill) {
+                            C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                        } else {
+                            C.VIDEO_SCALING_MODE_SCALE_TO_FIT
+                        }
                     }
-                }
-        } else {
-            null
+            } else {
+                null
+            }
         }
     }
     val releaseCalled = remember(trailerPlayer) { AtomicBoolean(false) }
@@ -196,7 +202,7 @@ fun TrailerPlayer(
                     player.clearMediaItems()
                 }
                 Lifecycle.Event.ON_DESTROY -> {
-                    if (releaseCalled.compareAndSet(false, true)) {
+                    if (!isExternalPlayer && releaseCalled.compareAndSet(false, true)) {
                         runCatching { player.stop() }
                         runCatching { player.clearMediaItems() }
                         runCatching { player.release() }
@@ -210,7 +216,7 @@ fun TrailerPlayer(
         onDispose {
             runCatching { lifecycleOwner.lifecycle.removeObserver(observer) }
             runCatching { player.removeListener(listener) }
-            if (releaseCalled.compareAndSet(false, true)) {
+            if (!isExternalPlayer && releaseCalled.compareAndSet(false, true)) {
                 runCatching { player.stop() }
                 runCatching { player.clearMediaItems() }
                 runCatching { player.release() }

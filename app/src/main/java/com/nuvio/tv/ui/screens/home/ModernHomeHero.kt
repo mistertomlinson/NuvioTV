@@ -89,6 +89,7 @@ internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
     heroBackdropAlpha: Float,
     shouldPlayHeroTrailer: Boolean,
+    externalPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
     heroTrailerUrl: String?,
     heroTrailerAudioUrl: String?,
     heroTrailerAlpha: Float,
@@ -189,6 +190,7 @@ internal fun ModernHeroMediaLayer(
                 muted = muted,
                 cropToFill = true,
                 overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+                externalPlayer = externalPlayer,
                 modifier = Modifier
                     .fillMaxSize()
                     .graphicsLayer { alpha = heroTrailerAlpha }
