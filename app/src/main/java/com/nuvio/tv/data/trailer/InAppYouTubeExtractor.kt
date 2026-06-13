@@ -881,7 +881,20 @@ class InAppYouTubeExtractor @Inject constructor() {
                 sb.toString()
             } else html
             val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
-            val videoId = videoIdRegex.find(searchableHtml)?.groupValues?.get(1)
+            // Filter out Shorts — skip video IDs appearing near Shorts indicators
+            val shortsIndicators = listOf("reelWatchEndpoint", "shortsLockupViewModel", "\"shorts\"")
+            val videoId = videoIdRegex.findAll(searchableHtml)
+                .map { it.groupValues[1] }
+                .distinct()
+                .firstOrNull { id ->
+                    val idx = searchableHtml.indexOf(id)
+                    if (idx < 0) return@firstOrNull false
+                    val window = searchableHtml.substring(
+                        (idx - 200).coerceAtLeast(0),
+                        (idx + 200).coerceAtMost(searchableHtml.length)
+                    )
+                    shortsIndicators.none { indicator -> indicator in window }
+                }
             if (videoId != null) {
                 Log.d(TAG, "YouTube search found videoId for '$title': ${videoId.take(4)}***")
             } else {

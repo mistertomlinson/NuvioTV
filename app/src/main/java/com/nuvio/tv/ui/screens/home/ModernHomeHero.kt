@@ -165,7 +165,7 @@ internal fun ModernHeroMediaLayer(
                             val size = coords.size
                             android.util.Log.d("NuvioLayout", "w=" + size.width + " h=" + size.height + " rootX=" + pos.x + " rootY=" + pos.y + " parallax=" + parallaxOffsetX)
                         }
-                        .graphicsLayer { translationX = parallaxOffsetX },
+                        .graphicsLayer { translationX = parallaxOffsetX; scaleX = 1.1f; scaleY = 1.1f },
                     contentScale = ContentScale.Crop,
                     alignment = Alignment.Center
                 )
