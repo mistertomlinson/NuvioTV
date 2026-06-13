@@ -46,9 +46,22 @@ class TrailerService @Inject constructor(
         val cacheKey = "$title|$year|$tmdbId|$type"
 
         cache[cacheKey]?.let { cached ->
-            val hit = cached !== NEGATIVE_CACHE
-            Log.d(TAG, "Cache hit for $cacheKey: $hit")
-            return@withContext if (hit) cached else null
+            if (cached === NEGATIVE_CACHE) {
+                Log.d(TAG, "Cache hit for $cacheKey: false")
+                return@withContext null
+            }
+            // Check if the cached googlevideo URL has expired
+            val expireParam = Regex("[?&]expire=(\\d+)").find(cached.videoUrl)
+                ?.groupValues?.get(1)?.toLongOrNull()
+            val isExpired = expireParam != null &&
+                expireParam < java.time.Instant.now().epochSecond
+            if (isExpired) {
+                Log.d(TAG, "Cache hit for $cacheKey: expired (expire=$expireParam) — re-resolving")
+                cache.remove(cacheKey)
+            } else {
+                Log.d(TAG, "Cache hit for $cacheKey: true")
+                return@withContext cached
+            }
         }
 
         try {

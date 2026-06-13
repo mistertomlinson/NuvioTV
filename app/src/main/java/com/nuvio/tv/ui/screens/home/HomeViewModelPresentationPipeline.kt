@@ -284,7 +284,16 @@ private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
     }
 
     if (trailerPreviewNegativeCache.contains(itemId)) return
-    if (trailerPreviewUrlsState.containsKey(itemId)) return
+    trailerPreviewUrlsState[itemId]?.let { cachedVideoUrl ->
+        val expireParam = Regex("[?&]expire=(\\d+)").find(cachedVideoUrl)
+            ?.groupValues?.get(1)?.toLongOrNull()
+        val isExpired = expireParam != null &&
+            expireParam < java.time.Instant.now().epochSecond
+        if (!isExpired) return
+        // URL expired — evict and re-resolve
+        trailerPreviewUrlsState.remove(itemId)
+        trailerPreviewAudioUrlsState.remove(itemId)
+    }
     if (!trailerPreviewLoadingIds.add(itemId)) return
 
     val requestVersion = trailerPreviewRequestVersion
