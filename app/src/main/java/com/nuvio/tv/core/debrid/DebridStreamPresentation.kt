@@ -47,8 +47,12 @@ class DebridStreamPresentation @Inject constructor(
                 .filterNot { stream -> stream.isUncachedDebridStream() }
             val debridStreams = visibleStreams.filter { stream -> stream.isManagedDebridStream() }
             if (debridStreams.isEmpty()) return@map group.copy(streams = visibleStreams)
+            val preferredProviderId = settings.activeResolverProviderId
             val presentedDebridStreams = DirectDebridStreamFilter.applyPreferences(debridStreams, settings)
                 .map { stream -> formatter.format(stream, settings, badgeFilters) }
+                .sortedWith(compareBy { stream ->
+                    if (stream.debridCacheStatus?.providerId == preferredProviderId) 0 else 1
+                })
             val passthroughStreams = visibleStreams.filterNot { stream -> stream.isManagedDebridStream() }
             group.copy(streams = presentedDebridStreams + passthroughStreams)
         }
@@ -79,7 +83,8 @@ class DebridStreamPresentation @Inject constructor(
 
     private fun Stream.isInactiveResolverStream(settings: DebridSettings): Boolean {
         val streamProviderId = DebridProviders.byId(clientResolve?.service)?.id ?: return false
-        val activeProviderId = settings.activeResolverProviderId ?: return false
-        return isDirectDebrid() && streamProviderId != activeProviderId
+        // Show streams from any provider that has an API key configured.
+        // This allows multiple debrid services to run simultaneously.
+        return isDirectDebrid() && settings.apiKeyFor(streamProviderId).isBlank()
     }
 }

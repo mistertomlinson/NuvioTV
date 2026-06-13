@@ -386,13 +386,15 @@ private fun LocalScraperResult.toPluginStream(addonName: String): Stream {
         )
     }
 
-    private fun Stream.dedupKey(): String =
-        infoHash?.lowercase()?.let { hash -> "$hash:${fileIdx ?: ""}" }
-            ?: clientResolve?.infoHash?.lowercase()?.let { hash -> "$hash:${clientResolve.fileIdx}" }
+    private fun Stream.dedupKey(): String {
+        val providerSuffix = debridCacheStatus?.providerId?.let { ":$it" } ?: ""
+        return (infoHash?.lowercase()?.let { hash -> "$hash:${fileIdx ?: ""}$providerSuffix" }
+            ?: clientResolve?.infoHash?.lowercase()?.let { hash -> "$hash:${clientResolve.fileIdx}$providerSuffix" }
             ?: url
             ?: externalUrl
             ?: ytId
-            ?: "${addonName}:${name}:${title}"
+            ?: "${addonName}:${name}:${title}")
+    }
 
     /**
      * Build a description string from scraper result

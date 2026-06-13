@@ -69,7 +69,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
     }
 
     val isDebridStream = url.lowercase().let {
-        it.contains("tb-cdn") || it.contains("torbox") || it.contains("real-debrid") ||
+        it.contains("tb-cdn") || it.contains("torbox") || it.contains("real-debrid") || it.contains("energycdn") ||
         it.contains("premiumize") || it.contains("alldebrid") || it.contains("offcloud")
     }
     scope.launch {

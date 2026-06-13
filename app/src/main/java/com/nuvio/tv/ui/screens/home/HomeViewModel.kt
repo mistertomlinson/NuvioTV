@@ -909,9 +909,9 @@ class HomeViewModel @Inject constructor(
                     hasRenderedFirstCatalog = true
                     50L
                 }
-                pendingCatalogLoads > 8 -> 200L
-                pendingCatalogLoads > 3 -> 150L
-                pendingCatalogLoads > 0 -> 100L
+                pendingCatalogLoads > 8 -> 1000L
+                pendingCatalogLoads > 3 -> 500L
+                pendingCatalogLoads > 0 -> 300L
                 else -> 50L
             }
             delay(debounceMs)

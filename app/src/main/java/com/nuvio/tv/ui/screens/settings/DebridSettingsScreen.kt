@@ -162,8 +162,8 @@ fun DebridSettingsContent(
                     if (uiState.canResolvePlayableLinks && uiState.resolverProviders.size > 1 && activeResolverProvider != null) {
                         item(key = "debrid_resolve_with") {
                             SettingsActionRow(
-                                title = stringResource(R.string.debrid_resolve_with),
-                                subtitle = stringResource(R.string.debrid_resolve_with_description),
+                                title = "Preferred Account",
+                                subtitle = "Choose which links are listed first in results",
                                 value = activeResolverProvider.displayName,
                                 onClick = { showResolverPicker = true },
                                 enabled = true
@@ -368,7 +368,7 @@ fun DebridSettingsContent(
     if (showResolverPicker) {
         DebridResolverProviderDialog(
             providers = uiState.resolverProviders,
-            selectedProviderId = uiState.activeResolverProvider?.id,
+            preferredProviderId = uiState.activeResolverProvider?.id,
             onSelected = { providerId ->
                 viewModel.setPreferredResolverProviderId(providerId)
                 showResolverPicker = false
@@ -747,15 +747,17 @@ private fun DebridPrepareCountDialog(
 @Composable
 private fun DebridResolverProviderDialog(
     providers: List<DebridProvider>,
-    selectedProviderId: String?,
+    preferredProviderId: String?,
     onSelected: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    val selected = selectedProviderId ?: providers.firstOrNull()?.id.orEmpty()
+    // All configured providers are active simultaneously.
+    // This dialog lets you pick which one is preferred (used for sort priority).
+    val selected = preferredProviderId ?: providers.firstOrNull()?.id.orEmpty()
 
     SettingsSingleChoiceDialog(
-        title = stringResource(R.string.debrid_resolve_with),
-        subtitle = stringResource(R.string.debrid_resolve_with_description),
+        title = "Preferred Provider",
+        subtitle = "All configured providers are active. Choose which one appears first in stream results.",
         options = providers.map { provider ->
             SettingsPickerOption(provider.id, provider.displayName)
         },

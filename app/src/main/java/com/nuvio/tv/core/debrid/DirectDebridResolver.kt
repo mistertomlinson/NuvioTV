@@ -128,8 +128,7 @@ class DirectDebridResolver @Inject constructor(
         }
         if (!stream.isDirectDebrid() || stream.getStreamUrl() != null) return false
         val providerId = DebridProviders.byId(stream.clientResolve?.service)?.id ?: return false
-        return providerId == settings.activeResolverProviderId &&
-            settings.apiKeyFor(providerId).isNotBlank()
+        return settings.apiKeyFor(providerId).isNotBlank()
     }
 
     private suspend fun getCachedResult(cacheKey: String): DirectDebridResolveResult.Success? =
@@ -181,7 +180,7 @@ class DirectDebridResolver @Inject constructor(
         val resolve = clientResolve ?: return null
         val providerId = DebridProviders.byId(resolve.service)?.id ?: return null
         val settings = dataStore.settings.first()
-        if (!settings.canResolvePlayableLinks || providerId != settings.activeResolverProviderId) return null
+        if (!settings.canResolvePlayableLinks || settings.apiKeyFor(providerId).isBlank()) return null
         val apiKey = settings.apiKeyFor(providerId).trim().takeIf { it.isNotBlank() } ?: return null
         val identity = resolve.infoHash
             ?: resolve.magnetUri
