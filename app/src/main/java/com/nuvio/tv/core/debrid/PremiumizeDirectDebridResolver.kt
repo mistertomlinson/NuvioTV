@@ -30,16 +30,24 @@ class PremiumizeDirectDebridResolver @Inject constructor(
         val authorization = "Bearer $apiKey"
 
         return try {
+            android.util.Log.d("NuvioDebrid", "PM directDownload source=${source.take(60)}")
             val response = api.directDownload(authorization, source)
+            android.util.Log.d("NuvioDebrid", "PM directDownload code=${response.code()} status=${response.body()?.status}")
             if (!response.isSuccessful) {
+                android.util.Log.w("NuvioDebrid", "PM directDownload failed code=${response.code()}")
                 return when (response.code()) {
                     401, 403 -> DirectDebridResolveResult.Error
                     else -> DirectDebridResolveResult.Stale
                 }
             }
-            val body = response.body() ?: return DirectDebridResolveResult.Stale
+            val body = response.body()
+            if (body == null) {
+                android.util.Log.w("NuvioDebrid", "PM directDownload null body")
+                return DirectDebridResolveResult.Stale
+            }
             if (body.status.equals("error", ignoreCase = true)) {
                 val message = listOfNotNull(body.message, body.code).joinToString(" ").lowercase()
+                android.util.Log.w("NuvioDebrid", "PM directDownload error status message=$message")
                 return if (message.contains("cache") || message.contains("not found")) {
                     DirectDebridResolveResult.NotCached
                 } else {
@@ -51,8 +59,16 @@ class PremiumizeDirectDebridResolver @Inject constructor(
                 resolve = resolve,
                 season = season,
                 episode = episode
-            ) ?: return DirectDebridResolveResult.Stale
-            val url = file.link?.takeIf { it.isNotBlank() } ?: return DirectDebridResolveResult.Stale
+            )
+            if (file == null) {
+                android.util.Log.w("NuvioDebrid", "PM fileSelector returned null from ${body.content?.size} files")
+                return DirectDebridResolveResult.Stale
+            }
+            val url = file.link?.takeIf { it.isNotBlank() }
+            if (url == null) {
+                android.util.Log.w("NuvioDebrid", "PM file has no link: ${file.path}")
+                return DirectDebridResolveResult.Stale
+            }
             DirectDebridResolveResult.Success(
                 url = url,
                 filename = file.displayName().takeIf { it.isNotBlank() } ?: stream.behaviorHints?.filename,

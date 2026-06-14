@@ -13,7 +13,9 @@ class PremiumizeDirectDownloadFileSelector @Inject constructor() {
         season: Int?,
         episode: Int?
     ): PremiumizeDirectDownloadFileDto? {
-        val playable = files.filter { it.isPlayableVideo() }
+        val fileNames = files.map { it.displayName() }
+        val isBluray = fileNames.isBlurayDiscStructure()
+        val playable = files.filter { it.isPlayableVideo(isBluray) }
         if (playable.isEmpty()) return null
 
         val episodePatterns = buildDebridEpisodePatterns(
@@ -35,8 +37,9 @@ class PremiumizeDirectDownloadFileSelector @Inject constructor() {
         return playable.maxByOrNull { it.size ?: 0L }
     }
 
-    private fun PremiumizeDirectDownloadFileDto.isPlayableVideo(): Boolean {
+    private fun PremiumizeDirectDownloadFileDto.isPlayableVideo(isBluray: Boolean = false): Boolean {
         val name = displayName().lowercase()
+        if (isBluray && name.endsWith(".m2ts")) return false
         return name.hasDebridVideoExtension()
     }
 }

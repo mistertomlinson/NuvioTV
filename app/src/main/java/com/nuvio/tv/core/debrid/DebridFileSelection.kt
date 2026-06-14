@@ -62,3 +62,13 @@ private val debridVideoExtensions = setOf(
     ".wmv",
     ".flv"
 )
+
+// Blu-ray disc structure file extensions — present when a torrent is a full disc rip.
+// If any of these exist alongside .m2ts files, the .m2ts files are disc segments
+// that ExoPlayer cannot play directly.
+internal val blurayDiscExtensions = setOf(
+    ".bdjo", ".clpi", ".mpls", ".ssif"
+)
+
+internal fun List<String>.isBlurayDiscStructure(): Boolean =
+    any { name -> blurayDiscExtensions.any { ext -> name.lowercase().endsWith(ext) } }

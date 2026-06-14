@@ -86,6 +86,7 @@ class StreamScreenViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
     private var autoPlayHandledForSession = false
+    private val failedAutoPlayStreamKeys = mutableSetOf<String>()
     private var directAutoPlayModeInitializedForSession = false
     private var directAutoPlayFlowEnabledForSession = false
     private var streamLoadJob: Job? = null
@@ -313,6 +314,7 @@ class StreamScreenViewModel @Inject constructor(
                     maxAgeMs = playerSettings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
                 )
                 if (cached != null) {
+                    android.util.Log.d("NuvioAutoPlay", "TRIGGER: stream reuse cache hit url=${cached.url?.take(60)}")
                     autoPlayHandledForSession = true
                     resolvedAutoPlayTarget = true
                     val isCachedTorrent = cached.infoHash != null
@@ -386,6 +388,7 @@ class StreamScreenViewModel @Inject constructor(
                 // chance to return higher-quality streams before the selector
                 // picks from whatever is available.
                 val shouldAutoSelect = !autoPlayHandledForSession && !resolvedAutoPlayTarget && isAllLoaded
+                if (shouldAutoSelect) android.util.Log.d("NuvioAutoPlay", "selectAutoPlayStream triggered isAllLoaded=$isAllLoaded autoPlayHandled=$autoPlayHandledForSession resolvedTarget=$resolvedAutoPlayTarget streams=${allStreams.size}")
                 val selectedAutoPlayStream = if (!shouldAutoSelect) {
                     null
                 } else {
@@ -402,6 +405,7 @@ class StreamScreenViewModel @Inject constructor(
                     )
                 }
                 if (selectedAutoPlayStream != null) {
+                    android.util.Log.d("NuvioAutoPlay", "selected: ${selectedAutoPlayStream.name ?: selectedAutoPlayStream.addonName} debrid=${selectedAutoPlayStream.isDirectDebrid()} cached=${selectedAutoPlayStream.debridCacheStatus?.state}")
                     resolvedAutoPlayTarget = true
                 }
 
@@ -600,6 +604,7 @@ class StreamScreenViewModel @Inject constructor(
                                     bingeGroupOnly = true
                                 )
                                 if (earlyMatch != null) {
+                                    android.util.Log.d("NuvioAutoPlay", "TRIGGER: early binge group match ${earlyMatch.name ?: earlyMatch.addonName}")
                                     resolvedAutoPlayTarget = true
                                     autoSelectTriggered = true
                                     updateUiStateIfChanged {
@@ -641,6 +646,7 @@ class StreamScreenViewModel @Inject constructor(
                 }
                 // All addons finished — run auto-select if not yet triggered
                 if (!autoSelectTriggered) {
+                    android.util.Log.d("NuvioAutoPlay", "TRIGGER: all addons finished")
                     autoSelectTriggered = true
                     lastSuccessData?.let { applySuccess(it, isAllLoaded = true) }
                 }
@@ -672,6 +678,7 @@ class StreamScreenViewModel @Inject constructor(
             timeoutElapsed = true
             val directDebridLoadedByTimeout = !directDebridAvailable ||
                 lastSuccessData?.any { it.addonName in directDebridSourceNames } == true
+            android.util.Log.d("NuvioAutoPlay", "TIMEOUT elapsed timeoutElapsed=true autoSelectTriggered=$autoSelectTriggered streams=${lastSuccessData?.size}")
             if (!autoSelectTriggered && lastSuccessData != null && directDebridLoadedByTimeout) {
                 applySuccess(lastSuccessData, isAllLoaded = true)
                 if (resolvedAutoPlayTarget) {
@@ -1001,9 +1008,43 @@ class StreamScreenViewModel @Inject constructor(
         }
     }
 
+    private fun Stream.autoPlayKey(): String =
+        infoHash?.lowercase()?.let { "$it:${fileIdx ?: ""}:${debridCacheStatus?.providerId.orEmpty()}" }
+            ?: clientResolve?.infoHash?.lowercase()?.let { "$it:${clientResolve.fileIdx}:${debridCacheStatus?.providerId.orEmpty()}" }
+            ?: getStreamUrl()
+            ?: "${addonName}:${name}:${title}"
+
+    fun markAutoPlayStreamFailed(stream: Stream) {
+        failedAutoPlayStreamKeys.add(stream.autoPlayKey())
+    }
+
+    suspend fun nextAutoPlayCandidate(failedStream: Stream): Stream? {
+        val state = _uiState.value
+        val playerSettings = playerSettingsDataStore.playerSettings.first()
+        val installedAddons = addonRepository.getInstalledAddons().first().enabledAddons()
+        val installedAddonOrder = installedAddons.map { it.displayName }
+        val failed = failedAutoPlayStreamKeys + failedStream.autoPlayKey()
+        return StreamAutoPlaySelector.selectAutoPlayStream(
+            streams = state.allStreams.filter { it.autoPlayKey() !in failed },
+            mode = playerSettings.streamAutoPlayMode,
+            regexPattern = playerSettings.streamAutoPlayRegex,
+            source = playerSettings.streamAutoPlaySource,
+            installedAddonNames = installedAddonOrder.toSet(),
+            selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
+            selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins
+        )
+    }
+
     suspend fun resolveStreamForPlayback(stream: Stream): StreamPlaybackInfo? {
         if (!directDebridResolver.shouldResolveToPlayableStream(stream)) {
-            return getStreamForPlayback(stream)
+            val info = getStreamForPlayback(stream)
+            // Persist binge group for non-debrid streams on successful playback
+            val bg = info.bingeGroup
+            val cid = info.contentId
+            if (bg != null && !cid.isNullOrBlank()) {
+                viewModelScope.launch { bingeGroupCacheDataStore.save(cid, bg) }
+            }
+            return info
         }
 
         updateUiStateIfChanged {
@@ -1024,6 +1065,12 @@ class StreamScreenViewModel @Inject constructor(
                     )
                 }
                 cancelStreamsLoad()
+                // Persist binge group only after successful resolution
+                val bg = basePlaybackInfo.bingeGroup
+                val cid = basePlaybackInfo.contentId
+                if (bg != null && !cid.isNullOrBlank()) {
+                    viewModelScope.launch { bingeGroupCacheDataStore.save(cid, bg) }
+                }
                 val resolved = basePlaybackInfo.copy(
                     url = result.url,
                     isExternal = false,
@@ -1061,7 +1108,8 @@ class StreamScreenViewModel @Inject constructor(
                 null
             }
             DirectDebridResolveResult.Stale -> {
-                showDirectDebridPlaybackError(context.getString(R.string.debrid_stale_stream), refreshStreams = true)
+                // Don't show error yet — caller will try next stream if available.
+                // Error will be shown only if all candidates are exhausted.
                 null
             }
             DirectDebridResolveResult.Error -> {
@@ -1186,15 +1234,6 @@ class StreamScreenViewModel @Inject constructor(
                 )
             }
         }
-        // Persist binge group per-content for cross-episode reuse (independent of URL).
-        val bg = playbackInfo.bingeGroup
-        val cid = playbackInfo.contentId
-        if (bg != null && !cid.isNullOrBlank()) {
-            viewModelScope.launch {
-                bingeGroupCacheDataStore.save(cid, bg)
-            }
-        }
-
         return playbackInfo
     }
 

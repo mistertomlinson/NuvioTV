@@ -248,16 +248,31 @@ fun StreamScreen(
 
     LaunchedEffect(uiState.autoPlayStream) {
         val stream = uiState.autoPlayStream ?: return@LaunchedEffect
-        val playbackInfo = viewModel.resolveStreamForPlayback(stream)
-        if (playbackInfo == null) {
-            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
-            return@LaunchedEffect
+        var currentStream: com.nuvio.tv.domain.model.Stream? = stream
+        while (currentStream != null) {
+            val playbackInfo = viewModel.resolveStreamForPlayback(currentStream)
+            if (playbackInfo != null) {
+                // Torrent streams have url == null but carry an infoHash; navigation
+                // builds a torrent:// sentinel URL downstream.
+                if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
+                    viewModel.awaitStreamLinkCacheSave()
+                    routeAutoPlay(playbackInfo)
+                }
+                break
+            }
+            // Resolution failed — mark this stream and try the next candidate.
+            viewModel.markAutoPlayStreamFailed(currentStream)
+            val next = viewModel.nextAutoPlayCandidate(currentStream)
+            if (next == null) {
+                // No more candidates — show error and give up.
+                android.widget.Toast.makeText(context, context.getString(R.string.debrid_stale_stream), android.widget.Toast.LENGTH_SHORT).show()
+                viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
+                break
+            }
+            currentStream = next
         }
-        // Torrent streams have url == null but carry an infoHash; navigation
-        // builds a torrent:// sentinel URL downstream.
-        if (playbackInfo.url != null || (playbackInfo.isTorrent && playbackInfo.infoHash != null)) {
-            viewModel.awaitStreamLinkCacheSave()
-            routeAutoPlay(playbackInfo)
+        if (currentStream == null) {
+            viewModel.onEvent(StreamScreenEvent.OnAutoPlayConsumed)
         }
     }
 

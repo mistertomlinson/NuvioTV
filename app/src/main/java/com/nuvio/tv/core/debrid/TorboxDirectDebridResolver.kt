@@ -40,18 +40,38 @@ class TorboxDirectDebridResolver @Inject constructor(
                 addOnlyIfCached = "true".toTextPart(),
                 allowZip = "false".toTextPart()
             )
-            val torrentId = create.extractTorrentId() ?: return create.toFailureForCreate()
+            android.util.Log.d("NuvioDebrid", "TB createTorrent code=${create.code()} success=${create.body()?.success} error=${create.body()?.error} detail=${create.body()?.detail}")
+            val torrentId = create.extractTorrentId()
+            if (torrentId == null) {
+                android.util.Log.w("NuvioDebrid", "TB createTorrent no torrentId — returning ${create.toFailureForCreate()}")
+                return create.toFailureForCreate()
+            }
 
             val torrent = api.getTorrent(
                 authorization = authorization,
                 id = torrentId,
                 bypassCache = true
             )
-            if (!torrent.isSuccessful) return DirectDebridResolveResult.Stale
+            android.util.Log.d("NuvioDebrid", "TB getTorrent code=${torrent.code()} files=${torrent.body()?.data?.files?.size}")
+            torrent.body()?.data?.files?.take(5)?.forEach { f ->
+                android.util.Log.d("NuvioDebrid", "TB file: id=${f.id} name=${f.displayName()} size=${f.size}")
+            }
+            if (!torrent.isSuccessful) {
+                android.util.Log.w("NuvioDebrid", "TB getTorrent failed code=${torrent.code()}")
+                return DirectDebridResolveResult.Stale
+            }
             val files = torrent.body()?.data?.files.orEmpty()
             val file = fileSelector.selectFile(files, resolve, season, episode)
-                ?: return DirectDebridResolveResult.Stale
-            val fileId = file.id ?: return DirectDebridResolveResult.Stale
+            if (file == null) {
+                android.util.Log.w("NuvioDebrid", "TB fileSelector returned null from ${files.size} files for season=$season episode=$episode")
+                return DirectDebridResolveResult.Stale
+            }
+            android.util.Log.d("NuvioDebrid", "TB selected file: id=${file.id} name=${file.displayName()} size=${file.size}")
+            val fileId = file.id
+            if (fileId == null) {
+                android.util.Log.w("NuvioDebrid", "TB file has no id: ${file.displayName()}")
+                return DirectDebridResolveResult.Stale
+            }
 
             val link = api.requestDownloadLink(
                 authorization = authorization,
@@ -62,9 +82,16 @@ class TorboxDirectDebridResolver @Inject constructor(
                 redirect = false,
                 appendName = false
             )
-            if (!link.isSuccessful) return DirectDebridResolveResult.Stale
+            android.util.Log.d("NuvioDebrid", "TB requestDownloadLink code=${link.code()} hasUrl=${!link.body()?.data.isNullOrBlank()}")
+            if (!link.isSuccessful) {
+                android.util.Log.w("NuvioDebrid", "TB requestDownloadLink failed code=${link.code()}")
+                return DirectDebridResolveResult.Stale
+            }
             val url = link.body()?.data?.takeIf { it.isNotBlank() }
-                ?: return DirectDebridResolveResult.Stale
+            if (url == null) {
+                android.util.Log.w("NuvioDebrid", "TB requestDownloadLink returned blank url")
+                return DirectDebridResolveResult.Stale
+            }
 
             DirectDebridResolveResult.Success(
                 url = url,
