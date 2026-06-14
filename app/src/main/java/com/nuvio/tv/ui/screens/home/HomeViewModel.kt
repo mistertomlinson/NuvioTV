@@ -120,6 +120,9 @@ class HomeViewModel @Inject constructor(
 
     internal val _uiState = MutableStateFlow(HomeUiState(posterCardWidthDp = 0, posterCardHeightDp = 0))
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
+    // Addon-signaled landscape keys: rows where the addon itself sends posterShape=LANDSCAPE.
+    // Kept separate from user prefs so settings changes never wipe them out.
+    internal val addonSignaledLandscapeKeys = mutableSetOf<String>()
     /** True once the CW pipeline has completed its first emission (items or empty). */
     internal val _initialCwResolved = MutableStateFlow(false)
     val initialCwResolved: StateFlow<Boolean> = _initialCwResolved.asStateFlow()

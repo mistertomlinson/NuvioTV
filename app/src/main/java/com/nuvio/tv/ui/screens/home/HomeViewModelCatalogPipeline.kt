@@ -353,6 +353,22 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             android.util.Log.w("NuvioEnrich", "[RELOAD] key=$key pre-enriched=$preEnriched post-enriched=$postEnriched")
                         }
                         catalogsMap[key] = mergedRow
+                        // Auto-detect addon-signaled landscape rows: if the majority of
+                        // items carry posterShape=LANDSCAPE, treat this row as landscape
+                        // without touching the user's persisted per-catalog preferences.
+                        val landscapeItemCount = mergedRow.items.count {
+                            it.posterShape == com.nuvio.tv.domain.model.PosterShape.LANDSCAPE
+                        }
+                        val totalItemCount = mergedRow.items.size
+                        val addonSignalsLandscape = totalItemCount > 0 &&
+                            landscapeItemCount * 2 >= totalItemCount
+                        if (addonSignalsLandscape) {
+                            if (addonSignaledLandscapeKeys.add(key)) {
+                                _uiState.update { s ->
+                                    s.copy(landscapeCatalogKeys = s.landscapeCatalogKeys + key)
+                                }
+                            }
+                        }
                         // Proactively enrich per-catalog landscape rows as pages arrive.
                         // Uses a dedicated concurrent batch instead of the single-slot
                         // preloadAdjacentItemPipeline which cancels on every call.

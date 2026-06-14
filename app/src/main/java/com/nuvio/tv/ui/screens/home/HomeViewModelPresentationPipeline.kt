@@ -212,7 +212,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
                         dimIconsOnRowExitEnabled = dimIconsOnRowExitEnabled,
                         fastPlatformScrollEnabled = fastPlatformScrollEnabled,
-                        landscapeCatalogKeys = landscapeCatalogKeys,
+                        landscapeCatalogKeys = landscapeCatalogKeys + addonSignaledLandscapeKeys,
                         layoutPreferencesReady = true
                     )
                 }
