@@ -105,6 +105,13 @@ fun HomeScreen(
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsStateWithLifecycle(
         initialValue = false
     )
+    val platformBackdropsPreloaded by viewModel.platformBackdropsPreloaded.collectAsStateWithLifecycle()
+    // Safety net: fresh install has no disk cache so diskCacheRestored never fires.
+    // Release the gate after 4s so the user is never permanently stuck.
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(4_000L)
+        viewModel.releasePlatformBackdropsGate()
+    }
     val hasCatalogContent = uiState.catalogRows.any { it.items.isNotEmpty() }
     var hasEnteredCatalogContent by rememberSaveable { mutableStateOf(false) }
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
@@ -184,7 +191,8 @@ fun HomeScreen(
 
             else -> {
                 val shouldShowLoadingGate = !hasEnteredCatalogContent && !hasCatalogContent ||
-                    !uiState.layoutPreferencesReady
+                    !uiState.layoutPreferencesReady ||
+                    !platformBackdropsPreloaded
                 LaunchedEffect(shouldShowLoadingGate) {
                     if (shouldShowLoadingGate) {
                         showHomeContentWithAnimation = false

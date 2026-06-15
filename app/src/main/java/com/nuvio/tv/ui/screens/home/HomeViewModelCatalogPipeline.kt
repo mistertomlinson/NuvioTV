@@ -814,6 +814,21 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         )
     }
 
+    // Kick off Coil preloads for the first backdrop of each platform screen.
+    // Only fire once we have actual platform rows (diskCacheRestored gives us the full set).
+    // allCatalogsLoaded alone fires too early (only 1 row present at that point).
+    if (diskCacheRestored && !_platformBackdropsPreloaded.value) {
+        val backdropUrls = displayRows
+            .filter { it.items.isNotEmpty() }
+            .groupBy { inferPlatformId(it.catalogName) }
+            .filterKeys { it != null }
+            .values
+            .mapNotNull { rows ->
+                rows.firstOrNull()?.items?.firstOrNull()?.backdropUrl?.takeIf { it.isNotBlank() }
+            }
+        preloadPlatformBackdrops(backdropUrls)
+    }
+
     val tmdbSettings = currentTmdbSettings
     val shouldUseEnrichedHeroItems = tmdbSettings.enabled &&
         (tmdbSettings.useArtwork || tmdbSettings.useBasicInfo || tmdbSettings.useDetails)

@@ -143,6 +143,11 @@ class HomeViewModel @Inject constructor(
 
     internal val _enrichingItemId = MutableStateFlow<String?>(null)
     val enrichingItemId: StateFlow<String?> = _enrichingItemId.asStateFlow()
+
+    // True once all platform-screen first-item backdrops have been preloaded into Coil.
+    // The loading gate in HomeScreen waits on this before showing content.
+    internal val _platformBackdropsPreloaded = MutableStateFlow(false)
+    val platformBackdropsPreloaded: StateFlow<Boolean> = _platformBackdropsPreloaded.asStateFlow()
     internal fun setEnrichingItemId(id: String?) { _enrichingItemId.value = id }
 
     internal val catalogsMap: MutableMap<String, CatalogRow> = Collections.synchronizedMap(LinkedHashMap())
@@ -999,6 +1004,40 @@ class HomeViewModel @Inject constructor(
     }
 
     fun getCachedVisiblePlatformIds() = layoutPreferenceDataStore.cachedVisiblePlatformIds
+
+    fun releasePlatformBackdropsGate() {
+        _platformBackdropsPreloaded.value = true
+    }
+
+    fun preloadPlatformBackdrops(urls: List<String>) {
+        if (_platformBackdropsPreloaded.value) return
+        if (urls.isEmpty()) {
+            _platformBackdropsPreloaded.value = true
+            return
+        }
+        viewModelScope.launch {
+            val loader = coil.Coil.imageLoader(appContext)
+            val jobs = urls.map { url ->
+                launch {
+                    try {
+                        val req = coil.request.ImageRequest.Builder(appContext)
+                            .data(url)
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .build()
+                        loader.execute(req)
+                    } catch (_: Exception) {}
+                }
+            }
+            // Wait for all preloads, but cap at 3 seconds so a slow image never blocks the UI
+            val timeout = launch {
+                kotlinx.coroutines.delay(3_000L)
+                jobs.forEach { it.cancel() }
+            }
+            jobs.forEach { it.join() }
+            timeout.cancel()
+            _platformBackdropsPreloaded.value = true
+        }
+    }
 
     fun saveCachedVisiblePlatformIds(ids: Set<String>) {
         viewModelScope.launch {
