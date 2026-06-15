@@ -584,7 +584,8 @@ private fun ModernHomeRoute(
         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
         carouselGradientAlpha = carouselAlpha,
         onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it },
-        platformNavDirection = platformNavDirection
+        platformNavDirection = platformNavDirection,
+        isAtTop = isAtTop
     )
     }
 

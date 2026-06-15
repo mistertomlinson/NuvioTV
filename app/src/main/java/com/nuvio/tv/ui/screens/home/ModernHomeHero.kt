@@ -101,26 +101,29 @@ internal fun ModernHeroMediaLayer(
     requestHeightPx: Int,
     parallaxOffsetX: Float = 0f,
     cinematicMode: Boolean = false,
-    backdropCrossfadeDuration: Int = 350
+    backdropCrossfadeDuration: Int = 350,
+    cinematicScale: Float = 1.1f
 ) {
     val localContext = LocalContext.current
     val imageLoader = remember(localContext) { coil.Coil.imageLoader(localContext) }
 
-    // Hold the URL we actually display — only advances once the new image is
-    // in Coil's memory cache, so Crossfade always transitions between two
-    // already-decoded bitmaps instead of snapping in a blank slot.
-    var displayedUrl by remember { mutableStateOf(heroBackdrop) }
+    // Pair the URL with the scale so Crossfade captures both atomically.
+    // The outgoing image keeps its original scale for the full crossfade duration;
+    // the incoming image starts at the correct scale from frame 1.
+    data class BackdropFrame(val url: String?, val scale: Float)
+    var displayedFrame by remember { mutableStateOf(BackdropFrame(heroBackdrop, cinematicScale)) }
 
-    LaunchedEffect(heroBackdrop) {
+    LaunchedEffect(heroBackdrop, cinematicScale) {
         val target = heroBackdrop
+        val scale = cinematicScale
         if (target == null) {
-            displayedUrl = null
+            displayedFrame = BackdropFrame(null, scale)
             return@LaunchedEffect
         }
         // If already memory-cached, flip immediately — no visible delay.
         val cacheKey = coil.memory.MemoryCache.Key(target)
         if (imageLoader.memoryCache?.get(cacheKey) != null) {
-            displayedUrl = target
+            displayedFrame = BackdropFrame(target, scale)
             return@LaunchedEffect
         }
         // Pre-load into memory cache, then flip.  2 s timeout so a slow
@@ -130,26 +133,26 @@ internal fun ModernHeroMediaLayer(
             .size(width = requestWidthPx, height = requestHeightPx)
             .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
             .build()
-        val result = kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+        kotlinx.coroutines.withTimeoutOrNull(2_000L) {
             imageLoader.execute(preload)
         }
         // Whether it succeeded or timed out, show it now — at worst we get
         // the old snap behaviour on a very slow connection, never a hang.
-        displayedUrl = target
+        displayedFrame = BackdropFrame(target, scale)
     }
 
     Box(modifier = modifier.clipToBounds()) {
         Crossfade(
-            targetState = displayedUrl,
+            targetState = displayedFrame,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = heroBackdropAlpha },
             animationSpec = tween(durationMillis = backdropCrossfadeDuration),
             label = "modernHeroBackground"
-        ) { imageUrl ->
-            val imageModel = remember(localContext, imageUrl, requestWidthPx, requestHeightPx) {
+        ) { frame ->
+            val imageModel = remember(localContext, frame.url, requestWidthPx, requestHeightPx) {
                 ImageRequest.Builder(localContext)
-                    .data(imageUrl)
+                    .data(frame.url)
                     .crossfade(false)
                     .size(width = requestWidthPx, height = requestHeightPx)
                     .build()
@@ -165,7 +168,7 @@ internal fun ModernHeroMediaLayer(
                             val size = coords.size
                             android.util.Log.d("NuvioLayout", "w=" + size.width + " h=" + size.height + " rootX=" + pos.x + " rootY=" + pos.y + " parallax=" + parallaxOffsetX)
                         }
-                        .graphicsLayer { translationX = parallaxOffsetX; scaleX = 1.1f; scaleY = 1.1f },
+                        .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
                     contentScale = ContentScale.Crop,
                     alignment = Alignment.Center
                 )

@@ -156,6 +156,7 @@ fun ModernHomeContent(
     onPreloadAdjacentItem: (MetaPreview) -> Unit = {},
     onSaveFocusState: (Int, Int, Int, Int, Map<String, Int>, String?, String) -> Unit,
     onAtTopChanged: (Boolean) -> Unit = {},
+    isAtTop: Boolean = true,
     sharedTrailerPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
     carouselGradientAlpha: Float = 0f,
     onCarouselOpenRequested: () -> Unit = {},
@@ -999,6 +1000,7 @@ fun ModernHomeContent(
                 alpha = catalogSlideAlpha.value
                 translationX = backdropParallaxOffset.value
             },
+            cinematicScale = if (isAtTop) 1.1f else 1.0f,
             requestWidthPx = heroMediaWidthPx,
             requestHeightPx = heroMediaHeightPx
         )
