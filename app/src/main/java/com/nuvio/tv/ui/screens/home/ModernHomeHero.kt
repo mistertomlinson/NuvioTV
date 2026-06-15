@@ -113,7 +113,10 @@ internal fun ModernHeroMediaLayer(
     data class BackdropFrame(val url: String?, val scale: Float)
     var displayedFrame by remember { mutableStateOf(BackdropFrame(heroBackdrop, cinematicScale)) }
 
-    LaunchedEffect(heroBackdrop, cinematicScale) {
+    // URL loading: only re-run when the backdrop URL changes.
+    // Scale is captured at the moment the URL is ready — incoming image
+    // gets the correct scale from frame 1, outgoing image keeps its scale.
+    LaunchedEffect(heroBackdrop) {
         val target = heroBackdrop
         val scale = cinematicScale
         if (target == null) {
@@ -163,11 +166,6 @@ internal fun ModernHeroMediaLayer(
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .onGloballyPositioned { coords ->
-                            val pos = coords.positionInRoot()
-                            val size = coords.size
-                            android.util.Log.d("NuvioLayout", "w=" + size.width + " h=" + size.height + " rootX=" + pos.x + " rootY=" + pos.y + " parallax=" + parallaxOffsetX)
-                        }
                         .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
                     contentScale = ContentScale.Crop,
                     alignment = Alignment.Center

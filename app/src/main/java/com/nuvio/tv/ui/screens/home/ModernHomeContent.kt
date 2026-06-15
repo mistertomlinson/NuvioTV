@@ -972,7 +972,6 @@ fun ModernHomeContent(
             if (cinematicHeroMode) {
                 Modifier
                     .align(Alignment.Center)
-                    .offset(y = -(maxHeight * 0.05f))
                     .requiredSize(maxWidth * 1.1f, maxHeight * 1.1f)
             } else {
                 Modifier
@@ -1000,7 +999,7 @@ fun ModernHomeContent(
                 alpha = catalogSlideAlpha.value
                 translationX = backdropParallaxOffset.value
             },
-            cinematicScale = if (isAtTop) 1.1f else 1.0f,
+            cinematicScale = if (isAtTop) 1.0f else (1.0f / 1.1f),
             requestWidthPx = heroMediaWidthPx,
             requestHeightPx = heroMediaHeightPx
         )
