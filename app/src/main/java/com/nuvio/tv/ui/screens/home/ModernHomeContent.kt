@@ -838,6 +838,7 @@ fun ModernHomeContent(
         val resolvedHero = if (isFastScrolling) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
         // transitionHero: non-null during platform transition, blocks live resolvedHero updates.
         var isPlatformTransitioning by remember { mutableStateOf(false) }
+        var platformFlipTick by remember { mutableStateOf(0) }
         LaunchedEffect(isPlatformTransitioning) {
             heroTransitioningRef.set(isPlatformTransitioning)
         }
@@ -854,6 +855,23 @@ fun ModernHomeContent(
                 resolvedHero?.imageUrl,
                 if (heroItem == null) activeRowFallbackBackdrop else null
             )
+        }
+        // Preload the hero logo into Coil memory cache upstream, mirroring how
+        // ModernHeroMediaLayer preloads the backdrop. This ensures HeroTitleContent
+        // can initialise displayedLogo synchronously from cache instead of waiting
+        // for a LaunchedEffect download, eliminating the plain-text flash.
+        val heroLogoUrl = resolvedHero?.logo?.let { if (it.endsWith('.')) it + "png" else it }
+        LaunchedEffect(heroLogoUrl) {
+            val target = heroLogoUrl ?: return@LaunchedEffect
+            val imageLoader = coil.Coil.imageLoader(context)
+            val cacheKey = coil.memory.MemoryCache.Key(target)
+            if (imageLoader.memoryCache?.get(cacheKey) != null) return@LaunchedEffect
+            val preload = coil.request.ImageRequest.Builder(context)
+                .data(target)
+                .decoderFactory(coil.decode.SvgDecoder.Factory())
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .build()
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) { imageLoader.execute(preload) }
         }
         val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
             focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
@@ -982,6 +1000,7 @@ fun ModernHomeContent(
             }
         }
 
+        var backdropReadyTick by remember { mutableStateOf(0) }
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
             backdropCrossfadeDuration = if (isPlatformTransitioning) 0 else 350,
@@ -1001,7 +1020,8 @@ fun ModernHomeContent(
             },
             cinematicScale = if (isAtTop) 1.0f else (1.0f / 1.1f),
             requestWidthPx = heroMediaWidthPx,
-            requestHeightPx = heroMediaHeightPx
+            requestHeightPx = heroMediaHeightPx,
+            onBackdropReady = { backdropReadyTick++ }
         )
         if (shouldPlayHeroTrailer && uiState.heroTrailerAllowLetterboxing) {
             Box(
@@ -1123,6 +1143,7 @@ fun ModernHomeContent(
             val incomingRows = uiState.catalogRows
                 .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == finalTarget }
 
+            platformFlipTick++
             displayedPlatformId = finalTarget
             catalogDisplayedPlatformId = finalTarget
             catalogSlideOffset.snapTo(enterDir * catalogSlideDistancePx)
@@ -1237,6 +1258,9 @@ fun ModernHomeContent(
                 portraitMode = !useLandscapePosters,
                 selectedPlatformId = catalogDisplayedPlatformId,
                 platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive && !isPlatformTransitioning) platformNavDirection else 0,
+                isPlatformTransitioning = isPlatformTransitioning,
+                platformFlipTick = platformFlipTick,
+                backdropReadyTick = backdropReadyTick,
                 fullWidthIconRowEnabled = fullWidthIconRowEnabled,
                 modifier = Modifier
                     .align(Alignment.BottomStart)

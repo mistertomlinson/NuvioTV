@@ -522,10 +522,10 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 // Fill in missing background from TMDB backdrop — covers newly added ML items
                 // where Trakt returns background=null, causing hero to show detailBackdrop instead
                 background = merged.background ?: enrichment.backdrop,
-                // When TMDB enrichment is enabled, trust its logo result as authoritative.
-                // If TMDB returns null (no English logo exists), use null rather than
-                // falling back to the addon logo which may be a foreign language logo.
-                logo = enrichment.logo,
+                // When TMDB enrichment is enabled, prefer its logo (English).
+                // Fall back to addon logo if TMDB has no logo for this title,
+                // rewriting live.metahub.space -> images.metahub.space (correct subdomain).
+                logo = enrichment.logo ?: merged.logo?.replace("live.metahub.space", "images.metahub.space"),
                 // Prefer detailBackdrop (unique TMDB image), fall back to existing
                 // landscapePoster, then background if neither is available.
                 landscapePoster = enrichment.detailBackdrop ?: merged.landscapePoster ?: merged.background
