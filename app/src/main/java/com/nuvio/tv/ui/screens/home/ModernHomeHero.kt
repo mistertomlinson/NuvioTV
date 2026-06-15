@@ -475,27 +475,72 @@ private fun HeroTitleContent(
         verticalArrangement = Arrangement.spacedBy(titleSpacing)
     ) {
         var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
-        val showLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
-        if (showLogo) {
-            AsyncImage(
-                model = logoModel,
-                contentDescription = preview.title,
-                onError = { logoLoadFailed = true },
-                modifier = Modifier
-                    .height(100.dp)
-                    .widthIn(min = 100.dp, max = 220.dp)
-                    .fillMaxWidth(),
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.CenterStart
-            )
-        } else {
-            Text(
-                text = preview.title,
-                style = scaledTitleStyle,
-                color = NuvioColors.TextPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+        // Hold the displayed logo URL until the new one is in memory cache,
+        // so Crossfade always transitions between two loaded images.
+        var displayedLogo by remember { mutableStateOf(preview.logo) }
+        val localContext2 = LocalContext.current
+        val imageLoader2 = remember(localContext2) { coil.Coil.imageLoader(localContext2) }
+        LaunchedEffect(preview.logo) {
+            val target = preview.logo
+            if (target.isNullOrBlank()) {
+                displayedLogo = target
+                return@LaunchedEffect
+            }
+            val cleanedUrl = if (target.endsWith('.')) target + "png" else target
+            val cacheKey = coil.memory.MemoryCache.Key(cleanedUrl)
+            if (imageLoader2.memoryCache?.get(cacheKey) != null) {
+                displayedLogo = target
+                return@LaunchedEffect
+            }
+            val preload = ImageRequest.Builder(localContext2)
+                .data(cleanedUrl)
+                .decoderFactory(SvgDecoder.Factory())
+                .size(width = logoMaxWidthPx, height = logoHeightPx)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .build()
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                imageLoader2.execute(preload)
+            }
+            displayedLogo = target
+        }
+        val showLogo = !displayedLogo.isNullOrBlank() && !logoLoadFailed
+        Crossfade(
+            targetState = showLogo to displayedLogo,
+            animationSpec = tween(durationMillis = 300),
+            label = "heroLogoFade"
+        ) { (isLogo, logoUrl) ->
+            if (isLogo) {
+                val displayedLogoModel = remember(localContext2, logoUrl, logoMaxWidthPx, logoHeightPx) {
+                    logoUrl?.let {
+                        val cleanedUrl = if (it.endsWith('.')) it + "png" else it
+                        ImageRequest.Builder(localContext2)
+                            .data(cleanedUrl)
+                            .decoderFactory(SvgDecoder.Factory())
+                            .crossfade(false)
+                            .size(width = logoMaxWidthPx, height = logoHeightPx)
+                            .build()
+                    }
+                }
+                AsyncImage(
+                    model = displayedLogoModel,
+                    contentDescription = preview.title,
+                    onError = { logoLoadFailed = true },
+                    modifier = Modifier
+                        .height(100.dp)
+                        .widthIn(min = 100.dp, max = 220.dp)
+                        .fillMaxWidth(),
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.CenterStart
+                )
+            } else {
+                Text(
+                    text = preview.title,
+                    style = scaledTitleStyle,
+                    color = NuvioColors.TextPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         val strStatusEnded = stringResource(R.string.series_status_ended)
