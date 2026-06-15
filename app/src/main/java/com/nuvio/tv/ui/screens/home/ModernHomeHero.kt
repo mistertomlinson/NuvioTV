@@ -102,8 +102,7 @@ internal fun ModernHeroMediaLayer(
     parallaxOffsetX: Float = 0f,
     cinematicMode: Boolean = false,
     backdropCrossfadeDuration: Int = 350,
-    cinematicScale: Float = 1.1f,
-    onBackdropReady: () -> Unit = {}
+    cinematicScale: Float = 1.1f
 ) {
     val localContext = LocalContext.current
     val imageLoader = remember(localContext) { coil.Coil.imageLoader(localContext) }
@@ -143,7 +142,6 @@ internal fun ModernHeroMediaLayer(
         // Whether it succeeded or timed out, show it now — at worst we get
         // the old snap behaviour on a very slow connection, never a hang.
         displayedFrame = BackdropFrame(target, scale)
-        onBackdropReady()
     }
 
     Box(modifier = modifier.clipToBounds()) {
@@ -369,9 +367,6 @@ internal fun HeroTitleBlock(
     portraitMode: Boolean,
     selectedPlatformId: String = "home",
     platformNavDirection: Int = 0,
-    isPlatformTransitioning: Boolean = false,
-    platformFlipTick: Int = 0,
-    backdropReadyTick: Int = 0,
     fullWidthIconRowEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -395,56 +390,6 @@ internal fun HeroTitleBlock(
 
     if (previewByPlatform.isEmpty()) return
 
-    // Hoist displayedLogo here so it survives HeroTitleContent recomposition.
-    // Only advances once the image is downloaded into Coil memory cache, so
-    // the Crossfade inside HeroTitleContent always transitions between two
-    // fully-loaded states — never flashes plain text for a title with a logo.
-    val localContext = LocalContext.current
-    val imageLoader = remember(localContext) { coil.Coil.imageLoader(localContext) }
-    var displayedLogo by remember { mutableStateOf<String?>(null) }
-    var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
-    // Pending logo URL — set once preload completes, applied when backdrop is ready.
-    var pendingLogo by remember { mutableStateOf<String?>(null) }
-    // Clear logo at the FLIP point (screen fully black) so it doesn't bleed
-    // through when the screen fades back in for the new platform.
-    LaunchedEffect(platformFlipTick) {
-        if (platformFlipTick > 0) {
-            displayedLogo = null
-            pendingLogo = null
-        }
-    }
-    // When backdrop advances, apply any pending logo — keeps both in sync.
-    LaunchedEffect(backdropReadyTick) {
-        if (backdropReadyTick > 0 && pendingLogo != displayedLogo) {
-            displayedLogo = pendingLogo
-        }
-    }
-    LaunchedEffect(preview.logo) {
-        val target = preview.logo
-        if (target.isNullOrBlank()) {
-            pendingLogo = null
-            displayedLogo = null
-            return@LaunchedEffect
-        }
-        val cleanedUrl = if (target.endsWith('.')) target + "png" else target
-        val cacheKey = coil.memory.MemoryCache.Key(cleanedUrl)
-        if (imageLoader.memoryCache?.get(cacheKey) != null) {
-            pendingLogo = target
-            // Backdrop may already be ready — apply immediately if tick is current.
-            displayedLogo = target
-            return@LaunchedEffect
-        }
-        val preload = coil.request.ImageRequest.Builder(localContext)
-            .data(cleanedUrl)
-            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-            .build()
-        kotlinx.coroutines.withTimeoutOrNull(2_000L) { imageLoader.execute(preload) }
-        pendingLogo = target
-        // If backdrop already fired, apply immediately — avoids stuck logo on slow networks
-        // where the backdrop tick fires before the logo preload completes.
-        if (backdropReadyTick > 0) displayedLogo = target
-    }
-
     Box(modifier = modifier, contentAlignment = Alignment.BottomStart) {
         AnimatedContent(
             targetState = selectedPlatformId,
@@ -463,7 +408,7 @@ internal fun HeroTitleBlock(
             label = "heroTitleSlide"
         ) { pid ->
             val frozenPreview = previewByPlatform[pid] ?: return@AnimatedContent
-            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, displayedLogo = displayedLogo, logoLoadFailed = logoLoadFailed, onLogoError = { logoLoadFailed = true }, isPlatformTransitioning = isPlatformTransitioning, fullWidthIconRowEnabled = fullWidthIconRowEnabled)
+            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled)
         }
     }
 }
@@ -473,10 +418,6 @@ internal fun HeroTitleBlock(
 private fun HeroTitleContent(
     preview: HeroPreview?,
     portraitMode: Boolean,
-    displayedLogo: String?,
-    logoLoadFailed: Boolean = false,
-    onLogoError: () -> Unit = {},
-    isPlatformTransitioning: Boolean = false,
     fullWidthIconRowEnabled: Boolean = false
 ) {
     if (preview == null) return
@@ -500,7 +441,20 @@ private fun HeroTitleContent(
             .decoderFactory(SvgDecoder.Factory())
             .build()
     }
-
+    val logoModel = remember(context, preview.logo, logoMaxWidthPx, logoHeightPx) {
+        preview.logo?.let {
+            // TMDB logo URLs sometimes arrive without a file extension,
+            // ending with a bare period (e.g. ".../logo." instead of ".../logo.png").
+            // Append .png in this case — TMDB logos are always PNG.
+            val cleanedUrl = if (it.endsWith('.')) it + "png" else it
+            ImageRequest.Builder(context)
+                .data(cleanedUrl)
+                .decoderFactory(SvgDecoder.Factory())
+                .crossfade(false)
+                .size(width = logoMaxWidthPx, height = logoHeightPx)
+                .build()
+        }
+    }
     val scaledTitleStyle = remember(headlineLarge, titleScale) {
         headlineLarge.copy(
             fontSize = headlineLarge.fontSize * titleScale,
@@ -521,63 +475,72 @@ private fun HeroTitleContent(
         modifier = Modifier,
         verticalArrangement = Arrangement.spacedBy(titleSpacing)
     ) {
-        val context2 = LocalContext.current
-        val hasLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
+        var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
+        // Hold the displayed logo URL until the new one is in memory cache,
+        // so Crossfade always transitions between two loaded images.
+        var displayedLogo by remember { mutableStateOf(preview.logo) }
+        val localContext2 = LocalContext.current
+        val imageLoader2 = remember(localContext2) { coil.Coil.imageLoader(localContext2) }
+        LaunchedEffect(preview.logo) {
+            val target = preview.logo
+            if (target.isNullOrBlank()) {
+                displayedLogo = target
+                return@LaunchedEffect
+            }
+            val cleanedUrl = if (target.endsWith('.')) target + "png" else target
+            val cacheKey = coil.memory.MemoryCache.Key(cleanedUrl)
+            if (imageLoader2.memoryCache?.get(cacheKey) != null) {
+                displayedLogo = target
+                return@LaunchedEffect
+            }
+            val preload = ImageRequest.Builder(localContext2)
+                .data(cleanedUrl)
+                .decoderFactory(SvgDecoder.Factory())
+                .size(width = logoMaxWidthPx, height = logoHeightPx)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .build()
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                imageLoader2.execute(preload)
+            }
+            displayedLogo = target
+        }
+        val showLogo = !displayedLogo.isNullOrBlank() && !logoLoadFailed
         Crossfade(
-            targetState = displayedLogo to logoLoadFailed,
-            animationSpec = tween(durationMillis = if (isPlatformTransitioning) 0 else 300),
+            targetState = showLogo to displayedLogo,
+            animationSpec = tween(durationMillis = 300),
             label = "heroLogoFade"
-        ) { (logoUrl, failed) ->
-            when {
-                logoUrl != null && !failed -> {
-                    // Logo is loaded and ready — show it
-                    val displayedLogoModel = remember(context2, logoUrl, logoMaxWidthPx, logoHeightPx) {
-                        val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
-                        ImageRequest.Builder(context2)
+        ) { (isLogo, logoUrl) ->
+            if (isLogo) {
+                val displayedLogoModel = remember(localContext2, logoUrl, logoMaxWidthPx, logoHeightPx) {
+                    logoUrl?.let {
+                        val cleanedUrl = if (it.endsWith('.')) it + "png" else it
+                        ImageRequest.Builder(localContext2)
                             .data(cleanedUrl)
+                            .decoderFactory(SvgDecoder.Factory())
                             .crossfade(false)
                             .size(width = logoMaxWidthPx, height = logoHeightPx)
                             .build()
                     }
-                    AsyncImage(
-                        model = displayedLogoModel,
-                        contentDescription = preview.title,
-                        onError = { onLogoError() },
-                        modifier = Modifier
-                            .height(100.dp)
-                            .widthIn(min = 100.dp, max = 220.dp)
-                            .fillMaxWidth(),
-                        contentScale = ContentScale.Fit,
-                        alignment = Alignment.CenterStart
-                    )
                 }
-                preview.logo.isNullOrBlank() || failed -> {
-                    // Title genuinely has no logo — show text
-                    Box(
-                        modifier = Modifier
-                            .height(100.dp)
-                            .widthIn(min = 100.dp, max = 220.dp)
-                            .fillMaxWidth(),
-                        contentAlignment = Alignment.CenterStart
-                    ) {
-                        Text(
-                            text = preview.title,
-                            style = scaledTitleStyle,
-                            color = NuvioColors.TextPrimary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-                else -> {
-                    // Logo exists but not yet loaded — show empty box to avoid text flash
-                    Box(
-                        modifier = Modifier
-                            .height(100.dp)
-                            .widthIn(min = 100.dp, max = 220.dp)
-                            .fillMaxWidth()
-                    )
-                }
+                AsyncImage(
+                    model = displayedLogoModel,
+                    contentDescription = preview.title,
+                    onError = { logoLoadFailed = true },
+                    modifier = Modifier
+                        .height(100.dp)
+                        .widthIn(min = 100.dp, max = 220.dp)
+                        .fillMaxWidth(),
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.CenterStart
+                )
+            } else {
+                Text(
+                    text = preview.title,
+                    style = scaledTitleStyle,
+                    color = NuvioColors.TextPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
 

@@ -39,7 +39,6 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
                 } else {
                     add(GifDecoder.Factory())
                 }
-                add(coil.decode.SvgDecoder.Factory())
             }
             .memoryCache {
                 MemoryCache.Builder(this)
