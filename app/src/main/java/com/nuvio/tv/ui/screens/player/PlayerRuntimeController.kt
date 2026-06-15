@@ -8,6 +8,7 @@ import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
+import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.StreamAutoPlayMode
@@ -51,7 +52,8 @@ class PlayerRuntimeController(
     internal val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope,
-    internal val directDebridResolver: DirectDebridResolver
+    internal val directDebridResolver: DirectDebridResolver,
+    internal val debridSettingsDataStore: DebridSettingsDataStore
 ) {
 
     companion object {

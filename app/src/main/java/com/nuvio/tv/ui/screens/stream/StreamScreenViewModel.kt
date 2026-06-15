@@ -17,6 +17,7 @@ import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.core.streams.StreamBadgePresentation
 import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.data.local.PlayerSettings
+import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamBadgeSettingsDataStore
@@ -69,6 +70,7 @@ class StreamScreenViewModel @Inject constructor(
     private val pluginManager: PluginManager,
     private val metaRepository: MetaRepository,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
+    private val debridSettingsDataStore: DebridSettingsDataStore,
     private val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     private val streamBadgePresentation: StreamBadgePresentation,
     streamBadgeSettingsDataStore: StreamBadgeSettingsDataStore,
@@ -260,6 +262,8 @@ class StreamScreenViewModel @Inject constructor(
         streamLoadJob = newScope.launch {
             streamLoadCompleted = false
             val playerSettings = playerSettingsDataStore.playerSettings.first()
+            val debridSettings = debridSettingsDataStore.settings.first()
+            val preferredDebridProviderId = debridSettings.activeResolverProviderId
             if (manualSelection) {
                 directAutoPlayModeInitializedForSession = true
                 directAutoPlayFlowEnabledForSession = false
@@ -381,6 +385,21 @@ class StreamScreenViewModel @Inject constructor(
                 
                 val allStreams = orderedAddonStreams.flatMap { addonStreams ->
                     addonStreams.streams
+                }.let { streams ->
+                    // Partition by debridCacheStatus.providerId so preferred debrid
+                    // streams from ALL addons float to the top of the merged list,
+                    // preserving within-group quality order from DebridStreamPresentation.
+                    val preferred = preferredDebridProviderId
+                    if (preferred.isNullOrBlank()) streams
+                    else {
+                        val (preferredDebrid, rest) = streams.partition {
+                            it.debridCacheStatus?.providerId == preferred
+                        }
+                        val (otherDebrid, nonDebrid) = rest.partition {
+                            it.debridCacheStatus?.providerId != null
+                        }
+                        preferredDebrid + otherDebrid + nonDebrid
+                    }
                 }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
                 // Auto-select only after all addons have responded or the

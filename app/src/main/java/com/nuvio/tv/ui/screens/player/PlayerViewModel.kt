@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.ExoPlayer
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.repository.ParentalGuideRepository
@@ -40,7 +41,8 @@ class PlayerViewModel @Inject constructor(
     private val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     private val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     savedStateHandle: SavedStateHandle,
-    private val directDebridResolver: DirectDebridResolver
+    private val directDebridResolver: DirectDebridResolver,
+    private val debridSettingsDataStore: DebridSettingsDataStore
 ) : ViewModel() {
 
     private val controller = PlayerRuntimeController(
@@ -61,7 +63,8 @@ class PlayerViewModel @Inject constructor(
         watchedItemsPreferences = watchedItemsPreferences,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope,
-        directDebridResolver = directDebridResolver
+        directDebridResolver = directDebridResolver,
+        debridSettingsDataStore = debridSettingsDataStore
     )
 
     val uiState: StateFlow<PlayerUiState>

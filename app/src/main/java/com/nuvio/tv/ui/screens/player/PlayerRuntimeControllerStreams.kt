@@ -11,12 +11,24 @@ import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.ui.components.SourceChipItem
 import com.nuvio.tv.ui.components.SourceChipStatus
+import com.nuvio.tv.core.debrid.DebridProviders
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+
+private suspend fun PlayerRuntimeController.preferredDebridProviderId(): String? {
+    return debridSettingsDataStore.settings.first().activeResolverProviderId
+}
+
+private fun List<com.nuvio.tv.domain.model.Stream>.sortByPreferredDebrid(preferredId: String?): List<com.nuvio.tv.domain.model.Stream> {
+    if (preferredId.isNullOrBlank()) return this
+    val (preferredDebrid, rest) = partition { it.debridCacheStatus?.providerId == preferredId }
+    val (otherDebrid, nonDebrid) = rest.partition { it.debridCacheStatus?.providerId != null }
+    return preferredDebrid + otherDebrid + nonDebrid
+}
 internal fun PlayerRuntimeController.showEpisodesPanel() {
     _uiState.update {
         it.copy(
@@ -118,7 +130,8 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
             when (result) {
                 is NetworkResult.Success -> {
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
-                    val allStreams = addonStreams.flatMap { it.streams }
+                    val preferredDebrid = preferredDebridProviderId()
+                    val allStreams = addonStreams.flatMap { it.streams }.sortByPreferredDebrid(preferredDebrid)
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
@@ -526,7 +539,8 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
             when (result) {
                 is NetworkResult.Success -> {
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
-                    val allStreams = addonStreams.flatMap { it.streams }
+                    val preferredDebrid = preferredDebridProviderId()
+                    val allStreams = addonStreams.flatMap { it.streams }.sortByPreferredDebrid(preferredDebrid)
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     val selectedAddon = previousAddonFilter?.takeIf { it in availableAddons }
