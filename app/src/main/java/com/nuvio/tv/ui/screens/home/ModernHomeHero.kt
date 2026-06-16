@@ -449,8 +449,7 @@ private fun HeroTitleContent(
             val cleanedUrl = if (it.endsWith('.')) it + "png" else it
             ImageRequest.Builder(context)
                 .data(cleanedUrl)
-                .decoderFactory(SvgDecoder.Factory())
-                .crossfade(false)
+                .crossfade(true)
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .build()
         }
@@ -495,7 +494,6 @@ private fun HeroTitleContent(
             }
             val preload = ImageRequest.Builder(localContext2)
                 .data(cleanedUrl)
-                .decoderFactory(SvgDecoder.Factory())
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .build()

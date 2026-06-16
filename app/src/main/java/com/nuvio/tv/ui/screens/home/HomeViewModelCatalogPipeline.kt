@@ -814,19 +814,27 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         )
     }
 
-    // Kick off Coil preloads for the first backdrop of each platform screen.
+    // Kick off Coil preloads for the first backdrop and logo of each platform screen.
     // Only fire once we have actual platform rows (diskCacheRestored gives us the full set).
     // allCatalogsLoaded alone fires too early (only 1 row present at that point).
     if (diskCacheRestored && !_platformBackdropsPreloaded.value) {
-        val backdropUrls = displayRows
+        val platformRows = displayRows
             .filter { it.items.isNotEmpty() }
             .groupBy { inferPlatformId(it.catalogName) }
-            .filterKeys { it != null }
-            .values
-            .mapNotNull { rows ->
-                rows.firstOrNull()?.items?.firstOrNull()?.backdropUrl?.takeIf { it.isNotBlank() }
+        val backdropUrls = mutableListOf<String>()
+        val logoUrls = mutableListOf<String>()
+        for ((platformId, rows) in platformRows) {
+            if (platformId == null) continue
+            val firstItem = rows.firstOrNull()?.items?.firstOrNull() ?: continue
+            val backdrop = firstItem.backdropUrl
+            if (!backdrop.isNullOrBlank()) backdropUrls.add(backdrop)
+            val rawLogo = firstItem.logo.orEmpty()
+            if (rawLogo.isNotBlank()) {
+                val cleaned = if (rawLogo.endsWith('.')) "${rawLogo}png" else rawLogo
+                logoUrls.add(cleaned.replace("live.metahub.space", "images.metahub.space"))
             }
-        preloadPlatformBackdrops(backdropUrls)
+        }
+        preloadPlatformBackdrops(backdropUrls + logoUrls)
     }
 
     val tmdbSettings = currentTmdbSettings
