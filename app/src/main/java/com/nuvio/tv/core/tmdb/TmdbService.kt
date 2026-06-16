@@ -342,6 +342,9 @@ class TmdbService @Inject constructor(
     /**
      * Pre-populate cache with known mappings
      */
+    /** Synchronous cache-only lookup: returns imdb ID if already cached, null otherwise. */
+    fun getCachedImdbId(tmdbId: Int): String? = tmdbToImdbCache[tmdbId]
+
     fun preCacheMapping(imdbId: String, tmdbId: Int) {
         imdbToTmdbCache[imdbId] = tmdbId
         tmdbToImdbCache[tmdbId] = imdbId

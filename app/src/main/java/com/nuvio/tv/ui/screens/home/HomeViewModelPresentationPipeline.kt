@@ -522,10 +522,16 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 // Fill in missing background from TMDB backdrop — covers newly added ML items
                 // where Trakt returns background=null, causing hero to show detailBackdrop instead
                 background = merged.background ?: enrichment.backdrop,
-                // When TMDB enrichment is enabled, trust its logo result as authoritative.
-                // If TMDB returns null (no English logo exists), use null rather than
-                // falling back to the addon logo which may be a foreign language logo.
-                logo = enrichment.logo,
+                // When TMDB enrichment is enabled, prefer its logo.
+                // If TMDB has no logo, try metahub using the cached imdb ID (UI onError→text if 404).
+                // itemId may be "tt1234567" (imdb-style) or numeric tmdb id.
+                logo = enrichment.logo ?: run {
+                    val imdbId = merged.imdbId
+                        ?: itemId.removePrefix("tmdb:").toIntOrNull()
+                            ?.let { tmdbService.getCachedImdbId(it) }
+                        ?: if (itemId.startsWith("tt")) itemId else null
+                    imdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
+                },
                 // Prefer detailBackdrop (unique TMDB image), fall back to existing
                 // landscapePoster, then background if neither is available.
                 landscapePoster = enrichment.detailBackdrop ?: merged.landscapePoster ?: merged.background
@@ -692,7 +698,9 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
                     if (settings.useArtwork) {
                         enriched = enriched.copy(
                             background = enrichment.backdrop ?: enriched.background,
-                            logo = enrichment.logo ?: enriched.logo,
+                            logo = enrichment.logo
+                                ?: enriched.imdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
+                                ?: enriched.logo,
                             poster = enrichment.poster ?: enriched.poster
                         )
                     }
