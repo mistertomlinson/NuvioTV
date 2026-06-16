@@ -183,9 +183,10 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     extractorsFactory = null,
                     subtitleParserFactory = null
                 )
+                val playerDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, PlayerMediaSourceFactory.sanitizeHeaders(headers))
                 ExoPlayer.Builder(context)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(playerDataSourceFactory, extractorsFactory))
                     .setRenderersFactory(renderersFactory)
                     .setLoadControl(loadControl)
                     .build()
@@ -193,10 +194,11 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
 
             _uiState.update { it.copy(loadingMessage = if (isDebridStream) null else context.getString(R.string.player_loading_building)) }
             _exoPlayer = if (useLibass) {
+                val libassDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, PlayerMediaSourceFactory.sanitizeHeaders(headers))
                 ExoPlayer.Builder(context)
                     .setLoadControl(loadControl)
                     .setTrackSelector(trackSelector!!)
-                    .setMediaSourceFactory(DefaultMediaSourceFactory(context, extractorsFactory))
+                    .setMediaSourceFactory(DefaultMediaSourceFactory(libassDataSourceFactory, extractorsFactory))
                     .buildWithAssSupportCompat(
                         context = context,
                         renderType = libassRenderType,

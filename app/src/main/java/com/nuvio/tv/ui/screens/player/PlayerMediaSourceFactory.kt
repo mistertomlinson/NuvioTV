@@ -1,8 +1,8 @@
 package com.nuvio.tv.ui.screens.player
 
+import android.content.Context
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
-import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.dash.DashMediaSource
@@ -10,30 +10,17 @@ import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.ExtractorsFactory
 import androidx.media3.extractor.text.SubtitleParser
-import com.nuvio.tv.core.network.IPv4FirstDns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLDecoder
 import java.util.Locale
-import java.util.concurrent.TimeUnit
 
-internal class PlayerMediaSourceFactory {
+internal class PlayerMediaSourceFactory(private val context: Context) {
     private var customExtractorsFactory: ExtractorsFactory? = null
     private var customSubtitleParserFactory: SubtitleParser.Factory? = null
-    private val playbackHttpClient by lazy {
-        OkHttpClient.Builder()
-            .dns(IPv4FirstDns())
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(8, TimeUnit.SECONDS)
-            .followRedirects(true)
-            .followSslRedirects(true)
-            .build()
-    }
-
     fun configureSubtitleParsing(
         extractorsFactory: ExtractorsFactory?,
         subtitleParserFactory: SubtitleParser.Factory?
@@ -49,10 +36,7 @@ internal class PlayerMediaSourceFactory {
         mimeTypeOverride: String? = null
     ): MediaSource {
         val sanitizedHeaders = sanitizeHeaders(headers)
-        val httpDataSourceFactory = OkHttpDataSource.Factory(playbackHttpClient).apply {
-            setDefaultRequestProperties(sanitizedHeaders)
-            setUserAgent(DEFAULT_USER_AGENT)
-        }
+        val httpDataSourceFactory = PlayerPlaybackNetworking.createDataSourceFactory(context, sanitizedHeaders)
 
         val resolvedMimeType = mimeTypeOverride ?: inferMimeType(url = url, filename = null)
         val isHls = resolvedMimeType == MimeTypes.APPLICATION_M3U8
@@ -94,7 +78,7 @@ internal class PlayerMediaSourceFactory {
     companion object {
         private const val PROBE_TIMEOUT_MS = 4000
         private const val PROBE_BYTES = 1024
-        private const val DEFAULT_USER_AGENT =
+        internal const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
                 "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
@@ -150,6 +134,18 @@ internal class PlayerMediaSourceFactory {
                 "audio/x-mpegurl" -> MimeTypes.APPLICATION_M3U8
 
                 "application/dash+xml" -> MimeTypes.APPLICATION_MPD
+
+                "video/x-matroska",
+                "audio/x-matroska",
+                "video/mkv",
+                "audio/mkv" -> MimeTypes.VIDEO_MATROSKA
+
+                "video/webm",
+                "audio/webm" -> MimeTypes.VIDEO_WEBM
+
+                "video/mp4",
+                "application/mp4",
+                "video/x-m4v" -> MimeTypes.VIDEO_MP4
                 else -> null
             }
         }
@@ -191,15 +187,21 @@ internal class PlayerMediaSourceFactory {
                 ?.trim()
                 ?: return null
 
+            val pathOnly = normalized.substringBefore('?').substringBefore('#')
+            val ext = pathOnly.substringAfterLast('.', missingDelimiterValue = "")
+
             return when {
-                normalized.endsWith(".m3u8") ||
-                    normalized.contains("/playlist") ||
-                    normalized.contains("/hls") ||
-                    normalized.contains("m3u8") -> MimeTypes.APPLICATION_M3U8
-
-                normalized.endsWith(".mpd") ||
-                    normalized.contains("/dash") -> MimeTypes.APPLICATION_MPD
-
+                ext == "m3u8" -> MimeTypes.APPLICATION_M3U8
+                ext == "mpd" -> MimeTypes.APPLICATION_MPD
+                ext == "mkv" -> MimeTypes.VIDEO_MATROSKA
+                ext == "webm" -> MimeTypes.VIDEO_WEBM
+                ext == "mp4" || ext == "m4v" -> MimeTypes.VIDEO_MP4
+                ext == "ts" || ext == "mts" || ext == "m2ts" -> MimeTypes.VIDEO_MP2T
+                ext == "avi" -> MimeTypes.VIDEO_AVI
+                normalized.contains("m3u8") ||
+                    normalized.contains("/hls") -> MimeTypes.APPLICATION_M3U8
+                normalized.contains("/dash") ||
+                    normalized.endsWith(".mpd") -> MimeTypes.APPLICATION_MPD
                 else -> null
             }
         }

@@ -33,7 +33,7 @@ internal fun <T> List<T>.firstDebridNameMatch(
 ): T? =
     firstOrNull { item ->
         val fileName = displayName(item).normalizedDebridFileName()
-        names.any { name -> fileName.contains(name) || name.contains(fileName) }
+        names.any { name -> fileName.contains(name) }
     }
 
 internal fun buildDebridEpisodePatterns(season: Int?, episode: Int?): List<String> {

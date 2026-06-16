@@ -15,7 +15,7 @@ class TorboxFileSelector @Inject constructor() {
     ): TorboxTorrentFileDto? {
         val fileNames = files.map { it.displayName() }
         val isBluray = fileNames.isBlurayDiscStructure()
-        val playable = files.filter { it.isPlayableVideo(isBluray) }
+        val playable = files.filter { it.isPlayableVideo(isBluray) }.sortedByDescending { it.size ?: 0L }
         if (playable.isEmpty()) return null
 
         val episodePatterns = buildDebridEpisodePatterns(
@@ -35,10 +35,6 @@ class TorboxFileSelector @Inject constructor() {
         }
 
         resolve.fileIdx?.let { fileIdx ->
-            files.getOrNull(fileIdx)?.takeIf { it.isPlayableVideo(isBluray) }?.let { return it }
-            if (fileIdx > 0) {
-                files.getOrNull(fileIdx - 1)?.takeIf { it.isPlayableVideo(isBluray) }?.let { return it }
-            }
             playable.firstOrNull { it.id == fileIdx }?.let { return it }
         }
 
@@ -46,9 +42,8 @@ class TorboxFileSelector @Inject constructor() {
     }
 
     private fun TorboxTorrentFileDto.isPlayableVideo(isBluray: Boolean = false): Boolean {
-        val mime = (mimeType ?: mimeTypeAlt).orEmpty().lowercase()
+        val mime = mimeType.orEmpty().lowercase()
         if (mime.startsWith("video/")) {
-            // Exclude .m2ts from Blu-ray disc structures — they're disc segments
             if (isBluray && displayName().lowercase().endsWith(".m2ts")) return false
             return true
         }
