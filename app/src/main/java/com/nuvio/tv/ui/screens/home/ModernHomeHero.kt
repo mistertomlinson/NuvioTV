@@ -504,23 +504,23 @@ private fun HeroTitleContent(
             }
             displayedLogo = target
         }
-        val showLogo = !displayedLogo.isNullOrBlank() && !logoLoadFailed
+        // showLogo: preview has a logo AND it's been preloaded into cache (displayedLogo matches)
+        // This prevents the text flash when navigating from a no-logo title to a logo title.
+        val hasLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
+        val logoReady = hasLogo && displayedLogo == preview.logo
         Crossfade(
-            targetState = showLogo to displayedLogo,
+            targetState = logoReady to displayedLogo,
             animationSpec = tween(durationMillis = 300),
             label = "heroLogoFade"
-        ) { (isLogo, logoUrl) ->
-            if (isLogo) {
+        ) { (isReady, logoUrl) ->
+            if (isReady && logoUrl != null) {
                 val displayedLogoModel = remember(localContext2, logoUrl, logoMaxWidthPx, logoHeightPx) {
-                    logoUrl?.let {
-                        val cleanedUrl = if (it.endsWith('.')) it + "png" else it
-                        ImageRequest.Builder(localContext2)
-                            .data(cleanedUrl)
-                            .decoderFactory(SvgDecoder.Factory())
-                            .crossfade(false)
-                            .size(width = logoMaxWidthPx, height = logoHeightPx)
-                            .build()
-                    }
+                    val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
+                    ImageRequest.Builder(localContext2)
+                        .data(cleanedUrl)
+                        .crossfade(false)
+                        .size(width = logoMaxWidthPx, height = logoHeightPx)
+                        .build()
                 }
                 AsyncImage(
                     model = displayedLogoModel,
@@ -531,16 +531,28 @@ private fun HeroTitleContent(
                         .widthIn(min = 100.dp, max = 220.dp)
                         .fillMaxWidth(),
                     contentScale = ContentScale.Fit,
-                    alignment = Alignment.CenterStart
+                    alignment = Alignment.Center
                 )
             } else {
-                Text(
-                    text = preview.title,
-                    style = scaledTitleStyle,
-                    color = NuvioColors.TextPrimary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                // Fixed height box so text doesn't jump position
+                Box(
+                    modifier = Modifier
+                        .height(100.dp)
+                        .widthIn(min = 100.dp, max = 220.dp)
+                        .fillMaxWidth(),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (!hasLogo) {
+                        Text(
+                            text = preview.title,
+                            style = scaledTitleStyle,
+                            color = NuvioColors.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    // If hasLogo but not ready yet — empty box holds space, no text flash
+                }
             }
         }
 
