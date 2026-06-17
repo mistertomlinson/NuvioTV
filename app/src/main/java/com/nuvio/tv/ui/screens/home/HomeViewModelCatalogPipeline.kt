@@ -212,7 +212,6 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
     truncatedRowCache.clear()
     hasRenderedFirstCatalog = false
     diskCacheRestored = false
-    saveCachedVisiblePlatformIds(emptySet())
     trailerPreviewLoadingIds.clear()
     trailerPreviewNegativeCache.clear()
     trailerPreviewUrlsState.clear()
@@ -765,16 +764,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     }
                     if (currentTmdbSettings.useArtwork) {
                         merged = merged.copy(
-                            // Same metahub fallback as updateCatalogItemWithTmdb — this path
-                            // rebuilds from enrichmentCache directly so it needs its own fallback,
-                            // otherwise a null TMDB logo here stomps the value set elsewhere.
-                            logo = cached.logo ?: run {
-                                val imdbId = merged.imdbId
-                                    ?: item.id.removePrefix("tmdb:").toIntOrNull()
-                                        ?.let { tmdbService.getCachedImdbId(it) }
-                                    ?: if (item.id.startsWith("tt")) item.id else null
-                                imdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
-                            } ?: merged.logo,
+                            logo = cached.logo ?: merged.logo,
                             landscapePoster = cached.detailBackdrop ?: merged.landscapePoster
                         )
                     }
@@ -813,7 +803,6 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             heroItems = if (state.heroItems == enrichedHeroItems) state.heroItems else enrichedHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
             isLoading = false,
-            catalogsReady = allCatalogsLoaded || diskCacheRestored,
             stableVisiblePlatformIds = if (allCatalogsLoaded || diskCacheRestored) {
                 displayRows
                     .filter { it.items.isNotEmpty() }
@@ -833,13 +822,19 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             .filter { it.items.isNotEmpty() }
             .groupBy { inferPlatformId(it.catalogName) }
         val backdropUrls = mutableListOf<String>()
+        val logoUrls = mutableListOf<String>()
         for ((platformId, rows) in platformRows) {
             if (platformId == null) continue
             val firstItem = rows.firstOrNull()?.items?.firstOrNull() ?: continue
             val backdrop = firstItem.backdropUrl
             if (!backdrop.isNullOrBlank()) backdropUrls.add(backdrop)
+            val rawLogo = firstItem.logo.orEmpty()
+            if (rawLogo.isNotBlank()) {
+                val cleaned = if (rawLogo.endsWith('.')) "${rawLogo}png" else rawLogo
+                logoUrls.add(cleaned.replace("live.metahub.space", "images.metahub.space"))
+            }
         }
-        preloadPlatformBackdrops(backdropUrls)
+        preloadPlatformBackdrops(backdropUrls + logoUrls)
     }
 
     val tmdbSettings = currentTmdbSettings
