@@ -520,9 +520,19 @@ private fun ModernHomeRoute(
     // Load cached platform ids so carousel shows instantly on cold launch
     val cachedPlatformIds by viewModel.getCachedVisiblePlatformIds()
         .collectAsStateWithLifecycle(initialValue = emptySet())
-    // Use stable set from ViewModel (set once when loading completes), fall back to cache
+    // Use stable set from ViewModel (set once when loading completes), fall back to cache.
+    // On fresh cache clear cachedPlatformIds is empty, so gate on platformBackdropsPreloaded
+    // to ensure backdrops are in Coil before icons appear. On normal launch cachedPlatformIds
+    // is already populated so icons show immediately without waiting for preload.
+    val backdropsPreloaded by viewModel.platformBackdropsPreloaded.collectAsStateWithLifecycle()
     val stablePlatformIds = if (uiState.stableVisiblePlatformIds.isNotEmpty())
-        uiState.stableVisiblePlatformIds else cachedPlatformIds
+        uiState.stableVisiblePlatformIds
+    else if (cachedPlatformIds.isNotEmpty())
+        cachedPlatformIds
+    else if (backdropsPreloaded)
+        uiState.stableVisiblePlatformIds
+    else
+        emptySet()
     var carouselReady by rememberSaveable { mutableStateOf(false) }
     var isHeroTrailerPlaying by remember { mutableStateOf(false) }
     // Show carousel as soon as we have any platform ids — from cache or live

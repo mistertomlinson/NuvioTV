@@ -68,6 +68,7 @@ data class HomeUiState(
     val blurUnwatchedEpisodes: Boolean = false,
     val memoryOnlyVerticalScroll: Boolean = false,
     val layoutPreferencesReady: Boolean = false,
+    val catalogsReady: Boolean = false,
     val userMessage: HomeUserMessage? = null
 )
 

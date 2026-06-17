@@ -1036,6 +1036,9 @@ class HomeViewModel @Inject constructor(
             jobs.forEach { it.join() }
             timeout.cancel()
             _platformBackdropsPreloaded.value = true
+            // Now that backdrops are in Coil cache, re-run pipeline to populate
+            // stableVisiblePlatformIds so icons only appear after preload completes.
+            scheduleUpdateCatalogRows()
         }
     }
 
