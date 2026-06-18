@@ -16,6 +16,8 @@ import com.nuvio.tv.domain.model.PersonDetail
 import com.nuvio.tv.domain.model.PosterShape
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -40,6 +42,28 @@ class TmdbMetadataService @Inject constructor(
     // In-memory caches
     private val enrichmentCache = ConcurrentHashMap<String, TmdbEnrichment>()
     @Volatile private var diskCacheLoaded = false
+
+    // Debounced disk persistence: during a cold-launch enrichment burst (hundreds of
+    // items completing within seconds), writing the entire cache to disk after every
+    // single completion was causing ~1 full-file rewrite per second, saturating
+    // Dispatchers.IO and delaying everything else sharing that dispatcher (network
+    // fetches, image decoding). Collapsing these into one write ~2s after the last
+    // completion keeps the same end-state on disk with a fraction of the I/O.
+    private val saveScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+    private var pendingSaveJob: kotlinx.coroutines.Job? = null
+    private val saveDebounceMutex = Mutex()
+
+    private fun scheduleDiskSave() {
+        saveScope.launch {
+            saveDebounceMutex.withLock {
+                pendingSaveJob?.cancel()
+                pendingSaveJob = saveScope.launch {
+                    kotlinx.coroutines.delay(2_000L)
+                    diskCache.saveAll(enrichmentCache.toMap())
+                }
+            }
+        }
+    }
 
     private suspend fun ensureDiskCacheLoaded() {
         if (diskCacheLoaded) return
@@ -338,9 +362,7 @@ class TmdbMetadataService @Inject constructor(
                     detailBackdrop = detailBackdrop
                 )
                 enrichmentCache[cacheKey] = enrichment
-                GlobalScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    diskCache.saveAll(enrichmentCache.toMap())
-                }
+                scheduleDiskSave()
                 requestDeferred.complete(enrichment)
                 enrichment
             } catch (e: CancellationException) {

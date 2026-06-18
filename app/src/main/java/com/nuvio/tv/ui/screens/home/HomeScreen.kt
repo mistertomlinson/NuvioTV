@@ -112,6 +112,14 @@ fun HomeScreen(
         kotlinx.coroutines.delay(4_000L)
         viewModel.releasePlatformBackdropsGate()
     }
+    // Safety net for the initial-rows-enrichment gate: some items may never receive an
+    // ageRating or status (TMDB has no data for them), which would otherwise block the
+    // gate forever. Force-release after 6s regardless.
+    var initialRowsEnrichmentGateReleased by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(6_000L)
+        initialRowsEnrichmentGateReleased = true
+    }
     val hasCatalogContent = uiState.catalogRows.any { it.items.isNotEmpty() }
     var hasEnteredCatalogContent by rememberSaveable { mutableStateOf(false) }
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
@@ -190,9 +198,24 @@ fun HomeScreen(
             }
 
             else -> {
+                // Wait for the first ~3 catalog rows' items to have their age rating/status
+                // enriched before releasing the gate, so the hero and visible rows don't
+                // briefly render with missing badges during the initial enrichment burst
+                // on cold launch. Items that never get ageRating/status would otherwise
+                // block this forever, so a timeout safety net (below) force-releases it.
+                val initialRowsEnriched = remember(uiState.catalogRows) {
+                    val firstRows = uiState.catalogRows.filter { it.items.isNotEmpty() }.take(3)
+                    if (firstRows.isEmpty()) {
+                        true
+                    } else {
+                        val items = firstRows.flatMap { it.items }.take(30)
+                        items.isEmpty() || items.all { it.ageRating != null || it.status != null }
+                    }
+                } || initialRowsEnrichmentGateReleased
                 val shouldShowLoadingGate = !hasEnteredCatalogContent && !hasCatalogContent ||
                     !uiState.layoutPreferencesReady ||
-                    !platformBackdropsPreloaded
+                    !platformBackdropsPreloaded ||
+                    !initialRowsEnriched
                 LaunchedEffect(shouldShowLoadingGate) {
                     if (shouldShowLoadingGate) {
                         showHomeContentWithAnimation = false
