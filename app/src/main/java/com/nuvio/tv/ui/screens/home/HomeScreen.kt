@@ -47,6 +47,7 @@ import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.LoadingIndicator
+import com.nuvio.tv.ui.components.PulsingLogoIndicator
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.PosterCardDefaults
@@ -117,7 +118,7 @@ fun HomeScreen(
     // gate forever. Force-release after 6s regardless.
     var initialRowsEnrichmentGateReleased by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(6_000L)
+        kotlinx.coroutines.delay(10_000L)
         initialRowsEnrichmentGateReleased = true
     }
     val hasCatalogContent = uiState.catalogRows.any { it.items.isNotEmpty() }
@@ -160,7 +161,7 @@ fun HomeScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    LoadingIndicator()
+                    PulsingLogoIndicator()
                 }
             }
 
@@ -203,15 +204,26 @@ fun HomeScreen(
                 // briefly render with missing badges during the initial enrichment burst
                 // on cold launch. Items that never get ageRating/status would otherwise
                 // block this forever, so a timeout safety net (below) force-releases it.
+                // Platform-screen catalogs load earlier in the catalog order than the
+                // regular home-screen rows, so checking only the first few rows was
+                // checking off-screen platform content rather than what's actually
+                // visible. Check overall enrichment progress across everything instead —
+                // releasing once 90% of all currently-loaded items have ageRating/status.
                 val initialRowsEnriched = remember(uiState.catalogRows) {
-                    val firstRows = uiState.catalogRows.filter { it.items.isNotEmpty() }.take(3)
-                    if (firstRows.isEmpty()) {
+                    val allItems = uiState.catalogRows.flatMap { it.items }
+                    val result = if (allItems.isEmpty()) {
                         true
                     } else {
-                        val items = firstRows.flatMap { it.items }.take(30)
-                        items.isEmpty() || items.all { it.ageRating != null || it.status != null }
+                        val enrichedCount = allItems.count { it.ageRating != null || it.status != null }
+                        val pct = enrichedCount.toFloat() / allItems.size.toFloat()
+                        android.util.Log.d("NuvioGateTrace", "[GATE_CHECK] totalItems=${allItems.size} enrichedCount=$enrichedCount pct=$pct rowCount=${uiState.catalogRows.size} t=${System.currentTimeMillis()}")
+                        pct >= 0.9f
                     }
+                    result
                 } || initialRowsEnrichmentGateReleased
+                LaunchedEffect(initialRowsEnriched) {
+                    android.util.Log.d("NuvioGateTrace", "[GATE_RESULT] initialRowsEnriched=$initialRowsEnriched timeoutFired=$initialRowsEnrichmentGateReleased t=${System.currentTimeMillis()}")
+                }
                 val shouldShowLoadingGate = !hasEnteredCatalogContent && !hasCatalogContent ||
                     !uiState.layoutPreferencesReady ||
                     !platformBackdropsPreloaded ||
@@ -230,7 +242,7 @@ fun HomeScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center
                     ) {
-                        LoadingIndicator()
+                        PulsingLogoIndicator()
                     }
                 } else {
                     AnimatedVisibility(
