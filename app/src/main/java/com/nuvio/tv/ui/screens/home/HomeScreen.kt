@@ -118,16 +118,8 @@ fun HomeScreen(
         kotlinx.coroutines.delay(10_000L)
         initialRowsEnrichmentGateReleased = true
     }
-    val hasCatalogContent = uiState.catalogRows.any { it.items.isNotEmpty() }
-    var hasEnteredCatalogContent by rememberSaveable { mutableStateOf(false) }
     var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
     var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
-
-    LaunchedEffect(hasCatalogContent) {
-        if (hasCatalogContent) {
-            hasEnteredCatalogContent = true
-        }
-    }
 
     val posterCardStyle = remember(
         uiState.posterCardWidthDp,
@@ -199,9 +191,8 @@ fun HomeScreen(
                 // Gate on catalogsReady (all catalog rows finished loading their items —
                 // not TMDB enrichment, which runs separately in the background).
                 // This is a one-way monotonic flip so it can't regress back to false.
-                val shouldShowLoadingGate = !hasEnteredCatalogContent && !hasCatalogContent ||
-                    !uiState.layoutPreferencesReady ||
-                    !uiState.catalogsReady
+                val shouldShowLoadingGate = !uiState.skeletonReady ||
+                    !uiState.layoutPreferencesReady
                 LaunchedEffect(shouldShowLoadingGate) {
                     if (shouldShowLoadingGate) {
                         showHomeContentWithAnimation = false

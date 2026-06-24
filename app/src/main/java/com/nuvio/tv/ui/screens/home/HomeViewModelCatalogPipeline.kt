@@ -169,6 +169,7 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
     _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
     pendingPlatformCatalogKeys.clear()
     platformPreloadTriggered = false
+    _uiState.update { it.copy(enrichmentReadyRowKeys = emptySet()) }
     catalogOrder.clear()
     catalogsMap.clear()
     // Re-inject ML row from disk cache immediately so it survives pipeline restart
@@ -294,6 +295,30 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
                 pendingPlatformCatalogKeys.add(key)
             }
         }
+        // Seed every catalog with an empty isLoading=true placeholder row immediately —
+        // catalog name/addon known synchronously from the manifest before any network
+        // fetch. Gives the UI skeleton rows to show shimmer placeholders for.
+        // Disk-cache restore below overwrites these with real cached items where available.
+        catalogsToLoad.forEach { (addon, catalog) ->
+            val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+            if (!catalogsMap.containsKey(key)) {
+                catalogsMap[key] = com.nuvio.tv.domain.model.CatalogRow(
+                    addonId = addon.id,
+                    addonName = addon.displayName,
+                    addonBaseUrl = addon.baseUrl,
+                    catalogId = catalog.id,
+                    catalogName = catalog.name,
+                    type = com.nuvio.tv.domain.model.ContentType.fromString(catalog.apiType),
+                    rawType = catalog.apiType,
+                    items = emptyList(),
+                    isLoading = true,
+                    hasMore = false,
+                    supportsSkip = false
+                )
+            }
+        }
+        _uiState.update { it.copy(skeletonReady = true) }
+        updateCatalogRowsPipeline()
         // If no platform catalogs exist, release immediately
         if (pendingPlatformCatalogKeys.isEmpty()) {
             triggerPlatformPreloadIfReady()
@@ -861,6 +886,29 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         } else {
             freshRows.filter { it.addonId != HomeViewModel.MY_LIST_ADDON_ID }
         }
+        val tmdbEnabled = currentTmdbSettings.enabled
+        val prevReadyKeys: Set<String> = state.enrichmentReadyRowKeys
+        val nextReadyKeys = java.util.LinkedHashSet<String>(prevReadyKeys)
+        finalRows.forEach { row ->
+            val rowKey: String = row.key()
+            if (nextReadyKeys.contains(rowKey) || row.items.isEmpty()) return@forEach
+            if (!tmdbEnabled) {
+                nextReadyKeys.add(rowKey)
+                return@forEach
+            }
+            val attempted: Int = row.items.count { item ->
+                prefetchedTmdbIds.contains(item.id) ||
+                enrichmentCache.containsKey(item.id) ||
+                item.ageRating != null ||
+                item.status != null ||
+                item.logo != null
+            }
+            val allowOneMiss: Float = (row.items.size - 1).toFloat() / row.items.size.toFloat()
+            val threshold: Float = if (row.items.size <= 10) maxOf(0.8f, allowOneMiss) else 0.8f
+            if (attempted.toFloat() / row.items.size.toFloat() >= threshold) {
+                nextReadyKeys.add(rowKey)
+            }
+        }
         state.copy(
             catalogRows = if (state.catalogRows == finalRows) state.catalogRows else finalRows,
             heroItems = if (state.heroItems == enrichedHeroItems) state.heroItems else enrichedHeroItems,
@@ -874,7 +922,8 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     .toSet()
             } else {
                 state.stableVisiblePlatformIds
-            }
+            },
+            enrichmentReadyRowKeys = nextReadyKeys
         )
     }
 

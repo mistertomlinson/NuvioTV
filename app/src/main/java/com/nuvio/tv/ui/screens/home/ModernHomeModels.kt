@@ -94,7 +94,8 @@ internal data class HeroCarouselRow(
     val supportsSkip: Boolean = false,
     val hasMore: Boolean = false,
     val isLoading: Boolean = false,
-    val numberStyle: NumberStyle = NumberStyle.OFF
+    val numberStyle: NumberStyle = NumberStyle.OFF,
+    val enrichmentReady: Boolean = true
 )
 
 @Immutable
@@ -122,6 +123,7 @@ internal class ModernHomeUiCaches {
     val loadMoreRequestedTotals = mutableMapOf<String, Int>()
     val previousRowItemCounts = mutableMapOf<String, Int>()
     val previousFirstItemKeyByRow = mutableMapOf<String, String?>()
+    val previousEnrichmentReadyByRow = mutableMapOf<String, Boolean>()
 
     fun requesterFor(rowKey: String, itemKey: String): FocusRequester {
         val byIndex = itemFocusRequesters.getOrPut(rowKey) { mutableMapOf() }

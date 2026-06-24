@@ -69,6 +69,9 @@ data class HomeUiState(
     val memoryOnlyVerticalScroll: Boolean = false,
     val layoutPreferencesReady: Boolean = false,
     val catalogsReady: Boolean = false,
+    val skeletonReady: Boolean = false,
+    val enrichmentReadyRowKeys: Set<String> = emptySet(),
+    val continueWatchingEnrichmentReady: Boolean = false,
     val userMessage: HomeUserMessage? = null
 )
 

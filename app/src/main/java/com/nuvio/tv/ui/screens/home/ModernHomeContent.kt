@@ -192,7 +192,7 @@ fun ModernHomeContent(
     var catalogDisplayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
 
     val visibleCatalogRows = remember(uiState.catalogRows, catalogDisplayedPlatformId) {
-        uiState.catalogRows.filter { it.items.isNotEmpty() }.let { rows ->
+        uiState.catalogRows.filter { it.items.isNotEmpty() || it.isLoading }.let { rows ->
             if (!aggregatePlatformsEnabled || catalogDisplayedPlatformId == "home") {
                 if (aggregatePlatformsEnabled && !showAllCatalogsOnHome) rows.filter { inferPlatformId(it.catalogName) == null }
                 else rows
@@ -208,6 +208,8 @@ fun ModernHomeContent(
     val strTypeSeries = stringResource(R.string.type_series)
     val rowBuildCache = remember { ModernCarouselRowBuildCache() }
     val context = LocalContext.current
+    val enrichmentReadyRowKeys: Set<String> = uiState.enrichmentReadyRowKeys
+    val continueWatchingEnrichmentReady: Boolean = uiState.continueWatchingEnrichmentReady
     val carouselRows = remember(
         uiState.continueWatchingItems,
         visibleCatalogRows,
@@ -217,7 +219,9 @@ fun ModernHomeContent(
         strTypeSeries,
         numberedCatalogKeys,
         outlineNumberedCatalogKeys,
-        uiState.landscapeCatalogKeys
+        uiState.landscapeCatalogKeys,
+        enrichmentReadyRowKeys,
+        continueWatchingEnrichmentReady
     ) {
         buildList {
             val activeCatalogKeys = LinkedHashSet<String>(visibleCatalogRows.size)
@@ -236,6 +240,7 @@ fun ModernHomeContent(
                         key = "continue_watching",
                         title = strContinueWatching,
                         globalRowIndex = -1,
+                        enrichmentReady = uiState.continueWatchingEnrichmentReady,
                         items = uiState.continueWatchingItems.map { item ->
                             buildContinueWatchingItem(
                                 item = item,
@@ -269,6 +274,7 @@ fun ModernHomeContent(
                     rowKey in numberedCatalogKeys -> NumberStyle.SOLID
                     else -> NumberStyle.OFF
                 }
+                val rowEnrichmentReady = rowKey in uiState.enrichmentReadyRowKeys
                 val canReuseMappedRow =
                     cached != null &&
                         cached.source == row &&
@@ -278,10 +284,11 @@ fun ModernHomeContent(
 
                 val mappedRow = if (canReuseMappedRow) {
                     val cachedMappedRow = checkNotNull(cached).mappedRow
-                    if (cachedMappedRow.globalRowIndex == index) {
+                    if (cachedMappedRow.globalRowIndex == index &&
+                        cachedMappedRow.enrichmentReady == rowEnrichmentReady) {
                         cachedMappedRow
                     } else {
-                        cachedMappedRow.copy(globalRowIndex = index)
+                        cachedMappedRow.copy(globalRowIndex = index, enrichmentReady = rowEnrichmentReady)
                     }
                 } else {
                     val rowItemOccurrenceCounts = mutableMapOf<String, Int>()
@@ -301,6 +308,7 @@ fun ModernHomeContent(
                         supportsSkip = row.supportsSkip,
                         hasMore = row.hasMore,
                         isLoading = row.isLoading,
+                        enrichmentReady = rowEnrichmentReady,
                         numberStyle = when {
                             rowKey in outlineNumberedCatalogKeys -> NumberStyle.OUTLINE
                             rowKey in numberedCatalogKeys -> NumberStyle.SOLID
@@ -463,6 +471,29 @@ fun ModernHomeContent(
     var pendingRowFocusKey by remember { mutableStateOf<String?>(null) }
     var pendingRowFocusIndex by remember { mutableStateOf<Int?>(null) }
     var pendingRowFocusNonce by remember { mutableIntStateOf(0) }
+
+    // When a skeleton row transitions to real content (items arrive or enrichment
+    // completes), restore focus to where it was rather than letting Compose move
+    // it to another row.
+    LaunchedEffect(carouselRows) {
+        carouselRows.forEach { row ->
+            val prevCount = uiCaches.previousRowItemCounts[row.key] ?: 0
+            val nowCount = row.items.size
+            val prevReady = uiCaches.previousEnrichmentReadyByRow[row.key] ?: row.enrichmentReady
+            val nowReady = row.enrichmentReady
+            val transitioned = (prevCount == 0 && nowCount > 0) ||
+                (!prevReady && nowReady && nowCount > 0)
+            if (transitioned && focusHolder.activeRowKey == row.key) {
+                val restoreIndex = (uiCaches.focusedItemByRow[row.key] ?: 0)
+                    .coerceIn(0, (nowCount - 1).coerceAtLeast(0))
+                pendingRowFocusKey = row.key
+                pendingRowFocusIndex = restoreIndex
+                pendingRowFocusNonce++
+            }
+            uiCaches.previousRowItemCounts[row.key] = nowCount
+            uiCaches.previousEnrichmentReadyByRow[row.key] = nowReady
+        }
+    }
     var heroItem by remember { mutableStateOf<HeroPreview?>(null) }
     var heroItemRowKey by remember { mutableStateOf<String?>(null) }
     var frozenHeroItem by remember { mutableStateOf<HeroPreview?>(null) }
@@ -1312,15 +1343,22 @@ fun ModernHomeContent(
                                     .coerceIn(0, (targetRow.items.size - 1).coerceAtLeast(0))
                                 activeRowKey = targetRow.key
                                 activeItemIndex = savedItemIndex
-                                val targetItemKey = targetRow.items.getOrNull(savedItemIndex)?.key
-                                val requester = targetItemKey?.let {
-                                    itemFocusRequesters[targetRow.key]?.get(it)
+                                if (targetRow.items.isEmpty() && targetRow.isLoading) {
+                                    // Skeleton row — use the skeleton card requester directly
+                                    val skeletonRequester = uiCaches.requesterFor(targetRow.key, "skeleton_0")
+                                    runCatching { skeletonRequester.requestFocus() }
+                                    "skeleton_0"
+                                } else {
+                                    val targetItemKey = targetRow.items.getOrNull(savedItemIndex)?.key
+                                    val requester = targetItemKey?.let {
+                                        itemFocusRequesters[targetRow.key]?.get(it)
+                                    }
+                                    pendingRowFocusKey = targetRow.key
+                                    pendingRowFocusIndex = savedItemIndex
+                                    pendingRowFocusNonce++
+                                    runCatching { requester?.requestFocus() }
+                                    targetItemKey
                                 }
-                                pendingRowFocusKey = targetRow.key
-                                pendingRowFocusIndex = targetRowIndex
-                                pendingRowFocusNonce++
-                                runCatching { requester?.requestFocus() }
-                                targetItemKey
                             } else null
                         }
                     )
@@ -1388,6 +1426,14 @@ fun ModernHomeContent(
                     }
                     val stableOnRowItemFocused = remember(Unit) {
                         { rowKey: String, index: Int, isContinueWatchingRow: Boolean ->
+                            // If this row has no items (skeleton), clear focusedCatalogSelection
+                            // so the autoplay debounce timer doesn't fire for the previously
+                            // focused real item while the user is parked on a loading row.
+                            val activeRow = carouselRows.firstOrNull { it.key == rowKey }
+                            if (activeRow != null && activeRow.items.isEmpty()) {
+                                focusedCatalogSelection = null
+                                expandedCatalogFocusKey = null
+                            }
                             val rowBecameActive = focusHolder.activeRowKey != rowKey
                             val itemChanged = focusHolder.activeItemIndex != index
                             if (rowBecameActive || itemChanged) {
@@ -1467,7 +1513,7 @@ fun ModernHomeContent(
                         posterCardCornerRadius = posterCardCornerRadius,
                         focusedPosterBackdropTrailerMuted = uiState.focusedPosterBackdropTrailerMuted,
                         effectiveExpandEnabled = effectiveExpandEnabled,
-                        effectiveAutoplayEnabled = effectiveAutoplayEnabled,
+                        effectiveAutoplayEnabled = effectiveAutoplayEnabled && row.items.isNotEmpty(),
                         trailerPlaybackTarget = trailerPlaybackTarget,
                         expandedCatalogFocusKey = rowExpandedFocusKey,
                         expandedTrailerPreviewUrl = if (rowHasExpanded) expandedCatalogTrailerUrl else null,

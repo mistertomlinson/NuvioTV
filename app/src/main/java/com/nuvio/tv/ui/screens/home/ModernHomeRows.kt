@@ -40,7 +40,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -306,6 +311,33 @@ internal fun ModernRowSection(
             color = NuvioColors.TextPrimary,
             modifier = Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
         )
+
+        val isCwRow = row.key == "continue_watching"
+        val skeletonCardWidth = if (isCwRow) continueWatchingCardWidth else modernCatalogCardWidth
+        val skeletonCardHeight = if (isCwRow) continueWatchingCardHeight else modernCatalogCardHeight
+        var enrichmentTimeoutReached by rememberSaveable(key = "enrich_timeout_${row.key}") { mutableStateOf(false) }
+        LaunchedEffect(row.key, row.items.isNotEmpty()) {
+            if (row.items.isNotEmpty() && !row.enrichmentReady && !enrichmentTimeoutReached) {
+                kotlinx.coroutines.delay(6_000L)
+                enrichmentTimeoutReached = true
+            }
+        }
+        val showSkeleton = (row.items.isEmpty() && row.isLoading) ||
+            (row.items.isNotEmpty() && !row.enrichmentReady && !enrichmentTimeoutReached)
+        if (showSkeleton) {
+            ModernSkeletonRow(
+                rowKey = row.key,
+                cardWidth = skeletonCardWidth,
+                cardHeight = skeletonCardHeight,
+                cornerRadius = posterCardCornerRadius,
+                isFirstRow = isFirstRow,
+                isContinueWatchingRow = isCwRow,
+                uiCaches = uiCaches,
+                onRowItemFocused = onRowItemFocused,
+                onRequestCarouselFocus = onRequestCarouselFocus
+            )
+            return
+        }
 
         val rowListState = rowListStates.getOrPut(row.key) {
             LazyListState(
@@ -718,6 +750,80 @@ internal fun ModernRowSection(
     }
 }
 
+
+@androidx.compose.ui.ExperimentalComposeUiApi
+@Composable
+private fun ModernSkeletonRow(
+    rowKey: String,
+    cardWidth: Dp,
+    cardHeight: Dp,
+    cornerRadius: Dp,
+    isFirstRow: Boolean,
+    isContinueWatchingRow: Boolean,
+    uiCaches: ModernHomeUiCaches,
+    onRowItemFocused: (String, Int, Boolean) -> Unit,
+    onRequestCarouselFocus: () -> Unit
+) {
+    val density = LocalDensity.current
+    val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.roundToPx().toFloat() }
+    val spacing = 12.dp
+    val rowStartPadding = 52.dp
+    val cardWidthPx = with(density) { cardWidth.roundToPx() }
+    val spacingPx = with(density) { spacing.roundToPx() }
+    val rowStartPaddingPx = with(density) { rowStartPadding.roundToPx() }
+    val availablePx = (screenWidthPx - rowStartPaddingPx).coerceAtLeast(0f)
+    val count = (kotlin.math.ceil(availablePx / (cardWidthPx + spacingPx).toFloat()).toInt() + 1)
+        .coerceAtLeast(1)
+    val sidebarOpenRequest = LocalSidebarOpenRequest.current
+    val rowListState = uiCaches.rowListStates.getOrPut(rowKey) { androidx.compose.foundation.lazy.LazyListState() }
+    val skeletonFallbackRequester = remember(rowKey) { uiCaches.requesterFor(rowKey, "skeleton_0") }
+    LazyRow(
+        state = rowListState,
+        modifier = Modifier
+            .onPreviewKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown) {
+                    when (event.key) {
+                        Key.DirectionUp -> { if (isFirstRow) { onRequestCarouselFocus(); true } else false }
+                        Key.DirectionLeft -> {
+                            val focused = uiCaches.focusedItemByRow[rowKey] ?: 0
+                            if (focused == 0) { sidebarOpenRequest(); true } else false
+                        }
+                        else -> false
+                    }
+                } else false
+            }
+            .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L)
+            .focusRestorer { skeletonFallbackRequester },
+        contentPadding = PaddingValues(start = rowStartPadding, end = rowStartPadding),
+        horizontalArrangement = Arrangement.spacedBy(spacing)
+    ) {
+        items(count) { index ->
+            val requester = uiCaches.requesterFor(rowKey, "skeleton_$index")
+            var isFocused by remember { mutableStateOf(false) }
+            Box(
+                modifier = Modifier
+                    .size(width = cardWidth, height = cardHeight)
+                    .clip(RoundedCornerShape(cornerRadius))
+                    .focusRequester(requester)
+                    .onFocusChanged { fs ->
+                        isFocused = fs.isFocused
+                        if (fs.isFocused) {
+                            uiCaches.focusedItemByRow[rowKey] = index
+                            onRowItemFocused(rowKey, index, isContinueWatchingRow)
+                        }
+                    }
+                    .focusable()
+                    .border(
+                        width = if (isFocused) 2.dp else 0.dp,
+                        color = if (isFocused) Color.White.copy(alpha = 0.7f) else Color.Transparent,
+                        shape = RoundedCornerShape(cornerRadius)
+                    )
+            ) {
+                MonochromePosterPlaceholder()
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable

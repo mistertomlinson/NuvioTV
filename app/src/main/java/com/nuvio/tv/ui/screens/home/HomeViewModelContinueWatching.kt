@@ -1425,11 +1425,9 @@ private suspend fun HomeViewModel.enrichVisibleContinueWatchingItems(
     }
 
     _uiState.update { state ->
-        if (state.continueWatchingItems == enrichedItems) {
-            state
-        } else {
-            state.copy(continueWatchingItems = enrichedItems)
-        }
+        val updatedItems: List<ContinueWatchingItem> = if (state.continueWatchingItems == enrichedItems) state.continueWatchingItems else enrichedItems
+        val updatedReady: Boolean = true
+        state.copy(continueWatchingItems = updatedItems, continueWatchingEnrichmentReady = updatedReady)
     }
     persistLocalContinueWatchingMetadata(
         originalItems = finalItems,

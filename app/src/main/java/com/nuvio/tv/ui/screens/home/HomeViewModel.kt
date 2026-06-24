@@ -378,7 +378,7 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
                     _uiState.update {
-                        it.copy(continueWatchingItems = emptyList(), layoutPreferencesReady = false)
+                        it.copy(continueWatchingItems = emptyList(), layoutPreferencesReady = false, continueWatchingEnrichmentReady = false)
                     }
                     traktLibraryService.resetSnapshot()
                     loadContinueWatching()
@@ -410,7 +410,7 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
-                    _uiState.update { it.copy(continueWatchingItems = emptyList()) }
+                    _uiState.update { it.copy(continueWatchingItems = emptyList(), continueWatchingEnrichmentReady = false) }
                     cwPipelineRefreshTrigger.value++
                 }
             }

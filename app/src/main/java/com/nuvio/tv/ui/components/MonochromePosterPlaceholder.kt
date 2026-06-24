@@ -23,26 +23,17 @@ import coil.request.ImageRequest
 import androidx.tv.material3.Icon
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.components.rememberShimmerBrush
 
 @Composable
 fun MonochromePosterPlaceholder(
     modifier: Modifier = Modifier
 ) {
-    val base = NuvioColors.BackgroundCard
-    val strokeColor = NuvioColors.TextTertiary.copy(alpha = 0.28f)
-    val centerButtonBorder = NuvioColors.TextTertiary.copy(alpha = 0.18f)
-    val backgroundGradient = remember(base) {
-        Brush.verticalGradient(
-            colors = listOf(
-                base.copy(alpha = 0.92f),
-                base.copy(alpha = 0.98f)
-            )
-        )
-    }
+    val shimmerBrush = rememberShimmerBrush()
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(backgroundGradient)
+            .background(shimmerBrush)
     )
 }
 
