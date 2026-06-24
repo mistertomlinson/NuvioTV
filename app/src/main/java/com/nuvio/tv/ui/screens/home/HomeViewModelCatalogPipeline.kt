@@ -889,6 +889,12 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val tmdbEnabled = currentTmdbSettings.enabled
         val prevReadyKeys: Set<String> = state.enrichmentReadyRowKeys
         val nextReadyKeys = java.util.LinkedHashSet<String>(prevReadyKeys)
+        // When TMDB is disabled, My List may not be in finalRows yet (observeMyList
+        // is async) but we still want it to be considered ready so it doesn't shimmer.
+        // Also mark any row currently in catalogsMap with items as ready.
+        if (!tmdbEnabled) {
+            nextReadyKeys.add(HomeViewModel.MY_LIST_CATALOG_KEY)
+        }
         finalRows.forEach { row ->
             val rowKey: String = row.key()
             if (nextReadyKeys.contains(rowKey) || row.items.isEmpty()) return@forEach

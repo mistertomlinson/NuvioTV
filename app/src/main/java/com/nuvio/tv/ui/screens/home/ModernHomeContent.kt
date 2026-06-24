@@ -853,8 +853,16 @@ fun ModernHomeContent(
         val posterCardCornerRadius = remember(uiState.posterCardCornerRadiusDp) { uiState.posterCardCornerRadiusDp.dp }
         val rowHorizontalPadding = 52.dp
 
-        val activeCarouselItem = remember(activeRow, clampedActiveItemIndex) {
-            activeRow?.items?.getOrNull(clampedActiveItemIndex)
+        // Use lastRealActiveRow when the active row is a skeleton (no items) so
+        // heroBackdrop and heroItem persist from the last real focused item rather
+        // than going blank while the user is parked on a loading row.
+        val effectiveActiveRow = if ((activeRow?.items?.isEmpty() == true)) {
+            carouselRows.lastOrNull { it.key != activeRow?.key && it.items.isNotEmpty() && it.enrichmentReady }
+                ?: activeRow
+        } else activeRow
+        val activeCarouselItem = remember(effectiveActiveRow, clampedActiveItemIndex) {
+            effectiveActiveRow?.items?.getOrNull(clampedActiveItemIndex)
+                ?: effectiveActiveRow?.items?.firstOrNull()
         }
         val activeItemId = activeCarouselItem?.metaPreview?.id
         val enrichmentActive = enrichingItemId != null && enrichingItemId == activeItemId
@@ -862,7 +870,7 @@ fun ModernHomeContent(
         // which already has the enriched data from uiState update
         // Always use debounced heroItem so fast scrolling doesn't flash metadata.
         // Only fall back to activeCarouselItem when heroItem is null (cold start).
-        val heroItemMatchesRow = heroItemRowKey == activeRow?.key
+        val heroItemMatchesRow = heroItemRowKey == effectiveActiveRow?.key
         // Prefer activeCarouselItem heroPreview when it has enriched badge data that heroItem lacks
         val activeHasRicher = activeCarouselItem?.heroPreview?.let {
             it.ageRatingText != null && heroItem?.ageRatingText == null
