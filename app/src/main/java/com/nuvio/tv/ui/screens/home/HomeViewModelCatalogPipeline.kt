@@ -167,6 +167,8 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
     android.util.Log.e("NuvioCache", "loadAllCatalogsPipeline START generation=$generation force=$forceReload addons=${addons.size}")
 
     _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
+    pendingPlatformCatalogKeys.clear()
+    platformPreloadTriggered = false
     catalogOrder.clear()
     catalogsMap.clear()
     // Re-inject ML row from disk cache immediately so it survives pipeline restart
@@ -283,6 +285,18 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
                     )
                 }
                 .map { catalog -> addon to catalog }
+        }
+        // Track which catalogs are platform-categorized so we can trigger preload
+        // as soon as just those finish — not waiting for every catalog.
+        catalogsToLoad.forEach { (addon, catalog) ->
+            if (inferPlatformId(catalog.name) != null) {
+                val key = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+                pendingPlatformCatalogKeys.add(key)
+            }
+        }
+        // If no platform catalogs exist, release immediately
+        if (pendingPlatformCatalogKeys.isEmpty()) {
+            triggerPlatformPreloadIfReady()
         }
         pendingCatalogLoads = catalogsToLoad.size
         catalogsToLoad.forEach { (addon, catalog) ->
@@ -422,6 +436,10 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
                             hasCountedCompletion = true
                         }
+                        val successKey = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+                        if (pendingPlatformCatalogKeys.remove(successKey)) {
+                            triggerPlatformPreloadIfReady()
+                        }
                         Log.d(
                             HomeViewModel.TAG,
                             "Home catalog loaded addonId=${addon.id} type=${catalog.apiType} catalogId=${catalog.id} items=${result.data.items.size} pending=$pendingCatalogLoads"
@@ -445,6 +463,10 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
                             hasCountedCompletion = true
                         }
+                        val errorKey = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
+                        if (pendingPlatformCatalogKeys.remove(errorKey)) {
+                            triggerPlatformPreloadIfReady()
+                        }
                         Log.w(
                             HomeViewModel.TAG,
                             "Home catalog failed addonId=${addon.id} type=${catalog.apiType} catalogId=${catalog.id} code=${result.code} message=${result.message}"
@@ -462,6 +484,37 @@ internal fun HomeViewModel.loadCatalogPipeline(
         }
     }
     registerCatalogLoadJob(loadJob)
+}
+
+internal fun HomeViewModel.triggerPlatformPreloadIfReady() {
+    if (platformPreloadTriggered) return
+    if (pendingPlatformCatalogKeys.isNotEmpty()) return
+    platformPreloadTriggered = true
+    // Collect first backdrop URL per platform from current catalogsMap
+    val platformRows = catalogsMap.values
+        .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) != null }
+        .groupBy { inferPlatformId(it.catalogName) }
+    val backdropUrls = mutableListOf<String>()
+    val platformIds = mutableSetOf<String>()
+    for ((platformId, rows) in platformRows) {
+        if (platformId == null) continue
+        platformIds.add(platformId)
+        val firstItem = rows.firstOrNull()?.items?.firstOrNull() ?: continue
+        val backdrop = firstItem.backdropUrl
+        if (!backdrop.isNullOrBlank()) backdropUrls.add(backdrop)
+    }
+    // Set stableVisiblePlatformIds immediately so the icon row knows which platforms exist
+    _uiState.update { it.copy(stableVisiblePlatformIds = platformIds) }
+    // Wait up to 500ms for Compose to push render dimensions before preloading.
+    // Dimensions must match what ModernHeroMediaLayer requests so Coil cache keys align.
+    viewModelScope.launch {
+        val deadline = System.currentTimeMillis() + 500L
+        while (backdropPreloadWidthPx == 0 || backdropPreloadHeightPx == 0) {
+            if (System.currentTimeMillis() >= deadline) break
+            kotlinx.coroutines.delay(16L)
+        }
+        preloadPlatformBackdrops(backdropUrls)
+    }
 }
 
 internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addonId: String, type: String) {
@@ -813,7 +866,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             heroItems = if (state.heroItems == enrichedHeroItems) state.heroItems else enrichedHeroItems,
             gridItems = if (state.gridItems == nextGridItems) state.gridItems else nextGridItems,
             isLoading = false,
-            catalogsReady = allCatalogsLoaded || diskCacheRestored,
+            catalogsReady = state.catalogsReady || allCatalogsLoaded || diskCacheRestored,
             stableVisiblePlatformIds = if (allCatalogsLoaded || diskCacheRestored) {
                 displayRows
                     .filter { it.items.isNotEmpty() }
@@ -825,22 +878,9 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         )
     }
 
-    // Kick off Coil preloads for the first backdrop and logo of each platform screen.
-    // Only fire once we have actual platform rows (diskCacheRestored gives us the full set).
-    // allCatalogsLoaded alone fires too early (only 1 row present at that point).
-    if (diskCacheRestored && !_platformBackdropsPreloaded.value) {
-        val platformRows = displayRows
-            .filter { it.items.isNotEmpty() }
-            .groupBy { inferPlatformId(it.catalogName) }
-        val backdropUrls = mutableListOf<String>()
-        for ((platformId, rows) in platformRows) {
-            if (platformId == null) continue
-            val firstItem = rows.firstOrNull()?.items?.firstOrNull() ?: continue
-            val backdrop = firstItem.backdropUrl
-            if (!backdrop.isNullOrBlank()) backdropUrls.add(backdrop)
-        }
-        preloadPlatformBackdrops(backdropUrls)
-    }
+    // Platform backdrop preload is now triggered from triggerPlatformPreloadIfReady()
+    // which fires as soon as all platform-categorized catalogs resolve (success or error),
+    // scoped to just that subset rather than waiting for disk cache or all catalogs.
 
     val tmdbSettings = currentTmdbSettings
     val shouldUseEnrichedHeroItems = tmdbSettings.enabled &&

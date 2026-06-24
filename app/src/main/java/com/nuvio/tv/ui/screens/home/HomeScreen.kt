@@ -107,12 +107,9 @@ fun HomeScreen(
         initialValue = false
     )
     val platformBackdropsPreloaded by viewModel.platformBackdropsPreloaded.collectAsStateWithLifecycle()
-    // Safety net: fresh install has no disk cache so diskCacheRestored never fires.
-    // Release the gate after 4s so the user is never permanently stuck.
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(4_000L)
-        viewModel.releasePlatformBackdropsGate()
-    }
+    // No home screen gate on backdrop preload — preloadPlatformBackdrops has its own
+    // 3s internal timeout so it always completes. Icons are gated on backdropsPreloaded
+    // via stablePlatformIds below and all appear at once when preload finishes.
     // Safety net for the initial-rows-enrichment gate: some items may never receive an
     // ageRating or status (TMDB has no data for them), which would otherwise block the
     // gate forever. Force-release after 6s regardless.
@@ -199,35 +196,12 @@ fun HomeScreen(
             }
 
             else -> {
-                // Wait for the first ~3 catalog rows' items to have their age rating/status
-                // enriched before releasing the gate, so the hero and visible rows don't
-                // briefly render with missing badges during the initial enrichment burst
-                // on cold launch. Items that never get ageRating/status would otherwise
-                // block this forever, so a timeout safety net (below) force-releases it.
-                // Platform-screen catalogs load earlier in the catalog order than the
-                // regular home-screen rows, so checking only the first few rows was
-                // checking off-screen platform content rather than what's actually
-                // visible. Check overall enrichment progress across everything instead —
-                // releasing once 90% of all currently-loaded items have ageRating/status.
-                val initialRowsEnriched = remember(uiState.catalogRows) {
-                    val allItems = uiState.catalogRows.flatMap { it.items }
-                    val result = if (allItems.isEmpty()) {
-                        true
-                    } else {
-                        val enrichedCount = allItems.count { it.ageRating != null || it.status != null }
-                        val pct = enrichedCount.toFloat() / allItems.size.toFloat()
-                        android.util.Log.d("NuvioGateTrace", "[GATE_CHECK] totalItems=${allItems.size} enrichedCount=$enrichedCount pct=$pct rowCount=${uiState.catalogRows.size} t=${System.currentTimeMillis()}")
-                        pct >= 0.9f
-                    }
-                    result
-                } || initialRowsEnrichmentGateReleased
-                LaunchedEffect(initialRowsEnriched) {
-                    android.util.Log.d("NuvioGateTrace", "[GATE_RESULT] initialRowsEnriched=$initialRowsEnriched timeoutFired=$initialRowsEnrichmentGateReleased t=${System.currentTimeMillis()}")
-                }
+                // Gate on catalogsReady (all catalog rows finished loading their items —
+                // not TMDB enrichment, which runs separately in the background).
+                // This is a one-way monotonic flip so it can't regress back to false.
                 val shouldShowLoadingGate = !hasEnteredCatalogContent && !hasCatalogContent ||
                     !uiState.layoutPreferencesReady ||
-                    !platformBackdropsPreloaded ||
-                    !initialRowsEnriched
+                    !uiState.catalogsReady
                 LaunchedEffect(shouldShowLoadingGate) {
                     if (shouldShowLoadingGate) {
                         showHomeContentWithAnimation = false
@@ -560,14 +534,18 @@ private fun ModernHomeRoute(
     // to ensure backdrops are in Coil before icons appear. On normal launch cachedPlatformIds
     // is already populated so icons show immediately without waiting for preload.
     val backdropsPreloaded by viewModel.platformBackdropsPreloaded.collectAsStateWithLifecycle()
-    val stablePlatformIds = if (uiState.stableVisiblePlatformIds.isNotEmpty())
-        uiState.stableVisiblePlatformIds
-    else if (cachedPlatformIds.isNotEmpty())
-        cachedPlatformIds
-    else if (backdropsPreloaded)
-        uiState.stableVisiblePlatformIds
-    else
-        emptySet()
+    // On warm launch: cachedPlatformIds is populated from DataStore instantly.
+    // On cold launch after cache clear: cachedPlatformIds is empty, so wait for
+    // backdropsPreloaded (set by triggerPlatformPreloadIfReady when platform catalogs
+    // resolve and backdrops are in Coil) then use stableVisiblePlatformIds.
+    val stablePlatformIds = when {
+        // Always gate on backdropsPreloaded — cachedPlatformIds from DataStore
+        // survives cache clears so we can't use it until backdrops are actually ready.
+        !backdropsPreloaded -> emptySet()
+        uiState.stableVisiblePlatformIds.isNotEmpty() -> uiState.stableVisiblePlatformIds
+        cachedPlatformIds.isNotEmpty() -> cachedPlatformIds
+        else -> emptySet()
+    }
     var carouselReady by rememberSaveable { mutableStateOf(false) }
     var isHeroTrailerPlaying by remember { mutableStateOf(false) }
     // Show carousel as soon as we have any platform ids — from cache or live
@@ -630,7 +608,8 @@ private fun ModernHomeRoute(
         carouselGradientAlpha = carouselAlpha,
         onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it },
         platformNavDirection = platformNavDirection,
-        isAtTop = isAtTop
+        isAtTop = isAtTop,
+        onBackdropPreloadSizeKnown = { w, h -> viewModel.setBackdropPreloadSize(w, h) }
     )
     }
 

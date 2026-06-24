@@ -162,7 +162,8 @@ fun ModernHomeContent(
     onCarouselOpenRequested: () -> Unit = {},
     isCarouselFocused: Boolean = false,
     onHeroTrailerPlayingChanged: (Boolean) -> Unit = {},
-    platformNavDirection: Int = 0
+    platformNavDirection: Int = 0,
+    onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
     val isSidebarExpanded = LocalSidebarExpanded.current
@@ -959,6 +960,11 @@ fun ModernHomeContent(
         val heroMediaHeightPx = remember(heroBackdropHeight, localDensity) {
             with(localDensity) { heroBackdropHeight.roundToPx() }
         }
+        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
+            if (heroMediaWidthPx > 0 && heroMediaHeightPx > 0) {
+                onBackdropPreloadSizeKnown(heroMediaWidthPx, heroMediaHeightPx)
+            }
+        }
         val catalogSlideAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
         val catalogSlideOffset = remember { androidx.compose.animation.core.Animatable(0f) }
         // Separate parallax animatable — never snaps, only smooth exit+enter arcs
@@ -1107,6 +1113,7 @@ fun ModernHomeContent(
         }
 
         // Shared transition logic — used by both fast and debounced modes.
+        val latestHeroBackdrop by rememberUpdatedState(heroBackdrop)
         suspend fun runTransition(finalTarget: String) {
             val safeParallaxMax = screenWidthPx * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f
             val navDir = platformNavDirectionRef.get()
@@ -1132,16 +1139,27 @@ fun ModernHomeContent(
                 if (index == 0) onItemFocus(firstItem)
                 else onPreloadAdjacentItem(firstItem)
             }
+            // Wait for the incoming backdrop to be in Coil at the exact size the
+            // renderer will request, so the ENTER animation never reveals an unloaded image.
+            // Uses the post-enrichment URL (from uiState.catalogRows, same source as the
+            // renderer) so the cache key always matches. Bounded at 2s so a dead/slow
+            // URL never hangs platform switching.
             val backdropToPreload = incomingRows.firstOrNull()?.items?.firstOrNull()?.backdropUrl
-            if (backdropToPreload != null) {
+            // Wait a couple frames after onItemFocus so heroItem/heroBackdrop can
+            // update to the incoming platform's content before we read the URL.
+            withFrameNanos {}
+            withFrameNanos {}
+            val backdropUrl = latestHeroBackdrop
+            if (backdropUrl != null) {
                 val preloadRequest = coil.request.ImageRequest.Builder(context)
-                    .data(backdropToPreload)
+                    .data(backdropUrl)
+                    .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
                     .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                     .build()
-                coil.Coil.imageLoader(context).enqueue(preloadRequest)
+                kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                    coil.Coil.imageLoader(context).execute(preloadRequest)
+                }
             }
-            withFrameNanos {}
-            withFrameNanos {}
             // ENTER — slide and fade in together
             coroutineScope {
                 launch { catalogSlideAlpha.animateTo(1f, tween(350, easing = androidx.compose.animation.core.FastOutSlowInEasing)) }

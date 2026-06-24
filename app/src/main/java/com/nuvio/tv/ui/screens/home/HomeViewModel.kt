@@ -148,6 +148,18 @@ class HomeViewModel @Inject constructor(
     // The loading gate in HomeScreen waits on this before showing content.
     internal val _platformBackdropsPreloaded = MutableStateFlow(false)
     val platformBackdropsPreloaded: StateFlow<Boolean> = _platformBackdropsPreloaded.asStateFlow()
+    // Backdrop render dimensions from Compose — used to match Coil cache keys.
+    @Volatile internal var backdropPreloadWidthPx: Int = 0
+    @Volatile internal var backdropPreloadHeightPx: Int = 0
+    fun setBackdropPreloadSize(widthPx: Int, heightPx: Int) {
+        backdropPreloadWidthPx = widthPx
+        backdropPreloadHeightPx = heightPx
+    }
+    // Platform catalog tracking — keys identified at skeleton-seed time, decremented
+    // as each platform catalog resolves (success or error).
+    internal val pendingPlatformCatalogKeys = Collections.synchronizedSet(mutableSetOf<String>())
+    @Volatile internal var platformPreloadTriggered = false
+    @Volatile internal var platformPreloadInProgress = false
     internal fun setEnrichingItemId(id: String?) { _enrichingItemId.value = id }
 
     internal val catalogsMap: MutableMap<String, CatalogRow> = Collections.synchronizedMap(LinkedHashMap())
@@ -1006,6 +1018,8 @@ class HomeViewModel @Inject constructor(
     fun getCachedVisiblePlatformIds() = layoutPreferenceDataStore.cachedVisiblePlatformIds
 
     fun releasePlatformBackdropsGate() {
+        // Don't release if a real preload is in progress — it will release when done.
+        if (platformPreloadInProgress) return
         _platformBackdropsPreloaded.value = true
     }
 
@@ -1015,29 +1029,35 @@ class HomeViewModel @Inject constructor(
             _platformBackdropsPreloaded.value = true
             return
         }
+        platformPreloadInProgress = true
         viewModelScope.launch {
             val loader = coil.Coil.imageLoader(appContext)
+            val widthPx = backdropPreloadWidthPx
+            val heightPx = backdropPreloadHeightPx
             val jobs = urls.map { url ->
                 launch {
                     try {
                         val req = coil.request.ImageRequest.Builder(appContext)
                             .data(url)
+                            .apply {
+                                if (widthPx > 0 && heightPx > 0) {
+                                    size(width = widthPx, height = heightPx)
+                                }
+                            }
                             .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
                             .build()
                         loader.execute(req)
                     } catch (_: Exception) {}
                 }
             }
-            // Wait for all preloads, but cap at 3 seconds so a slow image never blocks the UI
             val timeout = launch {
                 kotlinx.coroutines.delay(3_000L)
                 jobs.forEach { it.cancel() }
             }
             jobs.forEach { it.join() }
             timeout.cancel()
+            platformPreloadInProgress = false
             _platformBackdropsPreloaded.value = true
-            // Now that backdrops are in Coil cache, re-run pipeline to populate
-            // stableVisiblePlatformIds so icons only appear after preload completes.
             scheduleUpdateCatalogRows()
         }
     }
