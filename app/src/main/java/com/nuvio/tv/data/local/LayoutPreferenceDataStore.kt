@@ -242,7 +242,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val aggregateStreamingPlatformsEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[aggregateStreamingPlatformsKey] ?: false
+        prefs[aggregateStreamingPlatformsKey] ?: true
     }
 
     val fastPlatformScrollEnabled: Flow<Boolean> = profileFlow { prefs ->

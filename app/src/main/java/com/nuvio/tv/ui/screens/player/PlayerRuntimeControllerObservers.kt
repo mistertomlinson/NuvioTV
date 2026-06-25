@@ -35,7 +35,16 @@ internal suspend fun PlayerRuntimeController.fetchAddonSubtitlesNow(): List<Subt
     _uiState.update { it.copy(installedSubtitleAddonOrder = installedAddonOrder) }
 
     // Compute hash lazily for providers that support OpenSubtitles-style matching.
-    if (currentVideoHash == null && currentStreamUrl.isNotBlank()) {
+    // Skip for debrid CDN streams — the URL is ephemeral/authenticated and hashing
+    // requires downloading 128KB of video data which causes significant startup delay.
+    // Debrid streams already have videoSize from the resolver; hash is not needed.
+    val isDebridCdnStream = currentStreamUrl.let { url ->
+        url.contains("tb-cdn") || url.contains("torbox") ||
+        url.contains("real-debrid") || url.contains("rdebrid") ||
+        url.contains("premiumize") || url.contains("alldebrid") ||
+        url.contains("energycdn") || url.contains("offcloud")
+    }
+    if (currentVideoHash == null && currentStreamUrl.isNotBlank() && !isDebridCdnStream) {
         val result = OpenSubtitlesHasher.compute(currentStreamUrl, currentHeaders)
         if (result != null) {
             currentVideoHash = result.hash

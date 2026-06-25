@@ -50,6 +50,10 @@ private suspend fun PlayerRuntimeController.resolveCurrentStreamMimeType(
     url: String,
     headers: Map<String, String>
 ) {
+    currentStreamMimeType?.let { resolvedMimeType ->
+        Log.d(PlayerRuntimeController.TAG, "Resolved stream mimeType=$resolvedMimeType for url=$url")
+        return
+    }
     currentStreamMimeType = PlayerMediaSourceFactory.probeMimeType(
         url = url,
         headers = headers,
