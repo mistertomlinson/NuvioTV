@@ -66,7 +66,7 @@ fun LoadingOverlay(
     AnimatedVisibility(
         visible = visible,
         enter = fadeIn(animationSpec = tween(250)),
-        exit = fadeOut(animationSpec = tween(200)),
+        exit = fadeOut(animationSpec = tween(600)),
         modifier = modifier
     ) {
         val context = LocalContext.current

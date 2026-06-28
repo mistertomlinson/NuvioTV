@@ -291,6 +291,10 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     
                         
                         if (playbackState == Player.STATE_READY) {
+                            if (!hasRenderedFirstFrame) {
+                                hasRenderedFirstFrame = true
+                                _uiState.update { it.copy(showLoadingOverlay = false, loadingMessage = null) }
+                            }
                             if (shouldEnforceAutoplayOnFirstReady) {
                                 shouldEnforceAutoplayOnFirstReady = false
                                 if (!userPausedManually && !isPlaying) {
