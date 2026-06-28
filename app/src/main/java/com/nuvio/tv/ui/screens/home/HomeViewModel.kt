@@ -384,6 +384,7 @@ class HomeViewModel @Inject constructor(
                     loadContinueWatching()
                     watchedSeriesStateHolder.update(emptySet())
                     _uiState.update { it.copy(movieWatchedStatus = emptyMap()) }
+                    clearFocusState()
                     // Disk cache is intentionally preserved on profile switch.
                     // TTL handles staleness; cache allows instant restore on return.
                 }
