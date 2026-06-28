@@ -489,10 +489,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         )
                     )
                     _uiState.update { state ->
-                        if (state.continueWatchingItems == initialItems) {
+                        if (state.continueWatchingItems == initialItems && state.continueWatchingEnrichmentReady) {
                             state
                         } else {
-                            state.copy(continueWatchingItems = initialItems)
+                            state.copy(continueWatchingItems = initialItems, continueWatchingEnrichmentReady = true)
                         }
                     }
                     _initialCwResolved.value = true

@@ -19,6 +19,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ProfileSettingsViewModel @Inject constructor(
     private val profileManager: ProfileManager,
+    private val addonPreferences: com.nuvio.tv.data.local.AddonPreferences,
     private val profileSyncService: ProfileSyncService,
     private val homeScreenChannelManager: HomeScreenChannelManager
 ) : ViewModel() {
@@ -51,6 +52,7 @@ class ProfileSettingsViewModel @Inject constructor(
                 avatarColorHex = avatarColorHex,
                 avatarId = avatarId
             )
+            viewModelScope.launch { if (success && !usesPrimaryAddons) addonPreferences.ensureDefaultsForProfile(profileManager.profiles.value.maxByOrNull { it.id }?.id ?: return@launch) }
             if (success) {
                 val profiles = profileManager.profiles.value
                 val newProfile = profiles.firstOrNull { it.id !in existingIds }

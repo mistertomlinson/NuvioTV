@@ -81,6 +81,22 @@ class AddonPreferences @Inject constructor(
         }
     }
 
+    /**
+     * Initializes the addon list for a newly created profile with the default addons.
+     * Should be called after profile creation when the profile has its own addon list
+     * (i.e. usesPrimaryAddons = false). This ensures Cinemeta and other defaults are
+     * present without requiring the user to manually add them.
+     */
+    suspend fun ensureDefaultsForProfile(profileId: Int) {
+        val ds = factory.get(profileId, FEATURE)
+        val prefs = ds.data.first()
+        if (prefs[orderedUrlsKey] == null && prefs[legacyUrlsKey] == null) {
+            ds.edit { preferences ->
+                preferences[orderedUrlsKey] = gson.toJson(getDefaultAddons().toList())
+            }
+        }
+    }
+
     suspend fun addAddon(url: String) {
         if (profileManager.activeProfile?.usesPrimaryAddons == true) return
         store().edit { preferences ->

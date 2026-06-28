@@ -19,6 +19,7 @@ import javax.inject.Inject
 @HiltViewModel
 class ProfileSelectionViewModel @Inject constructor(
     private val profileManager: ProfileManager,
+    private val addonPreferences: com.nuvio.tv.data.local.AddonPreferences,
     private val profileSyncService: ProfileSyncService,
     private val avatarRepository: AvatarRepository,
     private val homeScreenChannelManager: HomeScreenChannelManager
@@ -83,6 +84,7 @@ class ProfileSelectionViewModel @Inject constructor(
                 avatarColorHex = avatarColorHex,
                 avatarId = avatarId
             )
+            if (success) { val newId = profileManager.profiles.value.maxByOrNull { it.id }?.id; if (newId != null) addonPreferences.ensureDefaultsForProfile(newId) }
             if (success) {
                 profileSyncService.pushToRemote()
             }

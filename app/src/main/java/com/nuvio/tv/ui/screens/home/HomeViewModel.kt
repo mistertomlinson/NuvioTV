@@ -378,7 +378,7 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
                     _uiState.update {
-                        it.copy(continueWatchingItems = emptyList(), layoutPreferencesReady = false, continueWatchingEnrichmentReady = false)
+                        it.copy(continueWatchingItems = emptyList(), layoutPreferencesReady = false)
                     }
                     traktLibraryService.resetSnapshot()
                     loadContinueWatching()

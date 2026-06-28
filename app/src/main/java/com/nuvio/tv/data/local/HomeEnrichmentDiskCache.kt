@@ -26,7 +26,6 @@ class HomeEnrichmentDiskCache @Inject constructor(
     companion object {
         private const val TAG = "HomeEnrichDiskCache"
         private const val MAX_ENTRIES = 3000
-        private const val MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000 // 7 days
     }
 
     private val gson = Gson()
@@ -45,10 +44,8 @@ class HomeEnrichmentDiskCache @Inject constructor(
                 val type = object : TypeToken<Map<String, HomeEnrichmentEntry>>() {}.type
                 val entries: Map<String, HomeEnrichmentEntry> =
                     gson.fromJson(file.readText(), type) ?: emptyMap()
-                val now = System.currentTimeMillis()
-                val valid = entries.filter { (_, v) -> now - v.cachedAtMs < MAX_AGE_MS }
-                Log.d(TAG, "Loaded ${valid.size} valid entries (${entries.size - valid.size} expired)")
-                valid.mapValues { it.value.enrichment }
+                Log.d(TAG, "Loaded ${entries.size} enrichment cache entries")
+                entries.mapValues { it.value.enrichment }
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to load home enrichment cache: ${e.message}")
                 emptyMap()
