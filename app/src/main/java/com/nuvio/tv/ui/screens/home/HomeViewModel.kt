@@ -707,11 +707,18 @@ class HomeViewModel @Inject constructor(
                     // Apply unconditionally — don't gate on currentTmdbSettings since
                     // settings may not be loaded yet when observeMyList() runs after toggle.
                     val enrichedItems = items.map { item ->
-                        val cached = enrichmentCache[item.id] ?: return@map item
+                        // Trakt-sourced items are keyed by IMDb id (tt...) while the enrichment
+                        // cache is keyed by the catalog id (tmdb:...) — try the cross-mapped key
+                        // before giving up, otherwise Trakt My List items never get enriched.
+                        val cached = enrichmentCache[item.id]
+                            ?: item.id.takeIf { it.startsWith("tt") }
+                                ?.let { tmdbService.getCachedTmdbId(it) }
+                                ?.let { enrichmentCache["tmdb:" + it] }
+                            ?: return@map item
                         item.copy(
                             poster = item.poster ?: cached.poster,
                             background = item.background ?: cached.backdrop,
-                            logo = cached.logo ?: item.logo,
+                            logo = cached.logo ?: cached.fallbackLogoUrl ?: item.logo,
                             landscapePoster = cached.detailBackdrop ?: item.landscapePoster,
                             name = cached.localizedTitle ?: item.name,
                             description = cached.description ?: item.description,

@@ -234,7 +234,6 @@ class TmdbMetadataService @Inject constructor(
                 //    disagreeing with the detail screen for the same title.
                 val fallbackLogoUrl = if (logo == null) {
                     val resolvedImdbId = runCatching { tmdbService.tmdbToImdb(numericId, tmdbType) }.getOrNull()
-                    android.util.Log.e("FALLBACK_DIAG", "step1 numericId=" + numericId + " resolvedImdbId=" + resolvedImdbId)
                     if (resolvedImdbId != null) {
                         val metahubUrl = "https://images.metahub.space/logo/medium/$resolvedImdbId/img"
                         val metahubExists = runCatching {
@@ -250,12 +249,11 @@ class TmdbMetadataService @Inject constructor(
                                 code in 200..299
                             }
                         }.getOrDefault(false)
-                        android.util.Log.e("FALLBACK_DIAG", "step2 metahubExists=" + metahubExists)
 
                         if (metahubExists) {
                             metahubUrl
                         } else {
-                            val addonLogo = runCatching {
+                            runCatching {
                                 val addonType = if (tmdbType == "tv") "series" else "movie"
                                 val result = metaRepository.getMetaFromAllAddons(addonType, resolvedImdbId)
                                     .first {
@@ -264,8 +262,6 @@ class TmdbMetadataService @Inject constructor(
                                     }
                                 (result as? com.nuvio.tv.core.network.NetworkResult.Success)?.data?.logo
                             }.getOrNull()
-                            android.util.Log.e("FALLBACK_DIAG", "step3 addonLogo=" + addonLogo)
-                            addonLogo
                         }
                     } else {
                         null

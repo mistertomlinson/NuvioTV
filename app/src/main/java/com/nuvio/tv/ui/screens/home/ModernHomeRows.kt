@@ -931,10 +931,13 @@ private fun ModernCarouselCard(
     val maxLogoWidthPx = remember(maxRequestCardWidth, density) {
         with(density) { (maxRequestCardWidth * 0.62f).roundToPx() }
     }
-    // Freeze logo URL — enrichment updates must not cause image reload/flash.
-    // First non-blank value wins and is never replaced within this composition.
+    // Freeze logo URL — enrichment updates must not cause image reload/flash while
+    // the URL stays the same. But the enrichment fallback chain (TMDB -> metahub ->
+    // meta addon) can settle on a better/different URL after an earlier attempt already
+    // populated a worse one (e.g. a transient network hiccup on a fallback tier) — so we
+    // accept any new non-blank value that actually differs, not just the very first one.
     val frozenLogoUrl = remember(item.key) { mutableStateOf(item.heroPreview.logo) }
-    if (frozenLogoUrl.value.isNullOrBlank() && !item.heroPreview.logo.isNullOrBlank()) {
+    if (!item.heroPreview.logo.isNullOrBlank() && item.heroPreview.logo != frozenLogoUrl.value) {
         frozenLogoUrl.value = item.heroPreview.logo
     }
     val effectiveLogoUrl = frozenLogoUrl.value
@@ -1171,7 +1174,7 @@ private fun ModernCarouselCard(
                         onError = { landscapeLogoLoadFailed = true },
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.56f)
+                            .fillMaxWidth(0.65f)
                             .height(cardHeight * 0.40f)
                             .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
                         contentScale = ContentScale.Fit,
@@ -1188,7 +1191,7 @@ private fun ModernCarouselCard(
                     val posterBoxHeightPx = with(density) { (cardHeight * 0.40f).toPx() }
                     // Safety margin: shrink the measured box slightly so real TextView rendering
                     // (which can have small padding/metric differences from StaticLayout) never overflows.
-                    val posterAvailWidthPx = with(density) { (cardWidth * 0.56f - 20.dp).toPx() * 0.92f }
+                    val posterAvailWidthPx = with(density) { (cardWidth * 0.65f - 20.dp).toPx() * 0.92f }
                     val posterAvailHeightPx = posterBoxHeightPx * 0.92f
                     val posterComputedSizePx = remember(item.title, posterAvailWidthPx, posterAvailHeightPx) {
                         val paint = android.text.TextPaint().apply {
@@ -1217,7 +1220,7 @@ private fun ModernCarouselCard(
                     androidx.compose.ui.viewinterop.AndroidView(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.56f)
+                            .fillMaxWidth(0.65f)
                             .height(cardHeight * 0.40f)
                             .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
                         factory = { ctx ->

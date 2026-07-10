@@ -74,9 +74,29 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
         state.copy(posterLibraryPending = state.posterLibraryPending + statusKey)
     }
 
+    // Apply enrichment cache immediately so both what we persist and what we show
+    // in-memory carry the fully-resolved logo (TMDB/metahub/meta-addon fallback),
+    // not just the pre-enrichment MetaPreview — otherwise the saved item reverts to
+    // its unenriched state on the next app launch even though this session looked right.
+    val cachedForPersist = enrichmentCache[item.id]
+    val enrichedItemForPersist = if (cachedForPersist != null) {
+        item.copy(
+            poster = item.poster ?: cachedForPersist.poster,
+            logo = cachedForPersist.logo ?: cachedForPersist.fallbackLogoUrl ?: item.logo,
+            landscapePoster = cachedForPersist.detailBackdrop ?: item.landscapePoster,
+            name = cachedForPersist.localizedTitle ?: item.name,
+            description = cachedForPersist.description ?: item.description,
+            genres = if (cachedForPersist.genres.isNotEmpty()) cachedForPersist.genres else item.genres,
+            imdbRating = cachedForPersist.rating?.toFloat() ?: item.imdbRating,
+            ageRating = cachedForPersist.ageRating ?: item.ageRating,
+            status = cachedForPersist.status ?: item.status,
+            runtime = cachedForPersist.runtimeMinutes?.toString() ?: item.runtime
+        )
+    } else item
+
     viewModelScope.launch {
         runCatching {
-            libraryRepository.toggleDefault(item.toLibraryEntryInput(addonBaseUrl))
+            libraryRepository.toggleDefault(enrichedItemForPersist.toLibraryEntryInput(addonBaseUrl))
         }.onFailure { error ->
             Log.w(HomeViewModel.TAG, "Failed to toggle poster library for ${item.id}: ${error.message}")
         }
@@ -96,22 +116,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
             }
             showHomeMessage(appContext.getString(com.nuvio.tv.R.string.detail_removed_from_library))
         } else {
-            // Add item to ML row — apply enrichment cache immediately
-            val cached = enrichmentCache[item.id]
-            val enrichedItem = if (cached != null) {
-                item.copy(
-                    poster = item.poster ?: cached.poster,
-                    logo = cached.logo ?: cached.fallbackLogoUrl ?: item.logo,
-                    landscapePoster = cached.detailBackdrop ?: item.landscapePoster,
-                    name = cached.localizedTitle ?: item.name,
-                    description = cached.description ?: item.description,
-                    genres = if (cached.genres.isNotEmpty()) cached.genres else item.genres,
-                    imdbRating = cached.rating?.toFloat() ?: item.imdbRating,
-                    ageRating = cached.ageRating ?: item.ageRating,
-                    status = cached.status ?: item.status,
-                    runtime = cached.runtimeMinutes?.toString() ?: item.runtime
-                )
-            } else item
+            val enrichedItem = enrichedItemForPersist
             showHomeMessage(appContext.getString(com.nuvio.tv.R.string.detail_added_to_library))
             if (currentMlRow != null) {
                 catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = currentMlRow.copy(

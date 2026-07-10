@@ -1076,6 +1076,10 @@ m
 
         val idCandidates = buildList {
             add(entry.id)
+            // IMDb ID first among the alternates — meta addons like AIOMetadata key on
+            // tt-ids and are the richest logo source (TheTVDB artwork), while the
+            // tmdb:/trakt: forms often only resolve against addons with no logo data.
+            entry.imdbId?.takeIf { it.isNotBlank() }?.let { add(it) }
             if (entry.id.startsWith("tmdb:")) add(entry.id.substringAfter(':'))
             if (entry.id.startsWith("trakt:")) add(entry.id.substringAfter(':'))
         }.distinct()
