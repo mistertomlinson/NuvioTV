@@ -31,7 +31,8 @@ private data class CoreLayoutPrefs(
     val posterLabelsEnabled: Boolean,
     val catalogAddonNameEnabled: Boolean,
     val catalogTypeSuffixEnabled: Boolean,
-    val hideUnreleasedContent: Boolean
+    val hideUnreleasedContent: Boolean,
+    val hidePlatformNameInCatalogTitleEnabled: Boolean
 )
 
 private data class FocusedBackdropPrefs(
@@ -52,6 +53,7 @@ private data class LayoutUiPrefs(
     val catalogAddonNameEnabled: Boolean,
     val catalogTypeSuffixEnabled: Boolean,
     val hideUnreleasedContent: Boolean,
+    val hidePlatformNameInCatalogTitleEnabled: Boolean,
     val modernLandscapePostersEnabled: Boolean,
     val focusedBackdropExpandEnabled: Boolean,
     val focusedBackdropExpandDelaySeconds: Int,
@@ -82,15 +84,18 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                 posterLabelsEnabled = posterLabelsEnabled,
                 catalogAddonNameEnabled = catalogAddonNameEnabled,
                 catalogTypeSuffixEnabled = true,
-                hideUnreleasedContent = false
+                hideUnreleasedContent = false,
+                hidePlatformNameInCatalogTitleEnabled = false
             )
         },
         layoutPreferenceDataStore.catalogTypeSuffixEnabled,
-        layoutPreferenceDataStore.hideUnreleasedContent
-    ) { corePrefs, catalogTypeSuffixEnabled, hideUnreleasedContent ->
+        layoutPreferenceDataStore.hideUnreleasedContent,
+        layoutPreferenceDataStore.hidePlatformNameInCatalogTitleEnabled
+    ) { corePrefs, catalogTypeSuffixEnabled, hideUnreleasedContent, hidePlatformNameInCatalogTitleEnabled ->
         corePrefs.copy(
             catalogTypeSuffixEnabled = catalogTypeSuffixEnabled,
-            hideUnreleasedContent = hideUnreleasedContent
+            hideUnreleasedContent = hideUnreleasedContent,
+            hidePlatformNameInCatalogTitleEnabled = hidePlatformNameInCatalogTitleEnabled
         )
     }
 
@@ -133,6 +138,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             catalogAddonNameEnabled = corePrefs.catalogAddonNameEnabled,
             catalogTypeSuffixEnabled = corePrefs.catalogTypeSuffixEnabled,
             hideUnreleasedContent = corePrefs.hideUnreleasedContent,
+            hidePlatformNameInCatalogTitleEnabled = corePrefs.hidePlatformNameInCatalogTitleEnabled,
             modernLandscapePostersEnabled = false,
             focusedBackdropExpandEnabled = focusedBackdropPrefs.expandEnabled,
             focusedBackdropExpandDelaySeconds = focusedBackdropPrefs.expandDelaySeconds,
@@ -196,6 +202,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         catalogAddonNameEnabled = prefs.catalogAddonNameEnabled,
                         catalogTypeSuffixEnabled = prefs.catalogTypeSuffixEnabled,
                         hideUnreleasedContent = prefs.hideUnreleasedContent,
+                        hidePlatformNameInCatalogTitleEnabled = prefs.hidePlatformNameInCatalogTitleEnabled,
                         modernLandscapePostersEnabled = prefs.modernLandscapePostersEnabled,
                         focusedPosterBackdropExpandEnabled = prefs.focusedBackdropExpandEnabled,
                         focusedPosterBackdropExpandDelaySeconds = prefs.focusedBackdropExpandDelaySeconds,
@@ -525,7 +532,7 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 // When TMDB enrichment is enabled, prefer its logo.
                 // If TMDB has no logo, try metahub using the cached imdb ID (UI onError→text if 404).
                 // itemId may be "tt1234567" (imdb-style) or numeric tmdb id.
-                logo = enrichment.logo ?: run {
+                logo = enrichment.logo ?: enrichment.fallbackLogoUrl ?: run {
                     val imdbId = merged.imdbId
                         ?: itemId.removePrefix("tmdb:").toIntOrNull()
                             ?.let { tmdbService.getCachedImdbId(it) }
@@ -547,7 +554,8 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
             merged = merged.copy(
                 ageRating = enrichment.ageRating ?: merged.ageRating,
                 status = enrichment.status ?: merged.status,
-                runtime = enrichment.runtimeMinutes?.toString() ?: merged.runtime
+                runtime = enrichment.runtimeMinutes?.toString() ?: merged.runtime,
+                digitalReleaseInfo = enrichment.digitalReleaseInfo ?: merged.digitalReleaseInfo
             )
         }
         return merged
@@ -699,6 +707,7 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
                         enriched = enriched.copy(
                             background = enrichment.backdrop ?: enriched.background,
                             logo = enrichment.logo
+                                ?: enrichment.fallbackLogoUrl
                                 ?: enriched.imdbId?.let { "https://images.metahub.space/logo/medium/$it/img" }
                                 ?: enriched.logo,
                             poster = enrichment.poster ?: enriched.poster

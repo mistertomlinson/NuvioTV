@@ -101,7 +101,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
             val enrichedItem = if (cached != null) {
                 item.copy(
                     poster = item.poster ?: cached.poster,
-                    logo = cached.logo ?: item.logo,
+                    logo = cached.logo ?: cached.fallbackLogoUrl ?: item.logo,
                     landscapePoster = cached.detailBackdrop ?: item.landscapePoster,
                     name = cached.localizedTitle ?: item.name,
                     description = cached.description ?: item.description,

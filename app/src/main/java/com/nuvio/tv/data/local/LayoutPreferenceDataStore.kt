@@ -54,6 +54,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val posterLabelsEnabledKey = booleanPreferencesKey("poster_labels_enabled")
     private val catalogAddonNameEnabledKey = booleanPreferencesKey("catalog_addon_name_enabled")
     private val catalogTypeSuffixEnabledKey = booleanPreferencesKey("catalog_type_suffix_enabled")
+    private val hidePlatformNameInCatalogTitleKey = booleanPreferencesKey("hide_platform_name_in_catalog_title")
     private val focusedPosterBackdropExpandEnabledKey = booleanPreferencesKey("focused_poster_backdrop_expand_enabled")
     private val focusedPosterBackdropExpandDelaySecondsKey = intPreferencesKey("focused_poster_backdrop_expand_delay_seconds")
     private val focusedPosterBackdropTrailerEnabledKey = booleanPreferencesKey("focused_poster_backdrop_trailer_enabled")
@@ -179,6 +180,10 @@ class LayoutPreferenceDataStore @Inject constructor(
         prefs[catalogTypeSuffixEnabledKey] ?: true
     }
 
+    val hidePlatformNameInCatalogTitleEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[hidePlatformNameInCatalogTitleKey] ?: false
+    }
+
     val focusedPosterBackdropExpandEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[focusedPosterBackdropExpandEnabledKey] ?: false
     }
@@ -250,11 +255,11 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val fullWidthIconRowEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[fullWidthIconRowKey] ?: false
+        prefs[fullWidthIconRowKey] ?: true
     }
 
     val dimIconsOnRowExitEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[dimIconsOnRowExitKey] ?: false
+        prefs[dimIconsOnRowExitKey] ?: true
     }
 
     suspend fun setLayout(layout: HomeLayout) {
@@ -408,6 +413,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setCatalogTypeSuffixEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[catalogTypeSuffixEnabledKey] = enabled
+        }
+    }
+
+    suspend fun setHidePlatformNameInCatalogTitleEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[hidePlatformNameInCatalogTitleKey] = enabled
         }
     }
 

@@ -124,6 +124,13 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleHidePlatformNameInCatalogTitle() {
+        val current = _uiState.value.hidePlatformNameInCatalogTitleEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setHidePlatformNameInCatalogTitleEnabled(!current)
+        }
+    }
+
     fun toggleShowAllCatalogsOnHome() {
         val current = _uiState.value.showAllCatalogsOnHome
         viewModelScope.launch {
@@ -248,7 +255,10 @@ Triple(
                 )
             }.combine(layoutPreferenceDataStore.modernLandscapePostersEnabled) { inner, globalLandscape ->
                 inner to globalLandscape
-            }.collectLatest { (innerResult, globalLandscapePosters) ->
+            }.combine(layoutPreferenceDataStore.hidePlatformNameInCatalogTitleEnabled) { outer, hidePlatformName ->
+                outer to hidePlatformName
+            }.collectLatest { (outerResult, hidePlatformNameInCatalogTitle) ->
+            val (innerResult, globalLandscapePosters) = outerResult
             val (triple, aggregatePair, fullWidthIconRowTriple) = innerResult
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
                 val (fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit) = fullWidthIconRowTriple
@@ -268,6 +278,7 @@ Triple(
                         fastPlatformScrollEnabled = fastPlatformScroll,
                         dimIconsOnRowExitEnabled = dimIconsOnRowExit,
                         globalLandscapePostersEnabled = globalLandscapePosters,
+                        hidePlatformNameInCatalogTitleEnabled = hidePlatformNameInCatalogTitle,
                         shuffledCatalogKeys = shuffleKeysCache
                     )
                 }
@@ -542,6 +553,7 @@ data class CatalogOrderUiState(
     val fullWidthIconRowEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
     val dimIconsOnRowExitEnabled: Boolean = false,
+    val hidePlatformNameInCatalogTitleEnabled: Boolean = false,
     val shuffledCatalogKeys: Set<String> = emptySet()
 )
 

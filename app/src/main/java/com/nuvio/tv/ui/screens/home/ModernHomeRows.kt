@@ -10,6 +10,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.TextStyle
@@ -959,7 +961,7 @@ private fun ModernCarouselCard(
     if (hasLandscapeLogoInstant && !frozenHasLandscapeLogo.value) {
         frozenHasLandscapeLogo.value = true
     }
-    val hasLandscapeLogo = frozenHasLandscapeLogo.value
+    val hasLandscapeLogo = frozenHasLandscapeLogo.value && !landscapeLogoLoadFailed
     var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
 
@@ -1169,23 +1171,75 @@ private fun ModernCarouselCard(
                         onError = { landscapeLogoLoadFailed = true },
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.62f)
-                            .height(cardHeight * 0.34f)
+                            .fillMaxWidth(0.56f)
+                            .height(cardHeight * 0.40f)
                             .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
                         contentScale = ContentScale.Fit,
                         alignment = Alignment.CenterStart
                     )
                 } else if (useLandscapePosters) {
-                    Text(
-                        text = item.title,
-                        style = titleStyle,
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
+                    val posterCaslonTypeface = remember {
+                        android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
+                            .setFontVariationSettings("'wght' 300")
+                            .setWeight(300)
+                            .build()
+                    }
+                    val posterBaseSizePx = with(density) { titleStyle.fontSize.toPx() }
+                    val posterBoxHeightPx = with(density) { (cardHeight * 0.40f).toPx() }
+                    // Safety margin: shrink the measured box slightly so real TextView rendering
+                    // (which can have small padding/metric differences from StaticLayout) never overflows.
+                    val posterAvailWidthPx = with(density) { (cardWidth * 0.56f - 20.dp).toPx() * 0.92f }
+                    val posterAvailHeightPx = posterBoxHeightPx * 0.92f
+                    val posterComputedSizePx = remember(item.title, posterAvailWidthPx, posterAvailHeightPx) {
+                        val paint = android.text.TextPaint().apply {
+                            typeface = posterCaslonTypeface
+                            isAntiAlias = true
+                        }
+                        var size = posterBaseSizePx
+                        val minSize = posterBaseSizePx * 0.15f
+                        val widthI = posterAvailWidthPx.toInt().coerceAtLeast(1)
+                        while (size > minSize) {
+                            paint.textSize = size
+                            val layout = android.text.StaticLayout.Builder
+                                .obtain(item.title, 0, item.title.length, paint, widthI)
+                                .setLineSpacing(0f, 0.9f)
+                                .setIncludePad(false)
+                                .setMaxLines(3)
+                                .setEllipsize(null)
+                                .build()
+                            val fits = layout.lineCount <= 3 && layout.height <= posterAvailHeightPx.toInt()
+                            val noOverflow = (0 until layout.lineCount).none { layout.getEllipsisCount(it) > 0 }
+                            if (fits && noOverflow) break
+                            size -= posterBaseSizePx * 0.04f
+                        }
+                        size.coerceAtLeast(minSize)
+                    }
+                    androidx.compose.ui.viewinterop.AndroidView(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.62f)
-                            .padding(start = 10.dp, end = 10.dp, bottom = 12.dp)
+                            .fillMaxWidth(0.56f)
+                            .height(cardHeight * 0.40f)
+                            .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
+                        factory = { ctx ->
+                            android.widget.TextView(ctx).apply {
+                                layoutParams = android.view.ViewGroup.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                typeface = posterCaslonTypeface
+                                setTextColor(android.graphics.Color.WHITE)
+                                maxLines = 3
+                                ellipsize = android.text.TextUtils.TruncateAt.END
+                                gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.CENTER_HORIZONTAL
+                                setLineSpacing(0f, 0.9f)
+                                includeFontPadding = false
+                                setPadding(0, 0, 0, 0)
+                            }
+                        },
+                        update = { tv ->
+                            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, posterComputedSizePx)
+                            tv.text = item.title
+                        }
                     )
                 }
 

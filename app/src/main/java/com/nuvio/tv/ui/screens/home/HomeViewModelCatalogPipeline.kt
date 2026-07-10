@@ -846,7 +846,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                             // Same metahub fallback as updateCatalogItemWithTmdb — this path
                             // rebuilds from enrichmentCache directly so it needs its own fallback,
                             // otherwise a null TMDB logo here stomps the value set elsewhere.
-                            logo = cached.logo ?: run {
+                            logo = cached.logo ?: cached.fallbackLogoUrl ?: run {
                                 val imdbId = merged.imdbId
                                     ?: item.id.removePrefix("tmdb:").toIntOrNull()
                                         ?.let { tmdbService.getCachedImdbId(it) }

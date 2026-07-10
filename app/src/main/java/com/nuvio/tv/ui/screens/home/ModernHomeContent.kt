@@ -169,6 +169,7 @@ fun ModernHomeContent(
     val isSidebarExpanded = LocalSidebarExpanded.current
     val useLandscapePosters = uiState.modernLandscapePostersEnabled
     val showCatalogTypeSuffixInModern = uiState.catalogTypeSuffixEnabled
+    val hidePlatformNameInModern = uiState.hidePlatformNameInCatalogTitleEnabled
     val isLandscapeModern = useLandscapePosters
     val expandControlAvailable = !isLandscapeModern
     val trailerPlaybackTarget = uiState.focusedPosterBackdropTrailerPlaybackTarget
@@ -215,6 +216,7 @@ fun ModernHomeContent(
         visibleCatalogRows,
         useLandscapePosters,
         showCatalogTypeSuffixInModern,
+        hidePlatformNameInModern,
         strTypeMovie,
         strTypeSeries,
         numberedCatalogKeys,
@@ -280,6 +282,7 @@ fun ModernHomeContent(
                         cached.source == row &&
                         cached.useLandscapePosters == rowUseLandscapePosters &&
                         cached.showCatalogTypeSuffix == showCatalogTypeSuffixInModern &&
+                        cached.hidePlatformName == hidePlatformNameInModern &&
                         cached.mappedRow.numberStyle == cachedNumberStyle
 
                 val mappedRow = if (canReuseMappedRow) {
@@ -298,6 +301,7 @@ fun ModernHomeContent(
                         title = catalogRowTitle(
                             row = row,
                             showCatalogTypeSuffix = showCatalogTypeSuffixInModern,
+                            hidePlatformName = hidePlatformNameInModern,
                             strTypeMovie = strTypeMovie,
                             strTypeSeries = strTypeSeries
                         ),
@@ -348,6 +352,7 @@ fun ModernHomeContent(
                     source = row,
                     useLandscapePosters = rowUseLandscapePosters,
                     showCatalogTypeSuffix = showCatalogTypeSuffixInModern,
+                    hidePlatformName = hidePlatformNameInModern,
                     mappedRow = mappedRow
                 )
                 add(mappedRow)

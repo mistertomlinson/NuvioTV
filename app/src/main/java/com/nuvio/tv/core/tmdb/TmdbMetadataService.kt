@@ -23,6 +23,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.flow.first
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 import com.nuvio.tv.data.local.TmdbEnrichmentDiskCache
@@ -37,7 +38,9 @@ private val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
 @Singleton
 class TmdbMetadataService @Inject constructor(
     private val tmdbApi: TmdbApi,
-    private val diskCache: TmdbEnrichmentDiskCache
+    private val diskCache: TmdbEnrichmentDiskCache,
+    private val tmdbService: TmdbService,
+    private val metaRepository: com.nuvio.tv.domain.repository.MetaRepository
 ) {
     // In-memory caches
     private val enrichmentCache = ConcurrentHashMap<String, TmdbEnrichment>()
@@ -111,6 +114,7 @@ class TmdbMetadataService @Inject constructor(
                 }
 
                 // Fetch details, credits, and images in parallel
+                var digitalReleaseInfo: String? = null
                 val (details, credits, images, ageRating) = coroutineScope {
                     val detailsDeferred = async {
                         when (tmdbType) {
@@ -134,19 +138,21 @@ class TmdbMetadataService @Inject constructor(
                         when (tmdbType) {
                             "tv" -> {
                                 val ratings = tmdbApi.getTvContentRatings(numericId, TMDB_API_KEY).body()?.results.orEmpty()
-                                selectTvAgeRating(ratings, normalizedLanguage)
+                                Pair(selectTvAgeRating(ratings, normalizedLanguage), null as String?)
                             }
                             else -> {
                                 val releases = tmdbApi.getMovieReleaseDates(numericId, TMDB_API_KEY).body()?.results.orEmpty()
-                                selectMovieAgeRating(releases, normalizedLanguage)
+                                Pair(selectMovieAgeRating(releases, normalizedLanguage), selectMovieEarliestPlayableDate(releases))
                             }
                         }
                     }
+                    val ageRatingResult = ageRatingDeferred.await()
+                    digitalReleaseInfo = ageRatingResult.second
                     Quadruple(
                         detailsDeferred.await(),
                         creditsDeferred.await(),
                         imagesDeferred.await(),
-                        ageRatingDeferred.await()
+                        ageRatingResult.first
                     )
                 }
 
@@ -219,6 +225,54 @@ class TmdbMetadataService @Inject constructor(
                     ?.filePath
 
                 val logo = buildImageUrl(logoPath, size = "w500")
+
+                // If TMDB has no matching-language logo, chase down a fallback:
+                // 1) Resolve the IMDb ID live (not just a cache read) so metahub.space can be tried.
+                // 2) Verify metahub actually has the image (HEAD check) rather than assuming.
+                // 3) If metahub has nothing either, ask meta addons (e.g. AIOMetadata/TheTVDB) —
+                //    the same source the detail screen ends up using, so home/poster stop
+                //    disagreeing with the detail screen for the same title.
+                val fallbackLogoUrl = if (logo == null) {
+                    val resolvedImdbId = runCatching { tmdbService.tmdbToImdb(numericId, tmdbType) }.getOrNull()
+                    android.util.Log.e("FALLBACK_DIAG", "step1 numericId=" + numericId + " resolvedImdbId=" + resolvedImdbId)
+                    if (resolvedImdbId != null) {
+                        val metahubUrl = "https://images.metahub.space/logo/medium/$resolvedImdbId/img"
+                        val metahubExists = runCatching {
+                            withContext(Dispatchers.IO) {
+                                val conn = (java.net.URL(metahubUrl).openConnection() as java.net.HttpURLConnection)
+                                conn.requestMethod = "HEAD"
+                                conn.instanceFollowRedirects = true
+                                conn.connectTimeout = 3000
+                                conn.readTimeout = 3000
+                                conn.connect()
+                                val code = conn.responseCode
+                                conn.disconnect()
+                                code in 200..299
+                            }
+                        }.getOrDefault(false)
+                        android.util.Log.e("FALLBACK_DIAG", "step2 metahubExists=" + metahubExists)
+
+                        if (metahubExists) {
+                            metahubUrl
+                        } else {
+                            val addonLogo = runCatching {
+                                val addonType = if (tmdbType == "tv") "series" else "movie"
+                                val result = metaRepository.getMetaFromAllAddons(addonType, resolvedImdbId)
+                                    .first {
+                                        it is com.nuvio.tv.core.network.NetworkResult.Success ||
+                                            it is com.nuvio.tv.core.network.NetworkResult.Error
+                                    }
+                                (result as? com.nuvio.tv.core.network.NetworkResult.Success)?.data?.logo
+                            }.getOrNull()
+                            android.util.Log.e("FALLBACK_DIAG", "step3 addonLogo=" + addonLogo)
+                            addonLogo
+                        }
+                    } else {
+                        null
+                    }
+                } else {
+                    null
+                }
 
                 val castMembers = credits?.cast
                     .orEmpty()
@@ -342,11 +396,13 @@ class TmdbMetadataService @Inject constructor(
                     genres = genres,
                     backdrop = backdrop,
                     logo = logo,
+                    fallbackLogoUrl = fallbackLogoUrl,
                     poster = poster,
                     directorMembers = exposedDirectorMembers,
                     writerMembers = exposedWriterMembers,
                     castMembers = castMembers,
                     releaseInfo = releaseInfo,
+                    digitalReleaseInfo = digitalReleaseInfo,
                     rating = rating,
                     runtimeMinutes = runtime,
                     director = exposedDirector,
@@ -854,6 +910,33 @@ private fun selectMovieAgeRating(
         .firstOrNull { it.isNotBlank() }
 }
 
+private fun selectMovieEarliestPlayableDate(
+    countries: List<com.nuvio.tv.data.remote.api.TmdbMovieReleaseDateCountry>
+): String? {
+    // TMDB release_dates "type" values: 1=Premiere, 2=Theatrical (limited),
+    // 3=Theatrical, 4=Digital, 5=Physical, 6=TV
+    val allEntries = countries.asSequence()
+        .flatMap { it.releaseDates.orEmpty().asSequence() }
+        .filter { !it.releaseDate.isNullOrBlank() }
+        .toList()
+
+    val homeAvailabilityDates = allEntries
+        .filter { it.type == 4 || it.type == 5 }
+        .mapNotNull { it.releaseDate?.substringBefore('T') }
+
+    if (homeAvailabilityDates.isNotEmpty()) {
+        return homeAvailabilityDates.minOrNull()
+    }
+
+    // No digital/physical entry found anywhere — fall back to theatrical date
+    // so library titles without explicit digital data still resolve correctly.
+    val theatricalDates = allEntries
+        .filter { it.type == 3 || it.type == 2 || it.type == 1 }
+        .mapNotNull { it.releaseDate?.substringBefore('T') }
+
+    return theatricalDates.minOrNull()
+}
+
 private fun selectTvAgeRating(
     ratings: List<com.nuvio.tv.data.remote.api.TmdbTvContentRatingItem>,
     normalizedLanguage: String
@@ -875,11 +958,13 @@ data class TmdbEnrichment(
     val genres: List<String>,
     val backdrop: String?,
     val logo: String?,
+    val fallbackLogoUrl: String? = null,
     val poster: String?,
     val directorMembers: List<MetaCastMember>,
     val writerMembers: List<MetaCastMember>,
     val castMembers: List<MetaCastMember>,
     val releaseInfo: String?,
+    val digitalReleaseInfo: String? = null,
     val rating: Double?,
     val runtimeMinutes: Int?,
     val director: List<String>,

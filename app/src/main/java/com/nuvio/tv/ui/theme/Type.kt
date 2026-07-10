@@ -31,6 +31,13 @@ val OpenSansFamily = FontFamily(
     Font(R.font.opensans_variable, FontWeight.Bold)
 )
 
+fun buildCaslonFamily(context: android.content.Context): FontFamily = FontFamily(
+    Font("fonts/caslon_regular.ttf", context.assets, FontWeight.Normal),
+    Font("fonts/caslon_regular.ttf", context.assets, FontWeight.Medium),
+    Font("fonts/caslon_regular.ttf", context.assets, FontWeight.SemiBold),
+    Font("fonts/caslon_regular.ttf", context.assets, FontWeight.Bold)
+)
+
 fun getFontFamily(appFont: AppFont): FontFamily = when (appFont) {
     AppFont.INTER -> InterFamily
     AppFont.DM_SANS -> DMSansFamily

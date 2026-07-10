@@ -1,6 +1,8 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.core.content.res.ResourcesCompat
+import com.nuvio.tv.ui.theme.buildCaslonFamily
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -44,6 +46,7 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.scale
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
@@ -460,6 +463,10 @@ private fun HeroTitleContent(
             lineHeight = headlineLarge.lineHeight * titleScale
         )
     }
+    val nullLogoTextStyle = remember(scaledTitleStyle) {
+        scaledTitleStyle.copy(fontFamily = buildCaslonFamily(context))
+    }
+
     val scaledDescriptionStyle = remember(bodyMedium, descriptionScale) {
         bodyMedium.copy(
             fontSize = bodyMedium.fontSize * descriptionScale,
@@ -541,12 +548,40 @@ private fun HeroTitleContent(
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (!hasLogo) {
-                        Text(
-                            text = preview.title,
-                            style = scaledTitleStyle,
-                            color = NuvioColors.TextPrimary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                        var titleFontScale by remember(preview.title) { mutableStateOf(1f) }
+                        var titleReadyToDraw by remember(preview.title) { mutableStateOf(false) }
+                        val baseSizePx = with(density) { nullLogoTextStyle.fontSize.toPx() }
+                        val caslonTypeface = remember {
+                            android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
+                                .setFontVariationSettings("'wght' 300")
+                                .setWeight(300)
+                                .build()
+                        }
+                        androidx.compose.ui.viewinterop.AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                android.widget.TextView(ctx).apply {
+                                    layoutParams = android.view.ViewGroup.LayoutParams(
+                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    typeface = caslonTypeface
+                                    setTextColor(android.graphics.Color.WHITE)
+                                    maxLines = 3
+                                    ellipsize = android.text.TextUtils.TruncateAt.END
+                                    gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.CENTER_HORIZONTAL
+                                    setLineSpacing(0f, 0.9f)
+                                    setAutoSizeTextTypeUniformWithConfiguration(
+                                        (baseSizePx * 0.35f).toInt(),
+                                        baseSizePx.toInt(),
+                                        1,
+                                        android.util.TypedValue.COMPLEX_UNIT_PX
+                                    )
+                                }
+                            },
+                            update = { tv ->
+                                tv.text = preview.title
+                            }
                         )
                     }
                     // If hasLogo but not ready yet — empty box holds space, no text flash

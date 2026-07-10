@@ -38,7 +38,7 @@ class TmdbSettingsDataStore @Inject constructor(
     val settings: Flow<TmdbSettings> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
             TmdbSettings(
-                enabled = prefs[enabledKey] ?: false,
+                enabled = prefs[enabledKey] ?: true,
                 language = prefs[languageKey] ?: "en",
                 useArtwork = prefs[useArtworkKey] ?: true,
                 useBasicInfo = prefs[useBasicInfoKey] ?: true,

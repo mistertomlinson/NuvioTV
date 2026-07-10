@@ -688,6 +688,8 @@
     <string name="catalog_show_all_on_home_title">Show all Catalogs on Home</string>
     <string name="catalog_fast_platform_scroll_title">Fast Platform Scrolling</string>
     <string name="catalog_fast_platform_scroll_desc">Removes debounce for faster scrolling</string>
+    <string name="catalog_hide_platform_name_title">Hide Platform Name in Catalog Title</string>
+    <string name="catalog_hide_platform_name_desc">Remove the streaming platform name from catalog titles (e.g. "Top 10 Netflix Movies" becomes "Top 10 Movies")</string>
     <string name="catalog_show_all_on_home_desc">Streaming platforms will be shown on Home as well as their respective screens</string>
     <string name="catalog_use_theme_color_numbers">Use Theme Color for Numbered Lists</string>
     <string name="catalog_order_empty">No home catalogs available yet.</string>

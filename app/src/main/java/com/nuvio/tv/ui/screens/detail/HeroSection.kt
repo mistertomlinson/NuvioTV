@@ -72,6 +72,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.painter.Painter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
@@ -192,11 +194,45 @@ fun HeroContentSection(
                     enter = fadeIn(tween(400)),
                     exit = fadeOut(tween(400))
                 ) {
-                    Text(
-                        text = meta.name,
-                        style = MaterialTheme.typography.displayMedium,
-                        color = NuvioColors.TextPrimary,
-                        modifier = Modifier.padding(bottom = 8.dp)
+                    val detailCaslonTypeface = remember {
+                        android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
+                            .setFontVariationSettings("'wght' 300")
+                            .setWeight(300)
+                            .build()
+                    }
+                    val detailDensity = LocalDensity.current
+                    val detailMaxSizePx = with(detailDensity) { MaterialTheme.typography.displayMedium.fontSize.toPx() } * 0.85f
+                    val detailMinSizePx = detailMaxSizePx * 0.15f
+                    androidx.compose.ui.viewinterop.AndroidView(
+                        modifier = Modifier
+                            .fillMaxWidth(logoMaxWidth * 0.72f)
+                            .height(logoHeight)
+                            .padding(bottom = 8.dp),
+                        factory = { ctx ->
+                            android.widget.TextView(ctx).apply {
+                                layoutParams = android.view.ViewGroup.LayoutParams(
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                )
+                                typeface = detailCaslonTypeface
+                                setTextColor(android.graphics.Color.WHITE)
+                                maxLines = 3
+                                ellipsize = android.text.TextUtils.TruncateAt.END
+                                gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.CENTER_HORIZONTAL
+                                setLineSpacing(0f, 0.9f)
+                                includeFontPadding = false
+                                setPadding(0, 0, 0, 0)
+                                setAutoSizeTextTypeUniformWithConfiguration(
+                                    detailMinSizePx.toInt(),
+                                    detailMaxSizePx.toInt(),
+                                    1,
+                                    android.util.TypedValue.COMPLEX_UNIT_PX
+                                )
+                            }
+                        },
+                        update = { tv ->
+                            tv.text = meta.name
+                        }
                     )
                 }
             }

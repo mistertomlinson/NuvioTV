@@ -10,6 +10,18 @@ private val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
 private val ISO_DATE_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE
 
 fun MetaPreview.isUnreleased(today: LocalDate): Boolean {
+    // Prefer digital/physical availability date when known — a movie that has
+    // only had a theatrical release isn't actually watchable in Nuvio yet.
+    digitalReleaseInfo?.trim()?.takeIf { it.isNotEmpty() }?.let { rawDigital ->
+        val digitalDate = rawDigital.substringBefore('T')
+        try {
+            val date = LocalDate.parse(digitalDate, ISO_DATE_FORMATTER)
+            return date.isAfter(today)
+        } catch (_: DateTimeParseException) {
+            // fall through to theatrical/released date checks below
+        }
+    }
+
     released?.trim()?.takeIf { it.isNotEmpty() }?.let { rawReleased ->
         val releaseDate = rawReleased.substringBefore('T')
         try {

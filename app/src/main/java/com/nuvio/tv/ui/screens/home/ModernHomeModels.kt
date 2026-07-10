@@ -111,6 +111,7 @@ internal data class ModernCatalogRowBuildCacheEntry(
     val source: CatalogRow,
     val useLandscapePosters: Boolean,
     val showCatalogTypeSuffix: Boolean,
+    val hidePlatformName: Boolean = false,
     val mappedRow: HeroCarouselRow
 )
 
@@ -364,10 +365,12 @@ internal fun catalogRowKey(row: CatalogRow): String {
 internal fun catalogRowTitle(
     row: CatalogRow,
     showCatalogTypeSuffix: Boolean,
+    hidePlatformName: Boolean = false,
     strTypeMovie: String = "",
     strTypeSeries: String = ""
 ): String {
-    val catalogName = row.catalogName.replaceFirstChar { it.uppercase() }
+    val baseCatalogName = row.catalogName.replaceFirstChar { it.uppercase() }
+    val catalogName = if (hidePlatformName) stripPlatformNameFromTitle(baseCatalogName) else baseCatalogName
     if (!showCatalogTypeSuffix) return catalogName
     val typeLabel = when (row.apiType.lowercase()) {
         "movie" -> strTypeMovie.ifBlank { row.apiType.replaceFirstChar { it.uppercase() } }
@@ -457,4 +460,14 @@ private val PLATFORM_KEYWORDS = listOf(
 internal fun inferPlatformId(title: String): String? {
     val lower = title.lowercase()
     return PLATFORM_KEYWORDS.firstOrNull { (keyword, _) -> keyword in lower }?.second
+}
+
+internal fun stripPlatformNameFromTitle(title: String): String {
+    var result = title
+    for ((keyword, _) in PLATFORM_KEYWORDS) {
+        // Also consume a trailing "+" right after the keyword (e.g. "Disney+", "Apple TV+")
+        // so the standalone symbol doesn't get left behind once the name is stripped.
+        result = Regex("(?i)\\b" + Regex.escape(keyword) + "\\b\\s*\\+?").replace(result, "")
+    }
+    return result.replace(Regex("\\s{2,}"), " ").trim()
 }
