@@ -239,6 +239,29 @@ private class CwDebugSession {
     fun logSummary(cancelled: Boolean = false) = Unit
 }
 
+// Canonical ordering applied at every point the CW list is committed to state.
+// The async pipeline recomputes this list from several combined Flows and can settle
+// through multiple emissions in quick succession (enrichment arriving, next-up seeds
+// resolving, etc.) — without a single consistent sort, ties/near-ties can land in a
+// different relative order on each pass, which shifts item positions in the LazyRow
+// enough to push items in/out of the composed viewport range and cause a visible
+// flicker (dispose + recreate) even though the underlying item set hasn't changed.
+private fun List<ContinueWatchingItem>.stableCwOrdered(): List<ContinueWatchingItem> {
+    return sortedWith(
+        compareByDescending<ContinueWatchingItem> { item ->
+            when (item) {
+                is ContinueWatchingItem.InProgress -> item.progress.lastWatched
+                is ContinueWatchingItem.NextUp -> item.info.sortTimestamp
+            }
+        }.thenBy { item ->
+            when (item) {
+                is ContinueWatchingItem.InProgress -> item.progress.contentId
+                is ContinueWatchingItem.NextUp -> item.info.contentId
+            }
+        }
+    )
+}
+
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 internal fun HomeViewModel.loadContinueWatchingPipeline() {
     cwPipelineJob?.cancel()
@@ -366,7 +389,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             imdbRating = cached.imdbRating,
                             genres = cached.genres,
                             releaseInfo = cached.releaseInfo,
-                            sortTimestamp = cached.sortTimestamp,
+                            sortTimestamp = recomputeSortTimestamp(cached.lastWatched, cached.releaseTimestamp, cached.isReleaseAlert),
                             releaseTimestamp = cached.releaseTimestamp,
                             isReleaseAlert = cached.isReleaseAlert,
                             isNewSeasonRelease = cached.isNewSeasonRelease,
@@ -472,7 +495,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             imdbRating = cached.imdbRating,
                             genres = cached.genres,
                             releaseInfo = cached.releaseInfo,
-                            sortTimestamp = cached.sortTimestamp,
+                            sortTimestamp = recomputeSortTimestamp(cached.lastWatched, cached.releaseTimestamp, cached.isReleaseAlert),
                             releaseTimestamp = cached.releaseTimestamp,
                             isReleaseAlert = cached.isReleaseAlert,
                             isNewSeasonRelease = cached.isNewSeasonRelease,
@@ -492,7 +515,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         if (state.continueWatchingItems == initialItems && state.continueWatchingEnrichmentReady) {
                             state
                         } else {
-                            state.copy(continueWatchingItems = initialItems, continueWatchingEnrichmentReady = true)
+                            state.copy(continueWatchingItems = initialItems.stableCwOrdered(), continueWatchingEnrichmentReady = true)
                         }
                     }
                     _initialCwResolved.value = true
@@ -580,7 +603,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                     if (state.continueWatchingItems == partialItems) {
                                         state
                                     } else {
-                                        state.copy(continueWatchingItems = partialItems)
+                                        state.copy(continueWatchingItems = partialItems.stableCwOrdered())
                                     }
                                 }
                                 debug.recordPartialRendered(
@@ -802,7 +825,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                                                 is ContinueWatchingItem.NextUp -> item.info.sortTimestamp
                                                             }
                                                         }
-                                                    state.copy(continueWatchingItems = merged)
+                                                    state.copy(continueWatchingItems = merged.stableCwOrdered())
                                                 }
                                             }
                                         }
@@ -863,7 +886,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                                     is ContinueWatchingItem.NextUp -> item.info.sortTimestamp
                                                 }
                                             }
-                                        state.copy(continueWatchingItems = merged)
+                                        state.copy(continueWatchingItems = merged.stableCwOrdered())
                                     }
                                     // Persist updated CW snapshot
                                     viewModelScope.launch(Dispatchers.IO) {
@@ -926,7 +949,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 imdbRating = cached.imdbRating,
                                 genres = cached.genres,
                                 releaseInfo = cached.releaseInfo,
-                                sortTimestamp = cached.sortTimestamp,
+                                sortTimestamp = recomputeSortTimestamp(cached.lastWatched, cached.releaseTimestamp, cached.isReleaseAlert),
                                 releaseTimestamp = cached.releaseTimestamp,
                                 isReleaseAlert = cached.isReleaseAlert,
                                 isNewSeasonRelease = cached.isNewSeasonRelease,
@@ -992,7 +1015,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     } else if (state.continueWatchingItems == normalItems) {
                         state
                     } else {
-                        state.copy(continueWatchingItems = normalItems)
+                        state.copy(continueWatchingItems = normalItems.stableCwOrdered())
                     }
                 }
                 debug.recordLightweightRendered(
@@ -1427,7 +1450,7 @@ private suspend fun HomeViewModel.enrichVisibleContinueWatchingItems(
     _uiState.update { state ->
         val updatedItems: List<ContinueWatchingItem> = if (state.continueWatchingItems == enrichedItems) state.continueWatchingItems else enrichedItems
         val updatedReady: Boolean = true
-        state.copy(continueWatchingItems = updatedItems, continueWatchingEnrichmentReady = updatedReady)
+        state.copy(continueWatchingItems = updatedItems.stableCwOrdered(), continueWatchingEnrichmentReady = updatedReady)
     }
     persistLocalContinueWatchingMetadata(
         originalItems = finalItems,
@@ -2679,6 +2702,20 @@ private fun formatEpisodeAirDateLabel(releaseDate: LocalDate): String {
     return DateTimeFormatter.ofPattern(pattern, locale).format(releaseDate)
 }
 
+// Cached snapshots can have a stale sortTimestamp if they were written before
+// a season's actual release date passed (e.g. seeded when isReleaseAlert was still
+// false, defaulting sortTimestamp to lastWatched) — always recompute from the
+// underlying releaseTimestamp/isReleaseAlert rather than trusting a stored value,
+// so a season that has since become available correctly sorts by its real release
+// date instead of silently keeping whatever position it had before release.
+private fun recomputeSortTimestamp(lastWatched: Long, releaseTimestamp: Long?, isReleaseAlert: Boolean): Long {
+    if (!isReleaseAlert || releaseTimestamp == null) return lastWatched
+    val localDate = Instant.ofEpochMilli(releaseTimestamp)
+        .atZone(ZoneId.systemDefault())
+        .toLocalDate()
+    return localDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+}
+
 private fun resolveNextUpReleaseState(
     seedProgress: WatchProgress,
     nextSeason: Int,
@@ -2774,7 +2811,7 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
             }
         }
         _uiState.update { state ->
-            state.copy(continueWatchingItems = filteredItems)
+            state.copy(continueWatchingItems = filteredItems.stableCwOrdered())
         }
         // Refresh channel immediately with the already-filtered list
         val profileId = profileManager.activeProfileId.value
