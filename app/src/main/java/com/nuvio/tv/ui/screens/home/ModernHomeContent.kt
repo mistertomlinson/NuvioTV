@@ -419,6 +419,7 @@ fun ModernHomeContent(
     LaunchedEffect(isVerticalRowsScrolling) {
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
     }
+
     // After fast-scroll stops, snap to row only if significantly misaligned
     LaunchedEffect(verticalRowListState) {
         snapshotFlow { verticalRowListState.isScrollInProgress }
@@ -535,6 +536,15 @@ fun ModernHomeContent(
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
+
+    // Stop any expanded-card trailer the instant FAST-scrolling begins. Only fast-scroll
+    // is affected: the custom fast-scroll modifier moves the scroll position without
+    // moving focus until the gesture lands, so without this the previously expanded/
+    // playing card's PlayerView (a native View wrapped via AndroidView — draw() is real
+    // per-frame CPU work, not free like a Compose recomposition) stays alive and drawing
+    // every frame for the entire scroll, well past the point it's off-screen. A single
+    // dpad step is NOT touched here — it lands immediately and its own normal focus-
+    // change logic already handles starting the trailer on the newly focused item.
     var expansionInteractionNonce by remember { mutableIntStateOf(0) }
 
     // Collapse expanded card and stop trailer when app goes to background.
@@ -632,7 +642,6 @@ fun ModernHomeContent(
 
         }
 
-        android.util.Log.d("NuvioFocus", "RESTORE CHECK: hasSavedFocus=${focusState.hasSavedFocus} restoredFromSavedState=$restoredFromSavedState focusedRowKey=${focusState.focusedRowKey} platform=${focusState.selectedPlatformId}")
         if (!restoredFromSavedState && focusState.hasSavedFocus) {
             val savedRowKey = when {
                 focusState.focusedRowKey != null -> focusState.focusedRowKey
@@ -641,7 +650,6 @@ fun ModernHomeContent(
                 else -> null
             }
 
-            android.util.Log.d("NuvioFocus", "RESTORING: savedRowKey=$savedRowKey found=${carouselRows.any { it.key == savedRowKey }} carouselSize=${carouselRows.size} keys=${carouselRows.map { it.key }}")
             val resolvedRow = carouselRows.firstOrNull { it.key == savedRowKey } ?: carouselRows.first()
             val resolvedIndex = focusState.focusedItemIndex
                 .coerceAtLeast(0)
@@ -676,7 +684,6 @@ fun ModernHomeContent(
         focusedItemByRow[resolvedActive.key] = resolvedIndex
         val resolvedHeroPreview = resolvedActive.items.getOrNull(resolvedIndex)?.heroPreview
             ?: resolvedActive.items.firstOrNull()?.heroPreview
-        android.util.Log.d("NuvioBadgeTrace", "heroItem set: title=${resolvedHeroPreview?.title} ageRating=${resolvedHeroPreview?.ageRatingText} status=${resolvedHeroPreview?.statusText}")
         heroItem = resolvedHeroPreview
         heroItemRowKey = resolvedActive.key
         // If the resolved hero item has no badge data yet, trigger enrichment immediately
@@ -780,6 +787,12 @@ fun ModernHomeContent(
                 isFastScrolling = isScrolling
             }
     }
+    LaunchedEffect(isFastScrolling) {
+        if (isFastScrolling) {
+            expandedCatalogFocusKey = null
+            focusedCatalogSelection = null
+        }
+    }
 
     // Save focus state immediately before navigating away so it's available on back
     val latestSelectedPlatformId by rememberUpdatedState(selectedPlatformId)
@@ -793,7 +806,6 @@ fun ModernHomeContent(
                 .associate { rowState ->
                     rowState.key to (rowListStates[rowState.key]?.firstVisibleItemIndex ?: focusedItemByRow[rowState.key] ?: 0)
                 }
-            android.util.Log.d("NuvioFocus", "SAVING: rowKey=$focusedRowKey platform=$latestSelectedPlatformId itemIndex=$latestActiveItemIndex")
             onSaveFocusState(
                 latestVerticalRowListState.firstVisibleItemIndex,
                 latestVerticalRowListState.firstVisibleItemScrollOffset,
@@ -1567,7 +1579,6 @@ fun ModernHomeContent(
                         .coerceAtLeast(0)
                 }
                 pendingRemovalFocusIndex = targetIndex
-                android.util.Log.e("CWFocus", "onRemove: targetIndex=$targetIndex")
                 
                 
                 onRemoveContinueWatching(
