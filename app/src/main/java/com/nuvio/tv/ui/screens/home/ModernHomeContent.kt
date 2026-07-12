@@ -535,6 +535,51 @@ fun ModernHomeContent(
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
 
+    // Patch 8: gate per-landing work (enrichment, preload, selection) during fast scroll.
+    // Catch-up effect below re-fires for the settled item when scrolling stops.
+    val latestOnItemFocus by rememberUpdatedState(onItemFocus)
+    val latestOnPreloadAdjacentItem by rememberUpdatedState(onPreloadAdjacentItem)
+    val gatedOnItemFocus: (MetaPreview) -> Unit = remember(Unit) {
+        { preview ->
+            if (!isFastScrollingRef.value) latestOnItemFocus(preview)
+        }
+    }
+    val gatedOnPreloadAdjacentItem: (MetaPreview) -> Unit = remember(Unit) {
+        { preview ->
+            if (!isFastScrollingRef.value) latestOnPreloadAdjacentItem(preview)
+        }
+    }
+    val gatedOnCatalogSelectionFocused: (FocusedCatalogSelection) -> Unit = remember(Unit) {
+        { selection ->
+            if (!isFastScrollingRef.value && focusedCatalogSelection != selection) {
+                focusedCatalogSelection = selection
+            }
+        }
+    }
+    LaunchedEffect(Unit) {
+        isFastScrollingRef
+            .collect { fast ->
+                if (!fast) {
+                    val rowKey = focusHolder.activeRowKey ?: return@collect
+                    val row = currentCarouselRows.firstOrNull { it.key == rowKey } ?: return@collect
+                    val item = row.items.getOrNull(
+                        focusHolder.activeItemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
+                    ) ?: return@collect
+                    item.metaPreview?.let { latestOnItemFocus(it) }
+                    val payload = item.payload as? ModernPayload.Catalog
+                    if (payload != null) {
+                        val selection = FocusedCatalogSelection(
+                            focusKey = payload.focusKey,
+                            payload = payload
+                        )
+                        if (focusedCatalogSelection != selection) {
+                            focusedCatalogSelection = selection
+                        }
+                    }
+                }
+            }
+    }
+
     // Stop any expanded-card trailer the instant FAST-scrolling begins. Only fast-scroll
     // is affected: the custom fast-scroll modifier moves the scroll position without
     // moving focus until the gesture lands, so without this the previously expanded/
@@ -1547,9 +1592,9 @@ fun ModernHomeContent(
                         onContinueWatchingOptions = stableOnContinueWatchingOptions,
                         isCatalogItemWatched = isCatalogItemWatched,
                         onCatalogItemLongPress = onCatalogItemLongPress,
-                        onItemFocus = onItemFocus,
-                        onPreloadAdjacentItem = onPreloadAdjacentItem,
-                        onCatalogSelectionFocused = stableOnCatalogSelectionFocused,
+                        onItemFocus = gatedOnItemFocus,
+                        onPreloadAdjacentItem = gatedOnPreloadAdjacentItem,
+                        onCatalogSelectionFocused = gatedOnCatalogSelectionFocused,
                         onNavigateToDetail = wrappedOnNavigateToDetail,
                         onLoadMoreCatalog = onLoadMoreCatalog,
                         onBackdropInteraction = stableOnBackdropInteraction,
