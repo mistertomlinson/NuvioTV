@@ -13,6 +13,10 @@ import com.nuvio.tv.ui.util.computeAirDateBadgeText
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.formatContinueWatchingProgressLabel
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 
 enum class NumberStyle { OFF, SOLID, OUTLINE }
 
@@ -114,6 +118,13 @@ internal data class ModernCatalogRowBuildCacheEntry(
     val hidePlatformName: Boolean = false,
     val mappedRow: HeroCarouselRow
 )
+
+@Stable
+internal class PendingRowFocusHolder {
+    var key by mutableStateOf<String?>(null)
+    var index by mutableStateOf<Int?>(null)
+    var nonce by mutableIntStateOf(0)
+}
 
 @Stable
 internal class ModernHomeUiCaches {

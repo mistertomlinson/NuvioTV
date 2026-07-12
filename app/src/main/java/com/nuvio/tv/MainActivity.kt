@@ -250,6 +250,12 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+        // Overdraw fix: the theme windowBackground (splash drawable) stays attached as a
+        // full-screen layer under the opaque Compose Surface on every frame. Drop it after
+        // the first frame renders so the splash still covers app startup.
+        window.decorView.post {
+            window.setBackgroundDrawable(null)
+        }
         setContent {
             // If launched from a home screen channel deep link with a profileId,
             // pre-select that profile and skip the profile picker entirely.

@@ -258,9 +258,7 @@ internal fun ModernRowSection(
     defaultBringIntoViewSpec: BringIntoViewSpec,
     focusStateCatalogRowScrollStates: Map<String, Int>,
     uiCaches: ModernHomeUiCaches,
-    pendingRowFocusKey: String?,
-    pendingRowFocusIndex: Int?,
-    pendingRowFocusNonce: Int,
+    pendingRowFocus: PendingRowFocusHolder,
     onPendingRowFocusCleared: () -> Unit,
     onRowItemFocused: (String, Int, Boolean) -> Unit,
     useLandscapePosters: Boolean,
@@ -369,11 +367,13 @@ internal fun ModernRowSection(
             !loadMoreAddonId.isNullOrBlank() &&
             !loadMoreApiType.isNullOrBlank()
 
-        LaunchedEffect(row.key, pendingRowFocusNonce) {
-            if (pendingRowFocusKey != row.key) return@LaunchedEffect
-            val targetIndex = (pendingRowFocusIndex ?: 0)
+        LaunchedEffect(row.key) {
+            snapshotFlow { Triple(pendingRowFocus.nonce, pendingRowFocus.key, pendingRowFocus.index) }
+                .collect { (_, pendingKey, pendingIndex) ->
+            if (pendingKey != row.key) return@collect
+            val targetIndex = (pendingIndex ?: 0)
                 .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-            val targetItemKey = row.items.getOrNull(targetIndex)?.key ?: return@LaunchedEffect
+            val targetItemKey = row.items.getOrNull(targetIndex)?.key ?: return@collect
             val requester = uiCaches.requesterFor(row.key, targetItemKey)
             var didFocus = false
             var didScrollToTarget = false
@@ -408,6 +408,7 @@ internal fun ModernRowSection(
             if (didFocus) {
                 onPendingRowFocusCleared()
             }
+                }
         }
 
         if (canObserveLoadMore) {
@@ -589,8 +590,7 @@ internal fun ModernRowSection(
                         } else false
                     }
                     .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L)
-                    .focusRestorer(
-                        run {
+                    .focusRestorer {
                             val hasInteracted = uiCaches.userInteractedRows.contains(row.key)
                             val rememberedIndex = (focusedItemByRow[row.key] ?: 0)
                                 .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
@@ -606,8 +606,7 @@ internal fun ModernRowSection(
                                 visibleIndices.minByOrNull { kotlin.math.abs(it - restoreIndex) } ?: fallbackIndex
                             val itemKey = row.items.getOrNull(safeIndex)?.key ?: row.items.first().key
                             itemFocusRequesters[row.key]?.get(itemKey) ?: FocusRequester.Default
-                        }
-                    ),
+                    },
                 contentPadding = PaddingValues(start = numberedRowStartPadding, end = animatedEndPadding),
                 horizontalArrangement = Arrangement.spacedBy(numberedRowSpacing)
             ) {

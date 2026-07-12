@@ -474,9 +474,7 @@ fun ModernHomeContent(
             }
     }
     var activeItemIndex by remember { mutableIntStateOf(0) }
-    var pendingRowFocusKey by remember { mutableStateOf<String?>(null) }
-    var pendingRowFocusIndex by remember { mutableStateOf<Int?>(null) }
-    var pendingRowFocusNonce by remember { mutableIntStateOf(0) }
+    val pendingRowFocus = remember { PendingRowFocusHolder() }
 
     // When a skeleton row transitions to real content (items arrive or enrichment
     // completes), restore focus to where it was rather than letting Compose move
@@ -492,9 +490,9 @@ fun ModernHomeContent(
             if (transitioned && focusHolder.activeRowKey == row.key) {
                 val restoreIndex = (uiCaches.focusedItemByRow[row.key] ?: 0)
                     .coerceIn(0, (nowCount - 1).coerceAtLeast(0))
-                pendingRowFocusKey = row.key
-                pendingRowFocusIndex = restoreIndex
-                pendingRowFocusNonce++
+                pendingRowFocus.key = row.key
+                pendingRowFocus.index = restoreIndex
+                pendingRowFocus.nonce++
             }
             uiCaches.previousRowItemCounts[row.key] = nowCount
             uiCaches.previousEnrichmentReadyByRow[row.key] = nowReady
@@ -520,9 +518,9 @@ fun ModernHomeContent(
         val currentSize = uiState.continueWatchingItems.size
         if (currentSize < lastContinueWatchingSize && pendingRemovalFocusIndex != null) {
             withFrameNanos { }
-            pendingRowFocusKey = "continue_watching"
-            pendingRowFocusIndex = pendingRemovalFocusIndex
-            pendingRowFocusNonce++
+            pendingRowFocus.key = "continue_watching"
+            pendingRowFocus.index = pendingRemovalFocusIndex
+            pendingRowFocus.nonce++
             pendingRemovalFocusIndex = null
         }
         lastContinueWatchingSize = currentSize
@@ -663,9 +661,9 @@ fun ModernHomeContent(
             heroItem = resolvedRow.items.getOrNull(resolvedIndex)?.heroPreview
                 ?: resolvedRow.items.firstOrNull()?.heroPreview
             heroItemRowKey = resolvedRow.key
-            pendingRowFocusKey = resolvedRow.key
-            pendingRowFocusIndex = resolvedIndex
-            pendingRowFocusNonce++
+            pendingRowFocus.key = resolvedRow.key
+            pendingRowFocus.index = resolvedIndex
+            pendingRowFocus.nonce++
             restoredFromSavedState = true
             lastRestoredRowKey = focusState.focusedRowKey
             return@LaunchedEffect
@@ -692,9 +690,9 @@ fun ModernHomeContent(
             onItemFocus(resolvedMetaPreview)
         }
         if (!focusState.hasSavedFocus && (!hadActiveRow || existingActive == null) && !isCarouselFocused) {
-            pendingRowFocusKey = resolvedActive.key
-            pendingRowFocusIndex = resolvedIndex
-            pendingRowFocusNonce++
+            pendingRowFocus.key = resolvedActive.key
+            pendingRowFocus.index = resolvedIndex
+            pendingRowFocus.nonce++
         }
     }
 
@@ -711,7 +709,7 @@ fun ModernHomeContent(
         }
     }
 
-    val activeRow by remember(carouselRows, rowByKey, activeRowKey) {
+    val activeRow by remember(carouselRows, rowByKey) {
         derivedStateOf {
             val activeKey = activeRowKey
             if (activeKey == null) {
@@ -721,7 +719,7 @@ fun ModernHomeContent(
             }
         }
     }
-    val clampedActiveItemIndex by remember(activeRow, activeItemIndex) {
+    val clampedActiveItemIndex by remember(carouselRows, rowByKey) {
         derivedStateOf {
             activeRow?.let { row ->
                 activeItemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
@@ -1378,9 +1376,9 @@ fun ModernHomeContent(
                                     val requester = targetItemKey?.let {
                                         itemFocusRequesters[targetRow.key]?.get(it)
                                     }
-                                    pendingRowFocusKey = targetRow.key
-                                    pendingRowFocusIndex = savedItemIndex
-                                    pendingRowFocusNonce++
+                                    pendingRowFocus.key = targetRow.key
+                                    pendingRowFocus.index = savedItemIndex
+                                    pendingRowFocus.nonce++
                                     runCatching { requester?.requestFocus() }
                                     targetItemKey
                                 }
@@ -1498,7 +1496,7 @@ fun ModernHomeContent(
                         }
                     }
                     val stableOnPendingRowFocusCleared = remember(Unit) {
-                        { pendingRowFocusKey = null; pendingRowFocusIndex = null; Unit }
+                        { pendingRowFocus.key = null; pendingRowFocus.index = null; Unit }
                     }
                     val stableOnBackdropInteraction = remember(Unit) {
                         { expansionInteractionNonce++; Unit }
@@ -1527,9 +1525,7 @@ fun ModernHomeContent(
                         defaultBringIntoViewSpec = defaultBringIntoViewSpec,
                         focusStateCatalogRowScrollStates = focusState.catalogRowScrollStates,
                         uiCaches = uiCaches,
-                        pendingRowFocusKey = pendingRowFocusKey,
-                        pendingRowFocusIndex = pendingRowFocusIndex,
-                        pendingRowFocusNonce = pendingRowFocusNonce,
+                        pendingRowFocus = pendingRowFocus,
                         onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
                         onRowItemFocused = stableOnRowItemFocused,
                         useLandscapePosters = useLandscapePosters || row.key in uiState.landscapeCatalogKeys,
