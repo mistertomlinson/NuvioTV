@@ -399,9 +399,18 @@ fun ModernHomeContent(
     val activeRowKeys = carouselLookups.activeRowKeys
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
     val activeCatalogItemIds = carouselLookups.activeCatalogItemIds
+    // Patch 9: prefetch strategy — precompose the next row (and 4 of its cards)
+    // during frame idle time instead of paying full first-composition cost on
+    // the frame the row scrolls into view.
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    val verticalRowPrefetchStrategy = remember {
+        androidx.compose.foundation.lazy.LazyListPrefetchStrategy(nestedPrefetchItemCount = 4)
+    }
+    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
     val verticalRowListState = rememberLazyListState(
         initialFirstVisibleItemIndex = focusState.verticalScrollIndex,
-        initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
+        initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset,
+        prefetchStrategy = verticalRowPrefetchStrategy
     )
     val isVerticalRowsScrolling by remember(verticalRowListState) {
         derivedStateOf { verticalRowListState.isScrollInProgress }
