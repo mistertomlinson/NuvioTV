@@ -228,12 +228,20 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
     enrichmentCache.clear()
-    // Load enrichment cache in background — don't block catalog pipeline on it
+    enrichmentRestoreComplete = false
+    // Load enrichment cache in background — don't block catalog fetching on it.
+    // The readiness gate defers row promotions until this completes, then we
+    // re-run the recompute so gated rows open against the full cache.
     viewModelScope.launch {
-        val restored = homeEnrichmentDiskCache.loadAll()
-        if (restored.isNotEmpty()) {
-            enrichmentCache.putAll(restored)
-            android.util.Log.d("NuvioEnrich", "[PROACTIVE] restored ${restored.size} enrichment entries from disk")
+        try {
+            val restored = homeEnrichmentDiskCache.loadAll()
+            if (restored.isNotEmpty()) {
+                enrichmentCache.putAll(restored)
+                android.util.Log.d("NuvioEnrich", "[PROACTIVE] restored ${restored.size} enrichment entries from disk")
+            }
+        } finally {
+            enrichmentRestoreComplete = true
+            runCatching { updateCatalogRowsPipeline() }
         }
     }
     proactiveEnrichJob?.cancel()
@@ -895,9 +903,13 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         if (!tmdbEnabled) {
             nextReadyKeys.add(HomeViewModel.MY_LIST_CATALOG_KEY)
         }
+        val restorePending = tmdbEnabled && !enrichmentRestoreComplete
         finalRows.forEach { row ->
             val rowKey: String = row.key()
             if (nextReadyKeys.contains(rowKey) || row.items.isEmpty()) return@forEach
+            // Defer readiness judgment until the disk cache is fully restored —
+            // judging against a half-restored cache opens rows unevenly enriched.
+            if (restorePending) return@forEach
             if (!tmdbEnabled) {
                 nextReadyKeys.add(rowKey)
                 return@forEach

@@ -162,6 +162,12 @@ class HomeViewModel @Inject constructor(
     @Volatile internal var platformPreloadInProgress = false
     internal fun setEnrichingItemId(id: String?) { _enrichingItemId.value = id }
 
+    // True once the enrichment disk cache has been restored into memory after a
+    // pipeline reset. The row-readiness gate defers promotions until then, so
+    // readiness is never judged against a half-restored cache (uneven metadata
+    // after profile switches). Rows stay gated (shimmer) those extra ~tens of ms.
+    @Volatile internal var enrichmentRestoreComplete: Boolean = true
+
     internal val catalogsMap: MutableMap<String, CatalogRow> = Collections.synchronizedMap(LinkedHashMap())
     internal val catalogOrder = mutableListOf<String>()
     internal var addonsCache: List<Addon> = emptyList()
