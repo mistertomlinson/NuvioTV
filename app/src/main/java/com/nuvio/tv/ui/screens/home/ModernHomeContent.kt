@@ -123,8 +123,8 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 130L
-private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 170L
+private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 250L
+private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 250L
 private const val KEY_REPEAT_THROTTLE_MS = 140L
 
 @Composable
@@ -846,6 +846,39 @@ fun ModernHomeContent(
         }
     }
 
+    // Hero slide-freeze: hold the previous hero while the vertical list is
+    // animating (single-press slides included), so the hero crossfade/logo fade
+    // renders on a still screen instead of stuttering the slide. Horizontal
+    // navigation within a row is unaffected (vertical list state only).
+    var heroFrozenForSlide by remember { mutableStateOf(false) }
+    LaunchedEffect(verticalRowListState) {
+        snapshotFlow { verticalRowListState.isScrollInProgress }
+            .collect { sliding ->
+                if (sliding && !heroFrozenForSlide && !isFastScrolling) {
+                    val currentRow = latestActiveRow
+                    val currentIndex = latestActiveItemIndex
+                    frozenHeroItem = currentRow?.items?.getOrNull(currentIndex)?.heroPreview ?: heroItem
+                    frozenHeroItemRowKey = currentRow?.key ?: heroItemRowKey
+                }
+                heroFrozenForSlide = sliding
+            }
+    }
+
+    // Rapid-nav hero freeze (horizontal analog of the slide freeze): while presses
+    // arrive faster than the rapid threshold, hold the hero; one atomic update
+    // fires after input settles. Single deliberate presses stay instant.
+    var heroFrozenForRapidNav by remember { mutableStateOf(false) }
+    val lastHeroFocusChangeAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
+    LaunchedEffect(heroFrozenForRapidNav) {
+        if (!heroFrozenForRapidNav) return@LaunchedEffect
+        while (true) {
+            val since = System.currentTimeMillis() - lastHeroFocusChangeAtMsRef.get()
+            if (since >= MODERN_HERO_RAPID_NAV_SETTLE_MS) break
+            delay(MODERN_HERO_RAPID_NAV_SETTLE_MS - since)
+        }
+        heroFrozenForRapidNav = false
+    }
+
     // Save focus state immediately before navigating away so it's available on back
     val latestSelectedPlatformId by rememberUpdatedState(selectedPlatformId)
     val wrappedOnNavigateToDetail: (String, String, String) -> Unit = remember(onNavigateToDetail, onSaveFocusState) {
@@ -944,7 +977,7 @@ fun ModernHomeContent(
         val activeHasRicher = activeCarouselItem?.heroPreview?.let {
             it.ageRatingText != null && heroItem?.ageRatingText == null
         } == true
-        val resolvedHero = if (isFastScrolling) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
+        val resolvedHero = if (isFastScrolling || heroFrozenForSlide || heroFrozenForRapidNav) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
         // transitionHero: non-null during platform transition, blocks live resolvedHero updates.
         var isPlatformTransitioning by remember { mutableStateOf(false) }
         LaunchedEffect(isPlatformTransitioning) {
@@ -1068,6 +1101,49 @@ fun ModernHomeContent(
         val heroMediaHeightPx = remember(heroBackdropHeight, localDensity) {
             with(localDensity) { heroBackdropHeight.roundToPx() }
         }
+
+        // Patch 15: focus-following backdrop prewarm. Warm the hero backdrops of
+        // likely-next items (in-row neighbors + remembered-focus item of adjacent
+        // rows) into Coil's memory cache the moment focus moves — during the slide,
+        // while the hero is frozen. At un-freeze the incoming backdrop is cached,
+        // so the backdrop's cache-check flips displayedFrame same-frame and the
+        // crossfade starts immediately instead of waiting on network+decode.
+        // Sized identically to the backdrop renderer so the cache key matches.
+        val prewarmImageLoader = remember(context) { coil.Coil.imageLoader(context) }
+        LaunchedEffect(Unit) {
+            snapshotFlow { activeRowKey to activeItemIndex }
+                .collect { (rowKey, index) ->
+                    if (rowKey == null) return@collect
+                    val rows = latestCarouselRows
+                    val rowIdx = rows.indexOfFirst { it.key == rowKey }
+                    val row = rows.getOrNull(rowIdx) ?: return@collect
+                    val targets = buildList {
+                        row.items.getOrNull(index - 1)?.let { add(it) }
+                        row.items.getOrNull(index + 1)?.let { add(it) }
+                        for (adj in intArrayOf(rowIdx - 1, rowIdx + 1)) {
+                            rows.getOrNull(adj)?.let { r ->
+                                if (r.items.isNotEmpty()) {
+                                    val ri = (focusedItemByRow[r.key] ?: 0)
+                                        .coerceIn(0, r.items.size - 1)
+                                    r.items.getOrNull(ri)?.let { add(it) }
+                                }
+                            }
+                        }
+                    }
+                    targets.asSequence()
+                        .mapNotNull { it.heroPreview.backdrop?.takeIf { u -> u.isNotBlank() } }
+                        .distinct()
+                        .forEach { url ->
+                            prewarmImageLoader.enqueue(
+                                coil.request.ImageRequest.Builder(context)
+                                    .data(url)
+                                    .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
+                                    .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                    .build()
+                            )
+                        }
+                }
+        }
         LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
             if (heroMediaWidthPx > 0 && heroMediaHeightPx > 0) {
                 onBackdropPreloadSizeKnown(heroMediaWidthPx, heroMediaHeightPx)
@@ -1186,8 +1262,14 @@ fun ModernHomeContent(
             val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
+                // Snappier vertical slide than the app-wide spec (stiffness 180):
+                // shorter travel time AND a much shorter deceleration tail, so the
+                // hero slide-freeze releases sooner. Home vertical list only.
                 override val scrollAnimationSpec: AnimationSpec<Float> =
-                    defaultBringIntoViewSpec.scrollAnimationSpec
+                    androidx.compose.animation.core.spring(
+                        dampingRatio = 0.95f,
+                        stiffness = 400f
+                    )
 
                 override fun calculateScrollDistance(
                     offset: Float,
@@ -1523,6 +1605,20 @@ fun ModernHomeContent(
                                     else MODERN_HERO_FOCUS_DEBOUNCE_MS
                                 )
                                 lastHeroNavigationAtMsRef.set(now)
+                                // Synchronous rapid-nav freeze: decide in the same
+                                // snapshot commit as the index change, so no
+                                // intermediate hero update can slip through.
+                                lastHeroFocusChangeAtMsRef.set(now)
+                                if (timeSinceLastHeroNav in 1 until MODERN_HERO_RAPID_NAV_THRESHOLD_MS) {
+                                    if (!heroFrozenForRapidNav && !isFastScrolling && !heroFrozenForSlide) {
+                                        val outgoingRow = carouselRows.firstOrNull { it.key == focusHolder.activeRowKey }
+                                        val outgoingHero = outgoingRow?.items
+                                            ?.getOrNull(focusHolder.activeItemIndex)?.heroPreview
+                                        frozenHeroItem = outgoingHero ?: heroItem
+                                        frozenHeroItemRowKey = focusHolder.activeRowKey ?: heroItemRowKey
+                                    }
+                                    heroFrozenForRapidNav = true
+                                }
                                 focusHolder.activeRowKey = rowKey
                                 focusHolder.activeItemIndex = index
                                 activeRowKey = rowKey
