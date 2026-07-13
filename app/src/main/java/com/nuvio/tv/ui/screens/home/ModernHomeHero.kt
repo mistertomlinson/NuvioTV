@@ -383,7 +383,7 @@ internal fun HeroTitleBlock(
     // Per-platform frozen snapshots — each AnimatedContent slot reads its own frozen copy.
     // No lock needed — the unified slide+fade transition fades everything out before
     // the platform flips, so any TMDB enrichment snap is invisible.
-    val previewByPlatform = remember { mutableMapOf<String, HeroPreview>() }
+    val previewByPlatform = remember { androidx.compose.runtime.mutableStateMapOf<String, HeroPreview>() }
 
     // Always update snapshot — enrichment data flows in naturally as it arrives.
     // No lock needed since the unified fade-out makes any snap invisible.

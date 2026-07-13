@@ -122,6 +122,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.onEach
 
 private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 250L
 private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 250L
@@ -798,20 +799,32 @@ fun ModernHomeContent(
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.flow.combine(
-            snapshotFlow { Pair(activeRow, clampedActiveItemIndex) },
+            // Key on raw primitive state (String?/Int), NOT the derived activeRow /
+            // clampedActiveItemIndex objects: enrichment rebuilds recreate those
+            // remember{derivedStateOf} instances, and snapshotFlow's subscription
+            // dies with the old instance — the flow goes deaf until unrelated
+            // traffic revives it (hero stuck on rapid nav within the enrichment
+            // window). Primitives survive rebuilds; the body resolves the row.
+            snapshotFlow { Pair(activeRowKey, activeItemIndex) },
             isFastScrollingRef
         ) { pair, scrolling -> Pair(pair, scrolling) }
             .debounce(80L)
-            .collectLatest { (pair, isScrolling) ->
-                if (isScrolling) return@collectLatest
-                if (heroTransitioningRef.get()) return@collectLatest
-                val (row, index) = pair
-                if (row == null) return@collectLatest
+            .collect { (pair, isScrolling) ->
+                // collect, NOT collectLatest: with collectLatest, enrichment rebuilds
+                // (which churn activeRow's identity) cancel the body mid-execution and
+                // strand a stale heroItem — the hero sticks until unrelated traffic
+                // rescues it. The body is a few map lookups and two state writes; it
+                // must run to completion for every surviving debounced emission.
+                if (isScrolling) return@collect
+                if (heroTransitioningRef.get()) return@collect
+                val (rowKey, index) = pair
+                if (rowKey == null) return@collect
                 // Read from latestCarouselRows so enrichment updates are picked up
                 // without putting carouselRows in the flow (which caused debounce stomping)
-                val currentRow = latestCarouselRows.firstOrNull { it.key == row.key } ?: row
-                val hero = currentRow.items.getOrNull(index)?.heroPreview
-                if (hero == null) return@collectLatest
+                val currentRow = latestCarouselRows.firstOrNull { it.key == rowKey } ?: return@collect
+                val clamped = index.coerceIn(0, (currentRow.items.size - 1).coerceAtLeast(0))
+                val hero = currentRow.items.getOrNull(clamped)?.heroPreview
+                if (hero == null) return@collect
                 heroItem = hero
                 heroItemRowKey = currentRow.key
             }
@@ -850,11 +863,16 @@ fun ModernHomeContent(
     // animating (single-press slides included), so the hero crossfade/logo fade
     // renders on a still screen instead of stuttering the slide. Horizontal
     // navigation within a row is unaffected (vertical list state only).
+    var heroFrozenForRapidNav by remember { mutableStateOf(false) }
     var heroFrozenForSlide by remember { mutableStateOf(false) }
     LaunchedEffect(verticalRowListState) {
         snapshotFlow { verticalRowListState.isScrollInProgress }
             .collect { sliding ->
-                if (sliding && !heroFrozenForSlide && !isFastScrolling) {
+                if (sliding && !heroFrozenForSlide && !isFastScrolling && !heroFrozenForRapidNav) {
+                    // The rapid-nav guard is load-bearing: horizontal presses nudge the
+                    // vertical list via BringIntoView, flickering isScrollInProgress and
+                    // re-capturing the shared frozen snapshot per press — advancing the
+                    // "frozen" hero one step per press during rapid horizontal nav.
                     val currentRow = latestActiveRow
                     val currentIndex = latestActiveItemIndex
                     frozenHeroItem = currentRow?.items?.getOrNull(currentIndex)?.heroPreview ?: heroItem
@@ -867,7 +885,6 @@ fun ModernHomeContent(
     // Rapid-nav hero freeze (horizontal analog of the slide freeze): while presses
     // arrive faster than the rapid threshold, hold the hero; one atomic update
     // fires after input settles. Single deliberate presses stay instant.
-    var heroFrozenForRapidNav by remember { mutableStateOf(false) }
     val lastHeroFocusChangeAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     LaunchedEffect(heroFrozenForRapidNav) {
         if (!heroFrozenForRapidNav) return@LaunchedEffect
@@ -990,11 +1007,22 @@ fun ModernHomeContent(
                 item.heroPreview.backdrop?.takeIf { it.isNotBlank() }
             }
         }
-        val heroBackdrop = remember(resolvedHero, activeRowFallbackBackdrop, heroItem) {
+        val heroBackdrop = remember(resolvedHero, activeRowFallbackBackdrop, heroItem, carouselRows) {
             firstNonBlank(
                 resolvedHero?.backdrop,
                 resolvedHero?.imageUrl,
-                if (heroItem == null) activeRowFallbackBackdrop else null
+                if (heroItem == null) activeRowFallbackBackdrop else null,
+                // Cold-start fallback: before initial focus establishes, no active
+                // row exists and the chain above is all-null while rows (CW first)
+                // are already painted — the hero sat black for the focus-resolution
+                // window. Fall back to the first row's first item: that IS where
+                // focus will land, so the later re-derivation resolves to the same
+                // URL with zero visual change.
+                if (resolvedHero == null && heroItem == null) {
+                    carouselRows.firstOrNull { it.items.isNotEmpty() }
+                        ?.items?.firstOrNull()?.heroPreview
+                        ?.let { firstNonBlank(it.backdrop, it.imageUrl) }
+                } else null
             )
         }
         val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
@@ -1110,6 +1138,26 @@ fun ModernHomeContent(
         // crossfade starts immediately instead of waiting on network+decode.
         // Sized identically to the backdrop renderer so the cache key matches.
         val prewarmImageLoader = remember(context) { coil.Coil.imageLoader(context) }
+        // Cold-start hero prewarm: the CW pre-render paints cards from disk cache
+        // ~1s before the enrichment restore + debounced hero flow produce a
+        // backdrop, leaving the hero region black. Fire the sized request for the
+        // first CW item's backdrop the moment we can compute the hero size, so
+        // decode overlaps that window instead of following it.
+        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx, uiState.continueWatchingItems.firstOrNull()) {
+            if (heroItem != null) return@LaunchedEffect
+            val first = uiState.continueWatchingItems.firstOrNull() ?: return@LaunchedEffect
+            val url = when (first) {
+                is ContinueWatchingItem.InProgress -> first.progress.backdrop
+                is ContinueWatchingItem.NextUp -> first.info.backdrop
+            }?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+            prewarmImageLoader.enqueue(
+                coil.request.ImageRequest.Builder(context)
+                    .data(url)
+                    .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
+                    .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                    .build()
+            )
+        }
         LaunchedEffect(Unit) {
             snapshotFlow { activeRowKey to activeItemIndex }
                 .collect { (rowKey, index) ->

@@ -58,6 +58,7 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.LocalCarouselFocusRequester
 import com.nuvio.tv.LocalContentFocusRequester
 import kotlin.math.roundToInt
+import androidx.compose.animation.fadeOut
 
 private data class HomePosterOptionsTarget(
     val item: MetaPreview,
@@ -201,16 +202,8 @@ fun HomeScreen(
                         showHomeContentWithAnimation = true
                     }
                 }
-                if (shouldShowLoadingGate) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        PulsingLogoIndicator()
-                    }
-                } else {
-                    AnimatedVisibility(
-                        visible = showHomeContentWithAnimation,
+                AnimatedVisibility(
+                    visible = showHomeContentWithAnimation,
                         enter = fadeIn(animationSpec = tween(320)) +
                             slideInVertically(
                                 initialOffsetY = { it / 24 },
@@ -291,6 +284,22 @@ fun HomeScreen(
                                 }
                             )
                         }
+                    }
+                // Loader overlays the entering content and fades out (was a hard
+                // else-branch that snapped away the frame the gate flipped).
+                AnimatedVisibility(
+                    visible = shouldShowLoadingGate,
+                    enter = fadeIn(animationSpec = tween(150)),
+                    exit = fadeOut(animationSpec = tween(350)),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(NuvioColors.Background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        PulsingLogoIndicator()
                     }
                 }
             }
