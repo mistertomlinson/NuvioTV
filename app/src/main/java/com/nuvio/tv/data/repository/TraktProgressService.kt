@@ -59,6 +59,9 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.TraktWatchedMoviesCache
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.nuvio.tv.data.remote.dto.trakt.TraktHiddenRequestDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktShowDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktHiddenItemDto
 
 @Singleton
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -325,6 +328,19 @@ class TraktProgressService @Inject constructor(
         optimisticProgress.value = emptyMap()
     }
 
+    // Profile-stamp guard: results fetched for one profile must never land in
+    // another profile's state. Capture the stamp when a fetch begins; verify it
+    // still matches the active profile at every state write. Discards are traced.
+    private fun profileStamp(): Int = profileManager.activeProfileId.value
+    private fun stampValid(stamp: Int, where: String): Boolean {
+        val current = profileManager.activeProfileId.value
+        if (current != stamp) {
+            trace("profile-stamp mismatch in " + where + ": fetched-for=" + stamp + " active=" + current + " — discarding result")
+            return false
+        }
+        return true
+    }
+
     fun resetForProfileSwitch() {
         remoteProgress.value = emptyList()
         optimisticProgress.value = emptyMap()
@@ -407,6 +423,76 @@ class TraktProgressService @Inject constructor(
     fun getWatchedShowEpisodes(): Map<String, Set<Pair<Int, Int>>> = watchedShowEpisodesMap
 
     fun getShowIdSiblings(): Map<String, Set<String>> = showIdSiblingsMap
+
+    suspend fun loadHiddenProgressShows(force: Boolean = false) {
+        val stamp = profileStamp()
+        hiddenProgressShowsMutex.withLock {
+            val now = System.currentTimeMillis()
+            if (!force && hiddenProgressShowsLoadedAtMs > 0L &&
+                now - hiddenProgressShowsLoadedAtMs < watchedMoviesCacheTtlMs
+            ) return
+            val response = traktAuthService.executeAuthorizedRequest { authHeader ->
+                traktApi.getHiddenProgressWatched(authorization = authHeader)
+            } ?: return
+            if (!response.isSuccessful) return
+            val hiddenKeys = mutableSetOf<String>()
+            response.body().orEmpty().forEach { item ->
+                val showIds = item.show?.ids ?: return@forEach
+                val imdb = showIds.imdb
+                if (!imdb.isNullOrBlank()) hiddenKeys.add(imdb)
+                val tmdb = showIds.tmdb
+                if (tmdb != null) hiddenKeys.add("tmdb:" + tmdb)
+                val trakt = showIds.trakt
+                if (trakt != null) hiddenKeys.add("trakt:" + trakt)
+            }
+            val ids = hiddenKeys
+            if (!stampValid(stamp, "loadHiddenProgressShows")) return
+            hiddenProgressShowIds.value = ids
+            hiddenProgressShowsLoadedAtMs = now
+            trace("hidden-progress loaded: " + ids.size + " keys")
+        }
+    }
+
+    suspend fun hideShowFromProgress(contentId: String) {
+        val idsDto = buildIdsDtoFor(contentId) ?: run {
+            trace("hideShowFromProgress: cannot resolve ids for " + contentId + ", skipping server hide")
+            return
+        }
+        // Optimistic local add so NextUp filtering reacts immediately
+        hiddenProgressShowIds.value = hiddenProgressShowIds.value +
+            setOf(contentId, canonicalLookupKey(contentId)).filter { it.isNotBlank() }
+        val response = traktAuthService.executeAuthorizedWriteRequest { authHeader ->
+            traktApi.addHiddenProgressWatched(
+                authHeader,
+                TraktHiddenRequestDto(shows = listOf(TraktShowDto(ids = idsDto)))
+            )
+        }
+        trace("hideShowFromProgress " + contentId + " -> code=" + response?.code())
+    }
+
+    suspend fun unhideShowFromProgress(contentId: String) {
+        val idsDto = buildIdsDtoFor(contentId) ?: return
+        hiddenProgressShowIds.value = hiddenProgressShowIds.value -
+            setOf(contentId, canonicalLookupKey(contentId))
+        val response = traktAuthService.executeAuthorizedWriteRequest { authHeader ->
+            traktApi.removeHiddenProgressWatched(
+                authHeader,
+                TraktHiddenRequestDto(shows = listOf(TraktShowDto(ids = idsDto)))
+            )
+        }
+        trace("unhideShowFromProgress " + contentId + " -> code=" + response?.code())
+    }
+
+    private fun buildIdsDtoFor(contentId: String): TraktIdsDto? {
+        val raw = contentId.trim()
+        if (raw.isBlank()) return null
+        return when {
+            raw.startsWith("tt") -> TraktIdsDto(imdb = raw)
+            raw.startsWith("tmdb:") -> raw.removePrefix("tmdb:").toIntOrNull()?.let { TraktIdsDto(tmdb = it) }
+            raw.startsWith("trakt:") -> raw.removePrefix("trakt:").toIntOrNull()?.let { TraktIdsDto(trakt = it) }
+            else -> null
+        }
+    }
 
     fun isShowHiddenFromProgress(contentId: String): Boolean {
         val ids = hiddenProgressShowIds.value
@@ -756,9 +842,10 @@ class TraktProgressService @Inject constructor(
     }
 
     private suspend fun loadWatchedMoviesFromCache() {
+        val stamp = profileStamp()
         traktWatchedMoviesCache.loadFromDisk()
         val cached = traktWatchedMoviesCache.watchedIds.value
-        if (cached.isNotEmpty()) {
+        if (cached.isNotEmpty() && stampValid(stamp, "loadWatchedMoviesFromCache")) {
             watchedMoviesState.value = cached
             hasLoadedWatchedMovies = true
             watchedMoviesStale = true
@@ -766,6 +853,7 @@ class TraktProgressService @Inject constructor(
     }
 
         private suspend fun refreshRemoteSnapshot() {
+        val stamp = profileStamp()
         if (!traktAuthService.isCircuitClosed()) {
             trace("refreshRemoteSnapshot: circuit breaker open, skipping")
             throw IOException("Trakt circuit breaker is open")
@@ -787,7 +875,9 @@ class TraktProgressService @Inject constructor(
         if (needSeedsRefresh) {
             scope.launch { getWatchedShowSeedsSnapshot(forceRefresh = true) }
         }
+        scope.launch { loadHiddenProgressShows() }
 
+        if (!stampValid(stamp, "refreshRemoteSnapshot")) return
         remoteProgress.value = snapshot
         hasLoadedRemoteProgress.value = true
         reconcileOptimistic(snapshot)
@@ -931,6 +1021,7 @@ class TraktProgressService @Inject constructor(
     }
 
     private suspend fun getWatchedMoviesSnapshot(forceRefresh: Boolean): Set<String> {
+        val stamp = profileStamp()
         val now = System.currentTimeMillis()
         return watchedMoviesMutex.withLock {
             val hasFreshCache = hasLoadedWatchedMovies &&
@@ -968,6 +1059,9 @@ class TraktProgressService @Inject constructor(
                 }
                 .toSet()
 
+            if (!stampValid(stamp, "getWatchedMoviesSnapshot")) {
+                return@withLock watchedMoviesState.value
+            }
             watchedMoviesState.value = watchedMovies
             watchedMoviesUpdatedAtMs = System.currentTimeMillis()
             hasLoadedWatchedMovies = true
@@ -1015,6 +1109,7 @@ class TraktProgressService @Inject constructor(
     }
 
     private suspend fun getWatchedShowSeedsSnapshot(forceRefresh: Boolean): List<WatchProgress> {
+        val stamp = profileStamp()
         val now = System.currentTimeMillis()
         return watchedShowSeedsMutex.withLock {
             val hasFreshCache = hasLoadedWatchedShowSeeds &&
@@ -1071,6 +1166,9 @@ class TraktProgressService @Inject constructor(
                 if (episodes.isNotEmpty()) keys.forEach { key ->
                     episodesMap.getOrPut(key) { mutableSetOf() }.addAll(episodes)
                 }
+            }
+            if (!stampValid(stamp, "getWatchedShowSeedsSnapshot")) {
+                return@withLock watchedShowSeedsState.value
             }
             watchedShowEpisodesMap = episodesMap
             showIdToTraktPathId = idLookup

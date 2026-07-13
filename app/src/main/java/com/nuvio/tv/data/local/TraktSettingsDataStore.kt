@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.first
 
 enum class WatchProgressSource {
     TRAKT,
@@ -48,6 +49,7 @@ class TraktSettingsDataStore @Inject constructor(
 
     private val continueWatchingDaysCapKey = intPreferencesKey("continue_watching_days_cap")
     private val dismissedNextUpKeysKey = stringSetPreferencesKey("dismissed_next_up_keys")
+    private val hiddenMigrationDoneKey = booleanPreferencesKey("hidden_progress_migration_done")
     private val showUnairedNextUpKey = booleanPreferencesKey("show_unaired_next_up")
     private val watchProgressSourceKey = stringPreferencesKey("watch_progress_source")
     private val librarySourceModeKey = stringPreferencesKey("library_source_mode")
@@ -104,6 +106,14 @@ class TraktSettingsDataStore @Inject constructor(
         } else {
             days.coerceIn(MIN_CONTINUE_WATCHING_DAYS_CAP, MAX_CONTINUE_WATCHING_DAYS_CAP)
         }
+    }
+
+    suspend fun isHiddenMigrationDone(profileId: Int = profileManager.activeProfileId.value): Boolean {
+        return store(profileId).data.map { prefs -> prefs[hiddenMigrationDoneKey] ?: false }.first()
+    }
+
+    suspend fun setHiddenMigrationDone(profileId: Int = profileManager.activeProfileId.value) {
+        store(profileId).edit { prefs -> prefs[hiddenMigrationDoneKey] = true }
     }
 
     suspend fun addDismissedNextUpKey(key: String) {

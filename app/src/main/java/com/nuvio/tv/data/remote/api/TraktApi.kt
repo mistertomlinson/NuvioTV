@@ -43,6 +43,8 @@ import retrofit2.http.POST
 import retrofit2.http.Path
 import retrofit2.http.PUT
 import retrofit2.http.Query
+import com.nuvio.tv.data.remote.dto.trakt.TraktHiddenItemDto
+import com.nuvio.tv.data.remote.dto.trakt.TraktHiddenRequestDto
 
 interface TraktApi {
 
@@ -64,6 +66,25 @@ interface TraktApi {
     @POST("oauth/revoke")
     suspend fun revokeToken(
         @Body body: TraktRevokeRequestDto
+    ): Response<Unit>
+
+    @GET("users/hidden/progress_watched")
+    suspend fun getHiddenProgressWatched(
+        @Header("Authorization") authorization: String,
+        @Query("type") type: String = "show",
+        @Query("limit") limit: Int = 200
+    ): Response<List<TraktHiddenItemDto>>
+
+    @POST("users/hidden/progress_watched")
+    suspend fun addHiddenProgressWatched(
+        @Header("Authorization") authorization: String,
+        @Body body: TraktHiddenRequestDto
+    ): Response<Unit>
+
+    @POST("users/hidden/progress_watched/remove")
+    suspend fun removeHiddenProgressWatched(
+        @Header("Authorization") authorization: String,
+        @Body body: TraktHiddenRequestDto
     ): Response<Unit>
 
     @GET("users/settings")

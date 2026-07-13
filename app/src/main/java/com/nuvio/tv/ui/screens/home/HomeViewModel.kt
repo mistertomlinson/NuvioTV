@@ -826,6 +826,27 @@ class HomeViewModel @Inject constructor(
         // Capture profileId synchronously on the calling thread to avoid a race where
         // the IO coroutine reads activeProfileId.value before the DataStore write commits.
         val preRenderProfileId = profileManager.activeProfileId.value
+        // One-time migration: POST server-side hides for all historical local
+        // NextUp dismissals, so they survive app-data clears (and clean up
+        // trakt.tv's up-next). Non-aggressive: only keys the user explicitly
+        // dismissed. Idempotent server-side; gated per profile.
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                if (traktSettingsDataStore.isHiddenMigrationDone(preRenderProfileId)) return@launch
+                val keys = traktSettingsDataStore.dismissedNextUpKeys.first()
+                val contentIds = keys.map { it.substringBefore("|").trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                android.util.Log.d("HiddenMigration", "migrating " + contentIds.size + " dismissed shows to Trakt hidden list (profile=" + preRenderProfileId + ")")
+                contentIds.forEach { contentId ->
+                    runCatching { traktProgressService.hideShowFromProgress(contentId) }
+                        .onFailure { android.util.Log.w("HiddenMigration", "hide failed for " + contentId, it) }
+                    kotlinx.coroutines.delay(250L)
+                }
+                traktSettingsDataStore.setHiddenMigrationDone(preRenderProfileId)
+                android.util.Log.d("HiddenMigration", "migration complete")
+            }.onFailure { android.util.Log.w("HiddenMigration", "migration aborted", it) }
+        }
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val cachedInProgress = runCatching { cwEnrichmentCache.getInProgressSnapshot(preRenderProfileId) }.getOrElse { emptyList<com.nuvio.tv.data.local.CachedInProgressItem>() }
             val cachedNextUp = runCatching { cwEnrichmentCache.getNextUpSnapshot(preRenderProfileId) }.getOrElse { emptyList<com.nuvio.tv.data.local.CachedNextUpItem>() }

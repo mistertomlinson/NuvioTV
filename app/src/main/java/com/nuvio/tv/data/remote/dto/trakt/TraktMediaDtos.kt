@@ -20,6 +20,18 @@ data class TraktMovieDto(
 )
 
 @JsonClass(generateAdapter = true)
+data class TraktHiddenItemDto(
+    @Json(name = "hidden_at") val hiddenAt: String? = null,
+    @Json(name = "type") val type: String? = null,
+    @Json(name = "show") val show: TraktShowDto? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class TraktHiddenRequestDto(
+    @Json(name = "shows") val shows: List<TraktShowDto>
+)
+
+@JsonClass(generateAdapter = true)
 data class TraktShowDto(
     @Json(name = "title") val title: String? = null,
     @Json(name = "year") val year: Int? = null,

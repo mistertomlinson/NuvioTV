@@ -61,15 +61,18 @@ class TraktScrobbleService @Inject constructor(
     private val progressWindow = 1.5f
 
     suspend fun scrobbleStart(item: TraktScrobbleItem, progressPercent: Float) {
-        sendScrobble(action = "start", item = item, progressPercent = progressPercent)
+        sendScrobble(action = "start", item = item, progressPercent = progressPercent,
+            owningProfileId = profileManager.activeProfileId.value)
     }
 
     suspend fun scrobbleStop(item: TraktScrobbleItem, progressPercent: Float) {
-        sendScrobble(action = "stop", item = item, progressPercent = progressPercent)
+        sendScrobble(action = "stop", item = item, progressPercent = progressPercent,
+            owningProfileId = profileManager.activeProfileId.value)
     }
 
     suspend fun scrobblePause(item: TraktScrobbleItem, progressPercent: Float) {
-        sendScrobble(action = "pause", item = item, progressPercent = progressPercent)
+        sendScrobble(action = "pause", item = item, progressPercent = progressPercent,
+            owningProfileId = profileManager.activeProfileId.value)
     }
 
     suspend fun isTraktAuthenticated(): Boolean {
@@ -187,8 +190,18 @@ class TraktScrobbleService @Inject constructor(
     private suspend fun sendScrobble(
         action: String,
         item: TraktScrobbleItem,
-        progressPercent: Float
+        progressPercent: Float,
+        owningProfileId: Int
     ) {
+        // Profile-stamp guard (write side): a scrobble must only ever be sent with
+        // the token of the profile that owns the playback session. If the active
+        // profile changed between request and send, drop the scrobble — writing it
+        // under the new profile's token plants foreign items in their Trakt account.
+        val activeNow = profileManager.activeProfileId.value
+        if (activeNow != owningProfileId) {
+            android.util.Log.w("TraktScrobble", "DROPPED scrobble action=$action item=${item.itemKey}: owningProfile=$owningProfileId activeProfile=$activeNow")
+            return
+        }
         android.util.Log.d("TraktScrobble", "sendScrobble: action=$action item=${item.itemKey} progress=$progressPercent authenticated=${traktAuthService.getCurrentAuthState().isAuthenticated}")
         if (!traktAuthService.getCurrentAuthState().isAuthenticated) return
         if (!traktAuthService.hasRequiredCredentials()) return
