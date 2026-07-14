@@ -189,14 +189,44 @@ fun HomeScreen(
                 // LOADING -> (data ready, wait for next sweep boundary) -> FADING
                 //         -> (fade-out actually finished) -> REVEAL (home fades in)
                 // 0 = LOADING, 1 = FADING, 2 = REVEAL. Monotonic; never regresses.
-                var loaderPhase by remember { mutableStateOf(0) }
+                // Seed from initial readiness: if data is ALREADY ready at first
+                // composition (e.g. back-navigation from details with the VM still
+                // alive), skip straight to REVEAL so the loader doesn't replay. The
+                // loader only runs when we genuinely start not-ready (cold start /
+                // profile switch). remember{} captures the value at first composition.
+                val initiallyReady = remember { uiState.skeletonReady && uiState.layoutPreferencesReady }
+                var loaderPhase by remember { mutableStateOf(if (initiallyReady) 2 else 0) }
                 val dataReady = !shouldShowLoadingGate
 
                 // Overlay visibility as a transition state so we can detect when the
-                // fade-out has fully completed before revealing content.
+                // fade-out has fully completed before revealing content. Seeded hidden
+                // when already ready (no loader on back-nav).
                 val overlayState = remember {
-                    androidx.compose.animation.core.MutableTransitionState(true)
+                    androidx.compose.animation.core.MutableTransitionState(!initiallyReady)
                 }
+
+                // Grace gate: only *commit* to showing the loader if we're still
+                // not-ready after a short grace window. This absorbs the 1-2 frame
+                // gap on back-navigation (where uiState briefly reads not-ready
+                // before the live, already-loaded state propagates), preventing a
+                // dots flash. A sustained cold start / profile switch stays not-ready
+                // through the grace and shows the loader as intended.
+                var graceElapsed by remember { mutableStateOf(initiallyReady) }
+                LaunchedEffect(Unit) {
+                    if (!initiallyReady) {
+                        kotlinx.coroutines.delay(120)
+                        graceElapsed = true
+                    }
+                }
+                // If data becomes ready during the grace, skip the loader entirely:
+                // hide the overlay (so dots never render) and jump to REVEAL.
+                LaunchedEffect(dataReady) {
+                    if (dataReady && !graceElapsed && loaderPhase == 0) {
+                        overlayState.targetState = false
+                        loaderPhase = 2
+                    }
+                }
+
                 // Begin fade-out when we enter FADING.
                 LaunchedEffect(loaderPhase) {
                     if (loaderPhase >= 1) overlayState.targetState = false
@@ -207,12 +237,12 @@ fun HomeScreen(
                         loaderPhase = 2
                     }
                 }
-                // Safety net: if the indicator never reports a cycle (e.g. not
-                // composed as expected) but data is ready, advance after a bounded
-                // wait so we can't get stuck on the loader forever.
+                // Backstop only: the indicator's atomic loop drives dismissal via
+                // onDismissReady at a cycle boundary. This long fallback exists solely
+                // in case the indicator never composes, so we can't hang forever.
                 LaunchedEffect(dataReady, loaderPhase) {
                     if (dataReady && loaderPhase == 0) {
-                        kotlinx.coroutines.delay(6000)
+                        kotlinx.coroutines.delay(12000)
                         if (loaderPhase == 0) loaderPhase = 1
                     }
                 }
@@ -314,10 +344,13 @@ fun HomeScreen(
                     ) {
                         PulsingLogoIndicator(
                             active = overlayState.currentState,
-                            onCycleComplete = {
-                                // Whole-cycle dismissal: only advance to FADING at a
-                                // sweep boundary, and only once data is ready.
-                                if (dataReady && loaderPhase == 0) loaderPhase = 1
+                            // Ask the loader to dismiss once data is ready; it keeps
+                            // playing whole cycles and only stops at a boundary.
+                            dismissRequested = dataReady,
+                            onDismissReady = {
+                                // Fired at a cycle boundary (all dots at rest) once
+                                // dismissal was requested. Now it's safe to fade out.
+                                if (loaderPhase == 0) loaderPhase = 1
                             }
                         )
                     }

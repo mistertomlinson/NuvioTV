@@ -35,7 +35,10 @@ import com.nuvio.tv.R
 fun PulsingLogoIndicator(
     modifier: Modifier = Modifier,
     active: Boolean = true,
-    onCycleComplete: (() -> Unit)? = null
+    // Set true when the caller WANTS to dismiss. The loader keeps playing whole
+    // cycles and only stops at a cycle boundary, then invokes onDismissReady.
+    dismissRequested: Boolean = false,
+    onDismissReady: (() -> Unit)? = null
 ) {
     // One-time entrance fade so the logo doesn't pop in abruptly after profile selection.
     val entranceAlpha = remember { Animatable(0f) }
@@ -43,27 +46,31 @@ fun PulsingLogoIndicator(
         entranceAlpha.animateTo(1f, animationSpec = tween(durationMillis = 450))
     }
 
-    // Three-dot loader. One cycle (2800ms): fade in together (0.0-0.2), wave
-    // where each dot rises/falls once staggered L->R (0.2-0.8), fade out together
-    // (0.8-1.0). onCycleComplete fires at the wrap so dismissal is whole-cycle.
-    val infiniteTransition = rememberInfiniteTransition(label = "dotsCycle")
-    val progress by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2600, easing = androidx.compose.animation.core.LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "dotsProgress"
-    )
-
-    // Fire onCycleComplete on wrap (progress drops from near-1 back to near-0).
-    val prevProgress = remember { androidx.compose.runtime.mutableStateOf(progress) }
-    LaunchedEffect(progress, active) {
-        if (active && progress < prevProgress.value - 0.5f) {
-            onCycleComplete?.invoke()
+    // One "cycle" = a single complete L->R pass where all three dots bounce once.
+    // Implemented as a MANUAL loop with a suspending Animatable so each cycle is
+    // ATOMIC: animateTo(1f) runs to completion before we decide anything. We only
+    // check dismissRequested at a boundary (progress just reached 1, dots at rest),
+    // guaranteeing we never fade in or out mid-bounce and always play >= 1 full
+    // cycle even if dismissal is requested immediately.
+    val progressAnim = remember { Animatable(0f) }
+    val progress = progressAnim.value
+    // Mirror through updated-state so the long-lived loop reads the CURRENT values
+    // (a plain LaunchedEffect(Unit) coroutine would capture the initial ones).
+    val dismissNow = androidx.compose.runtime.rememberUpdatedState(dismissRequested)
+    val onDismissReadyNow = androidx.compose.runtime.rememberUpdatedState(onDismissReady)
+    LaunchedEffect(Unit) {
+        while (true) {
+            progressAnim.snapTo(0f)
+            progressAnim.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(durationMillis = 2600, easing = androidx.compose.animation.core.LinearEasing)
+            )
+            // Boundary: a whole cycle just finished, all dots are at rest.
+            if (dismissNow.value) {
+                onDismissReadyNow.value?.invoke()
+                break
+            }
         }
-        prevProgress.value = progress
     }
 
     // Group opacity: fade in ONCE on appearance and then hold solid forever.
@@ -84,7 +91,6 @@ fun PulsingLogoIndicator(
     // immediate rather than fading during a long motionless gap.
     fun dotLift(index: Int): Float {
         val slot = 0.30f
-        if (!active) return 0f  // dismissing: hold all dots at rest under the fade
         val local = (progress - index * slot) / slot
         if (local < 0f || local > 1f) return 0f
 
