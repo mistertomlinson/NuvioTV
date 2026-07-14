@@ -212,7 +212,7 @@ fun HomeScreen(
                 // wait so we can't get stuck on the loader forever.
                 LaunchedEffect(dataReady, loaderPhase) {
                     if (dataReady && loaderPhase == 0) {
-                        kotlinx.coroutines.delay(2200)
+                        kotlinx.coroutines.delay(6000)
                         if (loaderPhase == 0) loaderPhase = 1
                     }
                 }

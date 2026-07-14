@@ -43,91 +43,103 @@ fun PulsingLogoIndicator(
         entranceAlpha.animateTo(1f, animationSpec = tween(durationMillis = 450))
     }
 
-    // Subtle shimmer: a low-alpha light band sweeps horizontally across the logo
-    // box on a loop. Sweep offset goes off-screen-left to off-screen-right so the
-    // band fully enters and exits. Freezes (parked off-screen) when not active.
-    val infiniteTransition = rememberInfiniteTransition(label = "logoShimmer")
-    val sweep by infiniteTransition.animateFloat(
-        initialValue = -0.4f,
-        targetValue = 1.4f,
+    // Three-dot loader. One cycle (2800ms): fade in together (0.0-0.2), wave
+    // where each dot rises/falls once staggered L->R (0.2-0.8), fade out together
+    // (0.8-1.0). onCycleComplete fires at the wrap so dismissal is whole-cycle.
+    val infiniteTransition = rememberInfiniteTransition(label = "dotsCycle")
+    val progress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2800),
+            animation = tween(durationMillis = 2600, easing = androidx.compose.animation.core.LinearEasing),
             repeatMode = RepeatMode.Restart
         ),
-        label = "logoShimmerSweep"
+        label = "dotsProgress"
     )
-    val sweepPos = if (active) sweep else 2f
 
-    // Fire onCycleComplete each time the sweep completes a pass (value wraps from
-    // near-end back to near-start). Lets the caller dismiss only on whole cycles.
-    val prevSweep = remember { androidx.compose.runtime.mutableStateOf(sweep) }
-    LaunchedEffect(sweep, active) {
-        if (active) {
-            if (sweep < prevSweep.value - 0.5f) {
-                onCycleComplete?.invoke()
-            }
+    // Fire onCycleComplete on wrap (progress drops from near-1 back to near-0).
+    val prevProgress = remember { androidx.compose.runtime.mutableStateOf(progress) }
+    LaunchedEffect(progress, active) {
+        if (active && progress < prevProgress.value - 0.5f) {
+            onCycleComplete?.invoke()
         }
-        prevSweep.value = sweep
+        prevProgress.value = progress
     }
 
-    val context = LocalContext.current
-    // Loaded as a raw ImageBitmap (rather than via painterResource) so we can pass
-    // filterQuality = High explicitly — that overload of Image() is the one that
-    // exposes the parameter, and smooths the jagged/aliased edges on the logo's text
-    // when it's scaled.
-    val logoBitmap = remember {
-        androidx.core.content.ContextCompat.getDrawable(context, R.drawable.nuvio_logo_pulse)
-            ?.let { drawable ->
-                val bmp = android.graphics.Bitmap.createBitmap(
-                    drawable.intrinsicWidth.coerceAtLeast(1),
-                    drawable.intrinsicHeight.coerceAtLeast(1),
-                    android.graphics.Bitmap.Config.ARGB_8888
-                )
-                val canvas = android.graphics.Canvas(bmp)
-                drawable.setBounds(0, 0, canvas.width, canvas.height)
-                drawable.draw(canvas)
-                bmp.asImageBitmap()
-            }
+    // Group opacity: fade in ONCE on appearance and then hold solid forever.
+    // The fade-OUT at dismissal is handled by the overlay's AnimatedVisibility
+    // (whole-cycle gated), so the dots themselves never self-fade mid-cycle.
+    val groupFade = remember { Animatable(0f) }
+    LaunchedEffect(Unit) {
+        groupFade.animateTo(1f, animationSpec = tween(durationMillis = 260))
     }
+    val groupAlpha = groupFade.value
+
+    // Floaty parabolic bounce. A "floaty" arc = low gravity: the dot spends most
+    // of its time near the top (long hang) and only a little near the floor. We
+    // get the hang by using a FLATTENED-top parabola (raise the parabola to a
+    // power < 1 so it plateaus near the peak). One tall floaty arc + one gentle
+    // secondary bounce. Slots packed (0.30) so the third dot finishes close to
+    // the cycle end — minimal dead air, so "fade after complete cycle" looks
+    // immediate rather than fading during a long motionless gap.
+    fun dotLift(index: Int): Float {
+        val slot = 0.30f
+        if (!active) return 0f  // dismissing: hold all dots at rest under the fade
+        val local = (progress - index * slot) / slot
+        if (local < 0f || local > 1f) return 0f
+
+        fun floatArc(t0: Float, t1: Float, peak: Float): Float {
+            val t = ((local - t0) / (t1 - t0)).coerceIn(0f, 1f)
+            val u = 2f * t - 1f
+            val parab = 1f - u * u                 // 0..1 parabola
+            // Flatten the top for a hang: pow < 1 pushes values toward 1 near peak.
+            val hang = Math.pow(parab.toDouble(), 0.55).toFloat()
+            return peak * hang
+        }
+        return when {
+            local < 0.72f -> floatArc(0.00f, 0.72f, 1.0f)   // tall floaty arc, long hang
+            local < 1.00f -> floatArc(0.72f, 1.00f, 0.22f)  // gentle secondary bounce
+            else -> 0f
+        }
+    }
+
+    val dotColors = listOf(
+        androidx.compose.ui.graphics.Color(0xFF4DE4F1),
+        androidx.compose.ui.graphics.Color(0xFF4A65DB),
+        androidx.compose.ui.graphics.Color(0xFFC758E4)
+    )
+
+    // Dot sizing/spacing.
+    val dotSize = 14.dp
+    val dotGap = 12.dp
+    val maxLift = 12.dp
 
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
     ) {
-        if (logoBitmap != null) {
-            val aspect = logoBitmap.width.toFloat() / logoBitmap.height.toFloat()
-            Box(
-                modifier = Modifier
-                    .width(220.dp)
-                    .aspectRatio(aspect)
-                    .alpha(entranceAlpha.value)
-                    // Isolate into its own layer so SrcAtop blends against the
-                    // logo's own pixels, not whatever is behind the Box.
-                    .graphicsLayer { compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-                    .drawWithContent {
-                        // Draw the logo bitmap scaled to fill this box.
-                        drawImage(
-                            image = logoBitmap,
-                            dstSize = androidx.compose.ui.unit.IntSize(size.width.toInt(), size.height.toInt()),
-                            filterQuality = FilterQuality.High
-                        )
-                        // Sheen band, composited ONLY onto the logo's opaque pixels.
-                        val bandW = size.width * 0.30f
-                        val cx = size.width * sweepPos
-                        drawRect(
-                            brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
-                                colors = listOf(
-                                    androidx.compose.ui.graphics.Color.Transparent,
-                                    androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f),
-                                    androidx.compose.ui.graphics.Color.Transparent
-                                ),
-                                startX = cx - bandW,
-                                endX = cx + bandW
-                            ),
-                            blendMode = androidx.compose.ui.graphics.BlendMode.SrcAtop
-                        )
-                    }
-            )
+        androidx.compose.foundation.Canvas(
+            modifier = Modifier
+                .width(dotSize * 3 + dotGap * 2)
+                .height(dotSize + maxLift * 2)
+                .alpha(entranceAlpha.value * groupAlpha)
+        ) {
+            val d = dotSize.toPx()
+            val gap = dotGap.toPx()
+            val lift = maxLift.toPx()
+            val r = d / 2f
+            val centerY = size.height / 2f
+            val totalW = d * 3 + gap * 2
+            val startX = (size.width - totalW) / 2f + r
+            for (i in 0..2) {
+                val cx = startX + i * (d + gap)
+                val cy = centerY - dotLift(i) * lift
+                drawCircle(
+                    color = dotColors[i],
+                    radius = r,
+                    center = androidx.compose.ui.geometry.Offset(cx, cy)
+                )
+            }
         }
     }
 }
