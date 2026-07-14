@@ -145,15 +145,6 @@ fun HomeScreen(
             uiState.heroItems.isNotEmpty()
 
         when {
-            uiState.isLoading && !hasAnyContent -> {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    PulsingLogoIndicator()
-                }
-            }
-
             uiState.error == "No addons installed" && uiState.catalogRows.isEmpty() -> {
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -193,22 +184,43 @@ fun HomeScreen(
                 // This is a one-way monotonic flip so it can't regress back to false.
                 val shouldShowLoadingGate = !uiState.skeletonReady ||
                     !uiState.layoutPreferencesReady
-                LaunchedEffect(shouldShowLoadingGate) {
-                    if (shouldShowLoadingGate) {
-                        showHomeContentWithAnimation = false
-                    } else if (!showHomeContentWithAnimation) {
-                        // Flip on the next frame so AnimatedVisibility can run enter transition.
-                        kotlinx.coroutines.yield()
-                        showHomeContentWithAnimation = true
+
+                // Strict loader sequence with whole-cycle dismissal:
+                // LOADING -> (data ready, wait for next sweep boundary) -> FADING
+                //         -> (fade-out actually finished) -> REVEAL (home fades in)
+                // 0 = LOADING, 1 = FADING, 2 = REVEAL. Monotonic; never regresses.
+                var loaderPhase by remember { mutableStateOf(0) }
+                val dataReady = !shouldShowLoadingGate
+
+                // Overlay visibility as a transition state so we can detect when the
+                // fade-out has fully completed before revealing content.
+                val overlayState = remember {
+                    androidx.compose.animation.core.MutableTransitionState(true)
+                }
+                // Begin fade-out when we enter FADING.
+                LaunchedEffect(loaderPhase) {
+                    if (loaderPhase >= 1) overlayState.targetState = false
+                }
+                // When the fade-out animation is fully idle and hidden, reveal content.
+                LaunchedEffect(overlayState.isIdle, overlayState.currentState) {
+                    if (loaderPhase == 1 && overlayState.isIdle && !overlayState.currentState) {
+                        loaderPhase = 2
                     }
                 }
+                // Safety net: if the indicator never reports a cycle (e.g. not
+                // composed as expected) but data is ready, advance after a bounded
+                // wait so we can't get stuck on the loader forever.
+                LaunchedEffect(dataReady, loaderPhase) {
+                    if (dataReady && loaderPhase == 0) {
+                        kotlinx.coroutines.delay(2200)
+                        if (loaderPhase == 0) loaderPhase = 1
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxSize()) {
                 AnimatedVisibility(
-                    visible = showHomeContentWithAnimation,
-                        enter = fadeIn(animationSpec = tween(320)) +
-                            slideInVertically(
-                                initialOffsetY = { it / 24 },
-                                animationSpec = tween(320)
-                            )
+                    visible = loaderPhase == 2,
+                        enter = fadeIn(animationSpec = tween(320))
                     ) {
                         when (uiState.homeLayout) {
                             HomeLayout.CLASSIC -> ClassicHomeRoute(
@@ -285,12 +297,13 @@ fun HomeScreen(
                             )
                         }
                     }
-                // Loader overlays the entering content and fades out (was a hard
-                // else-branch that snapped away the frame the gate flipped).
+                // Loader overlay. Driven by a transition state so REVEAL only
+                // starts once this fade-out is fully idle. Content is NOT visible
+                // during the fade, so loader animation and home never contend.
                 AnimatedVisibility(
-                    visible = shouldShowLoadingGate,
+                    visibleState = overlayState,
                     enter = fadeIn(animationSpec = tween(150)),
-                    exit = fadeOut(animationSpec = tween(350)),
+                    exit = fadeOut(animationSpec = tween(450)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(
@@ -299,8 +312,16 @@ fun HomeScreen(
                             .background(NuvioColors.Background),
                         contentAlignment = Alignment.Center
                     ) {
-                        PulsingLogoIndicator()
+                        PulsingLogoIndicator(
+                            active = overlayState.currentState,
+                            onCycleComplete = {
+                                // Whole-cycle dismissal: only advance to FADING at a
+                                // sweep boundary, and only once data is ready.
+                                if (dataReady && loaderPhase == 0) loaderPhase = 1
+                            }
+                        )
                     }
+                }
                 }
             }
         }
