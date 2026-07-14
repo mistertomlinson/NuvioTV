@@ -1007,23 +1007,35 @@ fun ModernHomeContent(
                 item.heroPreview.backdrop?.takeIf { it.isNotBlank() }
             }
         }
-        val heroBackdrop = remember(resolvedHero, activeRowFallbackBackdrop, heroItem, carouselRows) {
-            firstNonBlank(
+        // Retains the last non-blank hero backdrop across recompositions so that a
+        // momentary focus gap (e.g. returning from a detail screen) does NOT fall
+        // back to the first row's item, which caused a stale-looking flash of the
+        // wrong backdrop before real focus restored.
+        val lastGoodBackdrop = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+        val heroBackdrop = remember(resolvedHero, activeRowFallbackBackdrop, heroItem, carouselRows, lastGoodBackdrop.value) {
+            val resolved = firstNonBlank(
                 resolvedHero?.backdrop,
                 resolvedHero?.imageUrl,
                 if (heroItem == null) activeRowFallbackBackdrop else null,
-                // Cold-start fallback: before initial focus establishes, no active
-                // row exists and the chain above is all-null while rows (CW first)
-                // are already painted — the hero sat black for the focus-resolution
-                // window. Fall back to the first row's first item: that IS where
-                // focus will land, so the later re-derivation resolves to the same
-                // URL with zero visual change.
-                if (resolvedHero == null && heroItem == null) {
+                // Focus gap: chain above is all-null but we've shown a backdrop
+                // before -> hold the last good one instead of flashing first-item.
+                if (resolvedHero == null && heroItem == null) lastGoodBackdrop.value else null,
+                // True cold-start fallback: only when we've NEVER resolved a backdrop
+                // (lastGoodBackdrop still null). First row's first item is where
+                // focus will land, so re-derivation matches with no visible change.
+                if (resolvedHero == null && heroItem == null && lastGoodBackdrop.value == null) {
                     carouselRows.firstOrNull { it.items.isNotEmpty() }
                         ?.items?.firstOrNull()?.heroPreview
                         ?.let { firstNonBlank(it.backdrop, it.imageUrl) }
                 } else null
             )
+            resolved
+        }
+        // Record the last non-blank resolved backdrop (only from a REAL focused
+        // item, not the fallback itself, to avoid latching the first-item value).
+        LaunchedEffect(resolvedHero?.backdrop, resolvedHero?.imageUrl) {
+            val real = firstNonBlank(resolvedHero?.backdrop, resolvedHero?.imageUrl)
+            if (real != null) lastGoodBackdrop.value = real
         }
         val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
             focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
@@ -1063,7 +1075,16 @@ fun ModernHomeContent(
             animationSpec = if (heroTransitionTarget == 1f) tween(durationMillis = 480) else tween(durationMillis = 150),
             label = "heroBackdropTrailerCrossfadeProgress"
         )
-        val heroBackdropAlpha = 1f - heroTransitionProgress
+        // Entrance fade: on (re)composition of the home content (e.g. returning
+        // from a detail screen), fade the hero backdrop in from transparent so the
+        // home screen fades in on top of whatever is behind it, rather than popping.
+        // Runs once per mount; multiplied into the trailer-driven alpha so it does
+        // not disturb the trailer crossfade.
+        val heroEntranceAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
+        LaunchedEffect(Unit) {
+            heroEntranceAlpha.animateTo(1f, animationSpec = tween(durationMillis = 400))
+        }
+        val heroBackdropAlpha = (1f - heroTransitionProgress) * heroEntranceAlpha.value
         val heroTrailerAlpha = heroTransitionProgress
         var lbGradientVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
         var lbTrailerVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
