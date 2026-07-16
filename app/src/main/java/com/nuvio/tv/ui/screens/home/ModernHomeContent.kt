@@ -1221,6 +1221,35 @@ fun ModernHomeContent(
                 onBackdropPreloadSizeKnown(heroMediaWidthPx, heroMediaHeightPx)
             }
         }
+        // Re-warm platform first backdrops from the POST-enrichment URLs (same
+        // source as the renderer). The startup preload reads catalogsMap before
+        // enrichment swaps most backdrop URLs, so its cache entries miss — this
+        // keeps the real keys warm as enrichment lands. Coil dedupes requests,
+        // so repeated emissions are cheap.
+        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
+            if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
+            snapshotFlow {
+                uiState.catalogRows
+                    .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) != null }
+                    .groupBy { inferPlatformId(it.catalogName) }
+                    .mapNotNull { (_, rows) -> rows.firstOrNull()?.items?.firstOrNull()?.backdropUrl }
+                    .filter { it.isNotBlank() }
+                    .toSet()
+            }
+                .distinctUntilChanged()
+                .collect { urls ->
+                    val loader = coil.Coil.imageLoader(context)
+                    urls.forEach { url ->
+                        loader.enqueue(
+                            coil.request.ImageRequest.Builder(context)
+                                .data(url)
+                                .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
+                                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                .build()
+                        )
+                    }
+                }
+        }
         val catalogSlideAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
         val catalogSlideOffset = remember { androidx.compose.animation.core.Animatable(0f) }
         // Separate parallax animatable — never snaps, only smooth exit+enter arcs
@@ -1403,6 +1432,10 @@ fun ModernHomeContent(
             androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.toPx()
         }
         val catalogSlideDistancePx = screenWidthPx * 0.15f
+        // Travel distance for the catalog/hero slide animation. Kept separate from
+        // catalogSlideDistancePx, which still drives the layout width expansion so
+        // offscreen posters render fully regardless of how short the travel is.
+        val catalogSlideTravelPx = screenWidthPx * 0.08f
 
         // Snapshot platformNavDirection into a ref so the transition coroutine reads
         // the direction at press time, not a stale 0 after the reset timer fires.
@@ -1413,7 +1446,11 @@ fun ModernHomeContent(
 
         // Shared transition logic — used by both fast and debounced modes.
         val latestHeroBackdrop by rememberUpdatedState(heroBackdrop)
-        suspend fun runTransition(finalTarget: String) {
+        suspend fun runTransition(
+            finalTarget: String,
+            settleAtBlack: (suspend (String) -> String)? = null
+        ) {
+            var target = finalTarget
             val safeParallaxMax = screenWidthPx * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f
             val navDir = platformNavDirectionRef.get()
             val exitDir = if (navDir >= 0) -1f else 1f
@@ -1443,7 +1480,7 @@ fun ModernHomeContent(
                 // animation work runs (keeps the icon selector animation smooth).
                 coroutineScope {
                     launch { ghostAlpha.animateTo(0f, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                    launch { ghostOffset.animateTo(exitDir * catalogSlideDistancePx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                    launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
                     launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
                 }
                 // Screen is black now: hide the ghost and park the live content
@@ -1454,13 +1491,16 @@ fun ModernHomeContent(
                 // FLIP — swap live content underneath the ghost. Live starts fully
                 // transparent at the enter position; the ghost still shows the old
                 // platform at rest, so the heavy recomposition is invisible.
+                // Screen is dark. Fast mode parks here while presses continue,
+                // conflating to the latest target before committing the flip.
+                settleAtBlack?.let { target = it(target) }
                 val incomingRows = uiState.catalogRows
-                    .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == finalTarget }
+                    .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == target }
 
-                displayedPlatformId = finalTarget
-                catalogDisplayedPlatformId = finalTarget
+                displayedPlatformId = target
+                catalogDisplayedPlatformId = target
                 catalogSlideAlpha.snapTo(0f)
-                catalogSlideOffset.snapTo(enterDir * catalogSlideDistancePx)
+                catalogSlideOffset.snapTo(enterDir * catalogSlideTravelPx)
                 backdropParallaxOffset.snapTo(enterDir * safeParallaxMax)
                 incomingRows.forEachIndexed { index, row ->
                     val firstItem = row.items.firstOrNull() ?: return@forEachIndexed
@@ -1472,6 +1512,7 @@ fun ModernHomeContent(
                 // platform during this wait — no black frame. Bounded at 2s.
                 withFrameNanos {}
                 withFrameNanos {}
+                val preloadWaitStart = android.os.SystemClock.elapsedRealtime()
                 val backdropUrl = latestHeroBackdrop
                 if (backdropUrl != null) {
                     val preloadRequest = coil.request.ImageRequest.Builder(context)
@@ -1483,6 +1524,7 @@ fun ModernHomeContent(
                         coil.Coil.imageLoader(context).execute(preloadRequest)
                     }
                 }
+                android.util.Log.d("NuvioTransition", "preload wait=${android.os.SystemClock.elapsedRealtime() - preloadWaitStart}ms platform=$target")
                 // CROSSFADE — ghost (old content) slides out and fades on top while
                 // live (new content) slides in and fades up underneath. Same
                 // duration, same velocity, same direction: a continuous sliding
@@ -1510,41 +1552,64 @@ fun ModernHomeContent(
             }
         }
 
-        // Unified press handling (both toggle values behave identically now):
-        // - Idle press: transition fires IMMEDIATELY.
-        // - Transitions are never interrupted; they always play to completion.
-        // - Presses during a transition are conflated to the latest target.
-        // - After completion, if presses arrived mid-flight, wait for a quiet
-        //   settle window, then run ONE transition to the settled platform.
-        val platformChannel = remember { kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED) }
-        LaunchedEffect(selectedPlatformId) {
-            platformChannel.trySend(selectedPlatformId)
-        }
-        LaunchedEffect(aggregatePlatformsEnabled) {
-            var freshPress = true
-            while (true) {
-                var targetId = platformChannel.receive()
-                if (!freshPress) {
-                    // Presses were arriving during the previous transition —
-                    // wait for the burst to settle before transitioning again.
+        // Press handling — two modes, restored to original semantics:
+        // - Debounced (fast scroll OFF): every press waits for a 300ms quiet
+        //   window; one uninterruptible transition per settled destination.
+        // - Fast (fast scroll ON): every press fires immediately and cancels the
+        //   in-flight transition. The first press plays the exit; while presses
+        //   continue the screen stays dark; the enter completes once presses stop.
+        if (fastPlatformScrollEnabled) {
+            // Fast mode: first press fires the exit immediately. Animations are
+            // atomic — never interrupted. Presses arriving while the screen is
+            // dark retarget silently; the enter fires after 300ms of quiet.
+            // Presses during the enter wait for it, then run a fresh cycle.
+            val fastChannel = remember { kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED) }
+            LaunchedEffect(selectedPlatformId) {
+                fastChannel.trySend(selectedPlatformId)
+            }
+            LaunchedEffect(aggregatePlatformsEnabled) {
+                while (true) {
+                    val targetId = fastChannel.receive()
+                    if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
+                        displayedPlatformId = targetId
+                        catalogDisplayedPlatformId = targetId
+                        continue
+                    }
+                    runTransition(targetId) { current ->
+                        var latest = current
+                        var settled = false
+                        while (!settled) {
+                            kotlinx.coroutines.delay(300L)
+                            val next = fastChannel.tryReceive()
+                            if (next.isSuccess) latest = next.getOrNull() ?: latest
+                            else settled = true
+                        }
+                        latest
+                    }
+                }
+            }
+        } else {
+            val platformChannel = remember { kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED) }
+            LaunchedEffect(selectedPlatformId) {
+                platformChannel.trySend(selectedPlatformId)
+            }
+            LaunchedEffect(aggregatePlatformsEnabled) {
+                while (true) {
+                    var targetId = platformChannel.receive()
                     var settled = false
                     while (!settled) {
-                        kotlinx.coroutines.delay(250L)
+                        kotlinx.coroutines.delay(300L)
                         val next = platformChannel.tryReceive()
                         if (next.isSuccess) targetId = next.getOrNull() ?: targetId
                         else settled = true
                     }
+                    if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
+                        displayedPlatformId = targetId
+                        catalogDisplayedPlatformId = targetId
+                        continue
+                    }
+                    runTransition(targetId)
                 }
-                if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
-                    displayedPlatformId = targetId
-                    catalogDisplayedPlatformId = targetId
-                    freshPress = true
-                    continue
-                }
-                runTransition(targetId)
-                // Nothing pending at completion -> next press is a fresh, idle
-                // press and fires immediately. Something pending -> settle first.
-                freshPress = platformChannel.isEmpty
             }
         }
 
@@ -1597,6 +1662,7 @@ fun ModernHomeContent(
                 portraitMode = !useLandscapePosters,
                 selectedPlatformId = catalogDisplayedPlatformId,
                 platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive && !isPlatformTransitioning) platformNavDirection else 0,
+                platformTransitionSnap = isPlatformTransitioning,
                 fullWidthIconRowEnabled = fullWidthIconRowEnabled,
                 modifier = Modifier
                     .align(Alignment.BottomStart)

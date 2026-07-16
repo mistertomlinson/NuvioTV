@@ -538,12 +538,15 @@ internal fun HomeViewModel.triggerPlatformPreloadIfReady() {
     }
     // Set stableVisiblePlatformIds immediately so the icon row knows which platforms exist
     _uiState.update { it.copy(stableVisiblePlatformIds = platformIds) }
-    // Wait up to 500ms for Compose to push render dimensions before preloading.
-    // Dimensions must match what ModernHeroMediaLayer requests so Coil cache keys align.
+    // Wait for Compose to push render dimensions before preloading — sizes must
+    // match what ModernHeroMediaLayer requests or the Coil cache keys won't align
+    // and the preload warms useless entries (slow launches then pay full load on
+    // first platform visit). Dimensions are guaranteed once the hero composes, so
+    // waiting is safe; 10s bound is only a leak guard. Never preload unsized.
     viewModelScope.launch {
-        val deadline = System.currentTimeMillis() + 500L
+        val deadline = System.currentTimeMillis() + 10_000L
         while (backdropPreloadWidthPx == 0 || backdropPreloadHeightPx == 0) {
-            if (System.currentTimeMillis() >= deadline) break
+            if (System.currentTimeMillis() >= deadline) return@launch
             kotlinx.coroutines.delay(16L)
         }
         preloadPlatformBackdrops(backdropUrls)
