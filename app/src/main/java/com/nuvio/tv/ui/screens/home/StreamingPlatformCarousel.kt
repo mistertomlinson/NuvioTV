@@ -261,10 +261,17 @@ fun StreamingPlatformCarousel(
                             }
                             true
                         }
-                        Key.DirectionDown, Key.Back -> {
+                        Key.DirectionDown -> {
                             onCarouselFocusChanged(false)
                             try { contentFocusRequester.requestFocus() } catch (e: Exception) {}
                             true
+                        }
+                        Key.Back -> {
+                            // Do NOT consume: let Back propagate to the activity-level
+                            // BackHandler, which opens the sidebar. Release carousel
+                            // focus state so the drawer takes over cleanly.
+                            onCarouselFocusChanged(false)
+                            false
                         }
                         else -> false
                     }

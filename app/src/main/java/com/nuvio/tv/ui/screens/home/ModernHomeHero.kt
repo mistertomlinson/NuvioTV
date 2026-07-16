@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.layout.heightIn
 import androidx.core.content.res.ResourcesCompat
 import com.nuvio.tv.ui.theme.buildCaslonFamily
 import androidx.compose.animation.Crossfade
@@ -708,7 +709,10 @@ private fun HeroTitleContent(
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(metaSpacing)
+                    horizontalArrangement = Arrangement.spacedBy(metaSpacing),
+                    // Pin to the IMDb logo's height so rows keep identical line
+                    // spacing whether or not the rating (30dp logo) is present.
+                    modifier = Modifier.heightIn(min = 30.dp * metaScale)
                 ) {
                     if (!runtimeText.isNullOrBlank()) {
                         Text(
@@ -742,7 +746,7 @@ private fun HeroTitleContent(
 
         if (secondaryHighlightText != null || ageRatingBadge != null || showImdbInSecondary || statusBadge != null || secondaryDetails.isNotEmpty()) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp * metaScale),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(metaSpacing)
             ) {
