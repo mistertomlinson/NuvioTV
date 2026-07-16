@@ -1085,12 +1085,14 @@ class HomeViewModel @Inject constructor(
                     } catch (_: Exception) {}
                 }
             }
-            val timeout = launch {
-                kotlinx.coroutines.delay(3_000L)
-                jobs.forEach { it.cancel() }
+            // Release the gate after 3s OR when all loads finish — whichever
+            // comes first — but NEVER cancel the loads. Cancelling left slow
+            // backdrops permanently uncached on fresh launches, so the first
+            // visit to those platforms paid full network+decode at transition
+            // time (variable black). Stragglers now finish in the background.
+            kotlinx.coroutines.withTimeoutOrNull(3_000L) {
+                jobs.forEach { it.join() }
             }
-            jobs.forEach { it.join() }
-            timeout.cancel()
             platformPreloadInProgress = false
             _platformBackdropsPreloaded.value = true
             scheduleUpdateCatalogRows()

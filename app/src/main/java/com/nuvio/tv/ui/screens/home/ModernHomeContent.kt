@@ -1442,9 +1442,9 @@ fun ModernHomeContent(
                 // EXIT FIRST — ghost slides and fades to black while only cheap
                 // animation work runs (keeps the icon selector animation smooth).
                 coroutineScope {
-                    launch { ghostAlpha.animateTo(0f, tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                    launch { ghostOffset.animateTo(exitDir * catalogSlideDistancePx, tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                    launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(200, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                    launch { ghostAlpha.animateTo(0f, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                    launch { ghostOffset.animateTo(exitDir * catalogSlideDistancePx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                    launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
                 }
                 // Screen is black now: hide the ghost and park the live content
                 // invisible at the enter position BEFORE the heavy flip, so the
@@ -1490,9 +1490,9 @@ fun ModernHomeContent(
                 // ENTER — new content slides in decelerating to a stop. Alpha ramps
                 // faster than the slide so full black lasts only a blink.
                 coroutineScope {
-                    launch { catalogSlideAlpha.animateTo(1f, tween(300, easing = androidx.compose.animation.core.LinearEasing)) }
-                    launch { catalogSlideOffset.animateTo(0f, tween(450, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
-                    launch { backdropParallaxOffset.animateTo(0f, tween(450, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+                    launch { catalogSlideAlpha.animateTo(1f, tween(250, easing = androidx.compose.animation.core.LinearEasing)) }
+                    launch { catalogSlideOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+                    launch { backdropParallaxOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
                 }
             } finally {
                 ghostVisible = false
