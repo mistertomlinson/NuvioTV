@@ -370,6 +370,7 @@ internal fun HeroTitleBlock(
     portraitMode: Boolean,
     selectedPlatformId: String = "home",
     platformNavDirection: Int = 0,
+    platformTransitionSnap: Boolean = false,
     fullWidthIconRowEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -397,7 +398,13 @@ internal fun HeroTitleBlock(
         AnimatedContent(
             targetState = selectedPlatformId,
             transitionSpec = {
-                if (platformNavDirection != 0) {
+                if (platformTransitionSnap) {
+                    // Platform flip happens behind the black beat of the ghost
+                    // transition — the swap must be instantaneous. Any fade here
+                    // outlives the (very short) black window and shows the old
+                    // logo for a frame as the screen fades back in.
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0)) using null
+                } else if (platformNavDirection != 0) {
                     val dir = platformNavDirection
                     val inOffset: (Int) -> Int = if (dir > 0) ({ slideDistancePx }) else ({ -slideDistancePx })
                     val outOffset: (Int) -> Int = if (dir > 0) ({ -slideDistancePx }) else ({ slideDistancePx })

@@ -371,11 +371,9 @@ private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
 internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     if (startupGracePeriodActive) return
     if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) {
-        Log.d("NuvioEnrich", "[FOCUS] ${item.name} — already enriched, skipping")
         return
     }
     if (pendingTmdbEnrichItemId == item.id) {
-        Log.d("NuvioEnrich", "[FOCUS] ${item.name} — already pending, skipping")
         return
     }
 
@@ -388,32 +386,27 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     if (willEnrich) setEnrichingItemId(item.id)
 
     val focusTimeMs = System.currentTimeMillis()
-    Log.d("NuvioEnrich", "[FOCUS] ${item.name} (${item.id}) — focus received, debounce=${HomeViewModel.EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS}ms")
 
     pendingTmdbEnrichItemId = item.id
     tmdbEnrichFocusJob?.cancel()
     tmdbEnrichFocusJob = viewModelScope.launch(Dispatchers.IO) {
         delay(HomeViewModel.EXTERNAL_META_PREFETCH_FOCUS_DEBOUNCE_MS)
         if (pendingTmdbEnrichItemId != item.id) {
-            Log.d("NuvioEnrich", "[FOCUS] ${item.name} — cancelled during debounce (focus moved)")
             if (_enrichingItemId.value == item.id) setEnrichingItemId(null)
             return@launch
         }
         if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) {
-            Log.d("NuvioEnrich", "[FOCUS] ${item.name} — already enriched after debounce, skipping")
             if (_enrichingItemId.value == item.id) setEnrichingItemId(null)
             return@launch
         }
 
         val afterDebounceMs = System.currentTimeMillis() - focusTimeMs
-        Log.d("NuvioEnrich", "[FOCUS] ${item.name} — debounce cleared at +${afterDebounceMs}ms, starting network")
 
         try {
             var tmdbEnriched = false
             if (currentTmdbSettings.enabled) {
                 val t1 = System.currentTimeMillis()
                 val tmdbId = runCatching { tmdbService.ensureTmdbId(item.id, item.apiType) }.getOrNull()
-                Log.d("NuvioEnrich", "[FOCUS] ${item.name} — ensureTmdbId=${tmdbId} at +${System.currentTimeMillis() - focusTimeMs}ms (took ${System.currentTimeMillis() - t1}ms)")
                 val enrichment = if (tmdbId != null) {
                     val t2 = System.currentTimeMillis()
                     val result = runCatching {
@@ -423,17 +416,14 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
                             language = currentTmdbSettings.language
                         )
                     }.getOrNull()
-                    Log.d("NuvioEnrich", "[FOCUS] ${item.name} — fetchEnrichment=${result != null} at +${System.currentTimeMillis() - focusTimeMs}ms (took ${System.currentTimeMillis() - t2}ms)")
                     result
                 } else null
                 if (enrichment != null) {
                     prefetchedTmdbIds.add(item.id)
                     prefetchedExternalMetaIds.add(item.id)
                     updateCatalogItemWithTmdb(item.id, enrichment)
-                    Log.d("NuvioEnrich", "[FOCUS] ${item.name} — UI updated at +${System.currentTimeMillis() - focusTimeMs}ms total")
                     tmdbEnriched = true
                 } else {
-                    Log.d("NuvioEnrich", "[FOCUS] ${item.name} — enrichment null/failed at +${System.currentTimeMillis() - focusTimeMs}ms")
                 }
             }
             if (!tmdbEnriched && externalMetaPrefetchEnabled &&
@@ -561,12 +551,10 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
         return merged
     }
 
-    Log.d("NuvioEnrich", "[BADGE] updateCatalogItemWithTmdb called for $itemId ageRating=${enrichment.ageRating} status=${enrichment.status}")
     // Log current state of this item across all catalog rows before writing
     synchronized(catalogsMap) { catalogsMap.forEach { (key, row) ->
         val existing = row.items.firstOrNull { it.id == itemId }
         if (existing != null) {
-            Log.d("NuvioEnrich", "[BADGE] PRE-WRITE key=$key existing ageRating=${existing.ageRating}")
         }
     } }
     var wroteToMap = false
@@ -580,15 +568,12 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 catalogsMap[key] = row.copy(items = mutableItems)
                 truncatedRowCache.remove(key)
                 wroteToMap = true
-                Log.d("NuvioEnrich", "[BADGE] wrote to catalogsMap key=$key ageRating=${merged.ageRating} status=${merged.status}")
             } else {
-                Log.d("NuvioEnrich", "[BADGE] no change for key=$key (ageRating already=${row.items[idx].ageRating} status=${row.items[idx].status})")
             }
         }
     }
     } // end synchronized
     enrichmentCache[itemId] = enrichment
-    if (!wroteToMap) Log.w("NuvioEnrich", "[BADGE] item $itemId NOT FOUND in catalogsMap — writing to enrichmentCache only")
 
     _uiState.update { state ->
         var changed = false
@@ -598,18 +583,15 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
             else {
                 val mergedItem = mergeItem(row.items[idx])
                 if (mergedItem == row.items[idx]) {
-                    Log.d("NuvioEnrich", "[BADGE] uiState row already has ageRating=${row.items[idx].ageRating} for $itemId — no uiState change needed")
                     row
                 } else {
                     changed = true
-                    Log.d("NuvioEnrich", "[BADGE] uiState updated for $itemId ageRating=${mergedItem.ageRating} status=${mergedItem.status}")
                     val mutableItems = row.items.toMutableList()
                     mutableItems[idx] = mergedItem
                     row.copy(items = mutableItems)
                 }
             }
         }
-        if (!changed) Log.w("NuvioEnrich", "[BADGE] uiState.catalogRows did NOT change for $itemId — item may not be in catalogRows yet")
         if (changed) state.copy(catalogRows = updatedRows) else state
     }
     // catalogsMap is already updated inline above; future pipeline runs will

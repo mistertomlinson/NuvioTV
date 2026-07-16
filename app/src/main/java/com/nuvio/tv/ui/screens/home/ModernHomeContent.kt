@@ -1524,7 +1524,6 @@ fun ModernHomeContent(
                         coil.Coil.imageLoader(context).execute(preloadRequest)
                     }
                 }
-                android.util.Log.d("NuvioTransition", "preload wait=${android.os.SystemClock.elapsedRealtime() - preloadWaitStart}ms platform=$target")
                 // CROSSFADE — ghost (old content) slides out and fades on top while
                 // live (new content) slides in and fades up underneath. Same
                 // duration, same velocity, same direction: a continuous sliding

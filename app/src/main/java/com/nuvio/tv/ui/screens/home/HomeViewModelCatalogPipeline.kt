@@ -44,7 +44,6 @@ internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
 }
 
 internal fun HomeViewModel.scheduleCatalogPipeline(addons: List<Addon>, forceReload: Boolean = false) {
-    android.util.Log.e("NuvioCache", "scheduleCatalogPipeline EMIT addons=${addons.size} force=$forceReload thread=${Thread.currentThread().name} stack=${Thread.currentThread().stackTrace.drop(3).take(4).joinToString("|") { it.methodName }}")
     catalogReloadTrigger.tryEmit(addons to forceReload)
 }
 
@@ -141,13 +140,10 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     addons: List<Addon>,
     forceReload: Boolean = false
 ) {
-android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} force=$forceReload ts=${System.currentTimeMillis()}")
     if (!isActiveInstance) {
-        android.util.Log.e("NuvioCache", "loadAllCatalogsPipeline SKIPPED stale instance=${System.identityHashCode(this)}")
         return
     }
     if (!forceReload && catalogsLoadInProgress) {
-        android.util.Log.e("NuvioCache", "loadAllCatalogsPipeline SKIPPED already in progress")
         return
     }
     catalogPipelineMutex.withLock {
@@ -164,7 +160,6 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
     catalogLoadGeneration += 1
     val generation = catalogLoadGeneration
     cancelInFlightCatalogLoads()
-    android.util.Log.e("NuvioCache", "loadAllCatalogsPipeline START generation=$generation force=$forceReload addons=${addons.size}")
 
     _uiState.update { it.copy(isLoading = true, error = null, installedAddonsCount = addons.size) }
     pendingPlatformCatalogKeys.clear()
@@ -237,7 +232,6 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
             val restored = homeEnrichmentDiskCache.loadAll()
             if (restored.isNotEmpty()) {
                 enrichmentCache.putAll(restored)
-                android.util.Log.d("NuvioEnrich", "[PROACTIVE] restored ${restored.size} enrichment entries from disk")
             }
         } finally {
             enrichmentRestoreComplete = true
@@ -269,13 +263,10 @@ android.util.Log.d("NuvioTiming", "Catalog load START addons=${addons.size} forc
         // Load persisted catalog rows from disk and show immediately while network fetches run
         val profileId = profileManager.activeProfileId.value
         val diskCached = catalogRepository.loadCatalogsFromDisk(profileId)
-        android.util.Log.e("NuvioCache", "loadCatalogsFromDisk returned ${diskCached.size} entries for profile $profileId")
         if (diskCached.isNotEmpty()) {
             diskCached.forEach { (key, row) -> catalogsMap[key] = row }
             diskCacheRestored = true
-            android.util.Log.e("NuvioCache", "catalogsMap now has ${catalogsMap.size} rows, catalogOrder has ${catalogOrder.size} keys after disk restore")
             val matchedKeys = diskCached.keys.count { it in catalogOrder }
-            android.util.Log.e("NuvioCache", "disk cache keys matching catalogOrder: $matchedKeys / ${diskCached.size}")
             // Show cached rows immediately and hide spinner — network fetches refresh in background
             _uiState.update { it.copy(isLoading = false) }
             updateCatalogRowsPipeline()
@@ -398,7 +389,6 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         val preEnriched = existingRow?.items?.count { it.ageRating != null } ?: 0
                         val postEnriched = mergedRow.items.count { it.ageRating != null }
                         if (preEnriched > 0) {
-                            android.util.Log.w("NuvioEnrich", "[RELOAD] key=$key pre-enriched=$preEnriched post-enriched=$postEnriched")
                         }
                         catalogsMap[key] = mergedRow
                         // Auto-detect addon-signaled landscape rows: if the majority of
@@ -463,7 +453,6 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         val stomped2 = mergedRow.items.filter { it.ageRating == null }
                         val had = existingRow?.items?.filter { it.ageRating != null } ?: emptyList()
                         if (had.isNotEmpty() && stomped2.any { item -> had.any { it.id == item.id } }) {
-                            android.util.Log.w("NuvioEnrich", "[STOMP2] after merge, ${had.size} enriched items still lost ageRating in key=$key")
                         }
                         if (!hasCountedCompletion) {
                             pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
@@ -479,7 +468,6 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         )
                         if (pendingCatalogLoads == 0) {
                             catalogsLoadInProgress = false
-                            android.util.Log.d("NuvioTiming", "Catalog load COMPLETE rows=${catalogsMap.size} ts=${System.currentTimeMillis()}")
                             val saveProfileId = profileManager.activeProfileId.value
                             viewModelScope.launch {
                                 // Small delay to let the final scheduleUpdateCatalogRows settle
@@ -1006,7 +994,6 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             .filter { it.id !in prefetchedTmdbIds && it.id !in enrichmentCache }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
         val myListItemIds = myListItems.map { it.id }.toSet()
-        android.util.Log.d("NuvioEnrich", "[PROACTIVE] pipeline run: ${displayRows.size} rows, ${displayRows.flatMap { it.items }.distinctBy { it.id }.size} total items, ${allItems.size} need enrichment")
         if (allItems.isNotEmpty()) {
             val tmdbSettingsSnapshot = currentTmdbSettings
             // Split first row items for priority enrichment vs rest for background batch

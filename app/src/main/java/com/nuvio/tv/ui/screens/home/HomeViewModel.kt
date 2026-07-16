@@ -266,7 +266,6 @@ class HomeViewModel @Inject constructor(
         get() = trailerPreviewAudioUrlsState
 
     init {
-        android.util.Log.e("NuvioCache", "HomeViewModel INIT instance=${System.identityHashCode(this)}")
         homeViewModelActiveInstanceId = instanceId
         observeStartupAuthNotice()
         viewModelScope.launch {
@@ -356,11 +355,9 @@ class HomeViewModel @Inject constructor(
             loadContinueWatching()
             observeInstalledAddons()
             launch {
-                android.util.Log.e("NuvioCache", "catalogReloadTrigger collector STARTED thread=${Thread.currentThread().name}")
                 catalogReloadTrigger
                     .debounce(300)
                     .collect { (addons, force) ->
-                        android.util.Log.e("NuvioCache", "catalogReloadTrigger FIRED addons=${addons.size} force=$force")
                         loadAllCatalogsPipeline(addons, force)
                     }
             }
@@ -1106,7 +1103,6 @@ class HomeViewModel @Inject constructor(
     }
 
     override fun onCleared() {
-        android.util.Log.e("NuvioCache", "HomeViewModel CLEARED instance=${System.identityHashCode(this)}")
         if (homeViewModelActiveInstanceId == System.identityHashCode(this)) homeViewModelActiveInstanceId = -1
         startupAuthNoticeJob?.cancel()
         posterStatusReconcileJob?.cancel()
