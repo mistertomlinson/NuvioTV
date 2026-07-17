@@ -370,10 +370,11 @@ internal fun ModernRowSection(
         LaunchedEffect(row.key) {
             snapshotFlow { Triple(pendingRowFocus.nonce, pendingRowFocus.key, pendingRowFocus.index) }
                 .collect { (_, pendingKey, pendingIndex) ->
+            val liveItems = currentRowState.value.items
             if (pendingKey != row.key) return@collect
             val targetIndex = (pendingIndex ?: 0)
-                .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-            val targetItemKey = row.items.getOrNull(targetIndex)?.key ?: return@collect
+                .coerceIn(0, (liveItems.size - 1).coerceAtLeast(0))
+            val targetItemKey = liveItems.getOrNull(targetIndex)?.key ?: return@collect
             val requester = uiCaches.requesterFor(row.key, targetItemKey)
             var didFocus = false
             var didScrollToTarget = false
@@ -396,8 +397,8 @@ internal fun ModernRowSection(
             }
             if (!didFocus) {
                 val fallbackIndex = rowListState.firstVisibleItemIndex
-                    .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-                val fallbackItemKey = row.items.getOrNull(fallbackIndex)?.key
+                    .coerceIn(0, (liveItems.size - 1).coerceAtLeast(0))
+                val fallbackItemKey = liveItems.getOrNull(fallbackIndex)?.key
                 didFocus = runCatching {
                     if (fallbackItemKey != null) {
                         uiCaches.requesterFor(row.key, fallbackItemKey).requestFocus()
