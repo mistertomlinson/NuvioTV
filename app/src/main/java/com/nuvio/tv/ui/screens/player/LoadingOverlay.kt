@@ -31,6 +31,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
@@ -174,14 +175,71 @@ private fun LoadingOverlayLogo(
             contentScale = ContentScale.Fit
         )
     } else if (!title.isNullOrBlank()) {
+        // Null-logo text. Line breaks MUST match the landscape poster's null-logo:
+        // breaks are determined by the width-to-fontsize ratio, so we run the fit
+        // at the poster's actual title-box geometry (same constants as
+        // ModernHomeRows: width = cardWidth*0.65-20dp scaled by 0.92, height =
+        // cardHeight*0.40*0.92, cardWidth = portraitBase*1.24*1.34), then render
+        // the result scaled up into the overlay's 320dp box — same breaks, larger.
+        // Rendered with Compose Text (not AndroidView): a native TextView under an
+        // animated graphicsLayer scale re-rasterizes per-glyph and wiggles.
+        val ctx = LocalContext.current
+        val density = androidx.compose.ui.platform.LocalDensity.current
+        val configuration = androidx.compose.ui.platform.LocalConfiguration.current
+        val caslonFamily = remember(ctx) { com.nuvio.tv.ui.theme.buildCaslonFamily(ctx) }
+        val overlayCaslonTypeface = remember(ctx) {
+            android.graphics.Typeface.Builder(ctx.assets, "fonts/caslon_regular.ttf")
+                .setFontVariationSettings("'wght' 300")
+                .setWeight(300)
+                .build()
+        }
+        // Reference geometry: the landscape poster's title box.
+        val posterCardWidth = remember(configuration) {
+            (configuration.screenWidthDp.dp / 6.4f) * 1.24f * 1.34f
+        }
+        val posterCardHeight = posterCardWidth * (9f / 16f)
+        val refWidthPx = with(density) { ((posterCardWidth * 0.65f) - 20.dp).toPx() * 0.92f }
+        val refHeightPx = with(density) { (posterCardHeight * 0.40f).toPx() } * 0.92f
+        val refBaseSizePx = with(density) { MaterialTheme.typography.titleMedium.fontSize.toPx() }
+        val fitted = remember(title, refWidthPx, refHeightPx) {
+            val paint = android.text.TextPaint().apply {
+                typeface = overlayCaslonTypeface
+                isAntiAlias = true
+            }
+            var size = refBaseSizePx
+            val minSize = refBaseSizePx * 0.15f
+            val widthI = refWidthPx.toInt().coerceAtLeast(1)
+            while (size > minSize) {
+                paint.textSize = size
+                val layout = android.text.StaticLayout.Builder
+                    .obtain(title, 0, title.length, paint, widthI)
+                    .setLineSpacing(0f, 0.9f)
+                    .setIncludePad(false)
+                    .setMaxLines(3)
+                    .setEllipsize(null)
+                    .build()
+                val fits = layout.lineCount <= 3 && layout.height <= refHeightPx.toInt()
+                val noOverflow = (0 until layout.lineCount).none { layout.getEllipsisCount(it) > 0 }
+                if (fits && noOverflow) break
+                size -= refBaseSizePx * 0.04f
+            }
+            size.coerceAtLeast(minSize)
+        }
+        // Scale reference fit up into the overlay box.
+        val overlayWidthPx = with(density) { 320.dp.toPx() }
+        val renderScale = overlayWidthPx / refWidthPx
+        val overlayFontSp = with(density) { (fitted * renderScale).toSp() }
         Text(
             text = title,
-            style = MaterialTheme.typography.headlineMedium,
+            fontFamily = caslonFamily,
+            fontWeight = FontWeight.Light,
+            fontSize = overlayFontSp,
+            lineHeight = overlayFontSp * 1.08f,
             color = Color.White,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = 3,
             modifier = Modifier
-                .padding(horizontal = 24.dp)
+                .width(320.dp)
                 .graphicsLayer {
                     alpha = logoAlpha
                     scaleX = logoScale
