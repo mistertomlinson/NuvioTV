@@ -177,6 +177,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     sourceSets {
@@ -203,6 +204,14 @@ android {
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
         variant.applicationId.set("com.nuviodebug.com")
+    }
+    onVariants(selector().all()) { variant ->
+        variant.resValues.put(
+            variant.makeResValueKey("string", "global_search_authority"),
+            variant.applicationId.map { appId ->
+                com.android.build.api.variant.ResValue(appId + ".globalsearch")
+            }
+        )
     }
 }
 
