@@ -77,6 +77,7 @@ fun StreamingPlatformCarousel(
     onCarouselFocusChanged: (Boolean) -> Unit,
     onPlatformSelected: (String) -> Unit,
     onNavigationDirection: (Int) -> Unit = {},
+    onDpadHeldChanged: (Boolean) -> Unit = {},
     focusRequester: FocusRequester,
     fullWidthMode: Boolean = false,
     dimOnRowExit: Boolean = false,
@@ -208,6 +209,7 @@ fun StreamingPlatformCarousel(
                         Key.DirectionRight -> {
                             if (event.nativeKeyEvent.repeatCount == 0) {
                                 holdScrollJob?.cancel()
+                                onDpadHeldChanged(true)
                                 // Move immediately on press
                                 val first = (focusedIndex + 1).coerceAtMost(activePlatforms.size - 1)
                                 if (first != focusedIndex) {
@@ -236,6 +238,7 @@ fun StreamingPlatformCarousel(
                         Key.DirectionLeft -> {
                             if (event.nativeKeyEvent.repeatCount == 0) {
                                 holdScrollJob?.cancel()
+                                onDpadHeldChanged(true)
                                 // Move immediately on press
                                 val first = (focusedIndex - 1).coerceAtLeast(0)
                                 if (first != focusedIndex) {
@@ -278,6 +281,7 @@ fun StreamingPlatformCarousel(
                 } else if (event.type == KeyEventType.KeyUp) {
                     holdScrollJob?.cancel()
                     holdScrollJob = null
+                    onDpadHeldChanged(false)
                     if (!holdDidMove) {
                         when (event.key) {
                             Key.DirectionRight -> {

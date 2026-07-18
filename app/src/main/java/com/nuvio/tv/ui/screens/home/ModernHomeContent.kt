@@ -167,6 +167,7 @@ fun ModernHomeContent(
     isCarouselFocused: Boolean = false,
     onHeroTrailerPlayingChanged: (Boolean) -> Unit = {},
     platformNavDirection: Int = 0,
+    isPlatformDpadHeld: () -> Boolean = { false },
     onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
@@ -1314,11 +1315,16 @@ fun ModernHomeContent(
                     }
                     val hBmp = heroGhostBitmap
                     if (ghostVisible && hBmp != null) {
+                        // Full alpha: fading each ghost layer independently
+                        // weakens the scrim's dimming mid-fade (a*g instead of g)
+                        // and brightens the gradient region. Instead both ghosts
+                        // stay pixel-correct and a black overlay in the catalog
+                        // node (topmost) performs the fade-to-black.
                         drawImage(
                             image = hBmp,
                             dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostParallax.value), 0),
                             dstSize = androidx.compose.ui.unit.IntSize(hBmp.width, hBmp.height),
-                            alpha = ghostAlpha.value,
+                            alpha = 1f,
                             filterQuality = androidx.compose.ui.graphics.FilterQuality.None
                         )
                     }
@@ -1358,7 +1364,14 @@ fun ModernHomeContent(
             allowLetterboxing = uiState.heroTrailerAllowLetterboxing,
             trailerTransitionProgress = heroGradientProgress,
             modifier = heroMediaModifier.graphicsLayer {
-                translationX = backdropParallaxOffset.value
+                // Freeze while ghosts are showing: the flip snaps
+                // backdropParallaxOffset to the enter position under the ghost,
+                // and this live (uncaptured) layer teleporting over the frozen
+                // bitmaps caused a 2-4 frame bright/dark step in the scrim
+                // region at exit start (sign flips with direction). Hold at the
+                // captured rest position until BLACK-END, then adopt the enter
+                // offset invisibly at black.
+                translationX = if (ghostVisible) 0f else backdropParallaxOffset.value
             },
             cinematicMode = cinematicHeroMode,
             shouldPlayHeroTrailer = shouldPlayHeroTrailer
@@ -1446,15 +1459,73 @@ fun ModernHomeContent(
 
         // Shared transition logic — used by both fast and debounced modes.
         val latestHeroBackdrop by rememberUpdatedState(heroBackdrop)
+        // Preload the incoming platform's hero backdrop while old content is
+        // still on screen so the at-black wait is a memory-cache hit and the
+        // black gap stays ~1 frame cold, warm, and after idle.
+        val transitionPreloadScope = androidx.compose.runtime.rememberCoroutineScope()
+        fun incomingBackdropUrl(target: String): String? = uiState.catalogRows
+            .firstOrNull { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == target }
+            ?.items?.firstOrNull()
+            ?.let { firstNonBlank(it.backdropUrl, it.landscapePoster, it.poster) }
+        suspend fun preloadBackdrop(url: String?) {
+            if (url.isNullOrBlank() || heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return
+            val request = coil.request.ImageRequest.Builder(context)
+                .data(url)
+                .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
+                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                .build()
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                coil.Coil.imageLoader(context).execute(request)
+            }
+        }
         suspend fun runTransition(
-            finalTarget: String,
-            settleAtBlack: (suspend (String) -> String)? = null
+            initialTarget: String,
+            pollRetarget: (() -> String?)? = null
         ) {
-            var target = finalTarget
+            val originPlatform = catalogDisplayedPlatformId
             val safeParallaxMax = screenWidthPx * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f
             val navDir = platformNavDirectionRef.get()
             val exitDir = if (navDir >= 0) -1f else 1f
             val enterDir = -exitDir
+            var preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(initialTarget)) }
+
+            // QUIET GATE — no heavy work while presses are arriving, so the
+            // platform icon focus animation never fights recomposition. Waits
+            // for 150ms without a new press, conflating to the latest target.
+            // Tunables for the quiet gate.
+            val quietFirstMs = 250L      // single deliberate press
+            val quietEscalatedMs = 400L  // once scrubbing is detected
+            suspend fun awaitQuiet(from: String): String {
+                var latest = from
+                if (pollRetarget == null) return latest
+                var quietMs = quietFirstMs
+                var lastActivity = android.os.SystemClock.elapsedRealtime()
+                while (true) {
+                    kotlinx.coroutines.delay(50L)
+                    val next = pollRetarget()
+                    if (next != null) {
+                        if (next != latest) {
+                            preloadJob.cancel()
+                            preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(next)) }
+                            latest = next
+                        }
+                        lastActivity = android.os.SystemClock.elapsedRealtime()
+                        quietMs = quietEscalatedMs
+                        continue
+                    }
+                    if (android.os.SystemClock.elapsedRealtime() - lastActivity < quietMs) continue
+                    // Physical key still down (e.g. inside the 250ms pre-repeat
+                    // window of a hold): not quiet, keep waiting.
+                    if (isPlatformDpadHeld()) continue
+                    return latest
+                }
+            }
+            var target = awaitQuiet(initialTarget)
+            if (target == originPlatform) {
+                // Scrubbed back to the starting platform before any work began:
+                // nothing was captured or flipped — nothing to do.
+                return
+            }
             try {
                 // CAPTURE — record the outgoing hero backdrop + catalog block into
                 // ghost GraphicsLayers. Two frames so the draw pass that performs
@@ -1462,78 +1533,77 @@ fun ModernHomeContent(
                 ghostCaptureTick += 1
                 withFrameNanos {}
                 withFrameNanos {}
-                // Rasterize the recorded layers to pixels NOW, while the live
-                // content is still the old platform at full alpha. Bitmaps are
-                // immune to the recomposition/alpha changes that follow.
                 heroGhostBitmap = heroGhostLayer.toImageBitmap()
                 catalogGhostBitmap = catalogGhostLayer.toImageBitmap()
                 ghostAlpha.snapTo(1f)
                 ghostOffset.snapTo(0f)
                 ghostParallax.snapTo(0f)
                 ghostVisible = true
-                // Only NOW flip the transitioning flag: it snaps the live backdrop
-                // crossfade duration to 0, which caused a visible brightness pop
-                // when set while the live screen was still showing. The ghost now
-                // covers the screen, so the snap is invisible.
                 isPlatformTransitioning = true
-                // EXIT FIRST — ghost slides and fades to black while only cheap
-                // animation work runs (keeps the icon selector animation smooth).
-                coroutineScope {
-                    launch { ghostAlpha.animateTo(0f, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                    launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                    launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                }
-                // Screen is black now: hide the ghost and park the live content
-                // invisible at the enter position BEFORE the heavy flip, so the
-                // recomposition stutter happens entirely at black.
-                catalogSlideAlpha.snapTo(0f)
-                ghostVisible = false
-                // FLIP — swap live content underneath the ghost. Live starts fully
-                // transparent at the enter position; the ghost still shows the old
-                // platform at rest, so the heavy recomposition is invisible.
-                // Screen is dark. Fast mode parks here while presses continue,
-                // conflating to the latest target before committing the flip.
-                settleAtBlack?.let { target = it(target) }
-                val incomingRows = uiState.catalogRows
-                    .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == target }
 
-                displayedPlatformId = target
-                catalogDisplayedPlatformId = target
-                catalogSlideAlpha.snapTo(0f)
-                catalogSlideOffset.snapTo(enterDir * catalogSlideTravelPx)
-                backdropParallaxOffset.snapTo(enterDir * safeParallaxMax)
-                incomingRows.forEachIndexed { index, row ->
-                    val firstItem = row.items.firstOrNull() ?: return@forEachIndexed
-                    if (index == 0) onItemFocus(firstItem)
-                    else onPreloadAdjacentItem(firstItem)
-                }
-                // Wait for the incoming backdrop to be in Coil at the exact size the
-                // renderer will request. The ghost covers the screen with the old
-                // platform during this wait — no black frame. Bounded at 2s.
-                withFrameNanos {}
-                withFrameNanos {}
-                val preloadWaitStart = android.os.SystemClock.elapsedRealtime()
-                val backdropUrl = latestHeroBackdrop
-                if (backdropUrl != null) {
-                    val preloadRequest = coil.request.ImageRequest.Builder(context)
-                        .data(backdropUrl)
-                        .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
-                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                        .build()
-                    kotlinx.coroutines.withTimeoutOrNull(2_000L) {
-                        coil.Coil.imageLoader(context).execute(preloadRequest)
+                // FLIP UNDER GHOST — the ghost bitmaps replace the live draw, so
+                // the heavy recomposition of the incoming platform runs behind
+                // the static old platform: never at black, never during presses.
+                suspend fun flipTo(flipTarget: String) {
+                    val incomingRows = uiState.catalogRows
+                        .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == flipTarget }
+                    displayedPlatformId = flipTarget
+                    catalogDisplayedPlatformId = flipTarget
+                    catalogSlideAlpha.snapTo(0f)
+                    catalogSlideOffset.snapTo(enterDir * catalogSlideTravelPx)
+                    backdropParallaxOffset.snapTo(enterDir * safeParallaxMax)
+                    incomingRows.forEachIndexed { index, row ->
+                        val firstItem = row.items.firstOrNull() ?: return@forEachIndexed
+                        if (index == 0) onItemFocus(firstItem)
+                        else onPreloadAdjacentItem(firstItem)
                     }
+                    // Let recomposition + first (invisible) draw complete.
+                    withFrameNanos {}
+                    withFrameNanos {}
                 }
-                // CROSSFADE — ghost (old content) slides out and fades on top while
-                // live (new content) slides in and fades up underneath. Same
-                // duration, same velocity, same direction: a continuous sliding
-                // crossfade with no fade-to-black.
-                // ENTER — new content slides in decelerating to a stop. Alpha ramps
-                // faster than the slide so full black lasts only a blink.
-                coroutineScope {
-                    launch { catalogSlideAlpha.animateTo(1f, tween(250, easing = androidx.compose.animation.core.LinearEasing)) }
-                    launch { catalogSlideOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
-                    launch { backdropParallaxOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+                flipTo(target)
+                preloadJob.join()
+                preloadBackdrop(latestHeroBackdrop)
+
+                // STRAGGLERS — presses that arrived during the flip re-enter the
+                // quiet gate, then re-flip invisibly under the ghost.
+                var straggler = pollRetarget?.invoke()
+                while (straggler != null) {
+                    val settled = awaitQuiet(straggler)
+                    if (settled != target) {
+                        preloadJob.cancel()
+                        preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(settled)) }
+                        flipTo(settled)
+                        target = settled
+                        preloadJob.join()
+                        preloadBackdrop(latestHeroBackdrop)
+                    }
+                    straggler = pollRetarget?.invoke()
+                }
+
+                if (target == originPlatform) {
+                    // Scrubbed back after flipping away: restore the origin
+                    // content under the ghost, then drop the ghost with no
+                    // animation — visually nothing ever happened.
+                    flipTo(originPlatform)
+                    catalogSlideAlpha.snapTo(1f)
+                    catalogSlideOffset.snapTo(0f)
+                    backdropParallaxOffset.snapTo(0f)
+                } else {
+                    // EXIT — ghost slides and fades to black. All heavy work is
+                    // done, so the black that follows is only the swap (~1 frame).
+                    coroutineScope {
+                        launch { ghostAlpha.animateTo(0f, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                        launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                        launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                    }
+                    ghostVisible = false
+                    // ENTER — new content slides in decelerating to a stop.
+                    coroutineScope {
+                        launch { catalogSlideAlpha.animateTo(1f, tween(250, easing = androidx.compose.animation.core.LinearEasing)) }
+                        launch { catalogSlideOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+                        launch { backdropParallaxOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+                    }
                 }
             } finally {
                 ghostVisible = false
@@ -1550,7 +1620,6 @@ fun ModernHomeContent(
                 heroItemRowKey = currentRow.key
             }
         }
-
         // Press handling — two modes, restored to original semantics:
         // - Debounced (fast scroll OFF): every press waits for a 300ms quiet
         //   window; one uninterruptible transition per settled destination.
@@ -1569,22 +1638,13 @@ fun ModernHomeContent(
             LaunchedEffect(aggregatePlatformsEnabled) {
                 while (true) {
                     val targetId = fastChannel.receive()
+                    transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(targetId)) }
                     if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
                         displayedPlatformId = targetId
                         catalogDisplayedPlatformId = targetId
                         continue
                     }
-                    runTransition(targetId) { current ->
-                        var latest = current
-                        var settled = false
-                        while (!settled) {
-                            kotlinx.coroutines.delay(300L)
-                            val next = fastChannel.tryReceive()
-                            if (next.isSuccess) latest = next.getOrNull() ?: latest
-                            else settled = true
-                        }
-                        latest
-                    }
+                    runTransition(targetId) { fastChannel.tryReceive().getOrNull() }
                 }
             }
         } else {
@@ -1594,20 +1654,13 @@ fun ModernHomeContent(
             }
             LaunchedEffect(aggregatePlatformsEnabled) {
                 while (true) {
-                    var targetId = platformChannel.receive()
-                    var settled = false
-                    while (!settled) {
-                        kotlinx.coroutines.delay(300L)
-                        val next = platformChannel.tryReceive()
-                        if (next.isSuccess) targetId = next.getOrNull() ?: targetId
-                        else settled = true
-                    }
+                    val targetId = platformChannel.receive()
                     if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
                         displayedPlatformId = targetId
                         catalogDisplayedPlatformId = targetId
                         continue
                     }
-                    runTransition(targetId)
+                    runTransition(targetId) { platformChannel.tryReceive().getOrNull() }
                 }
             }
         }
@@ -1645,9 +1698,18 @@ fun ModernHomeContent(
                             image = cBmp,
                             dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostOffset.value), 0),
                             dstSize = androidx.compose.ui.unit.IntSize(cBmp.width, cBmp.height),
-                            alpha = ghostAlpha.value,
+                            alpha = 1f,
                             filterQuality = androidx.compose.ui.graphics.FilterQuality.None
                         )
+                        // Fade-to-black overlay: (1-f) * correct composite, no
+                        // mid-fade brightening. Icon row sits above this node.
+                        val fade = 1f - ghostAlpha.value
+                        if (fade > 0f) {
+                            drawRect(
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                alpha = fade.coerceIn(0f, 1f)
+                            )
+                        }
                     }
                 }
                 .graphicsLayer {
