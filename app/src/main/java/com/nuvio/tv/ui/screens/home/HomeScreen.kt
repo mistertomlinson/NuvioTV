@@ -250,7 +250,7 @@ fun HomeScreen(
                 Box(modifier = Modifier.fillMaxSize()) {
                 AnimatedVisibility(
                     visible = loaderPhase == 2,
-                        enter = fadeIn(animationSpec = tween(320))
+                        enter = fadeIn(animationSpec = tween(250))
                     ) {
                         when (uiState.homeLayout) {
                             HomeLayout.CLASSIC -> ClassicHomeRoute(
@@ -333,7 +333,7 @@ fun HomeScreen(
                 AnimatedVisibility(
                     visibleState = overlayState,
                     enter = fadeIn(animationSpec = tween(150)),
-                    exit = fadeOut(animationSpec = tween(450)),
+                    exit = fadeOut(animationSpec = tween(200)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(
@@ -567,6 +567,11 @@ private fun ModernHomeRoute(
     }
     var selectedPlatformId by remember { mutableStateOf(focusState.selectedPlatformId) }
     var platformNavDirection by remember { mutableStateOf(0) }
+    // Physical dpad state on the platform carousel: blocks the transition's
+    // quiet gate while a key is held. Timestamp refreshes on every hold move;
+    // 800ms staleness fallback means a swallowed KeyUp can never wedge it.
+    val platformDpadHeld = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    val platformDpadActivityAt = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     LaunchedEffect(platformNavDirection) {
         if (platformNavDirection != 0) {
             kotlinx.coroutines.delay(100)
@@ -661,6 +666,10 @@ private fun ModernHomeRoute(
         carouselGradientAlpha = carouselAlpha,
         onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it },
         platformNavDirection = platformNavDirection,
+        isPlatformDpadHeld = {
+            platformDpadHeld.get() &&
+                android.os.SystemClock.elapsedRealtime() - platformDpadActivityAt.get() < 800L
+        },
         isAtTop = isAtTop,
         onBackdropPreloadSizeKnown = { w, h -> viewModel.setBackdropPreloadSize(w, h) }
     )
@@ -678,6 +687,11 @@ private fun ModernHomeRoute(
         },
         onNavigationDirection = { dir ->
             platformNavDirection = dir
+            if (platformDpadHeld.get()) platformDpadActivityAt.set(android.os.SystemClock.elapsedRealtime())
+        },
+        onDpadHeldChanged = { held ->
+            platformDpadHeld.set(held)
+            if (held) platformDpadActivityAt.set(android.os.SystemClock.elapsedRealtime())
         },
         focusRequester = carouselFocusRequester,
         fullWidthMode = fullWidthIconRowEnabled,
