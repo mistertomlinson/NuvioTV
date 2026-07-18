@@ -8,6 +8,8 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
@@ -166,9 +168,9 @@ fun StreamingPlatformCarousel(
                 selectorWAnim.snapTo(selW)
             } else {
                 val dist = kotlin.math.abs(selectorXAnim.value - selX)
-                val dur = if (dist > 300f) 80 else 150
-                launch { selectorXAnim.animateTo(selX, tween(dur, easing = LinearEasing)) }
-                launch { selectorWAnim.animateTo(selW, tween(dur, easing = LinearEasing)) }
+                val dur = if (dist > 300f) 80 else 300
+                launch { selectorXAnim.animateTo(selX, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
+                launch { selectorWAnim.animateTo(selW, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
             }
         } else {
             val scroll = centeredScrollFor(focusedIndex)
@@ -178,10 +180,10 @@ fun StreamingPlatformCarousel(
                 selectorWAnim.snapTo(selW)
             } else {
                 val dist = kotlin.math.abs(selectorXAnim.value - selX)
-                val dur = if (dist > 300f) 80 else 150
-                launch { scrollState.animateScrollTo(scroll.roundToInt(), tween(dur, easing = LinearEasing)) }
-                launch { selectorXAnim.animateTo(selX, tween(dur, easing = LinearEasing)) }
-                launch { selectorWAnim.animateTo(selW, tween(dur, easing = LinearEasing)) }
+                val dur = if (dist > 300f) 80 else 300
+                launch { scrollState.animateScrollTo(scroll.roundToInt(), tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
+                launch { selectorXAnim.animateTo(selX, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
+                launch { selectorWAnim.animateTo(selW, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
             }
         }
     }

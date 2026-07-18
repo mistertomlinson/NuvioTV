@@ -30,6 +30,7 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -469,38 +470,56 @@ internal fun ModernRowSection(
             0.dp
         }
 
-        // Trigger one card early: when the 2nd-to-last item is visible, the padding
-        // is already at full size before focus ever reaches the last card.
-        val isNearRowEndVisible by remember(rowListState) {
-            derivedStateOf {
-                val info = rowListState.layoutInfo
-                val total = info.totalItemsCount
-                if (total == 0) false
-                else info.visibleItemsInfo.any { it.index >= total - 2 }
-            }
-        }
-
-        // End padding must be large enough to give the last card a full scroll travel:
-        // at minimum cardWidth + gap (12dp) so the LazyRow scrolls the same distance
-        // for the last card as for any other. Also keep enough room for the expanded
-        // card not to clip the viewport edge.
-        val fullTravelPadding = modernCatalogCardWidth + 12.dp
         // When platform parallax is active, the layout is measured wider by
         // catalogSlideDistancePx. Add equivalent dp to end padding so the expanded
         // card doesn't clip against the real screen edge.
         val parallaxExtraPadding = if (catalogSlideAnimatable != null) {
             with(density) { (screenWidthPx * 0.15f).toDp() }
         } else 0.dp
-        val endPaddingTarget = when {
-            !canExpand -> rowStartPadding + parallaxExtraPadding
-            isNearRowEndVisible -> maxOf(expansionDelta + 8.dp, fullTravelPadding) + parallaxExtraPadding
-            else -> expansionDelta + 20.dp + parallaxExtraPadding
-        }
+        // Resting end padding matches the non-expand margin: the last card sits
+        // near the screen edge like in non-autotrailer mode. Clip avoidance for
+        // end-of-row expansion is handled by the leftward overflow scroll below
+        // instead of reserved empty track.
+        val endPaddingTarget = rowStartPadding + parallaxExtraPadding
         val animatedEndPadding by animateDpAsState(
             targetValue = endPaddingTarget,
             animationSpec = tween(durationMillis = 200),
             label = "rowEndPadding_${row.key}"
         )
+
+        // Leftward expansion near the row end. Mid-row cards always have room
+        // (centered bring-into-view); clipping only occurs at the scroll-range
+        // limit. When the expanding card's right edge would pass the standard
+        // margin, scroll the row by exactly the overflow with the same default
+        // spring the width expansion uses — visually pushing the left neighbors
+        // left so the expanded card lands at the margin. Works for any card
+        // size: overflow is measured from live layout, never card counts. The
+        // scroll headroom grows in lockstep with the widening content (overflow
+        // <= expansionDelta), and collapse needs no manual scroll: LazyList
+        // clamps the offset frame-by-frame as the content shrinks back.
+        if (canExpand) {
+            androidx.compose.runtime.LaunchedEffect(expandedCatalogFocusKey) {
+                val key = expandedCatalogFocusKey ?: return@LaunchedEffect
+                val expandedItem = row.items.firstOrNull {
+                    (it.payload as? ModernPayload.Catalog)?.focusKey == key
+                } ?: return@LaunchedEffect
+                val info = rowListState.layoutInfo.visibleItemsInfo
+                    .firstOrNull { it.key == expandedItem.key } ?: return@LaunchedEffect
+                val expandedWidthPx = with(density) { (modernCatalogCardHeight * (16f / 9f)).roundToPx() }
+                val marginPx = with(density) { rowStartPadding.roundToPx() }
+                val viewportEnd = rowListState.layoutInfo.viewportEndOffset.toFloat().coerceAtMost(screenWidthPx)
+                val overflow = (info.offset + expandedWidthPx).toFloat() - (viewportEnd - marginPx)
+                if (overflow > 0f) {
+                    rowListState.animateScrollBy(
+                        overflow,
+                        androidx.compose.animation.core.spring(
+                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
+                        )
+                    )
+                }
+            }
+        }
 
         val useCenteredScroll = effectiveExpandEnabled && trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
         val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, useCenteredScroll, screenWidthPx) {
