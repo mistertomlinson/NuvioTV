@@ -30,7 +30,7 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -113,6 +113,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
+
+// Single-clock anchored expansion channel: for end-of-row (right-edge
+// anchored) expansion the row drives the expanded card's width per animation
+// frame; the card consumes it in place of its own width spring so width and
+// scroll position land in the same measure pass. Null = card animates itself
+// (mid-row expansion, or feature idle).
+private val LocalAnchoredExpandSink =
+    androidx.compose.runtime.compositionLocalOf<androidx.compose.runtime.State<((Float) -> Unit)?>> {
+        androidx.compose.runtime.mutableStateOf(null)
+    }
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -487,39 +497,6 @@ internal fun ModernRowSection(
             label = "rowEndPadding_${row.key}"
         )
 
-        // Leftward expansion near the row end. Mid-row cards always have room
-        // (centered bring-into-view); clipping only occurs at the scroll-range
-        // limit. When the expanding card's right edge would pass the standard
-        // margin, scroll the row by exactly the overflow with the same default
-        // spring the width expansion uses — visually pushing the left neighbors
-        // left so the expanded card lands at the margin. Works for any card
-        // size: overflow is measured from live layout, never card counts. The
-        // scroll headroom grows in lockstep with the widening content (overflow
-        // <= expansionDelta), and collapse needs no manual scroll: LazyList
-        // clamps the offset frame-by-frame as the content shrinks back.
-        if (canExpand) {
-            androidx.compose.runtime.LaunchedEffect(expandedCatalogFocusKey) {
-                val key = expandedCatalogFocusKey ?: return@LaunchedEffect
-                val expandedItem = row.items.firstOrNull {
-                    (it.payload as? ModernPayload.Catalog)?.focusKey == key
-                } ?: return@LaunchedEffect
-                val info = rowListState.layoutInfo.visibleItemsInfo
-                    .firstOrNull { it.key == expandedItem.key } ?: return@LaunchedEffect
-                val expandedWidthPx = with(density) { (modernCatalogCardHeight * (16f / 9f)).roundToPx() }
-                val marginPx = with(density) { rowStartPadding.roundToPx() }
-                val viewportEnd = rowListState.layoutInfo.viewportEndOffset.toFloat().coerceAtMost(screenWidthPx)
-                val overflow = (info.offset + expandedWidthPx).toFloat() - (viewportEnd - marginPx)
-                if (overflow > 0f) {
-                    rowListState.animateScrollBy(
-                        overflow,
-                        androidx.compose.animation.core.spring(
-                            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                            stiffness = androidx.compose.animation.core.Spring.StiffnessMedium
-                        )
-                    )
-                }
-            }
-        }
 
         val useCenteredScroll = effectiveExpandEnabled && trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
         val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, useCenteredScroll, screenWidthPx) {
@@ -586,7 +563,61 @@ internal fun ModernRowSection(
             rowStartPadding + (singleDigitDp - overlapDp) - 16.dp
         } else rowStartPadding
 
-        CompositionLocalProvider(LocalBringIntoViewSpec provides horizontalBringIntoViewSpec) {
+        val anchoredExpandSink = remember { mutableStateOf<((Float) -> Unit)?>(null) }
+        // Leftward expansion near the row end (any card size, numbered or
+        // plain rows). LazyList item offsets are CONTENT coordinates: origin
+        // after the start contentPadding, which is numberedRowStartPadding for
+        // this row. Convert to screen via +startPadPx, target the standard
+        // margin from the real screen edge, floor at the resting edge so a
+        // card resting closer than the margin is never pushed rightward. The
+        // per-frame loop follows the width spring by construction and handles
+        // late expansion (slow trailer resolution); it lives until the expand
+        // key changes (collapse/refocus cancels the LaunchedEffect).
+        if (canExpand) {
+            androidx.compose.runtime.LaunchedEffect(expandedCatalogFocusKey) {
+                val key = expandedCatalogFocusKey ?: return@LaunchedEffect
+                val expandedItem = row.items.firstOrNull {
+                    (it.payload as? ModernPayload.Catalog)?.focusKey == key
+                } ?: return@LaunchedEffect
+                val info = rowListState.layoutInfo.visibleItemsInfo
+                    .firstOrNull { it.key == expandedItem.key } ?: return@LaunchedEffect
+                val cardWidthRestPx = with(density) { modernCatalogCardWidth.toPx() }
+                val expandedWidthPx = with(density) { (modernCatalogCardHeight * (16f / 9f)).toPx() }
+                val marginPx = with(density) { rowStartPadding.roundToPx() }.toFloat()
+                val startPadPx = with(density) { numberedRowStartPadding.roundToPx() }.toFloat()
+                val restingRightEdgeContent = (info.offset + info.size).toFloat()
+                val marginTargetContent = screenWidthPx - marginPx - startPadPx
+                val expansionDeltaPx = expandedWidthPx - cardWidthRestPx
+                // Anchor only when rightward growth would cross the standard
+                // margin; mid-row cards keep their existing expansion untouched.
+                if (restingRightEdgeContent + expansionDeltaPx <= marginTargetContent) return@LaunchedEffect
+                val slotPadPx = (info.size - cardWidthRestPx).toFloat()
+                val itemIndex = info.index
+                // Publish the pin sink. The card drives its own width animation
+                // (it alone knows the exact frame expansion begins) and calls
+                // this every frame with its current width; we pin the item start
+                // so start + width == the resting right edge. Both the card's
+                // width write and this request live in the card's per-frame
+                // snapshot, so one measure pass sees them together — anchored
+                // from frame zero, no takeover frame.
+                anchoredExpandSink.value = { widthPx ->
+                    rowListState.requestScrollToItem(
+                        itemIndex,
+                        Math.round(restingRightEdgeContent - slotPadPx - widthPx)
+                    )
+                }
+                try {
+                    kotlinx.coroutines.awaitCancellation()
+                } finally {
+                    anchoredExpandSink.value = null
+                }
+            }
+        }
+
+        CompositionLocalProvider(
+            LocalBringIntoViewSpec provides horizontalBringIntoViewSpec,
+            LocalAnchoredExpandSink provides anchoredExpandSink
+        ) {
             LazyRow(
                 state = rowListState,
                 modifier = Modifier
@@ -901,7 +932,7 @@ private fun ModernCarouselCard(
         cardWidth
     }
     // Original: default spring animation — no snap() override
-    val animatedCardWidth by if (focusedPosterBackdropExpandEnabled) {
+    val animatedCardWidthBase by if (focusedPosterBackdropExpandEnabled) {
         animateDpAsState(
             targetValue = targetCardWidth,
             label = "modernCardWidth"
@@ -909,6 +940,38 @@ private fun ModernCarouselCard(
     } else {
         rememberUpdatedState(cardWidth)
     }
+    // Single-clock anchored expansion, driven from the card: the card knows
+    // the exact frame expansion begins (its own effectiveIsExpanded, which in
+    // noBackdropImage mode gates on the trailer's first frame), so it owns the
+    // width Animatable and pins the row every frame in the same snapshot — the
+    // measure pass sees width + item-start together, anchored from frame zero.
+    val anchoredSink = LocalAnchoredExpandSink.current.value
+    val isAnchored = anchoredSink != null && focusedPosterBackdropExpandEnabled
+    val cardWidthPxForAnim = with(density) { cardWidth.toPx() }
+    val anchoredWidth = remember { androidx.compose.animation.core.Animatable(cardWidthPxForAnim) }
+    androidx.compose.runtime.LaunchedEffect(isAnchored, effectiveIsExpanded, cardWidth, targetCardWidth) {
+        val collapsedPx = with(density) { cardWidth.toPx() }
+        // Not actively anchored-expanded: hard-reset to the collapsed width so
+        // every fresh expansion starts from true rest. Without this, the
+        // Animatable retains its prior end value across a collapse+re-expand in
+        // the same row visit, and the next expansion snaps right before
+        // settling (the fast-right glitch).
+        if (!isAnchored || !effectiveIsExpanded) {
+            anchoredWidth.snapTo(collapsedPx)
+            return@LaunchedEffect
+        }
+        // Guarantee we begin from collapsed even if a prior value lingered, then
+        // drive expansion; the card is anchored from the first driven frame.
+        if (anchoredWidth.value != collapsedPx) anchoredWidth.snapTo(collapsedPx)
+        val targetPx = with(density) { targetCardWidth.toPx() }
+        anchoredWidth.animateTo(targetPx) {
+            val sink = anchoredSink ?: return@animateTo
+            androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                sink(value)
+            }
+        }
+    }
+    val animatedCardWidth = if (isAnchored) with(density) { anchoredWidth.value.toDp() } else animatedCardWidthBase
 
     // In noBackdropImage mode, NEVER switch to the backdrop image.
     // The poster stays as-is; covered by the black overlay then the trailer.
