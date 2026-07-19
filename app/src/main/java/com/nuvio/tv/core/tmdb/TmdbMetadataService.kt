@@ -255,12 +255,22 @@ class TmdbMetadataService @Inject constructor(
                         } else {
                             runCatching {
                                 val addonType = if (tmdbType == "tv") "series" else "movie"
-                                val result = metaRepository.getMetaFromAllAddons(addonType, resolvedImdbId)
-                                    .first {
-                                        it is com.nuvio.tv.core.network.NetworkResult.Success ||
-                                            it is com.nuvio.tv.core.network.NetworkResult.Error
-                                    }
-                                (result as? com.nuvio.tv.core.network.NetworkResult.Success)?.data?.logo
+                                // Bound the meta-addon call (e.g. a slow public
+                                // AIOMetadata instance): getMetaFromAllAddons(...)
+                                // .first{} blocks until an addon returns Success
+                                // or Error, so with no timeout a hung addon holds
+                                // its enrichment semaphore permit forever and
+                                // freezes all background enrichment. 3s matches
+                                // the metahub HEAD timeout above; timeout -> null,
+                                // same as any other fallback miss.
+                                kotlinx.coroutines.withTimeoutOrNull(3000) {
+                                    val result = metaRepository.getMetaFromAllAddons(addonType, resolvedImdbId)
+                                        .first {
+                                            it is com.nuvio.tv.core.network.NetworkResult.Success ||
+                                                it is com.nuvio.tv.core.network.NetworkResult.Error
+                                        }
+                                    (result as? com.nuvio.tv.core.network.NetworkResult.Success)?.data?.logo
+                                }
                             }.getOrNull()
                         }
                     } else {
