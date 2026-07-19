@@ -503,8 +503,15 @@ internal fun ModernRowSection(
             val parentStartOffsetPx = with(density) { rowStartPadding.roundToPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
-                override val scrollAnimationSpec: AnimationSpec<Float>
-                    get() = defaultBringIntoViewSpec.scrollAnimationSpec
+                // Match the home vertical row scroll feel (spring, not the
+                // softer app-wide default): same stiffness/damping, so
+                // horizontal poster glide and vertical row slide share one
+                // physical response, scaled to their respective distances.
+                override val scrollAnimationSpec: AnimationSpec<Float> =
+                    androidx.compose.animation.core.spring(
+                        dampingRatio = 0.95f,
+                        stiffness = 400f
+                    )
 
                 override fun calculateScrollDistance(
                     offset: Float,
