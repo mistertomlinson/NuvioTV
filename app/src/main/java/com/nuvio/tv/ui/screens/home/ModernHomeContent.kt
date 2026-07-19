@@ -1330,7 +1330,12 @@ fun ModernHomeContent(
                     }
                 }
                 .graphicsLayer {
-                    alpha = catalogSlideAlpha.value
+                    // Full alpha: the enter fade is done by a single black
+                    // overlay over the whole composite (catalog node, topmost),
+                    // so backdrop and catalog never fade independently and you
+                    // never see through one layer to the next. translationX
+                    // (parallax motion) is unaffected.
+                    alpha = 1f
                     translationX = backdropParallaxOffset.value
                 },
             cinematicScale = if (isAtTop) 1.0f else (1.0f / 1.1f),
@@ -1711,9 +1716,23 @@ fun ModernHomeContent(
                             )
                         }
                     }
+                    // ENTER fade-from-black: when the ghost is gone (enter
+                    // phase), the live content is at full alpha; fade a single
+                    // black rect over the whole composite from opaque to clear
+                    // as catalogSlideAlpha ramps 0->1. This replaces the old
+                    // per-node alpha fade so no inter-layer transparency shows.
+                    if (!ghostVisible) {
+                        val enterBlack = 1f - catalogSlideAlpha.value
+                        if (enterBlack > 0f) {
+                            drawRect(
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                alpha = enterBlack.coerceIn(0f, 1f)
+                            )
+                        }
+                    }
                 }
                 .graphicsLayer {
-                    alpha = catalogSlideAlpha.value
+                    alpha = 1f
                     translationX = catalogSlideOffset.value
                 }
         ) {

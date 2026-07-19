@@ -359,7 +359,10 @@ internal fun ModernRowSection(
         // Detect last partially-clipped item (first row only) for edge fade effect
 
         // Read animatable value in composition — only first row reads it, so only first row recomposes during transition
-        val parentAlpha = if ((isFirstRow || isSecondRow) && catalogSlideAnimatable != null) catalogSlideAnimatable.value else 1f
+        // Rows stay at full alpha during the platform transition: the fade is
+        // now performed once by the black overlay over the whole composite in
+        // ModernHomeContent. Fading rows here too would darken them twice.
+        val parentAlpha = 1f
         val prevAlpha = remember { androidx.compose.runtime.mutableFloatStateOf(parentAlpha) }
         val isFadingIn = parentAlpha > prevAlpha.floatValue
         prevAlpha.floatValue = parentAlpha
