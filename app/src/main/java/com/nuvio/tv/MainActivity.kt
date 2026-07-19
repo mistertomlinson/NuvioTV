@@ -768,7 +768,19 @@ private fun LegacySidebarScaffold(
                         .onPreviewKeyEvent { keyEvent ->
                             if (keyEvent.key == Key.DirectionRight && keyEvent.type == KeyEventType.KeyDown) {
                                 drawerState.setValue(DrawerValue.Closed)
-                                pendingContentFocusTransfer = false
+                                // Fast path: restore focus to the exact row item
+                                // immediately. But arm (not disable) the delayed
+                                // fallback: when rowFocusRestorer holds a stale or
+                                // Default requester (rare edge states — row swap,
+                                // cache miss), the synchronous requestFocus throws
+                                // and is swallowed, leaving focus in the void. With
+                                // the transfer armed, the 2-frame-delayed effect
+                                // then focuses the always-present content container
+                                // so focus can never fall through. On the common
+                                // path the fast restore already landed and the
+                                // container's focusRestorer sends focus right back
+                                // to the same child — harmless.
+                                pendingContentFocusTransfer = true
                                 runCatching { rowFocusRestorer.value.requestFocus() }
                                 true
                             } else {
