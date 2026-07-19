@@ -521,12 +521,20 @@ private fun HeroTitleContent(
         // This prevents the text flash when navigating from a no-logo title to a logo title.
         val hasLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
         val logoReady = hasLogo && displayedLogo == preview.logo
+        // Key ONLY on the logo URL when ready, else a stable null. Previously
+        // the key was (logoReady to displayedLogo): on a logo->null focus,
+        // logoReady flips false immediately but displayedLogo updates one frame
+        // later via LaunchedEffect, so the key changed twice — (false, oldLogo)
+        // then (false, null) — restarting the crossfade mid-transition and
+        // producing the "fade in, dim, reappear" flicker on null-logo titles.
+        // Collapsing every no-logo state to a single null key makes logo->null
+        // (and null->null) a single clean crossfade.
         Crossfade(
-            targetState = logoReady to displayedLogo,
+            targetState = if (logoReady) displayedLogo else null,
             animationSpec = tween(durationMillis = 300),
             label = "heroLogoFade"
-        ) { (isReady, logoUrl) ->
-            if (isReady && logoUrl != null) {
+        ) { logoUrl ->
+            if (logoUrl != null) {
                 val displayedLogoModel = remember(localContext2, logoUrl, logoMaxWidthPx, logoHeightPx) {
                     val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
                     ImageRequest.Builder(localContext2)
