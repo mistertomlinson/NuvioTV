@@ -222,7 +222,17 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     externalMetaPrefetchJob?.cancel()
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
-    enrichmentCache.clear()
+    // NOTE: enrichmentCache is intentionally NOT cleared here. It is keyed by
+    // global content id (item.id), so TMDB enrichment stays valid across a
+    // catalog reload regardless of which addon served the item or whether an
+    // addon's catalog list changed. Clearing it made every catalog reload
+    // (e.g. an addon manifest that differs between the cached and freshly
+    // fetched emit) discard expensive, still-valid enrichment, forcing already-
+    // enriched platforms to re-enrich on revisit. The signature guard above
+    // already prevents redundant reloads; enrichment is repopulated from disk
+    // (line ~234), focus enrichment, and the proactive job as needed. Profile
+    // switches use a separate reload path and profile-scoped caches, so this is
+    // not a cross-profile safety mechanism.
     enrichmentRestoreComplete = false
     // Load enrichment cache in background — don't block catalog fetching on it.
     // The readiness gate defers row promotions until this completes, then we
