@@ -571,7 +571,6 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 val mutableItems = row.items.toMutableList()
                 mutableItems[idx] = merged
                 catalogsMap[key] = row.copy(items = mutableItems)
-                truncatedRowCache.remove(key)
                 wroteToMap = true
             } else {
             }
@@ -629,7 +628,6 @@ private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) 
                 val mutableItems = row.items.toMutableList()
                 mutableItems[itemIndex] = merged
                 catalogsMap[key] = row.copy(items = mutableItems)
-                truncatedRowCache.remove(key)
             }
         }
     } }

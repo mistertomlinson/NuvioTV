@@ -26,6 +26,8 @@ import com.nuvio.tv.core.util.filterReleasedItems
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
+private const val HOME_CATALOG_WINDOW_SIZE = 25
+
 private data class CatalogUpdateResult(
     val displayRows: List<CatalogRow>,
     val heroItems: List<com.nuvio.tv.domain.model.MetaPreview>,
@@ -167,6 +169,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     _uiState.update { it.copy(enrichmentReadyRowKeys = emptySet()) }
     catalogOrder.clear()
     catalogsMap.clear()
+    catalogSourceRows.clear()
     // Re-inject ML row from disk cache immediately so it survives pipeline restart
     val mlProfileId = profileManager.activeProfileId.value
     val mlCached = myListDiskCache.load(mlProfileId)
@@ -207,7 +210,6 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     posterStatusReconcileJob?.cancel()
     reconcilePosterStatusObserversPipeline(emptyList())
     _fullCatalogRows.value = emptyList()
-    truncatedRowCache.clear()
     hasRenderedFirstCatalog = false
     diskCacheRestored = false
     saveCachedVisiblePlatformIds(emptySet())
@@ -274,7 +276,14 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         val profileId = profileManager.activeProfileId.value
         val diskCached = catalogRepository.loadCatalogsFromDisk(profileId)
         if (diskCached.isNotEmpty()) {
-            diskCached.forEach { (key, row) -> catalogsMap[key] = row }
+            diskCached.forEach { (key, row) ->
+                catalogSourceRows[key] = row
+                val exposedItems = row.items.take(HOME_CATALOG_WINDOW_SIZE)
+                catalogsMap[key] = row.copy(
+                    items = exposedItems,
+                    hasMore = row.items.size > exposedItems.size || row.hasMore
+                )
+            }
             diskCacheRestored = true
             val matchedKeys = diskCached.keys.count { it in catalogOrder }
             // Show cached rows immediately and hide spinner — network fetches refresh in background
@@ -396,18 +405,33 @@ internal fun HomeViewModel.loadCatalogPipeline(
                                 result.data.copy(items = mergedItems)
                             } else result.data
                         } else result.data
+                        catalogSourceRows[key] = mergedRow
+
+                        // Preserve an already-expanded row during a cached/fresh
+                        // refresh, but never expose more than 25 on first load.
+                        val exposedCount = maxOf(
+                            HOME_CATALOG_WINDOW_SIZE,
+                            existingRow?.items?.size ?: 0
+                        )
+                        val exposedItems = mergedRow.items.take(exposedCount)
+                        val visibleRow = mergedRow.copy(
+                            items = exposedItems,
+                            hasMore = mergedRow.items.size > exposedItems.size ||
+                                mergedRow.hasMore
+                        )
+
                         val preEnriched = existingRow?.items?.count { it.ageRating != null } ?: 0
-                        val postEnriched = mergedRow.items.count { it.ageRating != null }
+                        val postEnriched = visibleRow.items.count { it.ageRating != null }
                         if (preEnriched > 0) {
                         }
-                        catalogsMap[key] = mergedRow
+                        catalogsMap[key] = visibleRow
                         // Auto-detect addon-signaled landscape rows: if the majority of
                         // items carry posterShape=LANDSCAPE, treat this row as landscape
                         // without touching the user's persisted per-catalog preferences.
-                        val landscapeItemCount = mergedRow.items.count {
+                        val landscapeItemCount = visibleRow.items.count {
                             it.posterShape == com.nuvio.tv.domain.model.PosterShape.LANDSCAPE
                         }
-                        val totalItemCount = mergedRow.items.size
+                        val totalItemCount = visibleRow.items.size
                         val addonSignalsLandscape = totalItemCount > 0 &&
                             landscapeItemCount * 2 >= totalItemCount
                         if (addonSignalsLandscape) {
@@ -422,7 +446,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         // preloadAdjacentItemPipeline which cancels on every call.
                         val isPerCatalogLandscapeRow = key in _uiState.value.landscapeCatalogKeys
                         if (isPerCatalogLandscapeRow && currentTmdbSettings.enabled) {
-                            val itemsToEnrich = mergedRow.items.take(25)
+                            val itemsToEnrich = visibleRow.items
                                 .filter { it.id !in prefetchedTmdbIds }
                             if (itemsToEnrich.isNotEmpty()) {
                                 val tmdbSettingsSnapshot = currentTmdbSettings
@@ -460,7 +484,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         if (!hasRenderedFirstCatalog && mergedRow.items.isNotEmpty()) {
                             _uiState.update { it.copy(isLoading = false) }
                         }
-                        val stomped2 = mergedRow.items.filter { it.ageRating == null }
+                        val stomped2 = visibleRow.items.filter { it.ageRating == null }
                         val had = existingRow?.items?.filter { it.ageRating != null } ?: emptyList()
                         if (had.isNotEmpty() && stomped2.any { item -> had.any { it.id == item.id } }) {
                         }
@@ -558,13 +582,61 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
     if (currentRow.isLoading || !currentRow.hasMore) return
     if (key in _loadingCatalogs.value) return
 
+    val sourceRow = catalogSourceRows[key] ?: currentRow
+
+    // The addon may have returned 50, 100, or more items in one server
+    // response. Release only the next 25 without performing another request.
+    if (sourceRow.items.size > currentRow.items.size) {
+        val nextVisibleCount = minOf(
+            currentRow.items.size + HOME_CATALOG_WINDOW_SIZE,
+            sourceRow.items.size
+        )
+        val retainedByKey = currentRow.items.associateBy {
+            "${it.apiType}:${it.id}"
+        }
+        val nextVisibleItems = sourceRow.items
+            .take(nextVisibleCount)
+            .map { sourceItem ->
+                retainedByKey["${sourceItem.apiType}:${sourceItem.id}"]
+                    ?: sourceItem
+            }
+
+        catalogsMap[key] = sourceRow.copy(
+            items = nextVisibleItems,
+            isLoading = false,
+            hasMore = sourceRow.items.size > nextVisibleCount ||
+                sourceRow.hasMore
+        )
+
+        scheduleUpdateCatalogRows()
+        return
+    }
+
+    // No locally buffered items remain. A non-paginated addon is finished.
+    if (!sourceRow.supportsSkip || !sourceRow.hasMore) {
+        catalogsMap[key] = currentRow.copy(
+            isLoading = false,
+            hasMore = false
+        )
+        scheduleUpdateCatalogRows()
+        return
+    }
+
     catalogsMap[key] = currentRow.copy(isLoading = true)
     _loadingCatalogs.update { it + key }
 
     viewModelScope.launch {
-        val addon = addonsCache.find { it.id == addonId } ?: return@launch
+        val addon = addonsCache.find { it.id == addonId }
+        if (addon == null) {
+            catalogsMap[key] = currentRow.copy(isLoading = false)
+            _loadingCatalogs.update { it - key }
+            return@launch
+        }
 
-        val nextSkip = (currentRow.currentPage + 1) * currentRow.skipStep
+        val exposedCountBeforeFetch = currentRow.items.size
+        val nextSkip = (sourceRow.currentPage + 1) * sourceRow.skipStep
+        var pageAddedItems = false
+
         catalogRepository.getCatalog(
             addonBaseUrl = addon.baseUrl,
             addonId = addon.id,
@@ -573,29 +645,74 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
             catalogName = currentRow.catalogName,
             type = currentRow.apiType,
             skip = nextSkip,
-            skipStep = currentRow.skipStep,
-            supportsSkip = currentRow.supportsSkip
+            skipStep = sourceRow.skipStep,
+            supportsSkip = sourceRow.supportsSkip
         ).collect { result ->
             when (result) {
                 is NetworkResult.Success -> {
-                    val latestRow = catalogsMap[key] ?: currentRow
-                    val existingIds = latestRow.items.asSequence()
+                    val latestSource = catalogSourceRows[key] ?: sourceRow
+                    val existingIds = latestSource.items.asSequence()
                         .map { "${it.apiType}:${it.id}" }
                         .toHashSet()
+
                     val newUniqueItems = result.data.items.filter { item ->
                         "${item.apiType}:${item.id}" !in existingIds
                     }
-                    val mergedItems = latestRow.items + newUniqueItems
-                    val hasMore = if (newUniqueItems.isEmpty()) false else result.data.hasMore
-                    catalogsMap[key] = result.data.copy(items = mergedItems, hasMore = hasMore)
+
+                    if (newUniqueItems.isNotEmpty()) {
+                        pageAddedItems = true
+                    }
+
+                    // If the requested page produced no new items at all, the
+                    // addon is ignoring skip or has reached its actual end.
+                    val remoteHasMore =
+                        if (newUniqueItems.isEmpty() && !pageAddedItems) {
+                            false
+                        } else {
+                            result.data.hasMore
+                        }
+
+                    val mergedSource = result.data.copy(
+                        items = latestSource.items + newUniqueItems,
+                        hasMore = remoteHasMore
+                    )
+                    catalogSourceRows[key] = mergedSource
+
+                    val nextVisibleCount = minOf(
+                        exposedCountBeforeFetch + HOME_CATALOG_WINDOW_SIZE,
+                        mergedSource.items.size
+                    )
+                    val retainedByKey =
+                        (catalogsMap[key]?.items ?: currentRow.items)
+                            .associateBy { "${it.apiType}:${it.id}" }
+                    val nextVisibleItems = mergedSource.items
+                        .take(nextVisibleCount)
+                        .map { sourceItem ->
+                            retainedByKey[
+                                "${sourceItem.apiType}:${sourceItem.id}"
+                            ] ?: sourceItem
+                        }
+
+                    catalogsMap[key] = mergedSource.copy(
+                        items = nextVisibleItems,
+                        isLoading = false,
+                        hasMore = mergedSource.items.size > nextVisibleCount ||
+                            mergedSource.hasMore
+                    )
                     _loadingCatalogs.update { it - key }
+
                     scheduleUpdateCatalogRows()
                 }
+
                 is NetworkResult.Error -> {
-                    catalogsMap[key] = (catalogsMap[key] ?: currentRow).copy(isLoading = false)
+                    catalogsMap[key] =
+                        (catalogsMap[key] ?: currentRow).copy(
+                            isLoading = false
+                        )
                     _loadingCatalogs.update { it - key }
                     scheduleUpdateCatalogRows()
                 }
+
                 NetworkResult.Loading -> { }
             }
         }
@@ -688,27 +805,9 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             else -> emptyList()
         }
 
-        val computedDisplayRows = orderedRows.map { row ->
-            val shouldKeepFullRowInModern = currentLayout == HomeLayout.MODERN && row.supportsSkip
-            if (row.items.size > 25 && !shouldKeepFullRowInModern) {
-                val key = "${row.addonId}_${row.apiType}_${row.catalogId}"
-                val cachedEntry = truncatedRowCache[key]
-                if (cachedEntry != null && cachedEntry.sourceRow === row) {
-                    cachedEntry.truncatedRow
-                } else {
-                    val truncatedRow = row.copy(items = row.items.take(25))
-                    truncatedRowCache[key] = HomeViewModel.TruncatedRowCacheEntry(
-                        sourceRow = row,
-                        truncatedRow = truncatedRow
-                    )
-                    truncatedRow
-                }
-            } else {
-                val key = "${row.addonId}_${row.apiType}_${row.catalogId}"
-                truncatedRowCache.remove(key)
-                row
-            }
-        }
+        // catalogsMap already contains only the currently released
+        // 25-item windows, so every Home layout receives the same bounded rows.
+        val computedDisplayRows = orderedRows
 
         val computedGridItems = if (currentLayout == HomeLayout.GRID) {
             buildList {

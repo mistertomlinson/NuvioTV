@@ -168,7 +168,14 @@ class HomeViewModel @Inject constructor(
     // after profile switches). Rows stay gated (shimmer) those extra ~tens of ms.
     @Volatile internal var enrichmentRestoreComplete: Boolean = true
 
+    // Items currently exposed to Home/Compose/enrichment.
     internal val catalogsMap: MutableMap<String, CatalogRow> = Collections.synchronizedMap(LinkedHashMap())
+
+    // Complete server pages retained only for releasing items to Home in
+    // 25-item windows. Nothing should render or enrich directly from this map.
+    internal val catalogSourceRows: MutableMap<String, CatalogRow> =
+        Collections.synchronizedMap(LinkedHashMap())
+
     internal val catalogOrder = mutableListOf<String>()
     internal var addonsCache: List<Addon> = emptyList()
 
@@ -219,11 +226,6 @@ class HomeViewModel @Inject constructor(
     internal val fullyWatchedSeriesIds get() = watchedSeriesStateHolder
     internal var catalogLoadGeneration: Long = 0L
     internal var catalogsLoadInProgress: Boolean = false
-    internal data class TruncatedRowCacheEntry(
-        val sourceRow: CatalogRow,
-        val truncatedRow: CatalogRow
-    )
-    internal val truncatedRowCache = mutableMapOf<String, TruncatedRowCacheEntry>()
     internal val trailerPreviewLoadingIds = mutableSetOf<String>()
     internal val trailerPreviewNegativeCache = mutableSetOf<String>()
     internal val trailerPreviewUrlsState = mutableStateMapOf<String, String>()

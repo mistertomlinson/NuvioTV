@@ -375,8 +375,7 @@ internal fun ModernRowSection(
         val loadMoreCatalogId = row.catalogId
         val loadMoreAddonId = row.addonId
         val loadMoreApiType = row.apiType
-        val canObserveLoadMore = row.supportsSkip &&
-            row.hasMore &&
+        val canObserveLoadMore = row.hasMore &&
             !loadMoreCatalogId.isNullOrBlank() &&
             !loadMoreAddonId.isNullOrBlank() &&
             !loadMoreApiType.isNullOrBlank()
