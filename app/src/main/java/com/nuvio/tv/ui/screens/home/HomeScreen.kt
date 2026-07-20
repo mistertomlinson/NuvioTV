@@ -580,7 +580,6 @@ private fun ModernHomeRoute(
     }
     var isCarouselFocused by remember { mutableStateOf(false) }
     val aggregatePlatformsEnabled = uiState.aggregateStreamingPlatformsEnabled
-    val fastPlatformScrollEnabled = uiState.fastPlatformScrollEnabled
     val fullWidthIconRowEnabled = uiState.fullWidthIconRowEnabled
     var isAtTop by remember { mutableStateOf(true) }
     val carouselFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
@@ -660,7 +659,6 @@ private fun ModernHomeRoute(
         isCarouselFocused = isCarouselFocused,
         selectedPlatformId = selectedPlatformId,
         aggregatePlatformsEnabled = aggregatePlatformsEnabled,
-        fastPlatformScrollEnabled = fastPlatformScrollEnabled,
         showAllCatalogsOnHome = uiState.showAllCatalogsOnHome,
         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
         carouselGradientAlpha = carouselAlpha,

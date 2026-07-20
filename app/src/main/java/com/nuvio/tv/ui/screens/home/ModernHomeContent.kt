@@ -136,7 +136,6 @@ fun ModernHomeContent(
     uiState: HomeUiState,
     selectedPlatformId: String = "home",
     aggregatePlatformsEnabled: Boolean = true,
-    fastPlatformScrollEnabled: Boolean = false,
     showAllCatalogsOnHome: Boolean = false,
     fullWidthIconRowEnabled: Boolean = false,
     focusState: HomeScreenFocusState,
@@ -1628,45 +1627,24 @@ fun ModernHomeContent(
         // Press handling — two modes, restored to original semantics:
         // - Debounced (fast scroll OFF): every press waits for a 300ms quiet
         //   window; one uninterruptible transition per settled destination.
-        // - Fast (fast scroll ON): every press fires immediately and cancels the
-        //   in-flight transition. The first press plays the exit; while presses
-        //   continue the screen stays dark; the enter completes once presses stop.
-        if (fastPlatformScrollEnabled) {
-            // Fast mode: first press fires the exit immediately. Animations are
-            // atomic — never interrupted. Presses arriving while the screen is
-            // dark retarget silently; the enter fires after 300ms of quiet.
-            // Presses during the enter wait for it, then run a fresh cycle.
-            val fastChannel = remember { kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED) }
-            LaunchedEffect(selectedPlatformId) {
-                fastChannel.trySend(selectedPlatformId)
-            }
-            LaunchedEffect(aggregatePlatformsEnabled) {
-                while (true) {
-                    val targetId = fastChannel.receive()
-                    transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(targetId)) }
-                    if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
-                        displayedPlatformId = targetId
-                        catalogDisplayedPlatformId = targetId
-                        continue
-                    }
-                    runTransition(targetId) { fastChannel.tryReceive().getOrNull() }
+        // A single quiet-gated transition per settled destination: presses within
+        // the quiet window conflate to the latest target; runTransition owns the
+        // quiet gate, backdrop preload, and flip-under-ghost. (The former
+        // fast-scroll mode routed through the same runTransition and behaved
+        // identically once the quiet gate landed, so it was removed.)
+        val platformChannel = remember { kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED) }
+        LaunchedEffect(selectedPlatformId) {
+            platformChannel.trySend(selectedPlatformId)
+        }
+        LaunchedEffect(aggregatePlatformsEnabled) {
+            while (true) {
+                val targetId = platformChannel.receive()
+                if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
+                    displayedPlatformId = targetId
+                    catalogDisplayedPlatformId = targetId
+                    continue
                 }
-            }
-        } else {
-            val platformChannel = remember { kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED) }
-            LaunchedEffect(selectedPlatformId) {
-                platformChannel.trySend(selectedPlatformId)
-            }
-            LaunchedEffect(aggregatePlatformsEnabled) {
-                while (true) {
-                    val targetId = platformChannel.receive()
-                    if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
-                        displayedPlatformId = targetId
-                        catalogDisplayedPlatformId = targetId
-                        continue
-                    }
-                    runTransition(targetId) { platformChannel.tryReceive().getOrNull() }
-                }
+                runTransition(targetId) { platformChannel.tryReceive().getOrNull() }
             }
         }
 
