@@ -1013,6 +1013,14 @@ private fun ModernCarouselCard(
                 .data(it)
                 .crossfade(false)
                 .size(width = requestWidthPx, height = requestHeightPx)
+                // Bridge reloads with the last cached bitmap for this URL (from
+                // any size entry) instead of a blank frame. Fixes the disk-
+                // reload blink on titles whose fallback enrichment collapses
+                // poster/backdrop/imageUrl to one file requested at multiple
+                // sizes (e.g. House: Swan Song), which fragments the auto cache
+                // key and evicts the card-size entry. Size-keyed caching and
+                // hero/backdrop rendering are unchanged.
+                .placeholderMemoryCacheKey(it)
                 .build()
         }
     }
@@ -1198,6 +1206,7 @@ private fun ModernCarouselCard(
 
                 // Layer 1 (bottom): Poster image — hidden when collapse overlay is fully opaque
                 val posterAlpha = if (noBackdropImage && topOverlayAlpha == 1f) 0f else 1f
+
                 Box(modifier = mediaLayerModifier.graphicsLayer { alpha = posterAlpha }) {
                     if (hasImage) {
                         AsyncImage(
