@@ -391,33 +391,30 @@ internal fun ModernRowSection(
             val targetItemKey = liveItems.getOrNull(targetIndex)?.key ?: return@collect
             val requester = uiCaches.requesterFor(row.key, targetItemKey)
             var didFocus = false
-            var didScrollToTarget = false
-            repeat(20) {
+            var attemptsRemaining = 20
+
+            while (!didFocus && attemptsRemaining-- > 0) {
+                // The row state normally survives navigation to Details.
+                // Restore focus in place first so returning does not reposition
+                // a row that already displays the correct item.
                 didFocus = runCatching {
                     requester.requestFocus()
-                    true
                 }.getOrDefault(false)
-                if (didFocus) {
-                    return@repeat
+
+                if (!didFocus) {
+                    // The target is not composed. Place it at the same
+                    // left-aligned position used by normal D-pad navigation,
+                    // wait for layout, and retry.
+                    runCatching { rowListState.scrollToItem(targetIndex, 0) }
+                    withFrameNanos { }
                 }
-                if (!didScrollToTarget) {
-                    val visibleIndices = rowListState.layoutInfo.visibleItemsInfo.map { it.index }
-                    if (targetIndex !in visibleIndices) {
-                        runCatching { rowListState.scrollToItem(targetIndex) }
-                    }
-                    didScrollToTarget = true
-                }
-                withFrameNanos { }
             }
             if (!didFocus) {
-                val fallbackIndex = rowListState.firstVisibleItemIndex
+                val fallbackIndex = targetIndex
                     .coerceIn(0, (liveItems.size - 1).coerceAtLeast(0))
                 val fallbackItemKey = liveItems.getOrNull(fallbackIndex)?.key
-                didFocus = runCatching {
-                    if (fallbackItemKey != null) {
-                        uiCaches.requesterFor(row.key, fallbackItemKey).requestFocus()
-                    }
-                    true
+                didFocus = fallbackItemKey != null && runCatching {
+                    uiCaches.requesterFor(row.key, fallbackItemKey).requestFocus()
                 }.getOrDefault(false)
             }
             if (didFocus) {
@@ -501,9 +498,42 @@ internal fun ModernRowSection(
         )
 
 
-        val useCenteredScroll = effectiveExpandEnabled && trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
-        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, useCenteredScroll, screenWidthPx) {
-            val parentStartOffsetPx = with(density) { rowStartPadding.roundToPx() }
+        // For numbered rows, increase item spacing to accommodate the large number overlay
+        val isNumbered = numberStyle != NumberStyle.OFF
+        val numberedRowSpacing = if (isNumbered) {
+            if (useLandscapePosters) (modernCatalogCardWidth * 0.30f).coerceAtLeast(12.dp)
+            else (modernCatalogCardWidth * 0.64f).coerceAtLeast(12.dp)
+        } else 12.dp
+
+        // Pre-measure number widths once at row level for stable sizing across all items
+        val numberFontSizeRow = androidx.compose.ui.unit.TextUnit(
+            if (useLandscapePosters) modernCatalogCardHeight.value * 0.80f else modernCatalogCardHeight.value * 0.55f,
+            androidx.compose.ui.unit.TextUnitType.Sp
+        )
+        val numberBaseStyleRow = androidx.compose.ui.text.TextStyle(
+            fontSize = numberFontSizeRow,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.W500,
+            color = androidx.compose.ui.graphics.Color(0xFF888888)
+        )
+        val rowTextMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+        val singleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("8", numberBaseStyleRow).size.width }
+        val oneDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("1", numberBaseStyleRow).size.width }
+        val doubleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("88", numberBaseStyleRow).size.width }
+        val tripleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("888", numberBaseStyleRow).size.width }
+
+        val numberedRowStartPadding = if (isNumbered) {
+            val singleDigitDp = with(density) { oneDigitWidth.toDp() }
+            val overlapDp = modernCatalogCardWidth * 0.10f
+            rowStartPadding + (singleDigitDp - overlapDp) - 16.dp
+        } else rowStartPadding
+
+        val useCenteredScroll = false
+        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, useCenteredScroll, screenWidthPx, numberedRowStartPadding) {
+            // Numbered rows include leading space for the overlapping number.
+            // Preserve that natural position instead of pulling the poster
+            // left to the non-numbered row margin.
+            val parentStartOffsetPx =
+                with(density) { numberedRowStartPadding.roundToPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
                 // Match the home vertical row scroll feel (spring, not the
@@ -543,35 +573,6 @@ internal fun ModernRowSection(
                 }
             }
         }
-
-        // For numbered rows, increase item spacing to accommodate the large number overlay
-        val isNumbered = numberStyle != NumberStyle.OFF
-        val numberedRowSpacing = if (isNumbered) {
-            if (useLandscapePosters) (modernCatalogCardWidth * 0.30f).coerceAtLeast(12.dp)
-            else (modernCatalogCardWidth * 0.64f).coerceAtLeast(12.dp)
-        } else 12.dp
-
-        // Pre-measure number widths once at row level for stable sizing across all items
-        val numberFontSizeRow = androidx.compose.ui.unit.TextUnit(
-            if (useLandscapePosters) modernCatalogCardHeight.value * 0.80f else modernCatalogCardHeight.value * 0.55f,
-            androidx.compose.ui.unit.TextUnitType.Sp
-        )
-        val numberBaseStyleRow = androidx.compose.ui.text.TextStyle(
-            fontSize = numberFontSizeRow,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.W500,
-            color = androidx.compose.ui.graphics.Color(0xFF888888)
-        )
-        val rowTextMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
-        val singleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("8", numberBaseStyleRow).size.width }
-        val oneDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("1", numberBaseStyleRow).size.width }
-        val doubleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("88", numberBaseStyleRow).size.width }
-        val tripleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("888", numberBaseStyleRow).size.width }
-
-        val numberedRowStartPadding = if (isNumbered) {
-            val singleDigitDp = with(density) { oneDigitWidth.toDp() }
-            val overlapDp = modernCatalogCardWidth * 0.10f
-            rowStartPadding + (singleDigitDp - overlapDp) - 16.dp
-        } else rowStartPadding
 
         val anchoredExpandSink = remember { mutableStateOf<((Float) -> Unit)?>(null) }
         // Leftward expansion near the row end (any card size, numbered or
