@@ -861,9 +861,21 @@ class InAppYouTubeExtractor @Inject constructor() {
                 response.body?.string() ?: return@withContext null
             }
 
-            // YouTube serves ytInitialData as a hex-escaped JS string — decode it first
+            // YouTube serves ytInitialData in one of two shapes depending on the
+            // response variant: (a) a hex-escaped single-quote JS string
+            // (ytInitialData = '...'), or (b) a plain JS object (ytInitialData = {...}).
+            // Older code only handled (a); when YouTube serves (b) we must isolate the
+            // JSON object, otherwise we fall through to raw 1MB+ HTML where videoIds and
+            // renderers are too far apart to pair correctly (every candidate gets dropped).
             val rawDataMatch = Regex("ytInitialData = '(.*?)';", RegexOption.DOT_MATCHES_ALL).find(html)
-            val searchableHtml = if (rawDataMatch != null) {
+            val plainObjectMatch = if (rawDataMatch == null) {
+                Regex("ytInitialData\\s*=\\s*(\\{.*?\\})\\s*;\\s*</script>", RegexOption.DOT_MATCHES_ALL).find(html)
+                    ?: Regex("var ytInitialData\\s*=\\s*(\\{.*?\\})\\s*;", RegexOption.DOT_MATCHES_ALL).find(html)
+            } else null
+            val searchableHtml = if (plainObjectMatch != null) {
+                Log.d(TAG, "Using plain-object ytInitialData for search")
+                plainObjectMatch.groupValues[1]
+            } else if (rawDataMatch != null) {
                 // Decode \xNN hex escapes to readable characters
                 val raw = rawDataMatch.groupValues[1]
                 val sb = StringBuilder()
@@ -880,21 +892,83 @@ class InAppYouTubeExtractor @Inject constructor() {
                 }
                 sb.toString()
             } else html
-            val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
-            // Filter out Shorts — skip video IDs appearing near Shorts indicators
+val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
+            // Container-agnostic extraction. YouTube serves different structures by
+            // client: desktop uses "videoRenderer" + "title":{"runs"}, mobile uses
+            // "videoWithContextRenderer" + "headline":{"runs"}. Rather than depend on a
+            // container name (which varies and broke extraction before), pair each
+            // videoId with the NEAREST PRECEDING title/headline run. Reads both field
+            // names so it works on whatever variant the device receives.
+            val titleRunRegex = Regex("\"(?:headline|title)\":\\{\"runs\":\\[\\{\"text\":\"((?:[^\"\\\\]|\\\\.)*?)\"")
             val shortsIndicators = listOf("reelWatchEndpoint", "shortsLockupViewModel", "\"shorts\"")
-            val videoId = videoIdRegex.findAll(searchableHtml)
-                .map { it.groupValues[1] }
-                .distinct()
-                .firstOrNull { id ->
-                    val idx = searchableHtml.indexOf(id)
-                    if (idx < 0) return@firstOrNull false
-                    val window = searchableHtml.substring(
-                        (idx - 200).coerceAtLeast(0),
-                        (idx + 200).coerceAtMost(searchableHtml.length)
+
+            // Curated set: "trailer" plus real-world misspellings. Hard set (not fuzzy)
+            // so lookalikes like "trainer"/"trawler" can never false-positive.
+            val trailerVariants = setOf(
+                "trailer", "trialer", "traler", "trailor", "trailerr", "traeler", "trailr"
+            )
+
+            fun normalizeForMatch(s: String): String =
+                s.replace("\\u0026", "&")
+                    .lowercase()
+                    .replace(Regex("[^a-z0-9]+"), " ")
+                    .trim()
+
+            fun hasTrailerWord(normalized: String): Boolean =
+                normalized.split(" ").any { it in trailerVariants }
+
+            val normalizedTitle = normalizeForMatch(title)
+
+            // All title/headline run positions, in document order.
+            val titlePositions = titleRunRegex.findAll(searchableHtml)
+                .map { it.range.first to it.groupValues[1] }
+                .toList()
+
+            var candidateCount = 0
+            var selectedId: String? = null
+            val seen = HashSet<String>()
+
+            for (idMatch in videoIdRegex.findAll(searchableHtml)) {
+                val id = idMatch.groupValues[1]
+                if (!seen.add(id)) continue
+                val idPos = idMatch.range.first
+                // Nearest title/headline whose position precedes this videoId.
+                val prior = titlePositions.lastOrNull { it.first < idPos } ?: continue
+                val (titlePos, rawTitle) = prior
+                // If a Shorts marker sits between that title and this videoId, the id
+                // belongs to a Shorts shelf, not this result — skip.
+                val between = searchableHtml.substring(titlePos, idPos)
+                if (shortsIndicators.any { it in between }) continue
+
+                candidateCount++
+                val normalizedResult = normalizeForMatch(rawTitle)
+
+                // Gate 1: the FULL item title must appear as a contiguous run.
+                val hasFullTitle = normalizedTitle.isNotBlank() &&
+                    normalizedResult.contains(normalizedTitle)
+                // Gate 2: a trailer word (or known misspelling) must be present.
+                val hasTrailer = hasTrailerWord(normalizedResult)
+
+                if (hasFullTitle && hasTrailer) {
+                    selectedId = id
+                    break
+                } else {
+                    Log.d(
+                        TAG,
+                        "Rejecting fallback candidate for '$title' " +
+                            "(fullTitle=$hasFullTitle trailer=$hasTrailer)"
                     )
-                    shortsIndicators.none { indicator -> indicator in window }
                 }
+            }
+
+            val decodeBranch = when {
+                plainObjectMatch != null -> "plain-object"
+                rawDataMatch != null -> "hex-string"
+                else -> "raw-html"
+            }
+            Log.w(TAG, "Fallback search: decode=$decodeBranch titles=${titlePositions.size} candidates=$candidateCount selected=${selectedId != null}")
+
+            val videoId = selectedId
             if (videoId != null) {
                 Log.d(TAG, "YouTube search found videoId for '$title': ${videoId.take(4)}***")
             } else {
