@@ -1,15 +1,27 @@
 package com.nuvio.tv.ui.screens.home
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.foundation.layout.heightIn
+import androidx.core.content.res.ResourcesCompat
+import com.nuvio.tv.ui.theme.buildCaslonFamily
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,6 +31,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
+import coil.request.CachePolicy
+import coil.memory.MemoryCache
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,15 +43,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.layout.absoluteOffset
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -49,6 +76,11 @@ import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
 
+internal data class HeroPlatformSnapshot(
+    val platformId: String,
+    val preview: HeroPreview
+)
+
 private data class ModernHeroSecondaryMeta(
     val highlightText: String?,
     val ageRating: String?,
@@ -56,47 +88,103 @@ private data class ModernHeroSecondaryMeta(
     val details: List<String>
 )
 
-
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
-    enrichmentActive: Boolean,
+    heroBackdropAlpha: Float,
     shouldPlayHeroTrailer: Boolean,
-    heroTrailerFirstFrameRendered: Boolean,
+    externalPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
     heroTrailerUrl: String?,
     heroTrailerAudioUrl: String?,
-    heroBackdropAlpha: Float,
     heroTrailerAlpha: Float,
     muted: Boolean,
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit,
     modifier: Modifier,
     requestWidthPx: Int,
-    requestHeightPx: Int
+    requestHeightPx: Int,
+    parallaxOffsetX: Float = 0f,
+    cinematicMode: Boolean = false,
+    backdropCrossfadeDuration: Int = 350,
+    cinematicScale: Float = 1.1f
 ) {
     val localContext = LocalContext.current
-    var stableBackdrop by remember { mutableStateOf(heroBackdrop) }
-    if (!enrichmentActive) stableBackdrop = heroBackdrop
-    val imageModel = remember(localContext, stableBackdrop, requestWidthPx, requestHeightPx) {
-        ImageRequest.Builder(localContext)
-            .data(stableBackdrop)
-            .crossfade(400)
+    val imageLoader = remember(localContext) { coil.Coil.imageLoader(localContext) }
+
+    // Pair the URL with the scale so Crossfade captures both atomically.
+    // The outgoing image keeps its original scale for the full crossfade duration;
+    // the incoming image starts at the correct scale from frame 1.
+    data class BackdropFrame(val url: String?, val scale: Float)
+    var displayedFrame by remember { mutableStateOf(BackdropFrame(heroBackdrop, cinematicScale)) }
+
+    // URL loading: only re-run when the backdrop URL changes.
+    // Scale is captured at the moment the URL is ready — incoming image
+    // gets the correct scale from frame 1, outgoing image keeps its scale.
+    LaunchedEffect(heroBackdrop) {
+        val target = heroBackdrop
+        val scale = cinematicScale
+        if (target == null) {
+            displayedFrame = BackdropFrame(null, scale)
+            return@LaunchedEffect
+        }
+        // If already memory-cached, flip immediately — no visible delay.
+        val cacheKey = coil.memory.MemoryCache.Key(target)
+        if (imageLoader.memoryCache?.get(cacheKey) != null) {
+            displayedFrame = BackdropFrame(target, scale)
+            return@LaunchedEffect
+        }
+        // Pre-load into memory cache, then flip.  2 s timeout so a slow
+        // network still eventually shows the image rather than being stuck.
+        val preload = ImageRequest.Builder(localContext)
+            .data(target)
             .size(width = requestWidthPx, height = requestHeightPx)
+            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
             .build()
+        kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+            imageLoader.execute(preload)
+        }
+        // Whether it succeeded or timed out, show it now — at worst we get
+        // the old snap behaviour on a very slow connection, never a hang.
+        displayedFrame = BackdropFrame(target, scale)
     }
-    Box(modifier = modifier) {
-        AsyncImage(
-            model = imageModel,
-            contentDescription = null,
+
+    Box(modifier = modifier.clipToBounds()) {
+        Crossfade(
+            targetState = displayedFrame,
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer {
-                    alpha = heroBackdropAlpha
-                    compositingStrategy = CompositingStrategy.Offscreen
-                },
-            contentScale = ContentScale.Crop,
-            alignment = Alignment.TopEnd
-        )
+                .graphicsLayer { alpha = heroBackdropAlpha },
+            animationSpec = tween(durationMillis = backdropCrossfadeDuration),
+            label = "modernHeroBackground"
+        ) { frame ->
+            val imageModel = remember(localContext, frame.url, requestWidthPx, requestHeightPx) {
+                ImageRequest.Builder(localContext)
+                    .data(frame.url)
+                    .crossfade(false)
+                    .size(width = requestWidthPx, height = requestHeightPx)
+                    .build()
+            }
+            if (cinematicMode) {
+                AsyncImage(
+                    model = imageModel,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.Center
+                )
+            } else {
+                AsyncImage(
+                    model = imageModel,
+                    contentDescription = null,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    alignment = Alignment.TopEnd
+                )
+            }
+        }
+
         if (shouldPlayHeroTrailer) {
             TrailerPlayer(
                 trailerUrl = heroTrailerUrl,
@@ -107,14 +195,13 @@ internal fun ModernHeroMediaLayer(
                 muted = muted,
                 cropToFill = true,
                 overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+                externalPlayer = externalPlayer,
                 modifier = Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = heroTrailerAlpha
-                        compositingStrategy = CompositingStrategy.Offscreen
-                    }
+                    .graphicsLayer { alpha = heroTrailerAlpha }
             )
         }
+
     }
 }
 
@@ -123,12 +210,14 @@ internal fun ModernHeroGradientLayer(
     bgColor: Color,
     allowLetterboxing: Boolean,
     trailerTransitionProgress: Float,
-    modifier: Modifier
+    modifier: Modifier,
+    cinematicMode: Boolean = false,
+    shouldPlayHeroTrailer: Boolean = false
 ) {
-    Canvas(modifier = modifier) {
+    Canvas(modifier = modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
         val leftBlendSolidWidth = size.width * 0.018f
         val horizontalGradientStartX = leftBlendSolidWidth
-        val horizontalFadeEndX = horizontalGradientStartX + (size.width * 0.42f)
+        val horizontalFadeEndX = size.width * 0.65f
         val topContourGradient = Brush.linearGradient(
             colorStops = arrayOf(
                 0.0f to bgColor.copy(alpha = 0.28f),
@@ -149,32 +238,58 @@ internal fun ModernHeroGradientLayer(
             start = Offset(0f, size.height),
             end = Offset(size.width * 0.24f, size.height * 0.61f)
         )
-        val verticalGradient = Brush.verticalGradient(
+
+        val verticalGradient = if (cinematicMode) Brush.verticalGradient(
+            0.38f to Color.Transparent,
+            0.44f to bgColor.copy(alpha = 0.01f),
+            0.50f to bgColor.copy(alpha = 0.02f),
+            0.55f to bgColor.copy(alpha = 0.05f),
+            0.61f to bgColor.copy(alpha = 0.10f),
+            0.67f to bgColor.copy(alpha = 0.20f),
+            0.73f to bgColor.copy(alpha = 0.36f),
+            0.79f to bgColor.copy(alpha = 0.55f),
+            0.85f to bgColor.copy(alpha = 0.74f),
+            0.91f to bgColor.copy(alpha = 0.88f),
+            0.96f to bgColor.copy(alpha = 0.96f),
+            1.0f to bgColor
+        ) else if (!cinematicMode) Brush.verticalGradient(
             0.89f to Color.Transparent,
             0.93f to bgColor.copy(alpha = 0.14f),
             0.965f to bgColor.copy(alpha = 0.52f),
             0.99f to bgColor.copy(alpha = 0.92f),
             1.0f to bgColor
-        )
+        ) else null
         val defaultAlpha = if (allowLetterboxing) 1f - trailerTransitionProgress else 1f
         val lbAlpha = if (allowLetterboxing) trailerTransitionProgress else 0f
+
+        // Default gradient — fades out as trailer fades in
         if (defaultAlpha > 0f) {
             val horizontalGradient = Brush.horizontalGradient(
                 colorStops = arrayOf(
-                    0.0f to bgColor,
-                    0.22f to bgColor.copy(alpha = 0.86f * defaultAlpha),
-                    0.46f to bgColor.copy(alpha = 0.56f * defaultAlpha),
-                    0.76f to bgColor.copy(alpha = 0.16f * defaultAlpha),
-                    1.0f to Color.Transparent
+                    0.0f  to bgColor,
+                    0.10f to bgColor.copy(alpha = 0.97f * defaultAlpha),
+                    0.22f to bgColor.copy(alpha = 0.88f * defaultAlpha),
+                    0.36f to bgColor.copy(alpha = 0.76f * defaultAlpha),
+                    0.52f to bgColor.copy(alpha = 0.58f * defaultAlpha),
+                    0.66f to bgColor.copy(alpha = 0.38f * defaultAlpha),
+                    0.78f to bgColor.copy(alpha = 0.20f * defaultAlpha),
+                    0.90f to bgColor.copy(alpha = 0.08f * defaultAlpha),
+                    1.0f  to Color.Transparent
                 ),
                 startX = horizontalGradientStartX,
                 endX = horizontalFadeEndX
             )
-            drawRect(color = bgColor.copy(alpha = defaultAlpha), size = androidx.compose.ui.geometry.Size(leftBlendSolidWidth, size.height))
+            if (cinematicMode) drawRect(color = bgColor.copy(alpha = 0.18f), size = size)
+            drawRect(color = bgColor.copy(alpha = defaultAlpha), size = Size(leftBlendSolidWidth, size.height))
             drawRect(brush = horizontalGradient, size = size)
             drawRect(brush = topContourGradient, size = size)
             drawRect(brush = bottomContourGradient, size = size)
         }
+
+        // Letterboxing gradient — fades in as trailer fades in
+        // 40% screen = 16.7% canvas, 45% screen = 23.6% canvas
+        // Eased: slow fade at start (40-42%), accelerates toward end (43-45%)
+        // Dithering extends to ~50% of screen (27.8% of canvas) for organic edge
         if (lbAlpha > 0f) {
             val lbSolidWidth = size.width * 0.097f
             val lbGradient = Brush.horizontalGradient(
@@ -211,8 +326,10 @@ internal fun ModernHeroGradientLayer(
                 startX = 0f,
                 endX = size.width
             )
-            drawRect(color = bgColor.copy(alpha = lbAlpha), size = androidx.compose.ui.geometry.Size(lbSolidWidth, size.height))
+            drawRect(color = bgColor.copy(alpha = lbAlpha), size = Size(lbSolidWidth, size.height))
             drawRect(brush = lbGradient, size = size)
+
+            // Dithering: light noise in fade zone to blur banding, plus feather at edge
             val fadeStart = size.width * 0.097f
             val edgeEnd = size.width * 0.500f
             val ditherRange = edgeEnd - fadeStart
@@ -227,6 +344,8 @@ internal fun ModernHeroGradientLayer(
                 val randA = ((seed ushr 33) and 0xFFL).toFloat() / 255f
                 val pos = (x - fadeStart) / ditherRange
                 val baseAlpha = (1f - pos).coerceIn(0f, 1f)
+                // In the main fade zone (0-55%): subtle anti-banding noise
+                // In the edge zone (55-100%): feathering dots only
                 val maxNoise = if (pos < 0.55f) baseAlpha * 0.12f else baseAlpha * 0.07f
                 val noiseAlpha = (randA - 0.5f) * maxNoise * lbAlpha
                 val finalAlpha = noiseAlpha.coerceIn(0f, 1f)
@@ -234,48 +353,93 @@ internal fun ModernHeroGradientLayer(
                     drawRect(
                         color = bgColor.copy(alpha = finalAlpha),
                         topLeft = Offset(x, randY * size.height),
-                        size = androidx.compose.ui.geometry.Size(2f, 2f)
+                        size = Size(2f, 2f)
                     )
                 }
                 x += 3f + randX * 3f
             }
         }
-        drawRect(brush = verticalGradient, size = size)
+
+        verticalGradient?.let { drawRect(brush = it, size = size) }
     }
 }
-
 
 @Composable
 internal fun HeroTitleBlock(
     preview: HeroPreview?,
     enrichmentActive: Boolean = false,
     portraitMode: Boolean,
+    selectedPlatformId: String = "home",
+    platformNavDirection: Int = 0,
+    platformTransitionSnap: Boolean = false,
+    fullWidthIconRowEnabled: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    var stablePreview by remember { mutableStateOf<HeroPreview?>(null) }
+    if (preview == null) return
 
-    if (!enrichmentActive && preview != null) stablePreview = preview
-    if (enrichmentActive) stablePreview = null
+    val screenWidthPx = with(LocalDensity.current) {
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp.roundToPx()
+    }
+    val slideDistancePx = (screenWidthPx * 0.25f).toInt()
 
-    if (stablePreview == null) return
-    Box(
-        modifier = modifier,
-        contentAlignment = Alignment.BottomStart
-    ) {
-        HeroTitleContent(preview = stablePreview!!, portraitMode = portraitMode)
+    // Per-platform frozen snapshots — each AnimatedContent slot reads its own frozen copy.
+    // No lock needed — the unified slide+fade transition fades everything out before
+    // the platform flips, so any TMDB enrichment snap is invisible.
+    val previewByPlatform = remember { androidx.compose.runtime.mutableStateMapOf<String, HeroPreview>() }
+
+    // Always update snapshot — enrichment data flows in naturally as it arrives.
+    // No lock needed since the unified fade-out makes any snap invisible.
+    if (preview != null) {
+        previewByPlatform[selectedPlatformId] = preview
+    }
+
+    if (previewByPlatform.isEmpty()) return
+
+    Box(modifier = modifier, contentAlignment = Alignment.CenterStart) {
+        AnimatedContent(
+            targetState = selectedPlatformId,
+            transitionSpec = {
+                if (platformTransitionSnap) {
+                    // Platform flip happens behind the black beat of the ghost
+                    // transition — the swap must be instantaneous. Any fade here
+                    // outlives the (very short) black window and shows the old
+                    // logo for a frame as the screen fades back in.
+                    fadeIn(tween(0)) togetherWith fadeOut(tween(0)) using null
+                } else if (platformNavDirection != 0) {
+                    val dir = platformNavDirection
+                    val inOffset: (Int) -> Int = if (dir > 0) ({ slideDistancePx }) else ({ -slideDistancePx })
+                    val outOffset: (Int) -> Int = if (dir > 0) ({ -slideDistancePx }) else ({ slideDistancePx })
+                    (slideInHorizontally(tween(500, easing = FastOutSlowInEasing), inOffset) + fadeIn(tween(500))) togetherWith
+                    (slideOutHorizontally(tween(200, easing = FastOutSlowInEasing), outOffset) + fadeOut(tween(200))) using null
+                } else {
+                    fadeIn(tween(400)) togetherWith fadeOut(tween(150)) using null
+                }
+            },
+            contentAlignment = Alignment.CenterStart,
+            label = "heroTitleSlide"
+        ) { pid ->
+            val frozenPreview = previewByPlatform[pid] ?: return@AnimatedContent
+            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled)
+        }
     }
 }
+
 
 @Composable
 private fun HeroTitleContent(
     preview: HeroPreview?,
-    portraitMode: Boolean
+    portraitMode: Boolean,
+    fullWidthIconRowEnabled: Boolean = false
 ) {
     if (preview == null) return
     val descriptionMaxLines = if (portraitMode) 4 else 5
-    val descriptionScale = if (portraitMode) 0.90f else 1f
-    val titleScale = if (portraitMode) 0.92f else 1f
-    val metaScale = 1f
+    // Single dial to shrink/grow the whole hero cluster (logo, title, metadata,
+    // badge, description, spacing) uniformly while preserving proportions.
+    // 0.7f = 30% smaller. Adjust this one value to taste.
+    val heroScale = 0.7f
+    val descriptionScale = (if (portraitMode) 0.90f else 1f) * heroScale
+    val titleScale = (if (portraitMode) 0.92f else 1f) * heroScale
+    val metaScale = 1f * heroScale
     val titleSpacing = 8.dp * titleScale
     val metaSpacing = 8.dp * metaScale
     val imdbMetaSpacing = 4.dp * metaScale
@@ -284,22 +448,26 @@ private fun HeroTitleContent(
     val headlineLarge = MaterialTheme.typography.headlineLarge
     val labelMedium = MaterialTheme.typography.labelMedium
     val bodyMedium = MaterialTheme.typography.bodyMedium
-    val logoMaxWidthPx = remember(density) { with(density) { 220.dp.roundToPx() } }
-    val logoHeightPx = remember(density) { with(density) { 100.dp.roundToPx() } }
-    val logoModel = remember(context, preview.logo, logoMaxWidthPx, logoHeightPx) {
-        preview.logo?.let {
-            ImageRequest.Builder(context)
-                .data(it)
-                .crossfade(false)
-                .size(width = logoMaxWidthPx, height = logoHeightPx)
-                .build()
-        }
-    }
+    val logoMaxWidthPx = remember(density, heroScale) { with(density) { (320.dp * heroScale).roundToPx() } }
+    val logoHeightPx = remember(density, heroScale) { with(density) { (100.dp * heroScale).roundToPx() } }
     val imdbLogoModel = remember(context) {
         ImageRequest.Builder(context)
             .data(com.nuvio.tv.R.raw.imdb_logo_2016)
             .decoderFactory(SvgDecoder.Factory())
             .build()
+    }
+    val logoModel = remember(context, preview.logo, logoMaxWidthPx, logoHeightPx) {
+        preview.logo?.let {
+            // TMDB logo URLs sometimes arrive without a file extension,
+            // ending with a bare period (e.g. ".../logo." instead of ".../logo.png").
+            // Append .png in this case — TMDB logos are always PNG.
+            val cleanedUrl = if (it.endsWith('.')) it + "png" else it
+            ImageRequest.Builder(context)
+                .data(cleanedUrl)
+                .crossfade(true)
+                .size(width = logoMaxWidthPx, height = logoHeightPx)
+                .build()
+        }
     }
     val scaledTitleStyle = remember(headlineLarge, titleScale) {
         headlineLarge.copy(
@@ -307,6 +475,10 @@ private fun HeroTitleContent(
             lineHeight = headlineLarge.lineHeight * titleScale
         )
     }
+    val nullLogoTextStyle = remember(scaledTitleStyle) {
+        scaledTitleStyle.copy(fontFamily = buildCaslonFamily(context))
+    }
+
     val scaledDescriptionStyle = remember(bodyMedium, descriptionScale) {
         bodyMedium.copy(
             fontSize = bodyMedium.fontSize * descriptionScale,
@@ -314,32 +486,148 @@ private fun HeroTitleContent(
         )
     }
 
+    // Key on selectedPlatformId so the slide transition only fires when switching
+    // platforms. Focusing different titles within a platform uses plain fade (key unchanged).
+
     Column(
         modifier = Modifier,
         verticalArrangement = Arrangement.spacedBy(titleSpacing)
     ) {
         var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
-        val showLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
-        if (showLogo) {
-            AsyncImage(
-                model = logoModel,
-                contentDescription = preview.title,
-                onError = { logoLoadFailed = true },
-                modifier = Modifier
-                    .height(100.dp)
-                    .widthIn(min = 100.dp, max = 220.dp)
-                    .fillMaxWidth(),
-                contentScale = ContentScale.Fit,
-                alignment = Alignment.CenterStart
-            )
-        } else {
-            Text(
-                text = preview.title,
-                style = scaledTitleStyle,
-                color = NuvioColors.TextPrimary,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+        // Hold the displayed logo URL until the new one is in memory cache,
+        // so Crossfade always transitions between two loaded images.
+        var displayedLogo by remember { mutableStateOf(preview.logo) }
+        val localContext2 = LocalContext.current
+        val imageLoader2 = remember(localContext2) { coil.Coil.imageLoader(localContext2) }
+        LaunchedEffect(preview.logo) {
+            val target = preview.logo
+            if (target.isNullOrBlank()) {
+                displayedLogo = target
+                return@LaunchedEffect
+            }
+            val cleanedUrl = if (target.endsWith('.')) target + "png" else target
+            val cacheKey = coil.memory.MemoryCache.Key(cleanedUrl)
+            if (imageLoader2.memoryCache?.get(cacheKey) != null) {
+                displayedLogo = target
+                return@LaunchedEffect
+            }
+            val preload = ImageRequest.Builder(localContext2)
+                .data(cleanedUrl)
+                .size(width = logoMaxWidthPx, height = logoHeightPx)
+                .memoryCachePolicy(CachePolicy.ENABLED)
+                .build()
+            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                imageLoader2.execute(preload)
+            }
+            displayedLogo = target
+        }
+        // showLogo: preview has a logo AND it's been preloaded into cache (displayedLogo matches)
+        // This prevents the text flash when navigating from a no-logo title to a logo title.
+        val hasLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
+        val logoReady = hasLogo && displayedLogo == preview.logo
+        // Key ONLY on the logo URL when ready, else a stable null. Previously
+        // the key was (logoReady to displayedLogo): on a logo->null focus,
+        // logoReady flips false immediately but displayedLogo updates one frame
+        // later via LaunchedEffect, so the key changed twice — (false, oldLogo)
+        // then (false, null) — restarting the crossfade mid-transition and
+        // producing the "fade in, dim, reappear" flicker on null-logo titles.
+        // Collapsing every no-logo state to a single null key makes logo->null
+        // (and null->null) a single clean crossfade.
+        Crossfade(
+            targetState = if (logoReady) displayedLogo else null,
+            animationSpec = tween(durationMillis = 300),
+            label = "heroLogoFade"
+        ) { logoUrl ->
+            if (logoUrl != null) {
+                val displayedLogoModel = remember(localContext2, logoUrl, logoMaxWidthPx, logoHeightPx) {
+                    val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
+                    ImageRequest.Builder(localContext2)
+                        .data(cleanedUrl)
+                        .crossfade(false)
+                        .size(width = logoMaxWidthPx, height = logoHeightPx)
+                        .build()
+                }
+                AsyncImage(
+                    model = displayedLogoModel,
+                    contentDescription = preview.title,
+                    onError = { logoLoadFailed = true },
+                    modifier = Modifier
+                        .height(100.dp * heroScale)
+                        .widthIn(min = 100.dp * heroScale, max = 320.dp * heroScale),
+                    contentScale = ContentScale.Fit,
+                    alignment = Alignment.Center
+                )
+            } else {
+                // Fixed height box so text doesn't jump position
+                Box(
+                    modifier = Modifier
+                        .height(100.dp * heroScale)
+                        .widthIn(min = 100.dp * heroScale, max = 320.dp * heroScale),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (!hasLogo) {
+                        val baseSizePx = with(density) { nullLogoTextStyle.fontSize.toPx() }
+                        val heroBoxHeightPx = with(density) { (100.dp * heroScale).toPx() }
+                        val caslonTypeface = remember {
+                            android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
+                                .setFontVariationSettings("'wght' 300")
+                                .setWeight(300)
+                                .build()
+                        }
+                        // Pre-compute the final text size in Compose (StaticLayout-based, same
+                        // technique as the landscape poster) instead of relying on the native
+                        // view's own auto-size, which needs a post-layout measure pass and
+                        // causes a visible resize flash right after the crossfade completes.
+                        val heroComputedSizePx = remember(preview.title, logoMaxWidthPx, heroBoxHeightPx) {
+                            val paint = android.text.TextPaint().apply {
+                                typeface = caslonTypeface
+                                isAntiAlias = true
+                            }
+                            var size = baseSizePx
+                            val minSize = baseSizePx * 0.15f
+                            val widthI = logoMaxWidthPx.coerceAtLeast(1)
+                            while (size > minSize) {
+                                paint.textSize = size
+                                val layout = android.text.StaticLayout.Builder
+                                    .obtain(preview.title, 0, preview.title.length, paint, widthI)
+                                    .setLineSpacing(0f, 0.9f)
+                                    .setIncludePad(false)
+                                    .setMaxLines(3)
+                                    .setEllipsize(null)
+                                    .build()
+                                val fits = layout.lineCount <= 3 && layout.height <= (heroBoxHeightPx * 0.92f).toInt()
+                                val noOverflow = (0 until layout.lineCount).none { layout.getEllipsisCount(it) > 0 }
+                                if (fits && noOverflow) break
+                                size -= baseSizePx * 0.04f
+                            }
+                            size.coerceAtLeast(minSize)
+                        }
+                        androidx.compose.ui.viewinterop.AndroidView(
+                            modifier = Modifier.fillMaxSize(),
+                            factory = { ctx ->
+                                android.widget.TextView(ctx).apply {
+                                    layoutParams = android.view.ViewGroup.LayoutParams(
+                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    typeface = caslonTypeface
+                                    setTextColor(android.graphics.Color.WHITE)
+                                    maxLines = 3
+                                    ellipsize = android.text.TextUtils.TruncateAt.END
+                                    gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.CENTER_HORIZONTAL
+                                    setLineSpacing(0f, 0.9f)
+                                    includeFontPadding = false
+                                }
+                            },
+                            update = { tv ->
+                                tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, heroComputedSizePx)
+                                tv.text = preview.title
+                            }
+                        )
+                    }
+                    // If hasLogo but not ready yet — empty box holds space, no text flash
+                }
+            }
         }
 
         val strStatusEnded = stringResource(R.string.series_status_ended)
@@ -380,12 +668,14 @@ private fun HeroTitleContent(
 
         val secondaryHighlightText = secondaryMeta.highlightText
         val ageRatingBadge = secondaryMeta.ageRating
+        // Status badge only shown for series — movies don't show status
         val statusBadge = secondaryMeta.status
         val secondaryDetails = secondaryMeta.details
         val hasSecondaryBadge = ageRatingBadge != null || statusBadge != null
         val showImdbInPrimary = !preview.isSeries && !hasSecondaryBadge && !preview.imdbText.isNullOrBlank()
         val showImdbInPrimaryWithHighlight = showImdbInPrimary && secondaryHighlightText == null
         val showImdbInSecondary = !preview.imdbText.isNullOrBlank() &&
+            (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
             (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
 
         Row(
@@ -429,7 +719,10 @@ private fun HeroTitleContent(
                 }
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(metaSpacing)
+                    horizontalArrangement = Arrangement.spacedBy(metaSpacing),
+                    // Pin to the IMDb logo's height so rows keep identical line
+                    // spacing whether or not the rating (30dp logo) is present.
+                    modifier = Modifier.heightIn(min = 30.dp * metaScale)
                 ) {
                     if (!runtimeText.isNullOrBlank()) {
                         Text(
@@ -463,7 +756,7 @@ private fun HeroTitleContent(
 
         if (secondaryHighlightText != null || ageRatingBadge != null || showImdbInSecondary || statusBadge != null || secondaryDetails.isNotEmpty()) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp * metaScale),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(metaSpacing)
             ) {
@@ -534,7 +827,7 @@ private fun HeroTitleContent(
             }
         }
 
-        preview.description?.takeIf { it.isNotBlank() }?.let { description ->
+        if (!fullWidthIconRowEnabled) preview.description?.takeIf { it.isNotBlank() }?.let { description ->
             Text(
                 text = description,
                 style = scaledDescriptionStyle,
@@ -545,6 +838,7 @@ private fun HeroTitleContent(
         }
     }
 }
+
 
 @Composable
 private fun HeroImdbMeta(
