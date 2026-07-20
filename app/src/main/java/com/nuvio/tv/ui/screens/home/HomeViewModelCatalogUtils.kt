@@ -115,6 +115,13 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
         }
     }
 
+    // CATALOG_ORDER_PROBE — log reconcile input vs output.
+    com.nuvio.tv.data.local.CatalogOrderProbe.log(
+        appContext,
+        "RECONCILE",
+        "savedInput=$homeCatalogOrderKeys output=$mergedOrder " +
+            "droppedFromSaved=${com.nuvio.tv.data.local.CatalogOrderProbe.dropped(homeCatalogOrderKeys, mergedOrder)}"
+    )
     catalogOrder.clear()
     catalogOrder.addAll(mergedOrder)
 }

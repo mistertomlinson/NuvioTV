@@ -18,7 +18,9 @@ import javax.inject.Singleton
 @Singleton
 class LayoutPreferenceDataStore @Inject constructor(
     private val factory: ProfileDataStoreFactory,
-    private val profileManager: ProfileManager
+    private val profileManager: ProfileManager,
+    // CATALOG_ORDER_PROBE — diagnostic only; remove with the probe.
+    @dagger.hilt.android.qualifiers.ApplicationContext private val probeContext: android.content.Context
 ) {
     companion object {
         private const val FEATURE = "layout_settings"
@@ -297,6 +299,23 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     suspend fun setHomeCatalogOrderKeys(keys: List<String>) {
         val normalizedKeys = normalizeCatalogOrderKeys(keys)
+        // CATALOG_ORDER_PROBE — read current stored order as "before", log the write.
+        run {
+            val before = try {
+                var captured: List<String> = emptyList()
+                kotlinx.coroutines.withTimeoutOrNull(1000) {
+                    homeCatalogOrderKeys.collect { captured = it; throw kotlinx.coroutines.CancellationException("probe-got-first") }
+                }
+                captured
+            } catch (e: Throwable) { emptyList<String>() }
+            CatalogOrderProbe.log(
+                probeContext,
+                "WRITE",
+                "caller=[${CatalogOrderProbe.stack()}] emptyWipe=${normalizedKeys.isEmpty()} " +
+                    "beforeCount=${before.size} afterCount=${normalizedKeys.size} " +
+                    "dropped=${CatalogOrderProbe.dropped(before, normalizedKeys)} after=$normalizedKeys"
+            )
+        }
         store().edit { prefs ->
             if (normalizedKeys.isEmpty()) {
                 prefs.remove(homeCatalogOrderKeysKey)
