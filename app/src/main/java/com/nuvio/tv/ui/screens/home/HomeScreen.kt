@@ -581,6 +581,7 @@ private fun ModernHomeRoute(
     var isCarouselFocused by remember { mutableStateOf(false) }
     val aggregatePlatformsEnabled = uiState.aggregateStreamingPlatformsEnabled
     val fullWidthIconRowEnabled = uiState.fullWidthIconRowEnabled
+    val heroMetadataLarge = uiState.heroMetadataLarge
     var isAtTop by remember { mutableStateOf(true) }
     val carouselFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     // Load cached platform ids so carousel shows instantly on cold launch
@@ -661,6 +662,7 @@ private fun ModernHomeRoute(
         aggregatePlatformsEnabled = aggregatePlatformsEnabled,
         showAllCatalogsOnHome = uiState.showAllCatalogsOnHome,
         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
+        heroMetadataLarge = heroMetadataLarge,
         carouselGradientAlpha = carouselAlpha,
         onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it },
         platformNavDirection = platformNavDirection,

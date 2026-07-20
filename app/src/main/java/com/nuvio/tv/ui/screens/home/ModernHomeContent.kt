@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -138,6 +139,7 @@ fun ModernHomeContent(
     aggregatePlatformsEnabled: Boolean = true,
     showAllCatalogsOnHome: Boolean = false,
     fullWidthIconRowEnabled: Boolean = false,
+    heroMetadataLarge: Boolean = false,
     focusState: HomeScreenFocusState,
     enrichingItemId: String? = null,
     trailerPreviewUrls: Map<String, String>,
@@ -1117,6 +1119,16 @@ fun ModernHomeContent(
         val rowTitleBottom = 14.dp
         val rowsViewportHeightFraction = if (useLandscapePosters) 0.49f else 0.52f
         val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
+        // Empty space runs from below the platform icon row to the top of the
+        // catalog. Icons are rendered in a separate scope, so their bottom edge
+        // is a tunable inset here — adjust heroRegionTopInset to move the hero
+        // up/down within that space.
+        val catalogRowHeaderHeight = 32.dp
+        val heroRegionTopInset = 54.dp
+        // Empty space between the icon row (top, at heroRegionTopInset) and the
+        // catalog's TITLE (which sits at the top of the catalog viewport,
+        // maxHeight - rowsViewportHeight from screen top). Hero centers in this.
+        val heroRegionHeight = (maxHeight - rowsViewportHeight) - heroRegionTopInset
         val localDensity = LocalDensity.current
         val rowTitleLineHeight = MaterialTheme.typography.titleMedium.lineHeight
         val rowTitleHeight = with(localDensity) {
@@ -1722,14 +1734,20 @@ fun ModernHomeContent(
                 platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive && !isPlatformTransitioning) platformNavDirection else 0,
                 platformTransitionSnap = isPlatformTransitioning,
                 fullWidthIconRowEnabled = fullWidthIconRowEnabled,
+                heroMetadataLarge = heroMetadataLarge,
                 modifier = Modifier
-                    .align(Alignment.BottomStart)
+                    // Occupy the region above the catalog (top of screen -> catalog top,
+                    // minus the hero/catalog gap) and center the hero vertically within it,
+                    // so shrinking the hero keeps it centered between the platform icons
+                    // and the top catalog title instead of hugging the catalog.
+                    .align(Alignment.TopStart)
                     .padding(
                         start = rowHorizontalPadding,
                         end = 48.dp,
-                        bottom = catalogBottomPadding + rowsViewportHeight + heroToCatalogGap +
-                            if (fullWidthIconRowEnabled) 14.dp else 0.dp
+                        top = heroRegionTopInset
                     )
+                    .height(heroRegionHeight)
+                    .wrapContentHeight(align = Alignment.CenterVertically)
                     .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
             )
             CompositionLocalProvider(LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec) {

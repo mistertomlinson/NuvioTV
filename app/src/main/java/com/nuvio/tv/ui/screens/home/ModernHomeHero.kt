@@ -373,6 +373,7 @@ internal fun HeroTitleBlock(
     platformNavDirection: Int = 0,
     platformTransitionSnap: Boolean = false,
     fullWidthIconRowEnabled: Boolean = false,
+    heroMetadataLarge: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     if (preview == null) return
@@ -419,7 +420,7 @@ internal fun HeroTitleBlock(
             label = "heroTitleSlide"
         ) { pid ->
             val frozenPreview = previewByPlatform[pid] ?: return@AnimatedContent
-            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled)
+            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled, heroMetadataLarge = heroMetadataLarge)
         }
     }
 }
@@ -429,13 +430,22 @@ internal fun HeroTitleBlock(
 private fun HeroTitleContent(
     preview: HeroPreview?,
     portraitMode: Boolean,
-    fullWidthIconRowEnabled: Boolean = false
+    fullWidthIconRowEnabled: Boolean = false,
+    heroMetadataLarge: Boolean = false
 ) {
     if (preview == null) return
     val descriptionMaxLines = if (portraitMode) 4 else 5
-    val descriptionScale = if (portraitMode) 0.90f else 1f
-    val titleScale = if (portraitMode) 0.92f else 1f
-    val metaScale = 1f
+    // Single dial to shrink/grow the whole hero cluster uniformly. 0.7f = 30% smaller.
+    val heroScale = if (heroMetadataLarge) 1.0f else 0.7f
+    // Logo max width: large = original 220 cap; small = wider base so shrunk logos
+    // still read large enough (340 * 0.7 = 238). heroScale applied below.
+    val logoMaxBase = if (heroMetadataLarge) 220.dp else 340.dp
+    val descriptionScale = (if (portraitMode) 0.90f else 1f) * heroScale
+    val titleScale = (if (portraitMode) 0.92f else 1f) * heroScale
+    val metaScale = 1f * heroScale
+    // IMDB badge: untouched at large (heroScale 1.0 -> 30dp), gently larger than a
+    // linear shrink at small (heroScale 0.7 -> ~25.5dp) so it isn't too small.
+    val imdbLogoScale = (1f + heroScale) / 2f
     val titleSpacing = 8.dp * titleScale
     val metaSpacing = 8.dp * metaScale
     val imdbMetaSpacing = 4.dp * metaScale
@@ -444,8 +454,8 @@ private fun HeroTitleContent(
     val headlineLarge = MaterialTheme.typography.headlineLarge
     val labelMedium = MaterialTheme.typography.labelMedium
     val bodyMedium = MaterialTheme.typography.bodyMedium
-    val logoMaxWidthPx = remember(density) { with(density) { 220.dp.roundToPx() } }
-    val logoHeightPx = remember(density) { with(density) { 100.dp.roundToPx() } }
+    val logoMaxWidthPx = remember(density, heroScale, logoMaxBase) { with(density) { (logoMaxBase * heroScale).roundToPx() } }
+    val logoHeightPx = remember(density, heroScale) { with(density) { (100.dp * heroScale).roundToPx() } }
     val imdbLogoModel = remember(context) {
         ImageRequest.Builder(context)
             .data(com.nuvio.tv.R.raw.imdb_logo_2016)
@@ -548,24 +558,24 @@ private fun HeroTitleContent(
                     contentDescription = preview.title,
                     onError = { logoLoadFailed = true },
                     modifier = Modifier
-                        .height(100.dp)
-                        .widthIn(min = 100.dp, max = 220.dp)
+                        .height(100.dp * heroScale)
+                        .widthIn(min = 100.dp * heroScale, max = logoMaxBase * heroScale)
                         .fillMaxWidth(),
                     contentScale = ContentScale.Fit,
-                    alignment = Alignment.Center
+                    alignment = Alignment.CenterStart
                 )
             } else {
                 // Fixed height box so text doesn't jump position
                 Box(
                     modifier = Modifier
-                        .height(100.dp)
-                        .widthIn(min = 100.dp, max = 220.dp)
+                        .height(100.dp * heroScale)
+                        .widthIn(min = 100.dp * heroScale, max = logoMaxBase * heroScale)
                         .fillMaxWidth(),
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (!hasLogo) {
                         val baseSizePx = with(density) { nullLogoTextStyle.fontSize.toPx() }
-                        val heroBoxHeightPx = with(density) { 100.dp.toPx() }
+                        val heroBoxHeightPx = with(density) { (100.dp * heroScale).toPx() }
                         val caslonTypeface = remember {
                             android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
                                 .setFontVariationSettings("'wght' 300")
@@ -744,7 +754,7 @@ private fun HeroTitleContent(
                             imdbLogoModel = imdbLogoModel,
                             textStyle = labelMedium,
                             textColor = NuvioColors.TextSecondary,
-                            logoSize = 30.dp * metaScale,
+                            logoSize = 30.dp * imdbLogoScale,
                             spacing = imdbMetaSpacing
                         )
                     }
@@ -803,7 +813,7 @@ private fun HeroTitleContent(
                         imdbLogoModel = imdbLogoModel,
                         textStyle = labelMedium,
                         textColor = NuvioColors.TextSecondary,
-                        logoSize = 30.dp * metaScale,
+                        logoSize = 30.dp * imdbLogoScale,
                         spacing = imdbMetaSpacing
                     )
                 }

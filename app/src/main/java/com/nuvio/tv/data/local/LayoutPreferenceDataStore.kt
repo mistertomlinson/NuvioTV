@@ -76,6 +76,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val fastPlatformScrollKey = booleanPreferencesKey("fast_platform_scroll")
     private val fullWidthIconRowKey = booleanPreferencesKey("full_width_icon_row")
     private val dimIconsOnRowExitKey = booleanPreferencesKey("dim_icons_on_row_exit")
+    private val heroMetadataLargeKey = booleanPreferencesKey("hero_metadata_large")
     private val showAllCatalogsOnHomeKey = booleanPreferencesKey("show_all_catalogs_on_home")
     private val cachedVisiblePlatformIdsKey = stringPreferencesKey("cached_visible_platform_ids")
     private val shuffledHomeCatalogKeysKey = stringPreferencesKey("shuffled_home_catalog_keys")
@@ -262,6 +263,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val dimIconsOnRowExitEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[dimIconsOnRowExitKey] ?: true
+    }
+
+    val heroMetadataLarge: Flow<Boolean> = profileFlow { prefs ->
+        prefs[heroMetadataLargeKey] ?: false
     }
 
     suspend fun setLayout(layout: HomeLayout) {
@@ -557,6 +562,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setDimIconsOnRowExitEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[dimIconsOnRowExitKey] = enabled
+        }
+    }
+
+    suspend fun setHeroMetadataLarge(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[heroMetadataLargeKey] = enabled
         }
     }
 

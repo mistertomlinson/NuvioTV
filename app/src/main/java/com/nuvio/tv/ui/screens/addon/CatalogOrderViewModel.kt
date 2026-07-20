@@ -124,6 +124,13 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleHeroMetadataLarge() {
+        val current = _uiState.value.heroMetadataLarge
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setHeroMetadataLarge(!current)
+        }
+    }
+
     fun toggleHidePlatformNameInCatalogTitle() {
         val current = _uiState.value.hidePlatformNameInCatalogTitleEnabled
         viewModelScope.launch {
@@ -207,6 +214,11 @@ class CatalogOrderViewModel @Inject constructor(
                         }
                     )
                 }
+            }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.heroMetadataLarge.collectLatest { large ->
+                _uiState.update { it.copy(heroMetadataLarge = large) }
             }
         }
         viewModelScope.launch {
@@ -554,7 +566,8 @@ data class CatalogOrderUiState(
     val fastPlatformScrollEnabled: Boolean = false,
     val dimIconsOnRowExitEnabled: Boolean = false,
     val hidePlatformNameInCatalogTitleEnabled: Boolean = false,
-    val shuffledCatalogKeys: Set<String> = emptySet()
+    val shuffledCatalogKeys: Set<String> = emptySet(),
+    val heroMetadataLarge: Boolean = false
 )
 
 data class CatalogOrderItem(

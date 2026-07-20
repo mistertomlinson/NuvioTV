@@ -174,9 +174,13 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             .combine(layoutPreferenceDataStore.landscapeHomeCatalogKeys) { outerPair2, landscapeKeys ->
                 Pair(outerPair2, landscapeKeys.toSet())
             }
+            .combine(layoutPreferenceDataStore.heroMetadataLarge) { outerPair3, heroMetadataLarge ->
+                Pair(outerPair3, heroMetadataLarge)
+            }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (outerPairVal2, landscapeCatalogKeys) ->
+            .collectLatest { (outerPairVal3, heroMetadataLarge) ->
+            val (outerPairVal2, landscapeCatalogKeys) = outerPairVal3
             val (outerPairVal, dimIconsOnRowExitEnabled) = outerPairVal2
             val (pairVal, fastPlatformScrollEnabled) = outerPairVal
             val (tripleVal, fullWidthIconRowEnabled) = pairVal
@@ -217,6 +221,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         aggregateStreamingPlatformsEnabled = aggregateStreamingPlatforms,
                         showAllCatalogsOnHome = showAllCatalogsOnHome,
                         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
+                        heroMetadataLarge = heroMetadataLarge,
                         dimIconsOnRowExitEnabled = dimIconsOnRowExitEnabled,
                         fastPlatformScrollEnabled = fastPlatformScrollEnabled,
                         landscapeCatalogKeys = landscapeCatalogKeys + addonSignaledLandscapeKeys,

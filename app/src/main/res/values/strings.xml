@@ -1301,5 +1301,7 @@
     <string name="player_loading_subtitles_addon">Subtitles from %2$s (%1$d/%3$d)</string>
     <string name="player_loading_subtitles_progress">Loading subtitles (%1$d/%2$d)</string>
     <string name="stream_starting">Starting stream</string>
+    <string name="hero_metadata_large_title">Large Hero Metadata</string>
+    <string name="hero_metadata_large_desc">Makes metadata items ~40% larger</string>
 </resources>
 
