@@ -350,6 +350,7 @@ internal fun ModernRowSection(
                 isFirstRow = isFirstRow,
                 isContinueWatchingRow = isCwRow,
                 uiCaches = uiCaches,
+                pendingRowFocus = pendingRowFocus,
                 onRowItemFocused = onRowItemFocused,
                 onRequestCarouselFocus = onRequestCarouselFocus
             )
@@ -832,6 +833,7 @@ private fun ModernSkeletonRow(
     isFirstRow: Boolean,
     isContinueWatchingRow: Boolean,
     uiCaches: ModernHomeUiCaches,
+    pendingRowFocus: PendingRowFocusHolder,
     onRowItemFocused: (String, Int, Boolean) -> Unit,
     onRequestCarouselFocus: () -> Unit
 ) {
@@ -848,6 +850,8 @@ private fun ModernSkeletonRow(
     val sidebarOpenRequest = LocalSidebarOpenRequest.current
     val rowListState = uiCaches.rowListStates.getOrPut(rowKey) { androidx.compose.foundation.lazy.LazyListState() }
     val skeletonFallbackRequester = remember(rowKey) { uiCaches.requesterFor(rowKey, "skeleton_0") }
+    var focusedSkeletonIndex by remember(rowKey) { mutableStateOf<Int?>(null) }
+
     LazyRow(
         state = rowListState,
         modifier = Modifier
@@ -871,6 +875,32 @@ private fun ModernSkeletonRow(
         items(count) { index ->
             val requester = uiCaches.requesterFor(rowKey, "skeleton_$index")
             var isFocused by remember { mutableStateOf(false) }
+
+            // A normal D-pad move clears the remembered skeleton focus after one
+            // frame. If the skeleton is removed because real items arrived, this
+            // effect is disposed before it can clear the index.
+            LaunchedEffect(isFocused) {
+                if (!isFocused && focusedSkeletonIndex == index) {
+                    withFrameNanos { }
+                    if (!isFocused && focusedSkeletonIndex == index) {
+                        focusedSkeletonIndex = null
+                    }
+                }
+            }
+
+            // The focused skeleton and the real poster use different item keys.
+            // Arm the existing row-focus retry loop while disposal still tells us
+            // exactly which row and horizontal position owned focus.
+            androidx.compose.runtime.DisposableEffect(rowKey, index) {
+                onDispose {
+                    if (focusedSkeletonIndex == index) {
+                        pendingRowFocus.key = rowKey
+                        pendingRowFocus.index = index
+                        pendingRowFocus.nonce++
+                    }
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .size(width = cardWidth, height = cardHeight)
@@ -879,6 +909,7 @@ private fun ModernSkeletonRow(
                     .onFocusChanged { fs ->
                         isFocused = fs.isFocused
                         if (fs.isFocused) {
+                            focusedSkeletonIndex = index
                             uiCaches.focusedItemByRow[rowKey] = index
                             onRowItemFocused(rowKey, index, isContinueWatchingRow)
                         }
