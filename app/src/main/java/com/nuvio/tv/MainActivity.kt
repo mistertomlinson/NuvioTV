@@ -781,7 +781,7 @@ private fun LegacySidebarScaffold(
                                 // container's focusRestorer sends focus right back
                                 // to the same child — harmless.
                                 val restorer = rowFocusRestorer.value
-                                if (restorer != androidx.compose.ui.focus.FocusRequester.Default && runCatching { restorer.requestFocus() }.isSuccess) {
+                                if (restorer != androidx.compose.ui.focus.FocusRequester.Default && runCatching { restorer.requestFocus() }.getOrDefault(false)) {
                                     pendingContentFocusTransfer = false
                                 } else {
                                     pendingContentFocusTransfer = true
