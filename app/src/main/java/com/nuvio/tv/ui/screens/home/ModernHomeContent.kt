@@ -1411,15 +1411,28 @@ fun ModernHomeContent(
             bgColor = bgColor,
             allowLetterboxing = uiState.heroTrailerAllowLetterboxing,
             trailerTransitionProgress = heroGradientProgress,
-            modifier = heroMediaModifier.graphicsLayer {
-                // Freeze while ghosts are showing: the flip snaps
-                // backdropParallaxOffset to the enter position under the ghost,
-                // and this live (uncaptured) layer teleporting over the frozen
-                // bitmaps caused a 2-4 frame bright/dark step in the scrim
-                // region at exit start (sign flips with direction). Hold at the
-                // captured rest position until BLACK-END, then adopt the enter
-                // offset invisibly at black.
-                translationX = if (ghostVisible) 0f else backdropParallaxOffset.value
+            modifier = if (cinematicHeroMode) {
+                heroMediaModifier.graphicsLayer {
+                    // Full-screen cinematic gradient remains part of the
+                    // moving cinematic composition.
+                    translationX =
+                        if (ghostVisible) 0f
+                        else backdropParallaxOffset.value
+                }
+            } else {
+                // Compact hero-media mask must remain stationary and extend
+                // farther left than the moving backdrop. Otherwise the
+                // backdrop/ghost can slide outside the mask's original bounds
+                // and expose its hard edge.
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 56.dp)
+                    .width(
+                        maxWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION +
+                            maxWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f +
+                            8.dp
+                    )
+                    .height(heroBackdropHeight)
             },
             cinematicMode = cinematicHeroMode,
             shouldPlayHeroTrailer = shouldPlayHeroTrailer
