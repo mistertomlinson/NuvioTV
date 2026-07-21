@@ -100,6 +100,8 @@ class MetaDetailsViewModel @Inject constructor(
     private var commentsLoadMoreJob: Job? = null
     private var episodeRatingsJob: Job? = null
     private var nextToWatchJob: Job? = null
+    private val authoritativeWatchedEpisodes =
+        MutableStateFlow<Set<Pair<Int, Int>>>(emptySet())
 
     private var trailerDelayMs = 7000L
     private var trailerAutoplayEnabled = false
@@ -341,18 +343,62 @@ _uiState.update { state ->
     private fun observeWatchedEpisodes() {
         if (itemType.lowercase() == "movie") return
         viewModelScope.launch {
-            watchedItemsPreferences.getWatchedEpisodesForContent(itemId)
+            kotlinx.coroutines.flow.combine(
+                watchedItemsPreferences.getWatchedEpisodesForContent(itemId),
+                authoritativeWatchedEpisodes
+            ) { localWatched, remoteWatched ->
+                localWatched + remoteWatched
+            }
                 .distinctUntilChanged()
                 .collectLatest { watchedSet ->
-                _uiState.update { state ->
-                    if (state.watchedEpisodes == watchedSet) {
-                        state
-                    } else {
-                        state.copy(watchedEpisodes = watchedSet)
+                    _uiState.update { state ->
+                        if (state.watchedEpisodes == watchedSet) {
+                            state
+                        } else {
+                            state.copy(watchedEpisodes = watchedSet)
+                        }
                     }
+                    calculateNextToWatch()
                 }
-                calculateNextToWatch()
+        }
+    }
+
+    private suspend fun refreshAuthoritativeWatchedEpisodes(meta: Meta) {
+        // Home's Next Up/New Season pipeline uses this complete show-history map.
+        // Details previously used only local watched preferences, which can be
+        // empty while Trakt is active.
+        repeat(4) { attempt ->
+            val allWatched = watchProgressRepository.getWatchedShowEpisodes()
+            val siblingMap = watchProgressRepository.getShowIdSiblings()
+
+            val directKeys = buildSet {
+                itemId.trim().takeIf { it.isNotBlank() }?.let(::add)
+                meta.id.trim().takeIf { it.isNotBlank() }?.let(::add)
+                meta.imdbId?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
             }
+
+            val lookupKeys = buildSet {
+                addAll(directKeys)
+                directKeys.forEach { key ->
+                    siblingMap[key]
+                        .orEmpty()
+                        .filterNot { it == "__ambiguous__" }
+                        .forEach(::add)
+                }
+            }
+
+            val watched = lookupKeys
+                .flatMap { key -> allWatched[key].orEmpty() }
+                .toSet()
+
+            if (watched.isNotEmpty() || attempt == 3) {
+                authoritativeWatchedEpisodes.value = watched
+                return
+            }
+
+            // The Trakt watched-show snapshot may still be finishing its
+            // cold-start load when Details opens.
+            kotlinx.coroutines.delay(250L)
         }
     }
 
@@ -513,7 +559,13 @@ _uiState.update { state ->
             )
         }
         
-        // Calculate next to watch after meta is loaded
+        // Resolve the same complete watched-show history used by Home's
+        // Next Up/New Season pipeline, then recalculate when it arrives.
+        viewModelScope.launch {
+            refreshAuthoritativeWatchedEpisodes(meta)
+        }
+
+        // Calculate immediately from any progress already available.
         calculateNextToWatch()
 
         // Start fetching trailer after meta is loaded
@@ -1098,6 +1150,7 @@ _uiState.update { state ->
     private fun calculateNextToWatch() {
         val meta = _uiState.value.meta ?: return
         val progressMap = _uiState.value.episodeProgressMap
+        val watchedEpisodes = _uiState.value.watchedEpisodes
         val isSeries = meta.apiType in listOf("series", "tv")
         nextToWatchJob?.cancel()
 
@@ -1158,6 +1211,7 @@ _uiState.update { state ->
                 latestProgress = latestSeriesProgress,
                 episodes = episodePool,
                 fallbackProgressMap = progressMap,
+                watchedEpisodes = watchedEpisodes,
                 metaId = meta.id,
                 defaultEpisode = defaultEpisode
             )
@@ -1170,6 +1224,7 @@ _uiState.update { state ->
         latestProgress: WatchProgress?,
         episodes: List<Video>,
         fallbackProgressMap: Map<Pair<Int, Int>, WatchProgress>,
+        watchedEpisodes: Set<Pair<Int, Int>>,
         metaId: String,
         defaultEpisode: Video? = null
     ): NextToWatch {
@@ -1182,6 +1237,13 @@ _uiState.update { state ->
                 nextEpisode = null,
                 displayText = context.getString(R.string.detail_btn_play)
             )
+        }
+
+        fun isWatchedEpisode(video: Video): Boolean {
+            val season = video.season ?: return false
+            val episode = video.episode ?: return false
+            return (season to episode) in watchedEpisodes ||
+                fallbackProgressMap[season to episode]?.isCompleted() == true
         }
 
         if (latestProgress?.season != null && latestProgress.episode != null) {
@@ -1202,7 +1264,13 @@ _uiState.update { state ->
             }
 
             if (latestProgress.isCompleted() && matchedIndex >= 0) {
-                val next = episodes.getOrNull(matchedIndex + 1)
+                // A Trakt show-progress seed can identify an old episode even
+                // though the full watched map contains every later completed
+                // episode. Skip all episodes already watched.
+                val next = episodes
+                    .drop(matchedIndex + 1)
+                    .firstOrNull { !isWatchedEpisode(it) }
+
                 if (next != null) {
                     return NextToWatch(
                         watchProgress = null,
@@ -1225,22 +1293,18 @@ _uiState.update { state ->
             val ep = episode.episode ?: continue
             val progress = fallbackProgressMap[season to ep]
 
-            if (progress != null) {
-                if (shouldResumeProgress(progress)) {
-                    resumeEpisode = episode
-                    resumeProgress = progress
-                    break
-                } else if (progress.isCompleted()) {
-                    continue
-                }
-            } else {
-                if (nextUnwatchedEpisode == null) {
-                    nextUnwatchedEpisode = episode
-                }
-                if (resumeEpisode == null) {
-                    break
-                }
+            if (progress != null && shouldResumeProgress(progress)) {
+                resumeEpisode = episode
+                resumeProgress = progress
+                break
             }
+
+            if (isWatchedEpisode(episode)) {
+                continue
+            }
+
+            nextUnwatchedEpisode = episode
+            break
         }
 
         return when {
@@ -1255,7 +1319,8 @@ _uiState.update { state ->
                 )
             }
             nextUnwatchedEpisode != null -> {
-                val hasWatchedSomething = fallbackProgressMap.isNotEmpty()
+                val hasWatchedSomething =
+                    fallbackProgressMap.isNotEmpty() || watchedEpisodes.isNotEmpty()
                 val preferredEpisode = if (hasWatchedSomething) nextUnwatchedEpisode else (defaultEpisode ?: nextUnwatchedEpisode)
                 val s = preferredEpisode.season
                 val e = preferredEpisode.episode
