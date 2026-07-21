@@ -210,10 +210,13 @@ class TraktProgressService @Inject constructor(
             }
         }
         scope.launch {
+            // Initialize the active profile before the first Trakt refresh. Previously
+            // the refresh collector and the profile collector started independently,
+            // allowing the StateFlow's initial profile emission to reset state during
+            // or immediately after the cold-start snapshot.
             profileManager.activeProfileReady.first { it }
-            loadWatchedMoviesFromCache()
-        }
-        scope.launch {
+            resetForProfileSwitch()
+
             refreshEvents().collect {
                 val success = try {
                     refreshRemoteSnapshot()
@@ -226,8 +229,14 @@ class TraktProgressService @Inject constructor(
             }
         }
         scope.launch {
-            profileManager.activeProfileId.collectLatest {
-                resetForProfileSwitch()
+            profileManager.activeProfileReady.first { it }
+            var observedProfileId = profileManager.activeProfileId.value
+
+            profileManager.activeProfileId.collectLatest { profileId ->
+                if (profileId != observedProfileId) {
+                    observedProfileId = profileId
+                    resetForProfileSwitch()
+                }
             }
         }
     }
