@@ -359,7 +359,12 @@ internal fun ModernRowSection(
 
         val rowListState = rowListStates.getOrPut(row.key) {
             LazyListState(
-                firstVisibleItemIndex = focusStateCatalogRowScrollStates[row.key] ?: 0
+                firstVisibleItemIndex =
+                    focusStateCatalogRowScrollStates[row.key] ?: 0,
+                firstVisibleItemScrollOffset =
+                    focusStateCatalogRowScrollStates[
+                        "${row.key}::offset"
+                    ] ?: 0
             )
         }
 
@@ -424,6 +429,13 @@ internal fun ModernRowSection(
                 }.getOrDefault(false)
             }
             if (didFocus) {
+                if (
+                    pendingRowFocus.suppressBringIntoView &&
+                    pendingRowFocus.key == row.key
+                ) {
+                    withFrameNanos { }
+                    withFrameNanos { }
+                }
                 onPendingRowFocusCleared()
             }
                 }
@@ -557,6 +569,13 @@ internal fun ModernRowSection(
                     size: Float,
                     containerSize: Float
                 ): Float {
+                    if (
+                        pendingRowFocus.suppressBringIntoView &&
+                        pendingRowFocus.key == row.key
+                    ) {
+                        return 0f
+                    }
+
                     // Clamp containerSize to real screen width — parallax layout modifier
                     // widens the measured container, but scroll calculations must use
                     // the actual visible screen width for correct end padding behavior.

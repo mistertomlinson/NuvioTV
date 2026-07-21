@@ -723,6 +723,8 @@ fun ModernHomeContent(
             heroItemRowKey = resolvedRow.key
             pendingRowFocus.key = resolvedRow.key
             pendingRowFocus.index = resolvedIndex
+            pendingRowFocus.suppressBringIntoView =
+                resolvedRow.key == "continue_watching"
             pendingRowFocus.nonce++
             restoredFromSavedState = true
             lastRestoredRowKey = focusState.focusedRowKey
@@ -908,11 +910,26 @@ fun ModernHomeContent(
             val row = latestActiveRow
             val focusedRowIndex = row?.globalRowIndex ?: 0
             val focusedRowKey = row?.key
-            val catalogRowScrollStates = latestCarouselRows
-                .filter { it.globalRowIndex >= 0 }
-                .associate { rowState ->
-                    rowState.key to (rowListStates[rowState.key]?.firstVisibleItemIndex ?: focusedItemByRow[rowState.key] ?: 0)
-                }
+            val catalogRowScrollStates = buildMap {
+                latestCarouselRows
+                    .filter {
+                        it.globalRowIndex >= 0 ||
+                            it.key == "continue_watching"
+                    }
+                    .forEach { rowState ->
+                        val listState = rowListStates[rowState.key]
+                        put(
+                            rowState.key,
+                            listState?.firstVisibleItemIndex
+                                ?: focusedItemByRow[rowState.key]
+                                ?: 0
+                        )
+                        put(
+                            "${rowState.key}::offset",
+                            listState?.firstVisibleItemScrollOffset ?: 0
+                        )
+                    }
+            }
             onSaveFocusState(
                 latestVerticalRowListState.firstVisibleItemIndex,
                 latestVerticalRowListState.firstVisibleItemScrollOffset,
@@ -931,11 +948,26 @@ fun ModernHomeContent(
             val row = latestActiveRow
             val focusedRowIndex = row?.globalRowIndex ?: 0
             val focusedRowKey = row?.key
-            val catalogRowScrollStates = latestCarouselRows
-                .filter { it.globalRowIndex >= 0 }
-                .associate { rowState ->
-                    rowState.key to (rowListStates[rowState.key]?.firstVisibleItemIndex ?: focusedItemByRow[rowState.key] ?: 0)
-                }
+            val catalogRowScrollStates = buildMap {
+                latestCarouselRows
+                    .filter {
+                        it.globalRowIndex >= 0 ||
+                            it.key == "continue_watching"
+                    }
+                    .forEach { rowState ->
+                        val listState = rowListStates[rowState.key]
+                        put(
+                            rowState.key,
+                            listState?.firstVisibleItemIndex
+                                ?: focusedItemByRow[rowState.key]
+                                ?: 0
+                        )
+                        put(
+                            "${rowState.key}::offset",
+                            listState?.firstVisibleItemScrollOffset ?: 0
+                        )
+                    }
+            }
 
             onSaveFocusState(
                 latestVerticalRowListState.firstVisibleItemIndex,
@@ -1940,7 +1972,12 @@ fun ModernHomeContent(
                         }
                     }
                     val stableOnPendingRowFocusCleared = remember(Unit) {
-                        { pendingRowFocus.key = null; pendingRowFocus.index = null; Unit }
+                        {
+                            pendingRowFocus.key = null
+                            pendingRowFocus.index = null
+                            pendingRowFocus.suppressBringIntoView = false
+                            Unit
+                        }
                     }
                     val stableOnBackdropInteraction = remember(Unit) {
                         { expansionInteractionNonce++; Unit }

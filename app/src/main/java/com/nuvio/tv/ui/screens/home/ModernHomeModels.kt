@@ -123,6 +123,7 @@ internal data class ModernCatalogRowBuildCacheEntry(
 internal class PendingRowFocusHolder {
     var key by mutableStateOf<String?>(null)
     var index by mutableStateOf<Int?>(null)
+    var suppressBringIntoView by mutableStateOf(false)
     var nonce by mutableIntStateOf(0)
 }
 
