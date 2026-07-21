@@ -51,6 +51,7 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -66,7 +67,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -104,7 +104,7 @@ import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
-import com.nuvio.tv.ui.components.rememberShimmerBrush
+import com.nuvio.tv.ui.components.rememberPosterShimmerTranslateState
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalSidebarOpenRequest
@@ -171,7 +171,7 @@ private fun ModernCatalogRowItem(
     useLandscapePosters: Boolean,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
-    shimmerBrush: Brush,
+    shimmerTranslateState: State<Float>,
     modernCatalogCardWidth: Dp,
     modernCatalogCardHeight: Dp,
     focusedPosterBackdropTrailerMuted: Boolean,
@@ -223,7 +223,7 @@ private fun ModernCatalogRowItem(
         useLandscapePosters = useLandscapePosters,
         showLabels = showLabels,
         cardCornerRadius = posterCardCornerRadius,
-        shimmerBrush = shimmerBrush,
+        shimmerTranslateState = shimmerTranslateState,
         cardWidth = modernCatalogCardWidth,
         cardHeight = modernCatalogCardHeight,
         focusedPosterBackdropExpandEnabled = effectiveExpandEnabled && !useLandscapePosters,
@@ -327,7 +327,7 @@ internal fun ModernRowSection(
             modifier = Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
         )
 
-        val rowShimmerBrush = rememberShimmerBrush()
+        val rowShimmerTranslateState = rememberPosterShimmerTranslateState()
         val isCwRow = row.key == "continue_watching"
         val skeletonCardWidth = if (isCwRow) continueWatchingCardWidth else modernCatalogCardWidth
         val skeletonCardHeight = if (isCwRow) continueWatchingCardHeight else modernCatalogCardHeight
@@ -346,7 +346,7 @@ internal fun ModernRowSection(
                 cardWidth = skeletonCardWidth,
                 cardHeight = skeletonCardHeight,
                 cornerRadius = posterCardCornerRadius,
-                shimmerBrush = rowShimmerBrush,
+                shimmerTranslateState = rowShimmerTranslateState,
                 isFirstRow = isFirstRow,
                 isContinueWatchingRow = isCwRow,
                 uiCaches = uiCaches,
@@ -752,7 +752,7 @@ internal fun ModernRowSection(
                                         useLandscapePosters = useLandscapePosters || perCatalogLandscape,
                                         showLabels = showLabels,
                                         posterCardCornerRadius = posterCardCornerRadius,
-                                        shimmerBrush = rowShimmerBrush,
+                                        shimmerTranslateState = rowShimmerTranslateState,
                                         modernCatalogCardWidth = modernCatalogCardWidth,
                                         modernCatalogCardHeight = modernCatalogCardHeight,
                                         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
@@ -786,7 +786,7 @@ internal fun ModernRowSection(
                                     useLandscapePosters = useLandscapePosters || perCatalogLandscape,
                                     showLabels = showLabels,
                                     posterCardCornerRadius = posterCardCornerRadius,
-                                    shimmerBrush = rowShimmerBrush,
+                                    shimmerTranslateState = rowShimmerTranslateState,
                                     modernCatalogCardWidth = modernCatalogCardWidth,
                                     modernCatalogCardHeight = modernCatalogCardHeight,
                                     focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
@@ -828,7 +828,7 @@ private fun ModernSkeletonRow(
     cardWidth: Dp,
     cardHeight: Dp,
     cornerRadius: Dp,
-    shimmerBrush: Brush,
+    shimmerTranslateState: State<Float>,
     isFirstRow: Boolean,
     isContinueWatchingRow: Boolean,
     uiCaches: ModernHomeUiCaches,
@@ -890,7 +890,7 @@ private fun ModernSkeletonRow(
                         shape = RoundedCornerShape(cornerRadius)
                     )
             ) {
-                MonochromePosterPlaceholder(shimmerBrush = shimmerBrush)
+                MonochromePosterPlaceholder(shimmerTranslateState = shimmerTranslateState)
             }
         }
     }
@@ -903,7 +903,7 @@ private fun ModernCarouselCard(
     useLandscapePosters: Boolean,
     showLabels: Boolean,
     cardCornerRadius: Dp,
-    shimmerBrush: Brush,
+    shimmerTranslateState: State<Float>,
     cardWidth: Dp,
     cardHeight: Dp,
     focusedPosterBackdropExpandEnabled: Boolean,
@@ -1225,7 +1225,7 @@ private fun ModernCarouselCard(
                 Box(modifier = mediaLayerModifier.graphicsLayer { alpha = posterAlpha }) {
                     if (!hasImage || !posterImageLoaded.value) {
                         MonochromePosterPlaceholder(
-                            shimmerBrush = shimmerBrush
+                            shimmerTranslateState = shimmerTranslateState
                         )
                     }
 
