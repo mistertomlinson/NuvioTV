@@ -27,9 +27,9 @@ import com.nuvio.tv.ui.components.rememberShimmerBrush
 
 @Composable
 fun MonochromePosterPlaceholder(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    shimmerBrush: Brush = rememberShimmerBrush()
 ) {
-    val shimmerBrush = rememberShimmerBrush()
     Box(
         modifier = modifier
             .fillMaxSize()

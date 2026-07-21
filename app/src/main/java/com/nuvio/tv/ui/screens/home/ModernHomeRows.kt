@@ -66,6 +66,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -103,6 +104,7 @@ import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
+import com.nuvio.tv.ui.components.rememberShimmerBrush
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalSidebarOpenRequest
@@ -169,6 +171,7 @@ private fun ModernCatalogRowItem(
     useLandscapePosters: Boolean,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
+    shimmerBrush: Brush,
     modernCatalogCardWidth: Dp,
     modernCatalogCardHeight: Dp,
     focusedPosterBackdropTrailerMuted: Boolean,
@@ -220,6 +223,7 @@ private fun ModernCatalogRowItem(
         useLandscapePosters = useLandscapePosters,
         showLabels = showLabels,
         cardCornerRadius = posterCardCornerRadius,
+        shimmerBrush = shimmerBrush,
         cardWidth = modernCatalogCardWidth,
         cardHeight = modernCatalogCardHeight,
         focusedPosterBackdropExpandEnabled = effectiveExpandEnabled && !useLandscapePosters,
@@ -323,6 +327,7 @@ internal fun ModernRowSection(
             modifier = Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
         )
 
+        val rowShimmerBrush = rememberShimmerBrush()
         val isCwRow = row.key == "continue_watching"
         val skeletonCardWidth = if (isCwRow) continueWatchingCardWidth else modernCatalogCardWidth
         val skeletonCardHeight = if (isCwRow) continueWatchingCardHeight else modernCatalogCardHeight
@@ -341,6 +346,7 @@ internal fun ModernRowSection(
                 cardWidth = skeletonCardWidth,
                 cardHeight = skeletonCardHeight,
                 cornerRadius = posterCardCornerRadius,
+                shimmerBrush = rowShimmerBrush,
                 isFirstRow = isFirstRow,
                 isContinueWatchingRow = isCwRow,
                 uiCaches = uiCaches,
@@ -746,6 +752,7 @@ internal fun ModernRowSection(
                                         useLandscapePosters = useLandscapePosters || perCatalogLandscape,
                                         showLabels = showLabels,
                                         posterCardCornerRadius = posterCardCornerRadius,
+                                        shimmerBrush = rowShimmerBrush,
                                         modernCatalogCardWidth = modernCatalogCardWidth,
                                         modernCatalogCardHeight = modernCatalogCardHeight,
                                         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
@@ -779,6 +786,7 @@ internal fun ModernRowSection(
                                     useLandscapePosters = useLandscapePosters || perCatalogLandscape,
                                     showLabels = showLabels,
                                     posterCardCornerRadius = posterCardCornerRadius,
+                                    shimmerBrush = rowShimmerBrush,
                                     modernCatalogCardWidth = modernCatalogCardWidth,
                                     modernCatalogCardHeight = modernCatalogCardHeight,
                                     focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
@@ -820,6 +828,7 @@ private fun ModernSkeletonRow(
     cardWidth: Dp,
     cardHeight: Dp,
     cornerRadius: Dp,
+    shimmerBrush: Brush,
     isFirstRow: Boolean,
     isContinueWatchingRow: Boolean,
     uiCaches: ModernHomeUiCaches,
@@ -881,7 +890,7 @@ private fun ModernSkeletonRow(
                         shape = RoundedCornerShape(cornerRadius)
                     )
             ) {
-                MonochromePosterPlaceholder()
+                MonochromePosterPlaceholder(shimmerBrush = shimmerBrush)
             }
         }
     }
@@ -894,6 +903,7 @@ private fun ModernCarouselCard(
     useLandscapePosters: Boolean,
     showLabels: Boolean,
     cardCornerRadius: Dp,
+    shimmerBrush: Brush,
     cardWidth: Dp,
     cardHeight: Dp,
     focusedPosterBackdropExpandEnabled: Boolean,
@@ -1126,6 +1136,11 @@ private fun ModernCarouselCard(
         modifier = Modifier.width(animatedCardWidth),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        val posterImageLoaded = remember(imageUrl) {
+            mutableStateOf(false)
+        }
+        val posterContainerColor = Color.Transparent
+
         Card(
             onClick = {
                 if (longPressTriggered) {
@@ -1180,8 +1195,8 @@ private fun ModernCarouselCard(
                 },
             shape = CardDefaults.shape(shape = cardShape),
             colors = CardDefaults.colors(
-                containerColor = backgroundCardColor,
-                focusedContainerColor = backgroundCardColor
+                containerColor = posterContainerColor,
+                focusedContainerColor = posterContainerColor
             ),
             border = CardDefaults.border(
                 focusedBorder = focusedBorder
@@ -1208,15 +1223,28 @@ private fun ModernCarouselCard(
                 val posterAlpha = if (noBackdropImage && topOverlayAlpha == 1f) 0f else 1f
 
                 Box(modifier = mediaLayerModifier.graphicsLayer { alpha = posterAlpha }) {
+                    if (!hasImage || !posterImageLoaded.value) {
+                        MonochromePosterPlaceholder(
+                            shimmerBrush = shimmerBrush
+                        )
+                    }
+
                     if (hasImage) {
                         AsyncImage(
                             model = imageModel,
                             contentDescription = item.title,
                             modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                            contentScale = ContentScale.Crop,
+                            onLoading = {
+                                posterImageLoaded.value = false
+                            },
+                            onSuccess = {
+                                posterImageLoaded.value = true
+                            },
+                            onError = {
+                                posterImageLoaded.value = false
+                            }
                         )
-                    } else if (!useLandscapePosters) {
-                        MonochromePosterPlaceholder()
                     }
                 }
 
