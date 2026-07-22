@@ -1458,7 +1458,29 @@ fun ModernHomeContent(
                     externalPlayer = sharedTrailerPlayer,
                     modifier = Modifier.fillMaxSize()
                 )
-            }
+
+                // Dedicated stationary trailer-edge concealment.
+                //
+                // This is positioned inside the actual 60%-width trailer
+                // container, so its fade always begins at the trailer's real
+                // left edge and is unaffected by backdrop parallax.
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .fillMaxHeight()
+                        .width(112.dp)
+                        .background(
+                            androidx.compose.ui.graphics.Brush.horizontalGradient(
+                                colorStops = arrayOf(
+                                    0.00f to bgColor,
+                                    0.16f to bgColor,
+                                    0.58f to bgColor.copy(alpha = 0.78f),
+                                    1.00f to androidx.compose.ui.graphics.Color.Transparent
+                                )
+                            )
+                        )
+                )
+}
         }
         ModernHeroGradientLayer(
             bgColor = bgColor,
@@ -2122,8 +2144,8 @@ fun ModernHomeContent(
                         .coerceAtLeast(0)
                 }
                 pendingRemovalFocusIndex = targetIndex
-                
-                
+
+
                 onRemoveContinueWatching(
                     selectedOptionsItem.contentId(),
                     selectedOptionsItem.season(),
