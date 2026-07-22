@@ -132,6 +132,21 @@ private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 250L
 private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 250L
 private const val KEY_REPEAT_THROTTLE_MS = 140L
 
+private val TMDB_BACKDROP_SIZE_SEGMENT = Regex("""(/t/p/)[^/]+/""")
+
+private fun cinematicBackdropIdentity(url: String?): String? {
+    val cleanUrl = url
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?.substringBefore('?')
+        ?.substringBefore('#')
+        ?: return null
+
+    return TMDB_BACKDROP_SIZE_SEGMENT.replace(cleanUrl) { match ->
+        match.groupValues[1]
+    }
+}
+
 @Composable
 fun ModernHomeContent(
     uiState: HomeUiState,
@@ -454,6 +469,30 @@ fun ModernHomeContent(
     }
     LaunchedEffect(enrichingItemId) {
         metricsHolder.state?.putState("HeroEnriching", (enrichingItemId != null).toString())
+    }
+
+
+    /*
+     * Backdrop overscan is a property of the canonical top row's content,
+     * not of whichever row currently has focus.
+     *
+     * This set is rebuilt only when carousel row data changes. D-pad focus
+     * movement performs no row scans.
+     */
+    val canonicalTopRowBackdropKeys = remember(carouselRows) {
+        buildSet {
+            carouselRows
+                .firstOrNull()
+                ?.items
+                ?.forEach { item ->
+                    val identity =
+                        cinematicBackdropIdentity(item.heroPreview.backdrop)
+
+                    if (identity != null) {
+                        add(identity)
+                    }
+                }
+        }
     }
 
     val uiCaches = remember { ModernHomeUiCaches() }
@@ -1319,6 +1358,18 @@ fun ModernHomeContent(
         val cinematicHeroMode = !uiState.focusedPosterBackdropTrailerEnabled ||
             uiState.focusedPosterBackdropTrailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
 
+        /*
+         * The scale passed into ModernHeroMediaLayer is final before the
+         * incoming BackdropFrame is created. Eligible images therefore enter
+         * already overscanned on their first visible frame.
+         */
+        val renderedBackdropIdentity = remember(heroBackdrop) {
+            cinematicBackdropIdentity(heroBackdrop)
+        }
+        val shouldOverscanCinematicBackdrop =
+            renderedBackdropIdentity != null &&
+                renderedBackdropIdentity in canonicalTopRowBackdropKeys
+
         val heroMediaModifier = remember(heroBackdropHeight, cinematicHeroMode, maxHeight) {
             if (cinematicHeroMode) {
                 Modifier
@@ -1381,7 +1432,9 @@ fun ModernHomeContent(
                     alpha = 1f
                     translationX = backdropParallaxOffset.value
                 },
-            cinematicScale = if (isAtTop) 1.0f else (1.0f / 1.1f),
+            cinematicScale =
+                if (shouldOverscanCinematicBackdrop) 1.0f
+                else (1.0f / 1.1f),
             requestWidthPx = heroMediaWidthPx,
             requestHeightPx = heroMediaHeightPx
         )
