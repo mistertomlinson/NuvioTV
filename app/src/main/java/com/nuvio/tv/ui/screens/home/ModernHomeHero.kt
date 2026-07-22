@@ -106,10 +106,13 @@ internal fun ModernHeroMediaLayer(
     parallaxOffsetX: Float = 0f,
     cinematicMode: Boolean = false,
     backdropCrossfadeDuration: Int = 350,
-    cinematicScale: Float = 1.1f
+    cinematicScale: Float = 1.1f,
+    onBackdropFrameReady: (String?) -> Unit = {}
 ) {
     val localContext = LocalContext.current
     val imageLoader = remember(localContext) { coil.Coil.imageLoader(localContext) }
+    val latestOnBackdropFrameReady =
+        androidx.compose.runtime.rememberUpdatedState(onBackdropFrameReady)
 
     // Pair the URL with the scale so Crossfade captures both atomically.
     // The outgoing image keeps its original scale for the full crossfade duration;
@@ -125,12 +128,14 @@ internal fun ModernHeroMediaLayer(
         val scale = cinematicScale
         if (target == null) {
             displayedFrame = BackdropFrame(null, scale)
+            latestOnBackdropFrameReady.value(null)
             return@LaunchedEffect
         }
         // If already memory-cached, flip immediately — no visible delay.
         val cacheKey = coil.memory.MemoryCache.Key(target)
         if (imageLoader.memoryCache?.get(cacheKey) != null) {
             displayedFrame = BackdropFrame(target, scale)
+            latestOnBackdropFrameReady.value(target)
             return@LaunchedEffect
         }
         // Pre-load into memory cache, then flip.  2 s timeout so a slow
@@ -146,6 +151,7 @@ internal fun ModernHeroMediaLayer(
         // Whether it succeeded or timed out, show it now — at worst we get
         // the old snap behaviour on a very slow connection, never a hang.
         displayedFrame = BackdropFrame(target, scale)
+        latestOnBackdropFrameReady.value(target)
     }
 
     Box(modifier = modifier.clipToBounds()) {

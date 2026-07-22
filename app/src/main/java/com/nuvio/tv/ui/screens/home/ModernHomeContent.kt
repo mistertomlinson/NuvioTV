@@ -589,6 +589,16 @@ fun ModernHomeContent(
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
 
+    /*
+     * Hero trailer playback is retained independently from the currently
+     * focused poster while the incoming title's backdrop is being decoded.
+     */
+    var retainedHeroTrailerSelection by remember {
+        mutableStateOf<FocusedCatalogSelection?>(null)
+    }
+    var trailerExitBackdropOverride by remember { mutableStateOf<String?>(null) }
+    var trailerExitAwaitingBackdrop by remember { mutableStateOf(false) }
+
     // Patch 8: gate per-landing work (enrichment, preload, selection) during fast scroll.
     // Catch-up effect below re-fires for the settled item when scrolling stops.
     val latestOnItemFocus by rememberUpdatedState(onItemFocus)
@@ -665,16 +675,67 @@ fun ModernHomeContent(
         uiState.focusedPosterBackdropExpandDelaySeconds,
         isVerticalRowsScrolling
     ) {
+        val outgoingTrailerSelection = retainedHeroTrailerSelection
+        val incomingSelection = focusedCatalogSelection
+        val shouldHoldOutgoingTrailer =
+            trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
+                outgoingTrailerSelection != null &&
+                incomingSelection != null &&
+                outgoingTrailerSelection.focusKey != incomingSelection.focusKey
+
+        if (shouldHoldOutgoingTrailer) {
+            val incomingBackdrop = carouselRows
+                .asSequence()
+                .flatMap { row -> row.items.asSequence() }
+                .firstOrNull { item ->
+                    (item.payload as? ModernPayload.Catalog)?.focusKey ==
+                        incomingSelection?.focusKey
+                }
+                ?.heroPreview
+                ?.let { preview ->
+                    firstNonBlank(
+                        preview.backdrop,
+                        preview.imageUrl
+                    )
+                }
+
+            if (incomingBackdrop != null) {
+                /*
+                 * Point the backdrop renderer at B immediately, but retain
+                 * trailer A until the renderer reports that B is decoded.
+                 */
+                trailerExitBackdropOverride = incomingBackdrop
+                trailerExitAwaitingBackdrop = true
+            } else {
+                retainedHeroTrailerSelection = null
+                trailerExitBackdropOverride = null
+                trailerExitAwaitingBackdrop = false
+            }
+        } else {
+            retainedHeroTrailerSelection = null
+            trailerExitBackdropOverride = null
+            trailerExitAwaitingBackdrop = false
+        }
+
         expandedCatalogFocusKey = null
         if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
         if (isVerticalRowsScrolling) return@LaunchedEffect
+
         val selection = focusedCatalogSelection ?: return@LaunchedEffect
         delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0) * 1000L)
+
         if (shouldActivateFocusedPosterFlow &&
             !isVerticalRowsScrolling &&
             focusedCatalogSelection?.focusKey == selection.focusKey
         ) {
             expandedCatalogFocusKey = selection.focusKey
+
+            if (
+                trailerPlaybackTarget ==
+                    FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
+            ) {
+                retainedHeroTrailerSelection = selection
+            }
         }
     }
 
@@ -1088,8 +1149,17 @@ fun ModernHomeContent(
         // back to the first row's item, which caused a stale-looking flash of the
         // wrong backdrop before real focus restored.
         val lastGoodBackdrop = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
-        val heroBackdrop = remember(resolvedHero, activeRowFallbackBackdrop, heroItem, carouselRows, lastGoodBackdrop.value) {
-            val resolved = firstNonBlank(
+
+        val heroBackdrop = remember(
+            trailerExitBackdropOverride,
+            resolvedHero,
+            activeRowFallbackBackdrop,
+            heroItem,
+            carouselRows,
+            lastGoodBackdrop.value
+        ) {
+            firstNonBlank(
+                trailerExitBackdropOverride,
                 resolvedHero?.backdrop,
                 resolvedHero?.imageUrl,
                 if (heroItem == null) activeRowFallbackBackdrop else null,
@@ -1105,7 +1175,6 @@ fun ModernHomeContent(
                         ?.let { firstNonBlank(it.backdrop, it.imageUrl) }
                 } else null
             )
-            resolved
         }
         // Record the last non-blank resolved backdrop (only from a REAL focused
         // item, not the fallback itself, to avoid latching the first-item value).
@@ -1113,14 +1182,59 @@ fun ModernHomeContent(
             val real = firstNonBlank(resolvedHero?.backdrop, resolvedHero?.imageUrl)
             if (real != null) lastGoodBackdrop.value = real
         }
-        val expandedFocusedSelection = remember(focusedCatalogSelection, expandedCatalogFocusKey) {
-            focusedCatalogSelection?.takeIf { it.focusKey == expandedCatalogFocusKey }
+
+        /*
+         * Once the delayed hero pipeline catches up to the same URL, the
+         * temporary override is no longer needed.
+         */
+        LaunchedEffect(
+            resolvedHero?.backdrop,
+            resolvedHero?.imageUrl,
+            trailerExitBackdropOverride,
+            trailerExitAwaitingBackdrop
+        ) {
+            val override = trailerExitBackdropOverride
+            val resolved = firstNonBlank(
+                resolvedHero?.backdrop,
+                resolvedHero?.imageUrl
+            )
+
+            if (
+                !trailerExitAwaitingBackdrop &&
+                override != null &&
+                resolved == override
+            ) {
+                trailerExitBackdropOverride = null
+            }
         }
+        val expandedFocusedSelection = remember(
+            focusedCatalogSelection,
+            expandedCatalogFocusKey
+        ) {
+            focusedCatalogSelection?.takeIf {
+                it.focusKey == expandedCatalogFocusKey
+            }
+        }
+
+        val heroTrailerSelection =
+            if (
+                trailerPlaybackTarget ==
+                    FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
+            ) {
+                retainedHeroTrailerSelection
+            } else {
+                expandedFocusedSelection
+            }
+
         val heroTrailerUrl by derivedStateOf {
-            expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewUrls[it] }
+            heroTrailerSelection?.payload?.itemId?.let {
+                trailerPreviewUrls[it]
+            }
         }
         val heroTrailerAudioUrl by derivedStateOf {
-            expandedFocusedSelection?.payload?.itemId?.let { trailerPreviewAudioUrls[it] }
+            heroTrailerSelection?.payload?.itemId?.let {
+                trailerPreviewAudioUrls[it]
+            }
         }
         val expandedCatalogTrailerUrl = heroTrailerUrl
         val expandedCatalogTrailerAudioUrl = heroTrailerAudioUrl
@@ -1386,7 +1500,34 @@ fun ModernHomeContent(
 
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
-            backdropCrossfadeDuration = if (isPlatformTransitioning) 0 else 350,
+            backdropCrossfadeDuration =
+                if (
+                    isPlatformTransitioning ||
+                    trailerExitBackdropOverride != null
+                ) 0
+                else 350,
+            onBackdropFrameReady = { readyBackdrop ->
+                val pendingBackdrop = trailerExitBackdropOverride
+
+                if (
+                    trailerExitAwaitingBackdrop &&
+                    pendingBackdrop != null &&
+                    readyBackdrop == pendingBackdrop
+                ) {
+                    /*
+                     * B is now the fully rendered frame. Only now release A's
+                     * retained trailer so A can never be uncovered.
+                     */
+                    trailerExitAwaitingBackdrop = false
+
+                    if (
+                        retainedHeroTrailerSelection?.focusKey !=
+                        focusedCatalogSelection?.focusKey
+                    ) {
+                        retainedHeroTrailerSelection = null
+                    }
+                }
+            },
             heroBackdropAlpha = heroBackdropAlpha,
             parallaxOffsetX = backdropParallaxOffset.value,
             cinematicMode = cinematicHeroMode,
@@ -1395,7 +1536,12 @@ fun ModernHomeContent(
             heroTrailerAudioUrl = heroTrailerAudioUrl,
             heroTrailerAlpha = heroTrailerAlpha,
             muted = uiState.focusedPosterBackdropTrailerMuted,
-            onTrailerEnded = { expandedCatalogFocusKey = null },
+            onTrailerEnded = {
+                expandedCatalogFocusKey = null
+                retainedHeroTrailerSelection = null
+                trailerExitBackdropOverride = null
+                trailerExitAwaitingBackdrop = false
+            },
             onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
             modifier = heroMediaModifier
                 .drawWithContent {
@@ -1450,7 +1596,12 @@ fun ModernHomeContent(
                     trailerUrl = heroTrailerUrl,
                     trailerAudioUrl = heroTrailerAudioUrl,
                     isPlaying = true,
-                    onEnded = { expandedCatalogFocusKey = null },
+                    onEnded = {
+                        expandedCatalogFocusKey = null
+                        retainedHeroTrailerSelection = null
+                        trailerExitBackdropOverride = null
+                        trailerExitAwaitingBackdrop = false
+                    },
                     onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
                     muted = uiState.focusedPosterBackdropTrailerMuted,
                     cropToFill = true,
