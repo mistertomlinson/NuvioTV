@@ -111,7 +111,11 @@ fun TrailerPlayer(
     }
     val releaseCalled = remember(trailerPlayer) { AtomicBoolean(false) }
 
-    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl, muted) {
+    LaunchedEffect(muted, trailerPlayer) {
+        trailerPlayer?.volume = if (muted) 0f else 1f
+    }
+
+    LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl) {
         val player = trailerPlayer ?: return@LaunchedEffect
         player.volume = if (muted) 0f else 1f
         if (isPlaying && trailerUrl != null) {
@@ -220,6 +224,15 @@ fun TrailerPlayer(
                 runCatching { player.stop() }
                 runCatching { player.clearMediaItems() }
                 runCatching { player.release() }
+            } else if (isExternalPlayer) {
+                /*
+                 * Shared singleton: never release it, but DO clear it. Both
+                 * hero paths use this instance now, so toggling letterboxing
+                 * mid-playback disposes one composable while the other mounts
+                 * - without this the new one inherits a stale media item.
+                 */
+                runCatching { player.stop() }
+                runCatching { player.clearMediaItems() }
             }
         }
     }

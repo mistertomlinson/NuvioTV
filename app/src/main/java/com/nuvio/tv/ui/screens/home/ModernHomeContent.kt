@@ -598,6 +598,13 @@ fun ModernHomeContent(
     }
     var trailerExitBackdropOverride by remember { mutableStateOf<String?>(null) }
     var trailerExitAwaitingBackdrop by remember { mutableStateOf(false) }
+    /*
+     * True while an outgoing trailer is held on screen purely so its pixels
+     * can't be uncovered. The retain needs the last decoded frame, NOT
+     * playback - without this the old trailer's audio keeps running under
+     * the new backdrop until the next trailer replaces it.
+     */
+    var heroTrailerHoldMuted by remember { mutableStateOf(false) }
 
     // Patch 8: gate per-landing work (enrichment, preload, selection) during fast scroll.
     // Catch-up effect below re-fires for the settled item when scrolling stops.
@@ -706,15 +713,18 @@ fun ModernHomeContent(
                  */
                 trailerExitBackdropOverride = incomingBackdrop
                 trailerExitAwaitingBackdrop = true
+                heroTrailerHoldMuted = true
             } else {
                 retainedHeroTrailerSelection = null
                 trailerExitBackdropOverride = null
                 trailerExitAwaitingBackdrop = false
+                heroTrailerHoldMuted = false
             }
         } else {
             retainedHeroTrailerSelection = null
             trailerExitBackdropOverride = null
             trailerExitAwaitingBackdrop = false
+            heroTrailerHoldMuted = false
         }
 
         expandedCatalogFocusKey = null
@@ -735,6 +745,7 @@ fun ModernHomeContent(
                     FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
             ) {
                 retainedHeroTrailerSelection = selection
+                heroTrailerHoldMuted = false
             }
         }
     }
@@ -742,7 +753,8 @@ fun ModernHomeContent(
     LaunchedEffect(
         focusedCatalogSelection?.focusKey,
         effectiveAutoplayEnabled,
-        isVerticalRowsScrolling
+        isVerticalRowsScrolling,
+        uiState.focusedPosterBackdropExpandDelaySeconds
     ) {
         if (!effectiveAutoplayEnabled) {
             lastRequestedTrailerFocusKey = null
@@ -756,6 +768,17 @@ fun ModernHomeContent(
             return@LaunchedEffect
         }
         if (selection.focusKey == lastRequestedTrailerFocusKey) {
+            return@LaunchedEffect
+        }
+        /*
+         * Do NOT resolve the trailer on focus. Resolution is network I/O
+         * (YouTube extraction) and firing it while the user is scrolling
+         * poster-to-poster is the source of scroll lag. Wait out the same
+         * user-configured delay that gates playback; cancellation of this
+         * LaunchedEffect on focus change kills the pending request for free.
+         */
+        delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0) * 1000L)
+        if (focusedCatalogSelection?.focusKey != selection.focusKey) {
             return@LaunchedEffect
         }
         onRequestTrailerPreview(
@@ -1251,6 +1274,28 @@ fun ModernHomeContent(
                 trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
                 !heroTrailerUrl.isNullOrBlank()
         }
+        /*
+         * Single source of truth for whether the player should be RUNNING.
+         * shouldPlayHeroTrailer controls visibility; this controls playback.
+         * They differ during a hold (visible, paused) and when the sidebar
+         * or a scroll hides the trailer (hidden, must stop - otherwise audio
+         * keeps playing under the restored backdrop).
+         */
+        val heroTrailerShouldRun = shouldPlayHeroTrailer && !heroTrailerHoldMuted
+        /*
+         * isVerticalRowsScrolling is true only DURING the scroll animation.
+         * A single dpad-down stops the player for ~300ms and then lets it
+         * restart, because retainedHeroTrailerSelection still points at the
+         * old title. Clear the retain when the focused ROW changes so the
+         * old trailer can never resume after the scroll settles.
+         */
+        val focusedRowKeyForTrailer = focusState.focusedRowKey
+        LaunchedEffect(focusedRowKeyForTrailer) {
+            retainedHeroTrailerSelection = null
+            trailerExitBackdropOverride = null
+            trailerExitAwaitingBackdrop = false
+            heroTrailerHoldMuted = false
+        }
         var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
         val isHeroTrailerActivelyPlaying = shouldPlayHeroTrailer && heroTrailerFirstFrameRendered
         LaunchedEffect(isHeroTrailerActivelyPlaying) {
@@ -1259,6 +1304,15 @@ fun ModernHomeContent(
         LaunchedEffect(shouldPlayHeroTrailer) {
             if (!shouldPlayHeroTrailer) heroTrailerFirstFrameRendered = false
         }
+        /*
+         * ONE authoritative crossfade. The trailer's own alpha ramp and its
+         * AnimatedVisibility wrapper are both disabled (see TrailerPlayer),
+         * so this progress value is the single source of truth:
+         *   0f = backdrop fully opaque, trailer fully transparent
+         *   1f = trailer fully opaque, backdrop fully transparent
+         * Driven off first-frame so the trailer never appears as a paused
+         * still, and never bleeds through a backdrop that is still opaque.
+         */
         val heroTransitionTarget = if (shouldPlayHeroTrailer && heroTrailerFirstFrameRendered) 1f else 0f
         val heroTransitionProgress by animateFloatAsState(
             targetValue = heroTransitionTarget,
@@ -1276,6 +1330,13 @@ fun ModernHomeContent(
         }
         val heroBackdropAlpha = (1f - heroTransitionProgress) * heroEntranceAlpha.value
         val heroTrailerAlpha = heroTransitionProgress
+
+        /*
+         * Deferred trailer release: wait two frames after B is decoded so the
+         * backdrop Crossfade has committed B before A's trailer is torn down.
+         * Two frames is imperceptible and costs nothing when idle.
+         */
+
         var lbGradientVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
         var lbTrailerVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
         LaunchedEffect(heroTrailerFirstFrameRendered, uiState.heroTrailerAllowLetterboxing) {
@@ -1519,6 +1580,7 @@ fun ModernHomeContent(
                      * retained trailer so A can never be uncovered.
                      */
                     trailerExitAwaitingBackdrop = false
+                    heroTrailerHoldMuted = false
 
                     if (
                         retainedHeroTrailerSelection?.focusKey !=
@@ -1536,6 +1598,8 @@ fun ModernHomeContent(
             heroTrailerAudioUrl = heroTrailerAudioUrl,
             heroTrailerAlpha = heroTrailerAlpha,
             muted = uiState.focusedPosterBackdropTrailerMuted,
+            isTrailerPlaying = heroTrailerShouldRun,
+            externalPlayer = sharedTrailerPlayer,
             onTrailerEnded = {
                 expandedCatalogFocusKey = null
                 retainedHeroTrailerSelection = null
@@ -1595,7 +1659,6 @@ fun ModernHomeContent(
                 TrailerPlayer(
                     trailerUrl = heroTrailerUrl,
                     trailerAudioUrl = heroTrailerAudioUrl,
-                    isPlaying = true,
                     onEnded = {
                         expandedCatalogFocusKey = null
                         retainedHeroTrailerSelection = null
@@ -1604,6 +1667,7 @@ fun ModernHomeContent(
                     },
                     onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
                     muted = uiState.focusedPosterBackdropTrailerMuted,
+                    isPlaying = heroTrailerShouldRun,
                     cropToFill = true,
                     overscanZoom = 1f,
                     externalPlayer = sharedTrailerPlayer,

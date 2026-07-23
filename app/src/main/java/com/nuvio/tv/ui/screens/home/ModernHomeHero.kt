@@ -98,6 +98,7 @@ internal fun ModernHeroMediaLayer(
     heroTrailerAudioUrl: String?,
     heroTrailerAlpha: Float,
     muted: Boolean,
+    isTrailerPlaying: Boolean = true,
     onTrailerEnded: () -> Unit,
     onFirstFrameRendered: () -> Unit,
     modifier: Modifier,
@@ -195,7 +196,7 @@ internal fun ModernHeroMediaLayer(
             TrailerPlayer(
                 trailerUrl = heroTrailerUrl,
                 trailerAudioUrl = heroTrailerAudioUrl,
-                isPlaying = true,
+                isPlaying = isTrailerPlaying,
                 onEnded = onTrailerEnded,
                 onFirstFrameRendered = onFirstFrameRendered,
                 muted = muted,
