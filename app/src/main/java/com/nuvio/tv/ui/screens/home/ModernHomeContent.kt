@@ -472,6 +472,14 @@ fun ModernHomeContent(
      * movement could therefore finish its BringIntoView spring and immediately
      * begin a second animateScrollToItem spring, producing a hitch at landing.
      */
+    /*
+     * Patch 11: only perform the final row-alignment correction after an
+     * actual held-D-pad fast scroll, never after an ordinary single-row move.
+     */
+    val fastScrollLandingPendingRef = remember {
+        java.util.concurrent.atomic.AtomicBoolean(false)
+    }
+
     LaunchedEffect(verticalRowListState) {
         snapshotFlow {
             verticalRowListState.isScrollInProgress
