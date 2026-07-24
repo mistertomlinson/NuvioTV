@@ -111,13 +111,22 @@ fun TrailerPlayer(
     }
     val releaseCalled = remember(trailerPlayer) { AtomicBoolean(false) }
 
-    LaunchedEffect(muted, trailerPlayer) {
-        trailerPlayer?.volume = if (muted) 0f else 1f
+    /*
+     * Volume tracks the FIRST FRAME, not the load. Audio and video decode
+     * independently - audio buffers first, video waits for a keyframe - and
+     * the view is transparent until onRenderedFirstFrame. Raising volume at
+     * load time therefore plays sound over an invisible player. Most audible
+     * when the media is already cached (e.g. reopening after the sidebar
+     * closes), where audio is ready almost immediately.
+     */
+    LaunchedEffect(muted, trailerPlayer, hasRenderedFirstFrame) {
+        trailerPlayer?.volume = if (muted || !hasRenderedFirstFrame) 0f else 1f
     }
 
     LaunchedEffect(isPlaying, trailerUrl, trailerAudioUrl) {
         val player = trailerPlayer ?: return@LaunchedEffect
-        player.volume = if (muted) 0f else 1f
+        // Start silent; the volume effect above raises it on first frame.
+        player.volume = 0f
         if (isPlaying && trailerUrl != null) {
             hasRenderedFirstFrame = false
             if (!trailerAudioUrl.isNullOrBlank()) {
