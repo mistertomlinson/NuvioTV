@@ -428,7 +428,7 @@ fun ModernHomeContent(
     val verticalRowListState = rememberLazyListState(
         cacheWindow = LazyLayoutCacheWindow(
             aheadFraction = 1.0f,
-            behindFraction = 0.5f
+            behindFraction = 1.0f
         ),
         initialFirstVisibleItemIndex = focusState.verticalScrollIndex,
         initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
