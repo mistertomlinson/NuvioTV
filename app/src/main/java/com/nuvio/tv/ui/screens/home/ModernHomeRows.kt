@@ -566,7 +566,7 @@ internal fun ModernRowSection(
                 override val scrollAnimationSpec: AnimationSpec<Float> =
                     androidx.compose.animation.core.spring(
                         dampingRatio = 0.95f,
-                        stiffness = 600f
+                        stiffness = 400f
                     )
 
                 override fun calculateScrollDistance(
