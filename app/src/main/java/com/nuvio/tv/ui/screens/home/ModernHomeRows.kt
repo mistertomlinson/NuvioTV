@@ -334,7 +334,12 @@ internal fun ModernRowSection(
         var enrichmentTimeoutReached by rememberSaveable(key = "enrich_timeout_${row.key}") { mutableStateOf(false) }
         LaunchedEffect(row.key, row.items.isNotEmpty()) {
             if (row.items.isNotEmpty() && !row.enrichmentReady && !enrichmentTimeoutReached) {
-                kotlinx.coroutines.delay(6_000L)
+                /*
+                 * The 80% completion threshold is the normal row-release
+                 * path. This shorter fallback prevents a few unresolved
+                 * titles from holding the row indefinitely.
+                 */
+                kotlinx.coroutines.delay(4_000L)
                 enrichmentTimeoutReached = true
             }
         }
@@ -1111,10 +1116,14 @@ private fun ModernCarouselCard(
                 .build()
         }
     }
-    var landscapeLogoLoadFailed by remember(effectiveLogoUrl) { mutableStateOf(false) }
+    var landscapeLogoLoadFailed by remember(effectiveLogoUrl) {
+        mutableStateOf(false)
+    }
     // shouldPlayTrailerInCard: original = playTrailerInExpandedCard only.
     // playTrailerInExpandedCard already includes !isSidebarExpanded so trailer stops instantly.
-    val shouldPlayTrailerInCard = playTrailerInExpandedCard && !trailerPreviewUrl.isNullOrBlank()
+    val shouldPlayTrailerInCard =
+        playTrailerInExpandedCard &&
+            !trailerPreviewUrl.isNullOrBlank()
     val hasImage = !imageUrl.isNullOrBlank()
     // Freeze hasLandscapeLogo — once logo is available, never hide it to avoid flash
     val hasLandscapeLogoInstant = useLandscapePosters &&
@@ -1350,7 +1359,9 @@ private fun ModernCarouselCard(
                     AsyncImage(
                         model = logoModel,
                         contentDescription = item.title,
-                        onError = { landscapeLogoLoadFailed = true },
+                        onError = {
+                            landscapeLogoLoadFailed = true
+                        },
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth(0.65f)

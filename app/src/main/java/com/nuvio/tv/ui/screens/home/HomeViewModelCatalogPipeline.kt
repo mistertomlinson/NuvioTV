@@ -224,6 +224,9 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     externalMetaPrefetchJob?.cancel()
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
+    homeEnrichmentAttemptedIds.clear()
+    modernHomePriorityRowKeys = emptyList()
+    homeEnrichmentPlanSignature = null
     // NOTE: enrichmentCache is intentionally NOT cleared here. It is keyed by
     // global content id (item.id), so TMDB enrichment stays valid across a
     // catalog reload regardless of which addon served the item or whether an
@@ -441,62 +444,11 @@ internal fun HomeViewModel.loadCatalogPipeline(
                                 }
                             }
                         }
-                        // Proactively enrich per-catalog landscape rows as pages arrive.
-                        // Uses a dedicated concurrent batch instead of the single-slot
-                        // preloadAdjacentItemPipeline which cancels on every call.
-                        val isPerCatalogLandscapeRow = key in _uiState.value.landscapeCatalogKeys
-                        if (isPerCatalogLandscapeRow && currentTmdbSettings.enabled) {
-                            val itemsToEnrich = visibleRow.items
-                                .filter { it.id !in prefetchedTmdbIds }
-                            if (itemsToEnrich.isNotEmpty()) {
-                                val tmdbSettingsSnapshot = currentTmdbSettings
-                                viewModelScope.launch(Dispatchers.IO) {
-                                    val semaphore = kotlinx.coroutines.sync.Semaphore(4)
-                                    coroutineScope {
-                                        itemsToEnrich.map { item ->
-                                            async {
-                                                if (item.id in prefetchedTmdbIds) return@async
-                                                semaphore.acquire()
-                                                try {
-                                                    val tmdbId = runCatching {
-                                                        tmdbService.ensureTmdbId(item.id, item.apiType)
-                                                    }.getOrNull() ?: return@async
-                                                    val enrichment = runCatching {
-                                                        tmdbMetadataService.fetchEnrichment(
-                                                            tmdbId = tmdbId,
-                                                            contentType = item.type,
-                                                            language = tmdbSettingsSnapshot.language
-                                                        )
-                                                    }.getOrNull() ?: return@async
-                                                    /*
-                                                     * TMDB completion does not mean external
-                                                     * metadata completion. Marking both here
-                                                     * prevented null-rating landscape items
-                                                     * from ever receiving an IMDb fallback.
-                                                     */
-                                                    prefetchedTmdbIds.add(item.id)
-                                                    updateCatalogItemWithTmdb(
-                                                        item.id,
-                                                        enrichment
-                                                    )
-
-                                                    if (
-                                                        item.imdbRating == null &&
-                                                        enrichment.rating == null
-                                                    ) {
-                                                        enrichMissingImdbFromExternalMeta(
-                                                            item
-                                                        )
-                                                    }
-                                                } finally {
-                                                    semaphore.release()
-                                                }
-                                            }
-                                        }.awaitAll()
-                                    }
-                                }
-                            }
-                        }
+                        /*
+                         * Landscape rows now use the shared viewport-priority
+                         * scheduler below. This avoids a second independent
+                         * enrichment batch competing with launch and trailers.
+                         */
                         // Hide spinner immediately on first catalog result — don't wait for debounce
                         if (!hasRenderedFirstCatalog && mergedRow.items.isNotEmpty()) {
                             _uiState.update { it.copy(isLoading = false) }
@@ -732,6 +684,98 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
 
                 NetworkResult.Loading -> { }
             }
+        }
+    }
+}
+
+private suspend fun HomeViewModel.enrichProactiveHomeItem(
+    item: com.nuvio.tv.domain.model.MetaPreview,
+    language: String
+) {
+    if (
+        item.id in prefetchedTmdbIds ||
+        item.id in enrichmentCache ||
+        item.id in homeEnrichmentAttemptedIds
+    ) {
+        return
+    }
+
+    var recordTerminalAttempt = false
+
+    try {
+        val tmdbId =
+            try {
+                tmdbService.ensureTmdbId(
+                    item.id,
+                    item.apiType
+                )
+            } catch (
+                cancellation:
+                    kotlinx.coroutines.CancellationException
+            ) {
+                throw cancellation
+            } catch (_: Exception) {
+                null
+            }
+
+        if (tmdbId == null) {
+            recordTerminalAttempt = true
+            return
+        }
+
+        val enrichment =
+            try {
+                tmdbMetadataService.fetchEnrichment(
+                    tmdbId = tmdbId,
+                    contentType = item.type,
+                    language = language
+                )
+            } catch (
+                cancellation:
+                    kotlinx.coroutines.CancellationException
+            ) {
+                throw cancellation
+            } catch (_: Exception) {
+                null
+            }
+
+        if (enrichment == null) {
+            recordTerminalAttempt = true
+            return
+        }
+
+        prefetchedTmdbIds.add(item.id)
+
+        updateCatalogItemWithTmdb(
+            item.id,
+            enrichment
+        )
+
+        if (
+            item.imdbRating == null &&
+            enrichment.rating == null
+        ) {
+            enrichMissingImdbFromExternalMeta(
+                item
+            )
+        }
+    } catch (
+        cancellation:
+            kotlinx.coroutines.CancellationException
+    ) {
+        throw cancellation
+    } catch (_: Exception) {
+        recordTerminalAttempt = true
+    } finally {
+        if (
+            recordTerminalAttempt &&
+            homeEnrichmentAttemptedIds.add(item.id)
+        ) {
+            /*
+             * Successful metadata updates already trigger recomputation.
+             * A no-result attempt needs its own readiness recomputation.
+             */
+            scheduleUpdateCatalogRows()
         }
     }
 }
@@ -1032,6 +1076,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 return@forEach
             }
             val attempted: Int = row.items.count { item ->
+                homeEnrichmentAttemptedIds.contains(item.id) ||
                 prefetchedTmdbIds.contains(item.id) ||
                 enrichmentCache.containsKey(item.id) ||
                 item.ageRating != null ||
@@ -1117,90 +1162,151 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val myListItems = myListRow?.items ?: emptyList()
         val allItems = (displayRows.flatMap { it.items } + myListItems)
             .distinctBy { it.id }
-            .filter { it.id !in prefetchedTmdbIds && it.id !in enrichmentCache }
+            .filter {
+                it.id !in prefetchedTmdbIds &&
+                    it.id !in enrichmentCache &&
+                    it.id !in homeEnrichmentAttemptedIds
+            }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
         val myListItemIds = myListItems.map { it.id }.toSet()
-        if (allItems.isNotEmpty()) {
-            val tmdbSettingsSnapshot = currentTmdbSettings
-            // Split first row items for priority enrichment vs rest for background batch
-            val firstRowIndex = rowIndexById.values.minOrNull() ?: 0
-            // ML items get first-row priority — full concurrency, no semaphore
-            val firstRowItems = allItems.filter { item ->
-                (rowIndexById[item.id] ?: Int.MAX_VALUE) == firstRowIndex || item.id in myListItemIds
+
+        val proactivePlanSignature = buildString {
+            append(catalogLoadGeneration)
+            append('|')
+            append(currentTmdbSettings.language)
+            append('|')
+            append(currentTmdbSettings.useArtwork)
+            append('|')
+            append(currentTmdbSettings.useBasicInfo)
+            append('|')
+            append(currentTmdbSettings.useDetails)
+            append('|')
+            append(externalMetaPrefetchEnabled)
+            append('|')
+            append(modernHomePriorityRowKeys.joinToString(","))
+
+            displayRows.forEach { row ->
+                append('|')
+                append(row.key())
+                append(':')
+
+                row.items.forEach { item ->
+                    append(item.id)
+                    append(',')
+                }
             }
+
+            append("|my-list:")
+
+            myListItems.forEach { item ->
+                append(item.id)
+                append(',')
+            }
+        }
+
+        val enrichmentPlanChanged =
+            homeEnrichmentPlanSignature != proactivePlanSignature
+
+        if (
+            allItems.isNotEmpty() &&
+            enrichmentPlanChanged
+        ) {
+            homeEnrichmentPlanSignature =
+                proactivePlanSignature
+            val tmdbSettingsSnapshot = currentTmdbSettings
+            /*
+             * Use the actual Modern Home viewport when available. Before
+             * LazyColumn reports its layout, prioritize the first two rows.
+             * My List retains priority regardless of its rendered position.
+             */
+            val displayRowsByKey = displayRows.associateBy { it.key() }
+
+            val reportedPriorityKeys = modernHomePriorityRowKeys.filter {
+                it in displayRowsByKey
+            }
+
+            val priorityRowKeys =
+                if (reportedPriorityKeys.isNotEmpty()) {
+                    reportedPriorityKeys
+                } else {
+                    displayRows
+                        .take(2)
+                        .map { it.key() }
+                }
+
+            val priorityItemIds = buildSet {
+                priorityRowKeys.forEach { rowKey ->
+                    displayRowsByKey[rowKey]
+                        ?.items
+                        ?.forEach { item ->
+                            add(item.id)
+                        }
+                }
+
+                addAll(myListItemIds)
+            }
+
+            val priorityItems = allItems.filter { item ->
+                item.id in priorityItemIds
+            }
+
             val remainingItems = allItems.filter { item ->
-                (rowIndexById[item.id] ?: Int.MAX_VALUE) != firstRowIndex && item.id !in myListItemIds
+                item.id !in priorityItemIds
             }
             proactiveEnrichJob?.cancel()
             proactiveEnrichJob = viewModelScope.launch(Dispatchers.IO) {
-                // Enrich first row with full concurrency, no semaphore — these are immediately visible
+                /*
+                 * Visible and adjacent rows retain full priority and continue
+                 * during hero playback.
+                 */
                 coroutineScope {
-                    firstRowItems.map { item ->
+                    priorityItems.map { item ->
                         async {
-                            if (item.id in prefetchedTmdbIds) return@async
-                            try {
-                                val tmdbId = runCatching {
-                                    tmdbService.ensureTmdbId(item.id, item.apiType)
-                                }.getOrNull() ?: return@async
-                                val enrichment = runCatching {
-                                    tmdbMetadataService.fetchEnrichment(
-                                        tmdbId = tmdbId,
-                                        contentType = item.type,
-                                        language = tmdbSettingsSnapshot.language
-                                    )
-                                }.getOrNull() ?: return@async
-                                prefetchedTmdbIds.add(item.id)
-                                updateCatalogItemWithTmdb(item.id, enrichment)
-
-                                if (
-                                    item.imdbRating == null &&
-                                    enrichment.rating == null
-                                ) {
-                                    enrichMissingImdbFromExternalMeta(item)
-                                }
-                            } catch (_: Exception) {}
+                            enrichProactiveHomeItem(
+                                item = item,
+                                language =
+                                    tmdbSettingsSnapshot.language
+                            )
                         }
                     }.awaitAll()
                 }
-                // Then enrich remaining rows with semaphore throttling
-                val semaphore = kotlinx.coroutines.sync.Semaphore(8)
-                coroutineScope {
-                    remainingItems.map { item ->
-                        async {
-                            if (item.id in prefetchedTmdbIds || item.id in enrichmentCache) return@async
-                            semaphore.acquire()
-                            try {
-                                val tmdbId = runCatching {
-                                    tmdbService.ensureTmdbId(item.id, item.apiType)
-                                }.getOrNull() ?: return@async
-                                val enrichment = runCatching {
-                                    tmdbMetadataService.fetchEnrichment(
-                                        tmdbId = tmdbId,
-                                        contentType = item.type,
-                                        language = tmdbSettingsSnapshot.language
-                                    )
-                                }.getOrNull() ?: return@async
-                                prefetchedTmdbIds.add(item.id)
-                                updateCatalogItemWithTmdb(item.id, enrichment)
-
-                                if (
-                                    item.imdbRating == null &&
-                                    enrichment.rating == null
-                                ) {
-                                    enrichMissingImdbFromExternalMeta(item)
-                                }
-                            } finally {
-                                semaphore.release()
-                            }
+                /*
+                 * Lower-row work is deliberately batched so trailer playback
+                 * has a suspension point. A batch already in progress may
+                 * finish, but the next batch waits until playback stops.
+                 */
+                remainingItems
+                    .chunked(2)
+                    .forEach { batch ->
+                        while (homeHeroTrailerPlaying) {
+                            delay(100L)
                         }
-                    }.awaitAll()
-                }
+
+                        coroutineScope {
+                            batch.map { item ->
+                                async {
+                                    enrichProactiveHomeItem(
+                                        item = item,
+                                        language =
+                                            tmdbSettingsSnapshot.language
+                                    )
+                                }
+                            }.awaitAll()
+                        }
+                    }
                 // Save entire enrichment cache to disk once after all items processed
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     homeEnrichmentDiskCache.saveAll(enrichmentCache.toMap())
                 }
             }
+        } else if (allItems.isEmpty()) {
+            homeEnrichmentPlanSignature =
+                proactivePlanSignature
         }
+    } else {
+        proactiveEnrichJob?.cancel()
+        proactiveEnrichJob = null
+        homeEnrichmentPlanSignature = null
     }
 
     schedulePosterStatusReconcilePipeline(displayRows)

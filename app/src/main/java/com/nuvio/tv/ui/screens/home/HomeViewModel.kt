@@ -64,6 +64,9 @@ import com.nuvio.tv.domain.model.MDBListSettings
 import com.nuvio.tv.domain.model.Collection
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 @Volatile private var homeViewModelActiveInstanceId: Int = -1
 
@@ -182,6 +185,334 @@ class HomeViewModel @Inject constructor(
     fun forceReloadCatalogs() {
         scheduleCatalogPipeline(addonsCache, forceReload = true)
     }
+
+    fun setHomeHeroTrailerPlaying(playing: Boolean) {
+        homeHeroTrailerPlaying = playing
+    }
+
+    fun prioritizeModernHomeRows(rowKeys: List<String>) {
+        val normalized = rowKeys.distinct()
+
+        if (modernHomePriorityRowKeys == normalized) {
+            return
+        }
+
+        modernHomePriorityRowKeys = normalized
+        homeEnrichmentPlanSignature = null
+
+        /*
+         * Rebuild the pending enrichment order around the new viewport.
+         * Existing cached/completed items are filtered out by the pipeline.
+         */
+        scheduleUpdateCatalogRows()
+    }
+
+    suspend fun preloadCachedHomeViewport() {
+        kotlinx.coroutines.withContext(
+            kotlinx.coroutines.Dispatchers.IO
+        ) {
+            kotlinx.coroutines.withTimeoutOrNull(900L) {
+                val state = _uiState.value
+
+                val populatedRows = state.catalogRows
+                    .filter { it.items.isNotEmpty() }
+
+                if (populatedRows.isEmpty()) {
+                    return@withTimeoutOrNull
+                }
+
+                val savedFocus = _focusState.value
+
+                /*
+                 * Modern Home's indexes include Continue Watching when that
+                 * row exists, but catalogRows contains catalog rows only.
+                 */
+                val continueWatchingOffset =
+                    if (
+                        state.continueWatchingItems.isNotEmpty()
+                    ) {
+                        1
+                    } else {
+                        0
+                    }
+
+                val focusedKeyIndex =
+                    savedFocus.focusedRowKey
+                        ?.let { savedRowKey ->
+                            populatedRows.indexOfFirst { row ->
+                                row.key() == savedRowKey
+                            }
+                        }
+                        ?.takeIf { it >= 0 }
+
+                val focusedIndexFallback =
+                    (
+                        savedFocus.focusedRowIndex -
+                            continueWatchingOffset
+                        )
+                        .takeIf {
+                            it in populatedRows.indices
+                        }
+
+                val verticalIndexFallback =
+                    (
+                        savedFocus.verticalScrollIndex -
+                            continueWatchingOffset
+                        )
+                        .takeIf {
+                            it in populatedRows.indices
+                        }
+
+                val primaryRowIndex =
+                    focusedKeyIndex
+                        ?: focusedIndexFallback
+                        ?: verticalIndexFallback
+                        ?: 0
+
+                val primaryRow =
+                    populatedRows[primaryRowIndex]
+
+                val primaryRowKey =
+                    primaryRow.key()
+
+                val savedFocusedItemIndex =
+                    if (
+                        savedFocus.focusedRowKey ==
+                        primaryRowKey
+                    ) {
+                        savedFocus.focusedItemIndex
+                    } else {
+                        savedFocus
+                            .catalogRowScrollStates[
+                                primaryRowKey
+                            ]
+                            ?: 0
+                    }
+
+                val focusedItemIndex =
+                    savedFocusedItemIndex.coerceIn(
+                        0,
+                        primaryRow.items.lastIndex
+                    )
+
+                val savedVisibleStartIndex =
+                    savedFocus
+                        .catalogRowScrollStates[
+                            primaryRowKey
+                        ]
+                        ?: (
+                            focusedItemIndex - 2
+                            ).coerceAtLeast(0)
+
+                val visibleStartIndex =
+                    savedVisibleStartIndex.coerceIn(
+                        0,
+                        primaryRow.items.lastIndex
+                    )
+
+                val focusedItem =
+                    primaryRow.items[focusedItemIndex]
+
+                val adjacentRows = buildList {
+                    populatedRows
+                        .getOrNull(primaryRowIndex - 1)
+                        ?.let { add(it) }
+
+                    populatedRows
+                        .getOrNull(primaryRowIndex + 1)
+                        ?.let { add(it) }
+                }
+
+                val metrics =
+                    appContext.resources.displayMetrics
+
+                val posterWidthPx =
+                    (
+                        state.posterCardWidthDp *
+                            metrics.density
+                        )
+                        .toInt()
+                        .coerceAtLeast(1)
+
+                val posterHeightPx =
+                    (
+                        state.posterCardHeightDp *
+                            metrics.density
+                        )
+                        .toInt()
+                        .coerceAtLeast(1)
+
+                val screenWidthPx =
+                    metrics.widthPixels.coerceAtLeast(1)
+
+                val screenHeightPx =
+                    metrics.heightPixels.coerceAtLeast(1)
+
+                fun cardImageUrl(
+                    row: CatalogRow,
+                    item: MetaPreview
+                ): String? {
+                    val landscape =
+                        state.modernLandscapePostersEnabled ||
+                            row.key() in
+                            state.landscapeCatalogKeys
+
+                    return if (landscape) {
+                        item.landscapePoster
+                            ?.takeIf { it.isNotBlank() }
+                            ?: item.background
+                                ?.takeIf { it.isNotBlank() }
+                            ?: item.poster
+                                ?.takeIf { it.isNotBlank() }
+                    } else {
+                        item.poster
+                            ?.takeIf { it.isNotBlank() }
+                            ?: item.landscapePoster
+                                ?.takeIf { it.isNotBlank() }
+                            ?: item.background
+                                ?.takeIf { it.isNotBlank() }
+                    }
+                }
+
+                val requests = buildList {
+                    focusedItem.background
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { url ->
+                            add(
+                                Triple(
+                                    url,
+                                    screenWidthPx,
+                                    screenHeightPx
+                                )
+                            )
+                        }
+
+                    focusedItem.logo
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let { url ->
+                            add(
+                                Triple(
+                                    url,
+                                    screenWidthPx / 2,
+                                    screenHeightPx / 3
+                                )
+                            )
+                        }
+
+                    /*
+                     * Predecode the horizontally visible portion of the
+                     * remembered row instead of always starting at card one.
+                     */
+                    primaryRow.items
+                        .drop(visibleStartIndex)
+                        .take(8)
+                        .forEach { item ->
+                            cardImageUrl(
+                                primaryRow,
+                                item
+                            )?.let { url ->
+                                add(
+                                    Triple(
+                                        url,
+                                        posterWidthPx,
+                                        posterHeightPx
+                                    )
+                                )
+                            }
+                        }
+
+                    adjacentRows.forEach { row ->
+                        val rowKey = row.key()
+
+                        val adjacentStartIndex =
+                            (
+                                savedFocus
+                                    .catalogRowScrollStates[
+                                        rowKey
+                                    ]
+                                    ?: 0
+                                )
+                                .coerceIn(
+                                    0,
+                                    row.items.lastIndex
+                                )
+
+                        row.items
+                            .drop(adjacentStartIndex)
+                            .take(4)
+                            .forEach { item ->
+                                cardImageUrl(
+                                    row,
+                                    item
+                                )?.let { url ->
+                                    add(
+                                        Triple(
+                                            url,
+                                            posterWidthPx,
+                                            posterHeightPx
+                                        )
+                                    )
+                                }
+                            }
+                    }
+                }
+                    .distinctBy { it.first }
+
+                val loader =
+                    coil.Coil.imageLoader(appContext)
+
+                /*
+                 * Decode at most four cached viewport images concurrently.
+                 * Batches remain small so image work cannot overwhelm launch,
+                 * enrichment, or trailer playback.
+                 */
+                requests
+                    .chunked(4)
+                    .forEach { batch ->
+                        coroutineScope {
+                            batch.map {
+                                (
+                                    url,
+                                    width,
+                                    height
+                                ) ->
+                                async {
+                                    val request =
+                                        coil.request.ImageRequest
+                                            .Builder(appContext)
+                                            .data(url)
+                                            .size(
+                                                width = width,
+                                                height = height
+                                            )
+                                            .memoryCachePolicy(
+                                                coil.request.CachePolicy.ENABLED
+                                            )
+                                            .diskCachePolicy(
+                                                coil.request.CachePolicy.ENABLED
+                                            )
+                                            .build()
+
+                                    try {
+                                        loader.execute(request)
+                                    } catch (
+                                        cancellation:
+                                            kotlinx.coroutines.CancellationException
+                                    ) {
+                                        throw cancellation
+                                    } catch (_: Exception) {
+                                        /*
+                                         * A stale image cannot delay Home or
+                                         * affect the loader animation cycle.
+                                         */
+                                    }
+                                }
+                            }.awaitAll()
+                        }
+                    }
+            }
+        }
+    }
     internal var homeCatalogOrderKeys: List<String> = emptyList()
     internal var shuffledCatalogKeys: Set<String> = emptySet()
     internal var lastShuffleTimestampMs: Long = 0L
@@ -242,10 +573,45 @@ class HomeViewModel @Inject constructor(
     internal var externalMetaPrefetchJob: Job? = null
     internal var pendingExternalMetaPrefetchItemId: String? = null
     internal val prefetchedTmdbIds = Collections.synchronizedSet(mutableSetOf<String>())
+
+    /*
+     * Titles whose proactive enrichment attempt completed without a usable
+     * result. They count toward row readiness so legitimate missing metadata
+     * cannot hold an otherwise prepared row.
+     *
+     * Focus-driven enrichment remains free to retry these titles later.
+     */
+    internal val homeEnrichmentAttemptedIds =
+        Collections.synchronizedSet(
+            mutableSetOf<String>()
+        )
+
     internal val enrichmentCache: MutableMap<String, TmdbEnrichment> = Collections.synchronizedMap(LinkedHashMap())
     internal var tmdbEnrichFocusJob: Job? = null
     internal var trailerPreviewDebounceJob: Job? = null
     internal var proactiveEnrichJob: Job? = null
+
+    /*
+     * Trailer playback suppresses only lower-priority proactive enrichment.
+     * Focus, hero, and already-started work continue normally.
+     */
+    @Volatile
+    internal var homeHeroTrailerPlaying: Boolean = false
+
+    /*
+     * Catalog-row keys currently visible in Modern Home, including one
+     * adjacent row above and below the actual LazyColumn viewport.
+     */
+    @Volatile
+    internal var modernHomePriorityRowKeys: List<String> = emptyList()
+
+    /*
+     * Identity of the currently scheduled proactive enrichment plan.
+     * Individual metadata updates do not alter this signature, so they
+     * cannot repeatedly cancel and recreate the same work.
+     */
+    @Volatile
+    internal var homeEnrichmentPlanSignature: String? = null
     internal var pendingTmdbEnrichItemId: String? = null
     internal var adjacentItemPrefetchJob: Job? = null
     internal var pendingAdjacentPrefetchItemId: String? = null

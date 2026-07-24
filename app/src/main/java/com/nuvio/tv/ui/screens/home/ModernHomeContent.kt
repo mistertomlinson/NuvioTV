@@ -185,7 +185,8 @@ fun ModernHomeContent(
     onHeroTrailerPlayingChanged: (Boolean) -> Unit = {},
     platformNavDirection: Int = 0,
     isPlatformDpadHeld: () -> Boolean = { false },
-    onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> }
+    onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> },
+    onVisibleRowWindowChanged: (List<String>) -> Unit = {}
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
     val isSidebarExpanded = LocalSidebarExpanded.current
@@ -437,6 +438,75 @@ fun ModernHomeContent(
     val isVerticalRowsScrolling by remember(verticalRowListState) {
         derivedStateOf { verticalRowListState.isScrollInProgress }
     }
+    val latestOnVisibleRowWindowChanged by rememberUpdatedState(
+        onVisibleRowWindowChanged
+    )
+
+    /*
+     * Alignment correction is needed only after the custom held-D-pad fast
+     * scroll. Ordinary one-row BringIntoView movement must finish with its
+     * original single spring and must not start a second landing animation.
+     */
+    val fastScrollLandingPendingRef = remember {
+        java.util.concurrent.atomic.AtomicBoolean(false)
+    }
+
+    /*
+     * Report the rows actually visible in the LazyColumn, plus one row
+     * immediately above and below. This controls enrichment priority only;
+     * LazyColumn remains responsible for composition and precomposition.
+     */
+    LaunchedEffect(
+        verticalRowListState,
+        carouselRows
+    ) {
+        snapshotFlow {
+            val finalRowIndex = carouselRows.lastIndex
+
+            if (finalRowIndex < 0) {
+                emptyList()
+            } else {
+                val visibleIndexes = verticalRowListState
+                    .layoutInfo
+                    .visibleItemsInfo
+                    .map { it.index }
+
+                val firstPriorityIndex =
+                    if (visibleIndexes.isEmpty()) {
+                        0
+                    } else {
+                        (
+                            visibleIndexes.minOrNull() ?: 0
+                        )
+                            .minus(1)
+                            .coerceAtLeast(0)
+                    }
+
+                val finalPriorityIndex =
+                    if (visibleIndexes.isEmpty()) {
+                        minOf(finalRowIndex, 1)
+                    } else {
+                        (
+                            visibleIndexes.maxOrNull() ?: 0
+                        )
+                            .plus(1)
+                            .coerceAtMost(finalRowIndex)
+                    }
+
+                (firstPriorityIndex..finalPriorityIndex)
+                    .mapNotNull { index ->
+                        carouselRows
+                            .getOrNull(index)
+                            ?.key
+                    }
+            }
+        }
+            .distinctUntilChanged()
+            .collect { rowKeys ->
+                latestOnVisibleRowWindowChanged(rowKeys)
+            }
+    }
+
     // One-way latch: once CW loads it is remembered forever
     var cwHasEverLoaded by remember { mutableStateOf(false) }
     if (uiState.continueWatchingItems.isNotEmpty()) cwHasEverLoaded = true
@@ -451,20 +521,57 @@ fun ModernHomeContent(
         metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
     }
 
-    // After fast-scroll stops, snap to row only if significantly misaligned
+    /*
+     * Correct alignment only after the custom held-D-pad fast-scroll path.
+     *
+     * Previously this ran after every vertical animation. A normal one-row
+     * movement could therefore finish its BringIntoView spring and immediately
+     * begin a second animateScrollToItem spring, producing a hitch at landing.
+     */
     LaunchedEffect(verticalRowListState) {
-        snapshotFlow { verticalRowListState.isScrollInProgress }
+        snapshotFlow {
+            verticalRowListState.isScrollInProgress
+        }
             .collect { scrolling ->
-                if (!scrolling) {
-                    val layoutInfo = verticalRowListState.layoutInfo
-                    val visibleItems = layoutInfo.visibleItemsInfo
-                    if (visibleItems.isEmpty()) return@collect
-                    val nearest = visibleItems.minByOrNull { kotlin.math.abs(it.offset) }
-                        ?: return@collect
-                    // Only snap if offset is significant (> 50px)
-                    if (kotlin.math.abs(nearest.offset) > 50) {
-                        verticalRowListState.animateScrollToItem(nearest.index)
+                if (scrolling) {
+                    return@collect
+                }
+
+                if (
+                    !fastScrollLandingPendingRef
+                        .getAndSet(false)
+                ) {
+                    return@collect
+                }
+
+                val layoutInfo =
+                    verticalRowListState.layoutInfo
+
+                val visibleItems =
+                    layoutInfo.visibleItemsInfo
+
+                if (visibleItems.isEmpty()) {
+                    return@collect
+                }
+
+                val nearest =
+                    visibleItems.minByOrNull {
+                        kotlin.math.abs(it.offset)
                     }
+                        ?: return@collect
+
+                /*
+                 * A real fast scroll can stop between row boundaries, so keep
+                 * the existing correction threshold for that path only.
+                 */
+                if (
+                    kotlin.math.abs(nearest.offset) >
+                    50
+                ) {
+                    verticalRowListState
+                        .animateScrollToItem(
+                            nearest.index
+                        )
                 }
             }
     }
@@ -1077,16 +1184,10 @@ fun ModernHomeContent(
                 heroItemRowKey = currentRow.key
             }
     }
-    LaunchedEffect(carouselRows) {
-        carouselRows.forEach { row ->
-            val isLandscapeRow = useLandscapePosters || row.key in uiState.landscapeCatalogKeys
-            if (!isLandscapeRow) return@forEach
-            row.items.take(50).forEach { item ->
-                item.metaPreview?.let { onPreloadAdjacentItem(it) }
-                delay(16L)
-            }
-        }
-    }
+    /*
+     * Landscape metadata preloading is handled by the shared ViewModel
+     * viewport scheduler. Avoid walking up to 50 items per row here.
+     */
 
     LaunchedEffect(Unit) {
         isFastScrollingRef
@@ -1419,7 +1520,9 @@ fun ModernHomeContent(
          * or a scroll hides the trailer (hidden, must stop - otherwise audio
          * keeps playing under the restored backdrop).
          */
-        val heroTrailerShouldRun = shouldPlayHeroTrailer && !heroTrailerHoldMuted
+        val heroTrailerShouldRun =
+            shouldPlayHeroTrailer &&
+                !heroTrailerHoldMuted
         var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
         val isHeroTrailerActivelyPlaying = shouldPlayHeroTrailer && heroTrailerFirstFrameRendered
         LaunchedEffect(isHeroTrailerActivelyPlaying) {
@@ -2515,7 +2618,9 @@ fun ModernHomeContent(
                     .wrapContentHeight(align = Alignment.CenterVertically)
                     .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
             )
-            CompositionLocalProvider(LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec) {
+            CompositionLocalProvider(
+                LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
+            ) {
             LazyColumn(
                 state = verticalRowListState,
                 modifier = Modifier
@@ -2527,7 +2632,15 @@ fun ModernHomeContent(
                     .focusRestorer { focusRestorerRequester }
                     .dpadVerticalFastScroll(
                         scrollableState = verticalRowListState,
-                        onFastScrollingChanged = { isFastScrollingRef.value = it },
+                        onFastScrollingChanged = { scrolling ->
+                            if (scrolling) {
+                                fastScrollLandingPendingRef
+                                    .set(true)
+                            }
+
+                            isFastScrollingRef.value =
+                                scrolling
+                        },
                         verticalVelocityDpPerSec = 1200f,
                         shouldHaltForward = {
                             val info = verticalRowListState.layoutInfo

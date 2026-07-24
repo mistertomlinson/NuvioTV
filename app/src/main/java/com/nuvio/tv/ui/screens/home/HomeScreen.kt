@@ -198,6 +198,10 @@ fun HomeScreen(
                 var loaderPhase by remember { mutableStateOf(if (initiallyReady) 2 else 0) }
                 val dataReady = !shouldShowLoadingGate
 
+                var cachedViewportPredecodeStarted by remember {
+                    mutableStateOf(false)
+                }
+
                 // Overlay visibility as a transition state so we can detect when the
                 // fade-out has fully completed before revealing content. Seeded hidden
                 // when already ready (no loader on back-nav).
@@ -218,6 +222,30 @@ fun HomeScreen(
                         graceElapsed = true
                     }
                 }
+                /*
+                 * On a cached process restart, refill Coil's process-local
+                 * memory cache while the existing loader remains visible.
+                 * Loader timing is intentionally unchanged in this patch.
+                 */
+                LaunchedEffect(
+                    dataReady,
+                    graceElapsed,
+                    uiState.catalogRows
+                ) {
+                    if (
+                        !initiallyReady &&
+                        dataReady &&
+                        graceElapsed &&
+                        !cachedViewportPredecodeStarted &&
+                        uiState.catalogRows.any {
+                            it.items.isNotEmpty()
+                        }
+                    ) {
+                        cachedViewportPredecodeStarted = true
+                        viewModel.preloadCachedHomeViewport()
+                    }
+                }
+
                 // If data becomes ready during the grace, skip the loader entirely:
                 // hide the overlay (so dots never render) and jump to REVEAL.
                 LaunchedEffect(dataReady) {
@@ -606,6 +634,12 @@ private fun ModernHomeRoute(
     }
     var carouselReady by rememberSaveable { mutableStateOf(false) }
     var isHeroTrailerPlaying by remember { mutableStateOf(false) }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            viewModel.setHomeHeroTrailerPlaying(false)
+        }
+    }
     // Show carousel as soon as we have any platform ids — from cache or live
     LaunchedEffect(stablePlatformIds) {
         if (stablePlatformIds.isNotEmpty() && !carouselReady) {
@@ -664,14 +698,20 @@ private fun ModernHomeRoute(
         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
         heroMetadataLarge = heroMetadataLarge,
         carouselGradientAlpha = carouselAlpha,
-        onHeroTrailerPlayingChanged = { isHeroTrailerPlaying = it },
+        onHeroTrailerPlayingChanged = { playing ->
+            isHeroTrailerPlaying = playing
+            viewModel.setHomeHeroTrailerPlaying(playing)
+        },
         platformNavDirection = platformNavDirection,
         isPlatformDpadHeld = {
             platformDpadHeld.get() &&
                 android.os.SystemClock.elapsedRealtime() - platformDpadActivityAt.get() < 800L
         },
         isAtTop = isAtTop,
-        onBackdropPreloadSizeKnown = { w, h -> viewModel.setBackdropPreloadSize(w, h) }
+        onBackdropPreloadSizeKnown = { w, h ->
+            viewModel.setBackdropPreloadSize(w, h)
+        },
+        onVisibleRowWindowChanged = viewModel::prioritizeModernHomeRows
     )
     }
 
