@@ -219,12 +219,41 @@ internal fun ModernHeroGradientLayer(
     trailerTransitionProgress: Float,
     modifier: Modifier,
     cinematicMode: Boolean = false,
-    shouldPlayHeroTrailer: Boolean = false
+    shouldPlayHeroTrailer: Boolean = false,
+    compactContentStartOffset: androidx.compose.ui.unit.Dp = 0.dp
 ) {
+    val compactContentStartOffsetPx =
+        with(LocalDensity.current) {
+            compactContentStartOffset.toPx()
+        }
+
     Canvas(modifier = modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
-        val leftBlendSolidWidth = size.width * 0.018f
-        val horizontalGradientStartX = leftBlendSolidWidth
-        val horizontalFadeEndX = size.width * 0.65f
+        /*
+         * Compact mode uses a stationary canvas that extends to the left of
+         * the actual backdrop. Keep that extension opaque, then preserve the
+         * original gradient proportions relative to the backdrop itself.
+         */
+        val contentStartX =
+            if (cinematicMode) {
+                0f
+            } else {
+                compactContentStartOffsetPx.coerceIn(
+                    minimumValue = 0f,
+                    maximumValue = size.width
+                )
+            }
+
+        val contentWidth =
+            (size.width - contentStartX).coerceAtLeast(1f)
+
+        val leftBlendSolidWidth =
+            contentStartX + contentWidth * 0.018f
+
+        val horizontalGradientStartX =
+            leftBlendSolidWidth
+
+        val horizontalFadeEndX =
+            contentStartX + contentWidth * 0.65f
         val topContourGradient = Brush.linearGradient(
             colorStops = arrayOf(
                 0.0f to bgColor.copy(alpha = 0.28f),
@@ -232,8 +261,11 @@ internal fun ModernHeroGradientLayer(
                 0.72f to bgColor.copy(alpha = 0.05f),
                 1.0f to Color.Transparent
             ),
-            start = Offset(0f, 0f),
-            end = Offset(size.width * 0.24f, size.height * 0.40f)
+            start = Offset(contentStartX, 0f),
+            end = Offset(
+                contentStartX + contentWidth * 0.24f,
+                size.height * 0.40f
+            )
         )
         val bottomContourGradient = Brush.linearGradient(
             colorStops = arrayOf(
@@ -242,8 +274,11 @@ internal fun ModernHeroGradientLayer(
                 0.74f to bgColor.copy(alpha = 0.05f),
                 1.0f to Color.Transparent
             ),
-            start = Offset(0f, size.height),
-            end = Offset(size.width * 0.24f, size.height * 0.61f)
+            start = Offset(contentStartX, size.height),
+            end = Offset(
+                contentStartX + contentWidth * 0.24f,
+                size.height * 0.61f
+            )
         )
 
         val verticalGradient = if (cinematicMode) Brush.verticalGradient(
