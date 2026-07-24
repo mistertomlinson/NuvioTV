@@ -503,7 +503,13 @@ fun ModernHomeContent(
         }
             .distinctUntilChanged()
             .collect { rowKeys ->
-                latestOnVisibleRowWindowChanged(rowKeys)
+                HomeScrollDiagnostics.recordViewport(
+                    rowKeys
+                )
+
+                latestOnVisibleRowWindowChanged(
+                    rowKeys
+                )
             }
     }
 
@@ -518,7 +524,21 @@ fun ModernHomeContent(
     // Tag JankStats with key UI states so jank reports are actionable.
     val metricsHolder = PerformanceMetricsState.getHolderForHierarchy(LocalView.current)
     LaunchedEffect(isVerticalRowsScrolling) {
-        metricsHolder.state?.putState("HomeScrolling", isVerticalRowsScrolling.toString())
+        metricsHolder.state?.putState(
+            "HomeScrolling",
+            isVerticalRowsScrolling.toString()
+        )
+
+        HomeScrollDiagnostics.recordScrollState(
+            isScrolling =
+                isVerticalRowsScrolling,
+            firstVisibleRow =
+                verticalRowListState
+                    .firstVisibleItemIndex,
+            firstVisibleOffset =
+                verticalRowListState
+                    .firstVisibleItemScrollOffset
+        )
     }
 
     /*
@@ -737,18 +757,40 @@ fun ModernHomeContent(
     val latestOnPreloadAdjacentItem by rememberUpdatedState(onPreloadAdjacentItem)
     val gatedOnItemFocus: (MetaPreview) -> Unit = remember(Unit) {
         { preview ->
-            if (!isFastScrollingRef.value) latestOnItemFocus(preview)
+            if (!isFastScrollingRef.value) {
+                HomeScrollDiagnostics.recordLanding(
+                    "focus"
+                )
+
+                latestOnItemFocus(preview)
+            }
         }
     }
     val gatedOnPreloadAdjacentItem: (MetaPreview) -> Unit = remember(Unit) {
         { preview ->
-            if (!isFastScrollingRef.value) latestOnPreloadAdjacentItem(preview)
+            if (!isFastScrollingRef.value) {
+                HomeScrollDiagnostics.recordLanding(
+                    "adjacent"
+                )
+
+                latestOnPreloadAdjacentItem(
+                    preview
+                )
+            }
         }
     }
     val gatedOnCatalogSelectionFocused: (FocusedCatalogSelection) -> Unit = remember(Unit) {
         { selection ->
-            if (!isFastScrollingRef.value && focusedCatalogSelection != selection) {
-                focusedCatalogSelection = selection
+            if (
+                !isFastScrollingRef.value &&
+                focusedCatalogSelection != selection
+            ) {
+                HomeScrollDiagnostics.recordLanding(
+                    "selection"
+                )
+
+                focusedCatalogSelection =
+                    selection
             }
         }
     }

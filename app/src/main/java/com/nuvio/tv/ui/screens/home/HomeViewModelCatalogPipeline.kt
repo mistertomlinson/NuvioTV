@@ -692,6 +692,11 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
     item: com.nuvio.tv.domain.model.MetaPreview,
     language: String
 ) {
+    val __homeDiagStartedNs =
+        android.os.SystemClock.elapsedRealtimeNanos()
+
+    try {
+
     if (
         item.id in prefetchedTmdbIds ||
         item.id in enrichmentCache ||
@@ -778,9 +783,34 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
             scheduleUpdateCatalogRows()
         }
     }
+
+    } finally {
+        HomeScrollDiagnostics.recordProactiveEnrichment(
+            durationNs =
+                android.os.SystemClock
+                    .elapsedRealtimeNanos() -
+                    __homeDiagStartedNs
+        )
+    }
 }
 
 internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
+    val __homeDiagStartedNs =
+        android.os.SystemClock.elapsedRealtimeNanos()
+
+    val __homeDiagBeforeState =
+        _uiState.value
+
+    val __homeDiagBeforeRows =
+        __homeDiagBeforeState.catalogRows.size
+
+    val __homeDiagBeforeItems =
+        __homeDiagBeforeState.catalogRows.sumOf {
+            row -> row.items.size
+        }
+
+    try {
+
     val orderedKeys = catalogOrder.toList()
     val catalogSnapshot = catalogsMap.toMap()
     val allCatalogsLoaded = pendingCatalogLoads == 0 && catalogSnapshot.isNotEmpty()
@@ -1310,6 +1340,28 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     }
 
     schedulePosterStatusReconcilePipeline(displayRows)
+
+    } finally {
+        val __homeDiagAfterState =
+            _uiState.value
+
+        HomeScrollDiagnostics.recordCatalogUpdate(
+            durationNs =
+                android.os.SystemClock
+                    .elapsedRealtimeNanos() -
+                    __homeDiagStartedNs,
+            beforeRows =
+                __homeDiagBeforeRows,
+            beforeItems =
+                __homeDiagBeforeItems,
+            afterRows =
+                __homeDiagAfterState.catalogRows.size,
+            afterItems =
+                __homeDiagAfterState.catalogRows.sumOf {
+                    row -> row.items.size
+                }
+        )
+    }
 }
 
 internal fun HomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<CatalogRow>) {

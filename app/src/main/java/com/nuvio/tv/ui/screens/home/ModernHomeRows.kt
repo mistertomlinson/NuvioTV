@@ -1299,6 +1299,11 @@ private fun ModernCarouselCard(
                             },
                             onSuccess = {
                                 posterImageLoaded.value = true
+
+                                HomeScrollDiagnostics
+                                    .recordImageSuccess(
+                                        "poster"
+                                    )
                             },
                             onError = {
                                 posterImageLoaded.value = false
@@ -1359,6 +1364,12 @@ private fun ModernCarouselCard(
                     AsyncImage(
                         model = logoModel,
                         contentDescription = item.title,
+                        onSuccess = {
+                            HomeScrollDiagnostics
+                                .recordImageSuccess(
+                                    "logo"
+                                )
+                        },
                         onError = {
                             landscapeLogoLoadFailed = true
                         },
