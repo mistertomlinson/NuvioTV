@@ -452,16 +452,6 @@ fun ModernHomeContent(
             isVerticalRowsScrolling.toString()
         )
 
-        HomeScrollDiagnostics.recordScrollState(
-            isScrolling =
-                isVerticalRowsScrolling,
-            firstVisibleRow =
-                verticalRowListState
-                    .firstVisibleItemIndex,
-            firstVisibleOffset =
-                verticalRowListState
-                    .firstVisibleItemScrollOffset
-        )
     }
 
     /*
@@ -689,10 +679,6 @@ fun ModernHomeContent(
     val gatedOnItemFocus: (MetaPreview) -> Unit = remember(Unit) {
         { preview ->
             if (!isFastScrollingRef.value) {
-                HomeScrollDiagnostics.recordLanding(
-                    "focus"
-                )
-
                 latestOnItemFocus(preview)
             }
         }
@@ -700,10 +686,6 @@ fun ModernHomeContent(
     val gatedOnPreloadAdjacentItem: (MetaPreview) -> Unit = remember(Unit) {
         { preview ->
             if (!isFastScrollingRef.value) {
-                HomeScrollDiagnostics.recordLanding(
-                    "adjacent"
-                )
-
                 latestOnPreloadAdjacentItem(
                     preview
                 )
@@ -716,10 +698,6 @@ fun ModernHomeContent(
                 !isFastScrollingRef.value &&
                 focusedCatalogSelection != selection
             ) {
-                HomeScrollDiagnostics.recordLanding(
-                    "selection"
-                )
-
                 focusedCatalogSelection =
                     selection
             }

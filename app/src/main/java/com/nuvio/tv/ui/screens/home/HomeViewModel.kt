@@ -1322,8 +1322,6 @@ class HomeViewModel @Inject constructor(
         loadMoreCatalogItemsPipeline(catalogId, addonId, type)
 
     internal fun scheduleUpdateCatalogRows() {
-        HomeScrollDiagnostics.recordCatalogSchedule()
-
         catalogUpdateJob?.cancel()
         catalogUpdateJob = viewModelScope.launch {
             val debounceMs = when {

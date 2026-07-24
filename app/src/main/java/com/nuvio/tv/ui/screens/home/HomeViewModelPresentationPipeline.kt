@@ -519,11 +519,6 @@ internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
 }
 
 internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: TmdbEnrichment) {
-    val __homeDiagStartedNs =
-        android.os.SystemClock.elapsedRealtimeNanos()
-
-    try {
-
     fun mergeItem(currentItem: MetaPreview): MetaPreview {
         var merged = currentItem
         if (currentTmdbSettings.useBasicInfo) {
@@ -626,16 +621,6 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
     // catalogsMap is already updated inline above; future pipeline runs will
     // pick up enriched data from there. No need to schedule a rebuild here —
     // doing so races against the direct uiState write and causes flicker.
-
-    } finally {
-        HomeScrollDiagnostics.recordPublication(
-            kind = "tmdb",
-            durationNs =
-                android.os.SystemClock
-                    .elapsedRealtimeNanos() -
-                    __homeDiagStartedNs
-        )
-    }
 }
 
 /*
@@ -648,11 +633,6 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
 internal suspend fun HomeViewModel.enrichMissingImdbFromExternalMeta(
     item: MetaPreview
 ) {
-    val __homeDiagStartedNs =
-        android.os.SystemClock.elapsedRealtimeNanos()
-
-    try {
-
     if (
         !externalMetaPrefetchEnabled ||
         item.imdbRating != null ||
@@ -684,23 +664,9 @@ internal suspend fun HomeViewModel.enrichMissingImdbFromExternalMeta(
     } finally {
         externalMetaPrefetchInFlightIds.remove(item.id)
     }
-
-    } finally {
-        HomeScrollDiagnostics.recordImdbFallback(
-            durationNs =
-                android.os.SystemClock
-                    .elapsedRealtimeNanos() -
-                    __homeDiagStartedNs
-        )
-    }
 }
 
 private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) {
-    val __homeDiagStartedNs =
-        android.os.SystemClock.elapsedRealtimeNanos()
-
-    try {
-
     val incomingTrailerYtIds = meta.trailerYtIds
 
     fun mergeItem(currentItem: MetaPreview): MetaPreview = currentItem.copy(
@@ -763,16 +729,6 @@ private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) 
             row.items.firstOrNull { it.id == itemId }
         } ?: return
         requestTrailerPreviewPipeline(currentItem)
-    }
-
-    } finally {
-        HomeScrollDiagnostics.recordPublication(
-            kind = "external",
-            durationNs =
-                android.os.SystemClock
-                    .elapsedRealtimeNanos() -
-                    __homeDiagStartedNs
-        )
     }
 }
 
