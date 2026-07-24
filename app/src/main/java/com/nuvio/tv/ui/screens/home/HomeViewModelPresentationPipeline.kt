@@ -425,8 +425,14 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
                 } else null
                 if (enrichment != null) {
                     prefetchedTmdbIds.add(item.id)
-                    prefetchedExternalMetaIds.add(item.id)
                     updateCatalogItemWithTmdb(item.id, enrichment)
+
+                    if (
+                        item.imdbRating == null &&
+                        enrichment.rating == null
+                    ) {
+                        enrichMissingImdbFromExternalMeta(item)
+                    }
                     tmdbEnriched = true
                 } else {
                 }
@@ -477,8 +483,14 @@ internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
                 }.getOrNull() else null
                 if (enrichment != null) {
                     prefetchedTmdbIds.add(item.id)
-                    prefetchedExternalMetaIds.add(item.id)
                     updateCatalogItemWithTmdb(item.id, enrichment)
+
+                    if (
+                        item.imdbRating == null &&
+                        enrichment.rating == null
+                    ) {
+                        enrichMissingImdbFromExternalMeta(item)
+                    }
                     tmdbEnriched = true
                 }
             }
@@ -513,7 +525,15 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
             merged = merged.copy(
                 name = enrichment.localizedTitle ?: merged.name,
                 description = enrichment.description ?: merged.description,
-                genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else merged.genres
+                genres =
+                    if (enrichment.genres.isNotEmpty()) {
+                        enrichment.genres
+                    } else {
+                        merged.genres
+                    },
+                imdbRating =
+                    enrichment.rating?.toFloat()
+                        ?: merged.imdbRating
             )
         }
         if (currentTmdbSettings.useArtwork) {
@@ -601,6 +621,49 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
     // catalogsMap is already updated inline above; future pipeline runs will
     // pick up enriched data from there. No need to schedule a rebuild here —
     // doing so races against the direct uiState write and causes flicker.
+}
+
+/*
+ * TMDB and external metadata are separate completion channels.
+ *
+ * Per-catalog landscape rows are proactively TMDB-enriched for their
+ * artwork. If TMDB has no rating, perform the external metadata lookup
+ * instead of falsely treating that lookup as already complete.
+ */
+internal suspend fun HomeViewModel.enrichMissingImdbFromExternalMeta(
+    item: MetaPreview
+) {
+    if (
+        !externalMetaPrefetchEnabled ||
+        item.imdbRating != null ||
+        item.id in prefetchedExternalMetaIds ||
+        !externalMetaPrefetchInFlightIds.add(item.id)
+    ) {
+        return
+    }
+
+    try {
+        val result =
+            metaRepository
+                .getMetaFromAllAddons(
+                    item.apiType,
+                    item.id
+                )
+                .first {
+                    it is NetworkResult.Success ||
+                        it is NetworkResult.Error
+                }
+
+        if (result is NetworkResult.Success) {
+            prefetchedExternalMetaIds.add(item.id)
+            updateCatalogItemWithMeta(
+                item.id,
+                result.data
+            )
+        }
+    } finally {
+        externalMetaPrefetchInFlightIds.remove(item.id)
+    }
 }
 
 private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) {

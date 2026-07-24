@@ -772,7 +772,7 @@ private fun HeroTitleContent(
                     horizontalArrangement = Arrangement.spacedBy(metaSpacing),
                     // Pin to the IMDb logo's height so rows keep identical line
                     // spacing whether or not the rating (30dp logo) is present.
-                    modifier = Modifier.heightIn(min = 30.dp * metaScale)
+                    modifier = Modifier.heightIn(min = 30.dp * imdbLogoScale)
                 ) {
                     if (!runtimeText.isNullOrBlank()) {
                         Text(
@@ -806,7 +806,7 @@ private fun HeroTitleContent(
 
         if (secondaryHighlightText != null || ageRatingBadge != null || showImdbInSecondary || statusBadge != null || secondaryDetails.isNotEmpty()) {
             Row(
-                modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp * metaScale),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 30.dp * imdbLogoScale),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(metaSpacing)
             ) {

@@ -698,8 +698,31 @@ fun ModernHomeContent(
         shouldActivateFocusedPosterFlow,
         trailerPlaybackTarget,
         uiState.focusedPosterBackdropExpandDelaySeconds,
-        isVerticalRowsScrolling
+        isVerticalRowsScrolling,
+        isSidebarExpanded
     ) {
+        /*
+         * Sidebar time must not count toward the trailer delay. Clear the
+         * retained activation while the sidebar is open. When it closes,
+         * isSidebarExpanded changes and this effect starts the full delay
+         * again for the still-focused poster.
+         */
+        if (isSidebarExpanded) {
+            expandedCatalogFocusKey = null
+            retainedHeroTrailerSelection = null
+            trailerExitBackdropOverride = null
+            trailerExitAwaitingBackdrop = false
+            trailerExitFadeInProgress = false
+            trailerExitAudioMuted = true
+            heroTrailerHoldMuted = false
+
+            sharedTrailerPlayer?.let { player ->
+                player.volume = 0f
+            }
+
+            return@LaunchedEffect
+        }
+
         val outgoingTrailerSelection =
             retainedHeroTrailerSelection
         val incomingSelection =
@@ -840,8 +863,17 @@ fun ModernHomeContent(
         focusedCatalogSelection?.focusKey,
         effectiveAutoplayEnabled,
         isVerticalRowsScrolling,
-        uiState.focusedPosterBackdropExpandDelaySeconds
+        uiState.focusedPosterBackdropExpandDelaySeconds,
+        isSidebarExpanded
     ) {
+        /*
+         * Cancel any pending network resolution while the sidebar is open.
+         * Closing it starts a fresh request delay when one is still needed.
+         */
+        if (isSidebarExpanded) {
+            return@LaunchedEffect
+        }
+
         if (!effectiveAutoplayEnabled) {
             lastRequestedTrailerFocusKey = null
             return@LaunchedEffect
@@ -1236,10 +1268,27 @@ fun ModernHomeContent(
         // Always use debounced heroItem so fast scrolling doesn't flash metadata.
         // Only fall back to activeCarouselItem when heroItem is null (cold start).
         val heroItemMatchesRow = heroItemRowKey == effectiveActiveRow?.key
-        // Prefer activeCarouselItem heroPreview when it has enriched badge data that heroItem lacks
-        val activeHasRicher = activeCarouselItem?.heroPreview?.let {
-            it.ageRatingText != null && heroItem?.ageRatingText == null
-        } == true
+        /*
+         * Prefer the latest focused-row preview when enrichment added badge
+         * data after heroItem was captured.
+         *
+         * IMDb must be checked independently from age rating. Per-catalog
+         * landscape rows are preloaded/enriched asynchronously, and titles
+         * without a logo may otherwise retain the earlier no-IMDb preview.
+         */
+        val activeHasRicher =
+            activeCarouselItem?.heroPreview?.let { active ->
+                val current = heroItem
+
+                (
+                    active.ageRatingText != null &&
+                        current?.ageRatingText == null
+                    ) ||
+                    (
+                        !active.imdbText.isNullOrBlank() &&
+                            current?.imdbText.isNullOrBlank()
+                        )
+            } == true
         val resolvedHero = if (isFastScrolling || heroFrozenForSlide || heroFrozenForRapidNav) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
         // transitionHero: non-null during platform transition, blocks live resolvedHero updates.
         var isPlatformTransitioning by remember { mutableStateOf(false) }

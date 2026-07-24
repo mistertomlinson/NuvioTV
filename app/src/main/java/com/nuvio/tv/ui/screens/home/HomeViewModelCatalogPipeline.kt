@@ -468,9 +468,26 @@ internal fun HomeViewModel.loadCatalogPipeline(
                                                             language = tmdbSettingsSnapshot.language
                                                         )
                                                     }.getOrNull() ?: return@async
+                                                    /*
+                                                     * TMDB completion does not mean external
+                                                     * metadata completion. Marking both here
+                                                     * prevented null-rating landscape items
+                                                     * from ever receiving an IMDb fallback.
+                                                     */
                                                     prefetchedTmdbIds.add(item.id)
-                                                    prefetchedExternalMetaIds.add(item.id)
-                                                    updateCatalogItemWithTmdb(item.id, enrichment)
+                                                    updateCatalogItemWithTmdb(
+                                                        item.id,
+                                                        enrichment
+                                                    )
+
+                                                    if (
+                                                        item.imdbRating == null &&
+                                                        enrichment.rating == null
+                                                    ) {
+                                                        enrichMissingImdbFromExternalMeta(
+                                                            item
+                                                        )
+                                                    }
                                                 } finally {
                                                     semaphore.release()
                                                 }
@@ -1133,8 +1150,14 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                     )
                                 }.getOrNull() ?: return@async
                                 prefetchedTmdbIds.add(item.id)
-                                prefetchedExternalMetaIds.add(item.id)
                                 updateCatalogItemWithTmdb(item.id, enrichment)
+
+                                if (
+                                    item.imdbRating == null &&
+                                    enrichment.rating == null
+                                ) {
+                                    enrichMissingImdbFromExternalMeta(item)
+                                }
                             } catch (_: Exception) {}
                         }
                     }.awaitAll()
@@ -1158,8 +1181,14 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                     )
                                 }.getOrNull() ?: return@async
                                 prefetchedTmdbIds.add(item.id)
-                                prefetchedExternalMetaIds.add(item.id)
                                 updateCatalogItemWithTmdb(item.id, enrichment)
+
+                                if (
+                                    item.imdbRating == null &&
+                                    enrichment.rating == null
+                                ) {
+                                    enrichMissingImdbFromExternalMeta(item)
+                                }
                             } finally {
                                 semaphore.release()
                             }
