@@ -15,10 +15,13 @@ import java.util.concurrent.atomic.AtomicLong
 internal object HomeScrollDiagnostics {
     const val TAG = "NuvioHomeDiag"
 
-    private val enabled: Boolean
-        get() = com.nuvio.tv.BuildConfig.DEBUG
+    // Temporary diagnostic branch: always enabled.
+    private const val enabled = true
 
     private val scrolling =
+        AtomicBoolean(false)
+
+    private val activeMessageLogged =
         AtomicBoolean(false)
 
     private val scrollStartedAtMs =
@@ -130,6 +133,18 @@ internal object HomeScrollDiagnostics {
     ) {
         if (!enabled) return
 
+        if (
+            activeMessageLogged.compareAndSet(
+                false,
+                true
+            )
+        ) {
+            Log.w(
+                TAG,
+                "DIAGNOSTICS_ACTIVE"
+            )
+        }
+
         val previous =
             scrolling.getAndSet(isScrolling)
 
@@ -143,7 +158,7 @@ internal object HomeScrollDiagnostics {
                 SystemClock.elapsedRealtime()
             )
 
-            Log.d(
+            Log.w(
                 TAG,
                 "SCROLL_START" +
                     " row=$firstVisibleRow" +
@@ -164,7 +179,7 @@ internal object HomeScrollDiagnostics {
                     )
                     .coerceAtLeast(0L)
 
-            Log.d(
+            Log.w(
                 TAG,
                 buildString {
                     append("SCROLL_END")
@@ -265,7 +280,7 @@ internal object HomeScrollDiagnostics {
                 "->${afterRows}r/${afterItems}i"
 
         if (scrolling.get()) {
-            Log.d(
+            Log.w(
                 TAG,
                 "DURING_SCROLL catalogUpdateUs=$durationUs"
             )
@@ -296,7 +311,7 @@ internal object HomeScrollDiagnostics {
         )
 
         if (scrolling.get()) {
-            Log.d(
+            Log.w(
                 TAG,
                 "DURING_SCROLL publication=$kind" +
                     " durationUs=$durationUs"
@@ -321,7 +336,7 @@ internal object HomeScrollDiagnostics {
         )
 
         if (scrolling.get()) {
-            Log.d(
+            Log.w(
                 TAG,
                 "DURING_SCROLL imdbFallbackUs=$durationUs"
             )
