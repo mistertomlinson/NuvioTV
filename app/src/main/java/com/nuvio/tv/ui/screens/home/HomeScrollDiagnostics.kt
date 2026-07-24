@@ -141,7 +141,7 @@ internal object HomeScrollDiagnostics {
         ) {
             Log.w(
                 TAG,
-                "DIAGNOSTICS_ACTIVE build=CACHE_WINDOW_A1_B1"
+                "DIAGNOSTICS_ACTIVE build=CACHE_WINDOW_A1_B05"
             )
         }
 
