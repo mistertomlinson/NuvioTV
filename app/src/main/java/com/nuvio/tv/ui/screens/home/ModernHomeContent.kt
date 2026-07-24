@@ -185,8 +185,7 @@ fun ModernHomeContent(
     onHeroTrailerPlayingChanged: (Boolean) -> Unit = {},
     platformNavDirection: Int = 0,
     isPlatformDpadHeld: () -> Boolean = { false },
-    onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> },
-    onVisibleRowWindowChanged: (List<String>) -> Unit = {}
+    onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> }
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
     val isSidebarExpanded = LocalSidebarExpanded.current
@@ -438,81 +437,6 @@ fun ModernHomeContent(
     val isVerticalRowsScrolling by remember(verticalRowListState) {
         derivedStateOf { verticalRowListState.isScrollInProgress }
     }
-    val latestOnVisibleRowWindowChanged by rememberUpdatedState(
-        onVisibleRowWindowChanged
-    )
-
-    /*
-     * Alignment correction is needed only after the custom held-D-pad fast
-     * scroll. Ordinary one-row BringIntoView movement must finish with its
-     * original single spring and must not start a second landing animation.
-     */
-    val fastScrollLandingPendingRef = remember {
-        java.util.concurrent.atomic.AtomicBoolean(false)
-    }
-
-    /*
-     * Report the rows actually visible in the LazyColumn, plus one row
-     * immediately above and below. This controls enrichment priority only;
-     * LazyColumn remains responsible for composition and precomposition.
-     */
-    LaunchedEffect(
-        verticalRowListState,
-        carouselRows
-    ) {
-        snapshotFlow {
-            val finalRowIndex = carouselRows.lastIndex
-
-            if (finalRowIndex < 0) {
-                emptyList()
-            } else {
-                val visibleIndexes = verticalRowListState
-                    .layoutInfo
-                    .visibleItemsInfo
-                    .map { it.index }
-
-                val firstPriorityIndex =
-                    if (visibleIndexes.isEmpty()) {
-                        0
-                    } else {
-                        (
-                            visibleIndexes.minOrNull() ?: 0
-                        )
-                            .minus(1)
-                            .coerceAtLeast(0)
-                    }
-
-                val finalPriorityIndex =
-                    if (visibleIndexes.isEmpty()) {
-                        minOf(finalRowIndex, 1)
-                    } else {
-                        (
-                            visibleIndexes.maxOrNull() ?: 0
-                        )
-                            .plus(1)
-                            .coerceAtMost(finalRowIndex)
-                    }
-
-                (firstPriorityIndex..finalPriorityIndex)
-                    .mapNotNull { index ->
-                        carouselRows
-                            .getOrNull(index)
-                            ?.key
-                    }
-            }
-        }
-            .distinctUntilChanged()
-            .collect { rowKeys ->
-                HomeScrollDiagnostics.recordViewport(
-                    rowKeys
-                )
-
-                latestOnVisibleRowWindowChanged(
-                    rowKeys
-                )
-            }
-    }
-
     // One-way latch: once CW loads it is remembered forever
     var cwHasEverLoaded by remember { mutableStateOf(false) }
     if (uiState.continueWatchingItems.isNotEmpty()) cwHasEverLoaded = true
