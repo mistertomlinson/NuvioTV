@@ -711,7 +711,12 @@ private fun ModernHomeRoute(
         onBackdropPreloadSizeKnown = { w, h ->
             viewModel.setBackdropPreloadSize(w, h)
         },
-        onVisibleRowWindowChanged = viewModel::prioritizeModernHomeRows
+        /*
+         * Diagnostic: retain the complete WIP patch set but prevent each
+         * vertical viewport change from invalidating and rebuilding the
+         * proactive enrichment plan.
+         */
+        onVisibleRowWindowChanged = { _ -> }
     )
     }
 
