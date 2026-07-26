@@ -327,7 +327,6 @@ internal fun ModernRowSection(
             modifier = Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
         )
 
-        val rowShimmerTranslateState = rememberPosterShimmerTranslateState()
         val isCwRow = row.key == "continue_watching"
         val skeletonCardWidth = if (isCwRow) continueWatchingCardWidth else modernCatalogCardWidth
         val skeletonCardHeight = if (isCwRow) continueWatchingCardHeight else modernCatalogCardHeight
@@ -346,6 +345,7 @@ internal fun ModernRowSection(
         val showSkeleton = (row.items.isEmpty() && row.isLoading) ||
             (row.items.isNotEmpty() && !row.enrichmentReady && !enrichmentTimeoutReached)
         if (showSkeleton) {
+            val rowShimmerTranslateState = rememberPosterShimmerTranslateState()
             ModernSkeletonRow(
                 rowKey = row.key,
                 cardWidth = skeletonCardWidth,
