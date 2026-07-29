@@ -130,6 +130,14 @@ internal class PendingRowFocusHolder {
 @Stable
 internal class ModernHomeUiCaches {
     val focusedItemByRow = mutableMapOf<String, Int>()
+
+    /*
+     * Unlike focusedItemByRow, this map is never prefilled with zero.
+     * An entry exists only after a real poster has reported focus.
+     */
+    val lastActuallyFocusedIndexByRow =
+        mutableMapOf<String, Int>()
+
     val userInteractedRows = mutableSetOf<String>()
     val itemFocusRequesters = mutableMapOf<String, MutableMap<String, FocusRequester>>()
     val rowListStates = mutableMapOf<String, LazyListState>()

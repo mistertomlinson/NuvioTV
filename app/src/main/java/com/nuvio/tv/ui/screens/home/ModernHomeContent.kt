@@ -5,6 +5,7 @@
 
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.compose.animation.Crossfade
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -81,7 +82,6 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -215,16 +215,38 @@ fun ModernHomeContent(
     // Lags behind by exit animation duration — drives catalog LazyColumn content
     var catalogDisplayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
 
-    val visibleCatalogRows = remember(uiState.catalogRows, catalogDisplayedPlatformId) {
-        uiState.catalogRows.filter { it.items.isNotEmpty() || it.isLoading }.let { rows ->
-            if (!aggregatePlatformsEnabled || catalogDisplayedPlatformId == "home") {
-                if (aggregatePlatformsEnabled && !showAllCatalogsOnHome) rows.filter { inferPlatformId(it.catalogName) == null }
-                else rows
-            } else {
-                rows.filter { inferPlatformId(it.catalogName) == catalogDisplayedPlatformId }
+    val visibleCatalogRows = remember(
+        uiState.catalogRows,
+        catalogDisplayedPlatformId,
+        aggregatePlatformsEnabled,
+        showAllCatalogsOnHome
+    ) {
+        uiState.catalogRows
+            .filter { it.items.isNotEmpty() || it.isLoading }
+            .let { rows ->
+                if (
+                    !aggregatePlatformsEnabled ||
+                    catalogDisplayedPlatformId == "home"
+                ) {
+                    if (
+                        aggregatePlatformsEnabled &&
+                        !showAllCatalogsOnHome
+                    ) {
+                        rows.filter {
+                            inferPlatformId(it.catalogName) == null
+                        }
+                    } else {
+                        rows
+                    }
+                } else {
+                    rows.filter {
+                        inferPlatformId(it.catalogName) ==
+                            catalogDisplayedPlatformId
+                    }
+                }
             }
-        }
     }
+
     val strContinueWatching = stringResource(R.string.continue_watching)
     val strAirsDate = stringResource(R.string.cw_airs_date)
     val strUpcoming = stringResource(R.string.cw_upcoming)
@@ -446,6 +468,7 @@ fun ModernHomeContent(
 
     // Tag JankStats with key UI states so jank reports are actionable.
     val metricsHolder = PerformanceMetricsState.getHolderForHierarchy(LocalView.current)
+
     LaunchedEffect(isVerticalRowsScrolling) {
         metricsHolder.state?.putState(
             "HomeScrolling",
@@ -465,57 +488,276 @@ fun ModernHomeContent(
      * Patch 11: only perform the final row-alignment correction after an
      * actual held-D-pad fast scroll, never after an ordinary single-row move.
      */
-    val fastScrollLandingPendingRef = remember {
+    /*
+     * Only the selected destination row suppresses its logo/title/checkmark
+     * overlay while its final vertical alignment is completing.
+     */
+    /*
+     * During a fast-scroll landing, the target row and its immediate
+     * full-renderer neighbors keep heavy overlays absent until the same
+     * measured visual-settle signal.
+     */
+    var suppressedOverlayRowKeys by remember {
+        mutableStateOf<Set<String>>(emptySet())
+    }
+
+    /*
+     * A Compose-state generation directly launches the landing correction.
+     * This avoids racing the scroll-stopped callback against target selection.
+     */
+    var suppressedOverlayGeneration by remember {
+        mutableStateOf(0)
+    }
+
+    /*
+     * One shared alpha animation used only by the current landing row.
+     * Other rows retain a stable alpha of 1 and never observe its frames.
+     */
+    /*
+     * The same shared alpha animates every full row released by the current
+     * landing. This remains one animation, not one animation per row/card.
+     */
+    var landingOverlayFadeRowKeys by remember {
+        mutableStateOf<Set<String>>(emptySet())
+    }
+
+    val landingOverlayFadeAlpha = remember {
+        androidx.compose.animation.core.Animatable(1f)
+    }
+
+    val landingOverlayFadeAlphaState =
+        landingOverlayFadeAlpha.asState()
+
+    val fullyVisibleOverlayAlphaState = remember {
+        androidx.compose.runtime.mutableFloatStateOf(1f)
+    }
+
+    /*
+     * These refs connect the landing request with the real item-focus
+     * callback without adding another Compose state observed by the rows.
+     */
+    val landingRequestedRowKeyRef = remember {
+        java.util.concurrent.atomic.AtomicReference<String?>(
+            null
+        )
+    }
+
+    val landingRequestedGenerationRef = remember {
+        java.util.concurrent.atomic.AtomicInteger(0)
+    }
+
+    val landingFocusCommittedGenerationRef = remember {
+        java.util.concurrent.atomic.AtomicInteger(0)
+    }
+
+    /*
+     * Input release is not the same as visual settlement.
+     *
+     * This becomes true before fast-scroll input is released and remains true
+     * through row promotion, focus, BringIntoView and final alignment.
+     */
+    var fastScrollLandingVisualPending by remember {
+        mutableStateOf(false)
+    }
+
+    val fastScrollLandingVisualPendingRef = remember {
         java.util.concurrent.atomic.AtomicBoolean(false)
     }
 
-    LaunchedEffect(verticalRowListState) {
-        snapshotFlow {
-            verticalRowListState.isScrollInProgress
+    /*
+     * Incremented only after the measured six-frame settle. A later effect
+     * performs the deferred hero/enrichment catch-up exactly once.
+     */
+    var fastScrollHeroCatchUpGeneration by remember {
+        mutableIntStateOf(0)
+    }
+
+    LaunchedEffect(suppressedOverlayGeneration) {
+        if (suppressedOverlayGeneration == 0) {
+            return@LaunchedEffect
         }
-            .collect { scrolling ->
-                if (scrolling) {
-                    return@collect
+
+        val landingGeneration =
+            suppressedOverlayGeneration
+
+        val landingRowKey =
+            landingRequestedRowKeyRef
+                .get()
+                ?: return@LaunchedEffect
+
+        val landingOverlayRowKeys =
+            suppressedOverlayRowKeys
+
+        if (landingOverlayRowKeys.isEmpty()) {
+            return@LaunchedEffect
+        }
+
+        /*
+         * Preserve the existing landing correction behavior.
+         */
+        while (
+            verticalRowListState
+                .isScrollInProgress
+        ) {
+            withFrameNanos { }
+        }
+
+        try {
+            val layoutInfo =
+                verticalRowListState.layoutInfo
+
+            val visibleItems =
+                layoutInfo.visibleItemsInfo
+
+            if (visibleItems.isEmpty()) {
+                return@LaunchedEffect
+            }
+
+            val nearest =
+                visibleItems.minByOrNull {
+                    kotlin.math.abs(it.offset)
+                }
+                    ?: return@LaunchedEffect
+
+            if (
+                kotlin.math.abs(nearest.offset) >
+                50
+            ) {
+                verticalRowListState
+                    .animateScrollToItem(
+                        nearest.index
+                    )
+            }
+        } finally {
+            /*
+             * Wait for the destination card's real focus callback.
+             */
+            var focusWaitFrames = 0
+
+            while (
+                landingFocusCommittedGenerationRef.get() <
+                    landingGeneration &&
+                focusWaitFrames < 45 &&
+                suppressedOverlayGeneration ==
+                    landingGeneration &&
+                suppressedOverlayRowKeys ==
+                    landingOverlayRowKeys
+            ) {
+                withFrameNanos { }
+                focusWaitFrames++
+            }
+
+            /*
+             * Require the real vertical viewport position to remain unchanged
+             * for six consecutive frames.
+             */
+            var stableFrames = 0
+            var observedFrames = 0
+            var previousIndex = Int.MIN_VALUE
+            var previousOffset = Int.MIN_VALUE
+
+            while (
+                stableFrames < 6 &&
+                observedFrames < 120 &&
+                suppressedOverlayGeneration ==
+                    landingGeneration &&
+                suppressedOverlayRowKeys ==
+                    landingOverlayRowKeys
+            ) {
+                withFrameNanos { }
+
+                val currentIndex =
+                    verticalRowListState
+                        .firstVisibleItemIndex
+
+                val currentOffset =
+                    verticalRowListState
+                        .firstVisibleItemScrollOffset
+
+                val positionIsStable =
+                    previousIndex != Int.MIN_VALUE &&
+                        !verticalRowListState
+                            .isScrollInProgress &&
+                        currentIndex ==
+                            previousIndex &&
+                        kotlin.math.abs(
+                            currentOffset -
+                                previousOffset
+                        ) <= 1
+
+                if (positionIsStable) {
+                    stableFrames++
+                } else {
+                    stableFrames = 0
                 }
 
-                if (
-                    !fastScrollLandingPendingRef
-                        .getAndSet(false)
-                ) {
-                    return@collect
-                }
+                previousIndex =
+                    currentIndex
 
-                val layoutInfo =
-                    verticalRowListState.layoutInfo
+                previousOffset =
+                    currentOffset
 
-                val visibleItems =
-                    layoutInfo.visibleItemsInfo
+                observedFrames++
+            }
 
-                if (visibleItems.isEmpty()) {
-                    return@collect
-                }
+            if (
+                suppressedOverlayGeneration ==
+                    landingGeneration &&
+                suppressedOverlayRowKeys ==
+                    landingOverlayRowKeys
+            ) {
+                /*
+                 * All fast-scroll-only hero work is released at the same
+                 * confirmed settle point as the overlays.
+                 */
+                fastScrollLandingVisualPendingRef
+                    .set(false)
 
-                val nearest =
-                    visibleItems.minByOrNull {
-                        kotlin.math.abs(it.offset)
-                    }
-                        ?: return@collect
+                fastScrollLandingVisualPending =
+                    false
+
+                fastScrollHeroCatchUpGeneration++
 
                 /*
-                 * A real fast scroll can stop between row boundaries, so keep
-                 * the existing correction threshold for that path only.
+                 * Insert all target-neighborhood overlay nodes at alpha zero,
+                 * commit one frame, and fade them with the existing shared
+                 * 150 ms animation.
                  */
-                if (
-                    kotlin.math.abs(nearest.offset) >
-                    50
-                ) {
-                    verticalRowListState
-                        .animateScrollToItem(
-                            nearest.index
+                landingOverlayFadeAlpha
+                    .snapTo(0f)
+
+                landingOverlayFadeRowKeys =
+                    landingOverlayRowKeys
+
+                suppressedOverlayRowKeys =
+                    emptySet()
+
+                withFrameNanos { }
+
+                try {
+                    landingOverlayFadeAlpha
+                        .animateTo(
+                            targetValue = 1f,
+                            animationSpec =
+                                androidx.compose.animation.core.tween(
+                                    durationMillis = 150
+                                )
                         )
+                } finally {
+                    if (
+                        suppressedOverlayGeneration ==
+                            landingGeneration &&
+                        landingOverlayFadeRowKeys ==
+                            landingOverlayRowKeys
+                    ) {
+                        landingOverlayFadeRowKeys =
+                            emptySet()
+                    }
                 }
             }
+        }
     }
+
     LaunchedEffect(enrichingItemId) {
         metricsHolder.state?.putState("HeroEnriching", (enrichingItemId != null).toString())
     }
@@ -678,14 +920,20 @@ fun ModernHomeContent(
     val latestOnPreloadAdjacentItem by rememberUpdatedState(onPreloadAdjacentItem)
     val gatedOnItemFocus: (MetaPreview) -> Unit = remember(Unit) {
         { preview ->
-            if (!isFastScrollingRef.value) {
+            if (
+                !isFastScrollingRef.value &&
+                !fastScrollLandingVisualPendingRef.get()
+            ) {
                 latestOnItemFocus(preview)
             }
         }
     }
     val gatedOnPreloadAdjacentItem: (MetaPreview) -> Unit = remember(Unit) {
         { preview ->
-            if (!isFastScrollingRef.value) {
+            if (
+                !isFastScrollingRef.value &&
+                !fastScrollLandingVisualPendingRef.get()
+            ) {
                 latestOnPreloadAdjacentItem(
                     preview
                 )
@@ -696,6 +944,7 @@ fun ModernHomeContent(
         { selection ->
             if (
                 !isFastScrollingRef.value &&
+                !fastScrollLandingVisualPendingRef.get() &&
                 focusedCatalogSelection != selection
             ) {
                 focusedCatalogSelection =
@@ -703,29 +952,55 @@ fun ModernHomeContent(
             }
         }
     }
+    /*
+     * One authoritative fast-scroll catch-up path. Key-up and measured visual
+     * settlement cannot run different hero/enrichment logic.
+     */
+    val catchUpFastScrollLandingHero:
+        suspend () -> Unit =
+        catchUp@{
+            val rowKey = focusHolder.activeRowKey ?: return@catchUp
+            val row = currentCarouselRows.firstOrNull { it.key == rowKey } ?: return@catchUp
+            val item = row.items.getOrNull(
+                focusHolder.activeItemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
+            ) ?: return@catchUp
+            item.metaPreview?.let { latestOnItemFocus(it) }
+            val payload = item.payload as? ModernPayload.Catalog
+            if (payload != null) {
+                val selection = FocusedCatalogSelection(
+                    focusKey = payload.focusKey,
+                    payload = payload
+                )
+                if (focusedCatalogSelection != selection) {
+                    focusedCatalogSelection = selection
+                }
+            }
+        }
+
     LaunchedEffect(Unit) {
         isFastScrollingRef
             .collect { fast ->
-                if (!fast) {
-                    val rowKey = focusHolder.activeRowKey ?: return@collect
-                    val row = currentCarouselRows.firstOrNull { it.key == rowKey } ?: return@collect
-                    val item = row.items.getOrNull(
-                        focusHolder.activeItemIndex.coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-                    ) ?: return@collect
-                    item.metaPreview?.let { latestOnItemFocus(it) }
-                    val payload = item.payload as? ModernPayload.Catalog
-                    if (payload != null) {
-                        val selection = FocusedCatalogSelection(
-                            focusKey = payload.focusKey,
-                            payload = payload
-                        )
-                        if (focusedCatalogSelection != selection) {
-                            focusedCatalogSelection = selection
-                        }
-                    }
+                if (
+                    !fast &&
+                    !fastScrollLandingVisualPendingRef.get()
+                ) {
+                    catchUpFastScrollLandingHero()
                 }
             }
     }
+
+    LaunchedEffect(
+        fastScrollHeroCatchUpGeneration
+    ) {
+        if (
+            fastScrollHeroCatchUpGeneration == 0
+        ) {
+            return@LaunchedEffect
+        }
+
+        catchUpFastScrollLandingHero()
+    }
+
 
     // Stop any expanded-card trailer the instant FAST-scrolling begins. Only fast-scroll
     // is affected: the custom fast-scroll modifier moves the scroll position without
@@ -968,6 +1243,9 @@ fun ModernHomeContent(
 
     LaunchedEffect(carouselRows, focusState.hasSavedFocus, focusState.focusedRowIndex, focusState.focusedItemIndex, focusState.focusedRowKey) {
         focusedItemByRow.keys.retainAll(activeRowKeys)
+        uiCaches.lastActuallyFocusedIndexByRow
+            .keys
+            .retainAll(activeRowKeys)
         itemFocusRequesters.keys.retainAll(activeRowKeys)
         rowListStates.keys.retainAll(activeRowKeys)
         loadMoreRequestedTotals.keys.retainAll(activeRowKeys)
@@ -1166,19 +1444,96 @@ fun ModernHomeContent(
     var heroFrozenForRapidNav by remember { mutableStateOf(false) }
     var heroFrozenForSlide by remember { mutableStateOf(false) }
     LaunchedEffect(verticalRowListState) {
-        snapshotFlow { verticalRowListState.isScrollInProgress }
-            .collect { sliding ->
-                if (sliding && !heroFrozenForSlide && !isFastScrolling && !heroFrozenForRapidNav) {
-                    // The rapid-nav guard is load-bearing: horizontal presses nudge the
-                    // vertical list via BringIntoView, flickering isScrollInProgress and
-                    // re-capturing the shared frozen snapshot per press — advancing the
-                    // "frozen" hero one step per press during rapid horizontal nav.
-                    val currentRow = latestActiveRow
-                    val currentIndex = latestActiveItemIndex
-                    frozenHeroItem = currentRow?.items?.getOrNull(currentIndex)?.heroPreview ?: heroItem
-                    frozenHeroItemRowKey = currentRow?.key ?: heroItemRowKey
+        /*
+         * Tracks whether this was an ordinary Compose BringIntoView slide.
+         * The extra release frame is never used by held-D-pad fast scrolling.
+         */
+        var delayNormalSlideRelease =
+            false
+
+        snapshotFlow {
+            verticalRowListState.isScrollInProgress
+        }
+            .collectLatest { sliding ->
+                if (sliding) {
+                    if (
+                        !heroFrozenForSlide &&
+                        !isFastScrolling &&
+                        !fastScrollLandingVisualPendingRef.get() &&
+                        !heroFrozenForRapidNav
+                    ) {
+                        /*
+                         * PATCH_PREVENT_FAST_LANDING_HERO_RECAPTURE
+                         *
+                         * During fast-scroll landing, frozenHeroItem already
+                         * holds the outgoing title. The final alignment scroll
+                         * must not replace it with the destination title.
+                         *
+                         * For an ordinary one-row slide, capture the outgoing
+                         * hero and retain it until one frame after the row
+                         * animation reports completion.
+                         */
+                        val currentRow =
+                            latestActiveRow
+
+                        val currentIndex =
+                            latestActiveItemIndex
+
+                        frozenHeroItem =
+                            currentRow
+                                ?.items
+                                ?.getOrNull(currentIndex)
+                                ?.heroPreview
+                                ?: heroItem
+
+                        frozenHeroItemRowKey =
+                            currentRow?.key
+                                ?: heroItemRowKey
+
+                        delayNormalSlideRelease =
+                            true
+                    }
+
+                    heroFrozenForSlide =
+                        true
+
+                    return@collectLatest
                 }
-                heroFrozenForSlide = sliding
+
+                /*
+                 * One ordinary D-pad row movement only:
+                 *
+                 * Let the LazyColumn's final settled position commit to the
+                 * display before starting the backdrop/logo/metadata work.
+                 *
+                 * Fast-scroll landing remains controlled exclusively by
+                 * fastScrollLandingVisualPendingRef and gets no extra work here.
+                 */
+                if (
+                    delayNormalSlideRelease &&
+                    !isFastScrolling &&
+                    !fastScrollLandingVisualPendingRef.get()
+                ) {
+                    /*
+                     * PATCH_DEFER_HERO_UNTIL_RENDERER_PROMOTION_V1
+                     *
+                     * Keep backdrop, logo and metadata frozen until the
+                     * separately delayed 120 ms renderer promotion and direct
+                     * proxy-to-card focus transfer have completed.
+                     *
+                     * collectLatest cancels this immediately if another row
+                     * movement begins.
+                     */
+                    repeat(10) {
+                        withFrameNanos { }
+                    }
+                }
+
+                delayNormalSlideRelease =
+                    false
+
+                heroFrozenForSlide =
+                    false
             }
     }
 
@@ -1341,7 +1696,10 @@ fun ModernHomeContent(
                             current?.imdbText.isNullOrBlank()
                         )
             } == true
-        val resolvedHero = if (isFastScrolling || heroFrozenForSlide || heroFrozenForRapidNav) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
+        val resolvedHero = if (isFastScrolling ||
+            fastScrollLandingVisualPending ||
+            heroFrozenForSlide ||
+            heroFrozenForRapidNav) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
         // transitionHero: non-null during platform transition, blocks live resolvedHero updates.
         var isPlatformTransitioning by remember { mutableStateOf(false) }
         LaunchedEffect(isPlatformTransitioning) {
@@ -2248,13 +2606,20 @@ fun ModernHomeContent(
             val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
+                /*
+                 * PATCH_SINGLE_ROW_VERTICAL_SLIDE_TUNING
+                 *
+                 * Ordinary one-row D-pad up/down movement only.
+                 * The held-D-pad fast-scroll modifier uses its separate
+                 * 1200 dp/s velocity and does not use this spring.
+                 */
                 // Snappier vertical slide than the app-wide spec (stiffness 180):
-                // shorter travel time AND a much shorter deceleration tail, so the
-                // hero slide-freeze releases sooner. Home vertical list only.
+                // shorter travel time and a shorter deceleration tail.
+                // Home vertical LazyColumn only.
                 override val scrollAnimationSpec: AnimationSpec<Float> =
                     androidx.compose.animation.core.spring(
                         dampingRatio = 0.95f,
-                        stiffness = 400f
+                        stiffness = 500f
                     )
 
                 override fun calculateScrollDistance(
@@ -2569,6 +2934,72 @@ fun ModernHomeContent(
                     .wrapContentHeight(align = Alignment.CenterVertically)
                     .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
             )
+            /*
+             * DIAGNOSTIC_DEFER_NORMAL_RENDERER_ANCHOR
+             *
+             * activeRowKey still updates immediately when real focus moves.
+             * Only the lightweight/full-row renderer neighborhood is deferred
+             * until after an ordinary one-row vertical animation has settled.
+             *
+             * Fast-scroll landing keeps its existing immediate promotion.
+             */
+            val desiredFullRendererAnchorKey =
+                activeRowKey
+                    ?: focusState.focusedRowKey
+                    ?: carouselRows.firstOrNull()?.key
+
+            var settledFullRendererAnchorKey by remember {
+                mutableStateOf(
+                    desiredFullRendererAnchorKey
+                )
+            }
+
+            LaunchedEffect(
+                desiredFullRendererAnchorKey,
+                isVerticalRowsScrolling
+            ) {
+                val desiredKey =
+                    desiredFullRendererAnchorKey
+                        ?: return@LaunchedEffect
+
+                /*
+                 * The fast-scroll target can be multiple rows away and must
+                 * remain immediately promotable through the direct selection
+                 * below. This state is only for ordinary adjacent movement.
+                 */
+                if (
+                    isFastScrolling ||
+                    fastScrollLandingVisualPendingRef.get()
+                ) {
+                    settledFullRendererAnchorKey =
+                        desiredKey
+
+                    return@LaunchedEffect
+                }
+
+                if (isVerticalRowsScrolling) {
+                    return@LaunchedEffect
+                }
+
+                /*
+                 * Deliberately large diagnostic separation. If renderer
+                 * promotion causes the animation-tail hitch, the hitch should
+                 * disappear from the row motion or occur later on a still UI.
+                 */
+                kotlinx.coroutines.delay(120L)
+
+                if (
+                    !verticalRowListState.isScrollInProgress &&
+                    !isFastScrollingRef.value &&
+                    !fastScrollLandingVisualPendingRef.get() &&
+                    desiredFullRendererAnchorKey ==
+                        desiredKey
+                ) {
+                    settledFullRendererAnchorKey =
+                        desiredKey
+                }
+            }
+
             CompositionLocalProvider(
                 LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
             ) {
@@ -2581,12 +3012,16 @@ fun ModernHomeContent(
                     .padding(bottom = catalogBottomPadding)
                     .focusRequester(contentFocusRequester)
                     .focusRestorer { focusRestorerRequester }
+
                     .dpadVerticalFastScroll(
                         scrollableState = verticalRowListState,
                         onFastScrollingChanged = { scrolling ->
-                            if (scrolling) {
-                                fastScrollLandingPendingRef
+                            if (!scrolling) {
+                                fastScrollLandingVisualPendingRef
                                     .set(true)
+
+                                fastScrollLandingVisualPending =
+                                    true
                             }
 
                             isFastScrollingRef.value =
@@ -2623,6 +3058,65 @@ fun ModernHomeContent(
                             if (targetRow != null) {
                                 val savedItemIndex = (focusedItemByRow[targetRow.key] ?: 0)
                                     .coerceIn(0, (targetRow.items.size - 1).coerceAtLeast(0))
+
+                                /*
+                                 * Promote and focus the complete row normally,
+                                 * but defer only its logo/title/checkmark layer
+                                 * until the final alignment has completed.
+                                 */
+                                /*
+                                 * A new landing immediately releases any older
+                                 * row from the shared fade state.
+                                 */
+                                val landingOverlayNeighborhood =
+                                    buildSet {
+                                        carouselRows
+                                            .getOrNull(
+                                                targetRowIndex - 1
+                                            )
+                                            ?.key
+                                            ?.let {
+                                                add(it)
+                                            }
+
+                                        add(targetRow.key)
+
+                                        carouselRows
+                                            .getOrNull(
+                                                targetRowIndex + 1
+                                            )
+                                            ?.key
+                                            ?.let {
+                                                add(it)
+                                            }
+                                    }
+
+                                landingOverlayFadeRowKeys =
+                                    emptySet()
+
+                                val nextOverlayGeneration =
+                                    suppressedOverlayGeneration + 1
+
+                                landingRequestedRowKeyRef
+                                    .set(targetRow.key)
+
+                                landingRequestedGenerationRef
+                                    .set(
+                                        nextOverlayGeneration
+                                    )
+
+                                fastScrollLandingVisualPendingRef
+                                    .set(true)
+
+                                fastScrollLandingVisualPending =
+                                    true
+
+                                suppressedOverlayRowKeys =
+                                    landingOverlayNeighborhood
+
+                                suppressedOverlayGeneration =
+                                    nextOverlayGeneration
+
                                 activeRowKey = targetRow.key
                                 activeItemIndex = savedItemIndex
                                 if (targetRow.items.isEmpty() && targetRow.isLoading) {
@@ -2641,7 +3135,16 @@ fun ModernHomeContent(
                                     runCatching { requester?.requestFocus() }
                                     targetItemKey
                                 }
-                            } else null
+                            } else {
+                                fastScrollLandingVisualPendingRef
+                                    .set(false)
+
+                                fastScrollLandingVisualPending =
+                                    false
+
+                                fastScrollHeroCatchUpGeneration++
+                                null
+                            }
                         }
                     )
                     .onPreviewKeyEvent { event ->
@@ -2693,7 +3196,40 @@ fun ModernHomeContent(
                     items = carouselRows,
                     key = { _, row -> row.key },
                     contentType = { _, _ -> "modern_home_row" }
-                ) { _, row ->
+                ) { rowIndex, row ->
+                    val fullRendererAnchorKey =
+                        if (
+                            isFastScrolling ||
+                            fastScrollLandingVisualPending
+                        ) {
+                            desiredFullRendererAnchorKey
+                        } else {
+                            settledFullRendererAnchorKey
+                        }
+
+                    val fullRendererAnchorIndex =
+                        fullRendererAnchorKey
+                            ?.let(rowIndexByKey::get)
+                            ?: 0
+
+                    /*
+                     * Keep the active row and one row on either side fully
+                     * interactive. Distant loaded rows become static poster
+                     * strips while retaining identical outer dimensions.
+                     *
+                     * Skeleton/enrichment-gated rows remain on the existing
+                     * renderer so launch gating and skeleton focus behavior
+                     * are unchanged.
+                     */
+                    val renderLightweight =
+                        row.key != "continue_watching" &&
+                            row.items.isNotEmpty() &&
+                            row.enrichmentReady &&
+                            pendingRowFocus.key != row.key &&
+                            kotlin.math.abs(
+                                rowIndex - fullRendererAnchorIndex
+                            ) > 1
+
                     val stableOnContinueWatchingOptions = remember(Unit) {
                         { item: ContinueWatchingItem -> optionsItem = item }
                     }
@@ -2706,12 +3242,44 @@ fun ModernHomeContent(
                             }
                         }
                     }
+                    /*
+                     * PATCH_CURRENT_ROW_SNAPSHOT_FOR_FOCUS_CALLBACK
+                     *
+                     * This lambda remains stable, but every lookup reads the
+                     * latest row ordering through rememberUpdatedState.
+                     */
                     val stableOnRowItemFocused = remember(Unit) {
                         { rowKey: String, index: Int, isContinueWatchingRow: Boolean ->
+                            /*
+                             * Authoritative horizontal position for the
+                             * lightweight renderer. This callback runs only
+                             * when a real card actually owns focus.
+                             */
+                            uiCaches.lastActuallyFocusedIndexByRow[
+                                rowKey
+                            ] = index
+                            /*
+                             * This is the real item-focus callback, not merely
+                             * the earlier requestFocus call. It gives the
+                             * settle watcher permission to begin counting
+                             * stable layout frames.
+                             */
+                            if (
+                                rowKey ==
+                                    landingRequestedRowKeyRef
+                                        .get()
+                            ) {
+                                landingFocusCommittedGenerationRef
+                                    .set(
+                                        landingRequestedGenerationRef
+                                            .get()
+                                    )
+                            }
+
                             // If this row has no items (skeleton), clear focusedCatalogSelection
                             // so the autoplay debounce timer doesn't fire for the previously
                             // focused real item while the user is parked on a loading row.
-                            val activeRow = carouselRows.firstOrNull { it.key == rowKey }
+                            val activeRow = currentCarouselRows.firstOrNull { it.key == rowKey }
                             if (activeRow != null && activeRow.items.isEmpty()) {
                                 focusedCatalogSelection = null
                                 expandedCatalogFocusKey = null
@@ -2734,7 +3302,7 @@ fun ModernHomeContent(
                                 lastHeroFocusChangeAtMsRef.set(now)
                                 if (timeSinceLastHeroNav in 1 until MODERN_HERO_RAPID_NAV_THRESHOLD_MS) {
                                     if (!heroFrozenForRapidNav && !isFastScrolling && !heroFrozenForSlide) {
-                                        val outgoingRow = carouselRows.firstOrNull { it.key == focusHolder.activeRowKey }
+                                        val outgoingRow = currentCarouselRows.firstOrNull { it.key == focusHolder.activeRowKey }
                                         val outgoingHero = outgoingRow?.items
                                             ?.getOrNull(focusHolder.activeItemIndex)?.heroPreview
                                         frozenHeroItem = outgoingHero ?: heroItem
@@ -2792,8 +3360,36 @@ fun ModernHomeContent(
                             )
                         }
                     }
+                    val suppressHeavyOverlaysForThisRow by
+                        remember(row.key) {
+                            derivedStateOf {
+                                row.key in suppressedOverlayRowKeys
+                            }
+                        }
+
+                    val useLandingOverlayFadeForThisRow by
+                        remember(row.key) {
+                            derivedStateOf {
+                                row.key in landingOverlayFadeRowKeys
+                            }
+                        }
+
+                    val heavyOverlayAlphaForThisRow =
+                        if (
+                            useLandingOverlayFadeForThisRow
+                        ) {
+                            landingOverlayFadeAlphaState
+                        } else {
+                            fullyVisibleOverlayAlphaState
+                        }
+
                     ModernRowSection(
                         row = row,
+                        renderLightweight = renderLightweight,
+                        showHeavyOverlays =
+                            !suppressHeavyOverlaysForThisRow,
+                        heavyOverlayAlpha =
+                            heavyOverlayAlphaForThisRow,
                         rowTitleBottom = rowTitleBottom,
                         numberStyle = row.numberStyle,
                         isFirstRow = carouselRows.firstOrNull()?.key == row.key,

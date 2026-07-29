@@ -182,6 +182,8 @@ private fun ModernCatalogRowItem(
     expandedTrailerPreviewUrl: String?,
     expandedTrailerPreviewAudioUrl: String?,
     isWatched: Boolean,
+    showHeavyOverlays: Boolean,
+    heavyOverlayAlpha: State<Float>,
     onFocused: () -> Unit,
     onItemFocus: (MetaPreview) -> Unit,
     onPreloadAdjacentItem: () -> Unit,
@@ -233,6 +235,8 @@ private fun ModernCatalogRowItem(
         trailerPreviewUrl = trailerPreviewUrl,
         trailerPreviewAudioUrl = trailerPreviewAudioUrl,
         isWatched = isWatched,
+        showHeavyOverlays = showHeavyOverlays,
+        heavyOverlayAlpha = heavyOverlayAlpha,
         focusRequester = requester,
         onFocused = remember(focusKey, payload, onFocused, onItemFocus, onPreloadAdjacentItem, onCatalogSelectionFocused) {
             {
@@ -265,10 +269,613 @@ private fun ModernCatalogRowItem(
     }
 }
 
+/**
+ * Lightweight visual replacement for distant loaded catalog rows.
+ *
+ * This deliberately has:
+ * - no LazyRow or LazyListState;
+ * - no FocusRequester or focus restoration;
+ * - no trailer player;
+ * - no expansion or BringIntoView work;
+ * - no per-item focus/preload callbacks.
+ *
+ * The row is promoted back to the unchanged full renderer before normal
+ * focus can reach it, or immediately when fast-scroll selects it as the
+ * landing row.
+ */
+@Composable
+private fun ModernLightweightPosterStrip(
+    row: HeroCarouselRow,
+    cardWidth: Dp,
+    cardHeight: Dp,
+    cornerRadius: Dp,
+    useLandscapePosters: Boolean,
+    firstVisibleItemIndex: Int,
+    numberStyle: NumberStyle,
+    useThemeColorForNumbers: Boolean,
+    uiCaches: ModernHomeUiCaches,
+    pendingRowFocus: PendingRowFocusHolder,
+    onRowItemFocused: (String, Int, Boolean) -> Unit,
+    retainForHandoff: Boolean,
+    onFocusProxyChanged: (Int, Boolean) -> Unit,
+    isFirstRow: Boolean,
+    onRequestCarouselFocus: () -> Unit
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+
+    // Distant rows must not run independent shimmer clocks.
+    val lightweightShimmerTranslate = remember {
+        androidx.compose.runtime.mutableStateOf(0f)
+    }
+
+    val rowStartPadding = 52.dp
+    val isNumbered =
+        numberStyle != NumberStyle.OFF
+
+    /*
+     * Match the complete LazyRow exactly. The large number extends behind
+     * each poster, so numbered rows require additional item spacing.
+     */
+    val rowSpacing =
+        if (isNumbered) {
+            if (useLandscapePosters) {
+                (cardWidth * 0.30f)
+                    .coerceAtLeast(12.dp)
+            } else {
+                (cardWidth * 0.64f)
+                    .coerceAtLeast(12.dp)
+            }
+        } else {
+            12.dp
+        }
+
+    /*
+     * Pre-measure the same reference widths used by the complete renderer.
+     * This prevents posters shifting when the row changes renderers.
+     */
+    val numberFontSize =
+        androidx.compose.ui.unit.TextUnit(
+            if (useLandscapePosters) {
+                cardHeight.value * 0.80f
+            } else {
+                cardHeight.value * 0.55f
+            },
+            androidx.compose.ui.unit.TextUnitType.Sp
+        )
+
+    val numberBaseStyle =
+        androidx.compose.ui.text.TextStyle(
+            fontSize = numberFontSize,
+            fontWeight =
+                androidx.compose.ui.text.font.FontWeight.W500,
+            color =
+                androidx.compose.ui.graphics.Color(
+                    0xFF888888
+                )
+        )
+
+    val textMeasurer =
+        androidx.compose.ui.text.rememberTextMeasurer()
+
+    val oneDigitWidthPx = remember(
+        numberBaseStyle
+    ) {
+        textMeasurer.measure(
+            "1",
+            numberBaseStyle
+        ).size.width
+    }
+
+    val doubleDigitWidthPx = remember(
+        numberBaseStyle
+    ) {
+        textMeasurer.measure(
+            "88",
+            numberBaseStyle
+        ).size.width
+    }
+
+    val tripleDigitWidthPx = remember(
+        numberBaseStyle
+    ) {
+        textMeasurer.measure(
+            "888",
+            numberBaseStyle
+        ).size.width
+    }
+
+    val numberedRowStartPadding =
+        if (isNumbered) {
+            val singleDigitDp =
+                with(density) {
+                    oneDigitWidthPx.toDp()
+                }
+
+            val overlapDp =
+                cardWidth * 0.10f
+
+            rowStartPadding +
+                (singleDigitDp - overlapDp) -
+                16.dp
+        } else {
+            rowStartPadding
+        }
+
+    val requestWidthPx = remember(
+        cardWidth,
+        density
+    ) {
+        with(density) {
+            cardWidth.roundToPx()
+        }
+    }
+
+    val requestHeightPx = remember(
+        cardHeight,
+        density
+    ) {
+        with(density) {
+            cardHeight.roundToPx()
+        }
+    }
+
+    val cardShape = remember(cornerRadius) {
+        RoundedCornerShape(cornerRadius)
+    }
+
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        val availableWidth =
+            (
+                maxWidth.value -
+                    numberedRowStartPadding.value
+            ).coerceAtLeast(0f)
+
+        /*
+         * Render only the visible posters plus a few spares. Number wrappers
+         * can add width for the second or third digit, so the spare count
+         * intentionally errs slightly high.
+         */
+        val approximateSlotWidth =
+            (
+                cardWidth.value +
+                    rowSpacing.value
+            ).coerceAtLeast(1f)
+
+        val visibleCardCount =
+            (
+                availableWidth /
+                    approximateSlotWidth
+            ).toInt()
+                .plus(4)
+                .coerceAtLeast(1)
+
+        val safeStartIndex =
+            firstVisibleItemIndex.coerceIn(
+                0,
+                (row.items.size - 1)
+                    .coerceAtLeast(0)
+            )
+
+        /*
+         * PATCH_LIGHTWEIGHT_PRECEDING_POSTER_V2
+         *
+         * safeStartIndex identifies the correctly remembered focused card.
+         * Render one card before it so that card can remain clipped at the
+         * left edge exactly as it is in the full LazyRow.
+         */
+        val visualStartIndex =
+            if (safeStartIndex > 0) {
+                safeStartIndex - 1
+            } else {
+                safeStartIndex
+            }
+
+        /*
+         * NumberedCatalogCardWrapper adds digit-dependent start padding to
+         * the item's measured width. Include that padding when moving the
+         * preceding slot off-screen so the focused card does not shift.
+         */
+        val precedingCardNumber =
+            safeStartIndex
+
+        val precedingDigitPadding =
+            if (
+                isNumbered &&
+                safeStartIndex > 0
+            ) {
+                when {
+                    precedingCardNumber >= 100 ->
+                        if (useLandscapePosters) {
+                            cardWidth * 0.40f
+                        } else {
+                            cardWidth * 0.81f
+                        }
+
+                    precedingCardNumber >= 10 ->
+                        if (useLandscapePosters) {
+                            cardWidth * 0.20f
+                        } else {
+                            cardWidth * 0.41f
+                        }
+
+                    else -> 0.dp
+                }
+            } else {
+                0.dp
+            }
+
+        val precedingSlotWidth =
+            if (safeStartIndex > 0) {
+                cardWidth +
+                    precedingDigitPadding +
+                    rowSpacing
+            } else {
+                0.dp
+            }
+
+        val endIndex =
+            minOf(
+                row.items.size,
+                safeStartIndex +
+                    visibleCardCount
+            )
+
+        androidx.compose.foundation.layout.Row(
+            modifier = Modifier
+                .layout {
+                    measurable,
+                    constraints ->
+
+                    val placeable =
+                        measurable.measure(
+                            constraints
+                        )
+
+                    layout(
+                        width = placeable.width,
+                        height =
+                            if (retainForHandoff) {
+                                0
+                            } else {
+                                placeable.height
+                            }
+                    ) {
+                        placeable.placeRelative(
+                            0,
+                            0
+                        )
+                    }
+                }
+                .zIndex(
+                    if (retainForHandoff) {
+                        1f
+                    } else {
+                        0f
+                    }
+                )
+                .padding(
+                    start = numberedRowStartPadding
+                )
+                .offset(
+                    x = -precedingSlotWidth
+                ),
+            horizontalArrangement =
+                Arrangement.spacedBy(rowSpacing)
+        ) {
+            for (
+                absoluteIndex in
+                    visualStartIndex until endIndex
+            ) {
+                val item =
+                    row.items[absoluteIndex]
+
+                androidx.compose.runtime.key(
+                    item.key
+                ) {
+                    /*
+                     * PATCH_LIGHTWEIGHT_FOCUS_PROXY
+                     *
+                     * Distant rows remain static lightweight strips, but the
+                     * exact remembered poster exposes one minimal focus node.
+                     *
+                     * This lets native rapid vertical traversal and held-scroll
+                     * landing acquire focus without composing a full LazyRow.
+                     */
+                    val isFocusProxy =
+                        absoluteIndex ==
+                            safeStartIndex
+
+                    /*
+                     * PATCH_DIRECT_PROXY_TO_CARD_HANDOFF_V1
+                     *
+                     * The proxy and the complete card must never share a
+                     * FocusRequester while both are composed.
+                     */
+                    val privateProxyRequester =
+                        remember(
+                            row.key,
+                            item.key
+                        ) {
+                            FocusRequester()
+                        }
+
+                    val focusProxyRequester =
+                        if (isFocusProxy) {
+                            privateProxyRequester
+                        } else {
+                            null
+                        }
+
+                    var isFocusProxyFocused by remember(
+                        row.key,
+                        item.key
+                    ) {
+                        mutableStateOf(false)
+                    }
+
+                    /*
+                     * PATCH_HIDE_PROXY_OUTLINE_DURING_HANDOFF_V1
+                     *
+                     * Once the complete renderer is promoted, its real Card
+                     * will become the visible focus owner. Keep the proxy node
+                     * alive for focus safety, but stop drawing its outline so
+                     * the two 2 dp focus rings cannot brighten each other.
+                     */
+                    val showProxyOutline =
+                        isFocusProxyFocused &&
+                            !retainForHandoff
+
+
+                    val focusProxyModifier =
+                        if (
+                            isFocusProxy &&
+                            focusProxyRequester != null
+                        ) {
+                            Modifier
+                                .focusRequester(
+                                    focusProxyRequester
+                                )
+                                .onFocusChanged { focusChange ->
+                                    onFocusProxyChanged(
+                                        absoluteIndex,
+                                        focusChange.isFocused
+                                    )
+
+                                    isFocusProxyFocused =
+                                        focusChange.isFocused
+
+                                    if (focusChange.isFocused) {
+                                        uiCaches
+                                            .lastActuallyFocusedIndexByRow[
+                                                row.key
+                                            ] =
+                                            absoluteIndex
+
+                                        uiCaches
+                                            .focusedItemByRow[
+                                                row.key
+                                            ] =
+                                            absoluteIndex
+
+                                        onRowItemFocused(
+                                            row.key,
+                                            absoluteIndex,
+                                            false
+                                        )
+                                    }
+                                }
+                                .then(
+                                    if (isFirstRow) {
+                                        Modifier
+                                            .onPreviewKeyEvent {
+                                                event ->
+                                                if (
+                                                    event.type ==
+                                                        KeyEventType.KeyDown &&
+                                                    event.key ==
+                                                        Key.DirectionUp
+                                                ) {
+                                                    onRequestCarouselFocus()
+                                                    true
+                                                } else {
+                                                    false
+                                                }
+                                            }
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                                .focusable()
+                        } else {
+                            Modifier
+                        }
+
+                    val imageUrl = remember(
+                        item.key,
+                        item.imageUrl,
+                        item.heroPreview.poster,
+                        item.heroPreview.backdrop,
+                        useLandscapePosters
+                    ) {
+                        if (useLandscapePosters) {
+                            item.imageUrl
+                                ?: item.heroPreview.backdrop
+                                ?: item.heroPreview.poster
+                        } else {
+                            item.imageUrl
+                                ?: item.heroPreview.poster
+                                ?: item.heroPreview.backdrop
+                        }
+                    }
+
+                    val imageModel = remember(
+                        context,
+                        imageUrl,
+                        requestWidthPx,
+                        requestHeightPx
+                    ) {
+                        imageUrl?.let { url ->
+                            ImageRequest.Builder(context)
+                                .data(url)
+                                .crossfade(false)
+                                .size(
+                                    width =
+                                        requestWidthPx,
+                                    height =
+                                        requestHeightPx
+                                )
+                                .placeholderMemoryCacheKey(
+                                    url
+                                )
+                                .build()
+                        }
+                    }
+
+                    val posterContent:
+                        @Composable () -> Unit = {
+                        Box(
+                            modifier = Modifier
+                                .size(
+                                    width = cardWidth,
+                                    height = cardHeight
+                                )
+                                .then(
+                                    focusProxyModifier
+                                )
+                                .clip(cardShape)
+                                .background(
+                                    androidx.compose.ui
+                                        .graphics.Color.Black
+                                        .copy(alpha = 0.32f)
+                                )
+                                .then(
+                                    if (isFocusProxy) {
+                                        Modifier.border(
+                                            width =
+                                                if (
+                                                    showProxyOutline
+                                                ) {
+                                                    2.dp
+                                                } else {
+                                                    0.dp
+                                                },
+                                            color =
+                                                if (
+                                                    showProxyOutline
+                                                ) {
+                                                    Color.White.copy(
+                                                        alpha = 0.7f
+                                                    )
+                                                } else {
+                                                    Color.Transparent
+                                                },
+                                            shape = cardShape
+                                        )
+                                    } else {
+                                        Modifier
+                                    }
+                                )
+                        ) {
+                            MonochromePosterPlaceholder(
+                                shimmerTranslateState =
+                                    lightweightShimmerTranslate
+                            )
+
+                            if (imageModel != null) {
+                                AsyncImage(
+                                    model = imageModel,
+                                    contentDescription =
+                                        item.title,
+                                    contentScale =
+                                        androidx.compose.ui
+                                            .layout
+                                            .ContentScale.Crop,
+                                    modifier =
+                                        Modifier.fillMaxSize()
+                                )
+                            }
+                        }
+                    }
+
+                    if (isNumbered) {
+                        val cardNumber =
+                            absoluteIndex + 1
+
+                        val digitPadding =
+                            when {
+                                cardNumber >= 100 ->
+                                    if (
+                                        useLandscapePosters
+                                    ) {
+                                        cardWidth * 0.40f
+                                    } else {
+                                        cardWidth * 0.81f
+                                    }
+
+                                cardNumber >= 10 ->
+                                    if (
+                                        useLandscapePosters
+                                    ) {
+                                        cardWidth * 0.20f
+                                    } else {
+                                        cardWidth * 0.41f
+                                    }
+
+                                else -> 0.dp
+                            }
+
+                        val preMeasuredWidth =
+                            with(density) {
+                                when {
+                                    cardNumber >= 100 ->
+                                        tripleDigitWidthPx
+                                            .toDp()
+
+                                    cardNumber >= 10 ->
+                                        doubleDigitWidthPx
+                                            .toDp()
+
+                                    else ->
+                                        oneDigitWidthPx
+                                            .toDp()
+                                }
+                            }
+
+                        NumberedCatalogCardWrapper(
+                            number = cardNumber,
+                            cardWidth = cardWidth,
+                            cardHeight = cardHeight,
+                            extraStartPadding =
+                                digitPadding,
+                            preMeasuredTextWidth =
+                                preMeasuredWidth,
+                            numberStyle = numberStyle,
+                            useThemeColorForNumbers =
+                                useThemeColorForNumbers,
+                            useLandscapePosters =
+                                useLandscapePosters
+                        ) {
+                            posterContent()
+                        }
+                    } else {
+                        posterContent()
+                    }
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
 internal fun ModernRowSection(
     row: HeroCarouselRow,
+    renderLightweight: Boolean = false,
+    showHeavyOverlays: Boolean = true,
+    heavyOverlayAlpha: State<Float>,
     rowTitleBottom: Dp,
     defaultBringIntoViewSpec: BringIntoViewSpec,
     focusStateCatalogRowScrollStates: Map<String, Int>,
@@ -315,7 +922,72 @@ internal fun ModernRowSection(
     val rowListStates = uiCaches.rowListStates
     val loadMoreRequestedTotals = uiCaches.loadMoreRequestedTotals
 
-    Column {
+    /*
+     * The focused proxy survives renderer promotion. The complete row is
+     * composed beneath it and must positively acquire focus before this state
+     * is cleared.
+     */
+    var focusedLightweightProxyIndex by remember(
+        row.key
+    ) {
+        mutableStateOf<Int?>(
+            null
+        )
+    }
+
+    /*
+     * PATCH_STABLE_ROW_PARENT_FOCUS_RESTORER_V4
+     *
+     * This parent survives the lightweight-strip/full-LazyRow swap.
+     * It therefore owns row restoration instead of the renderer-specific
+     * loaded LazyRow.
+     */
+    val stableRowRestoreIndex =
+        if (row.items.isNotEmpty()) {
+            (
+                uiCaches
+                    .lastActuallyFocusedIndexByRow[
+                        row.key
+                    ]
+                    ?: focusedItemByRow[
+                        row.key
+                    ]
+                    ?: rowListStates[
+                        row.key
+                    ]
+                        ?.firstVisibleItemIndex
+                    ?: focusStateCatalogRowScrollStates[
+                        row.key
+                    ]
+                    ?: 0
+            ).coerceIn(
+                0,
+                row.items.lastIndex
+            )
+        } else {
+            null
+        }
+
+    val stableRowRestoreRequester =
+        stableRowRestoreIndex
+            ?.let { index ->
+                row.items
+                    .getOrNull(index)
+                    ?.key
+                    ?.let { itemKey ->
+                        uiCaches.requesterFor(
+                            row.key,
+                            itemKey
+                        )
+                    }
+            }
+
+    Column(
+        modifier = Modifier.focusRestorer {
+            stableRowRestoreRequester
+                ?: FocusRequester.Default
+        }
+    ) {
         val titleMediumStyle = MaterialTheme.typography.titleMedium
         val rowTitleStyle = remember(titleMediumStyle) {
             titleMediumStyle.copy(fontWeight = FontWeight.SemiBold)
@@ -330,6 +1002,137 @@ internal fun ModernRowSection(
         val isCwRow = row.key == "continue_watching"
         val skeletonCardWidth = if (isCwRow) continueWatchingCardWidth else modernCatalogCardWidth
         val skeletonCardHeight = if (isCwRow) continueWatchingCardHeight else modernCatalogCardHeight
+
+        val retainedListState =
+            rowListStates[row.key]
+
+        /*
+         * Exact priority:
+         *
+         * 1. Index confirmed by a real focus callback.
+         * 2. Retained full LazyRow viewport position.
+         * 3. Position restored from saved Home state.
+         * 4. Existing general focus cache.
+         * 5. Zero only when no real position exists.
+         */
+        val lightweightStartIndex =
+            focusedLightweightProxyIndex
+                ?: uiCaches
+                    .lastActuallyFocusedIndexByRow[
+                        row.key
+                    ]
+                ?: retainedListState
+                    ?.firstVisibleItemIndex
+                ?: focusStateCatalogRowScrollStates[
+                    row.key
+                ]
+                ?: focusedItemByRow[
+                    row.key
+                ]
+                ?: 0
+
+        val retainLightweightForHandoff =
+            !renderLightweight &&
+                focusedLightweightProxyIndex != null
+
+        /*
+         * This call site remains continuously composed across promotion.
+         * When renderLightweight becomes false, its outer height collapses to
+         * zero while its focused child stays at the same screen coordinates.
+         * The complete LazyRow is then composed directly underneath it.
+         */
+        if (
+            renderLightweight ||
+            retainLightweightForHandoff
+        ) {
+            ModernLightweightPosterStrip(
+                row = row,
+                cardWidth = skeletonCardWidth,
+                cardHeight = skeletonCardHeight,
+                cornerRadius = posterCardCornerRadius,
+                useLandscapePosters =
+                    useLandscapePosters ||
+                        perCatalogLandscape,
+                firstVisibleItemIndex =
+                    lightweightStartIndex,
+                numberStyle = numberStyle,
+                useThemeColorForNumbers =
+                    useThemeColorForNumbers,
+                uiCaches = uiCaches,
+                pendingRowFocus =
+                    pendingRowFocus,
+                onRowItemFocused =
+                    onRowItemFocused,
+                retainForHandoff =
+                    retainLightweightForHandoff,
+                onFocusProxyChanged = {
+                    index,
+                    focused ->
+
+                    if (focused) {
+                        focusedLightweightProxyIndex =
+                            index
+                    } else if (
+                        focusedLightweightProxyIndex ==
+                            index
+                    ) {
+                        focusedLightweightProxyIndex =
+                            null
+                    }
+                },
+                isFirstRow = isFirstRow,
+                onRequestCarouselFocus =
+                    onRequestCarouselFocus
+            )
+
+            if (renderLightweight) {
+                return@Column
+            }
+        }
+
+        /*
+         * PATCH_DIRECT_PROXY_TO_CARD_HANDOFF_V1
+         *
+         * The full renderer is now in this same composition. Wait for one
+         * measure frame, then use the existing retry loop to focus its real
+         * card. The proxy remains the focus owner throughout every retry.
+         */
+        LaunchedEffect(
+            renderLightweight,
+            focusedLightweightProxyIndex,
+            row.key
+        ) {
+            if (renderLightweight) {
+                return@LaunchedEffect
+            }
+
+            val handoffIndex =
+                focusedLightweightProxyIndex
+                    ?: return@LaunchedEffect
+
+            withFrameNanos { }
+
+            if (
+                renderLightweight ||
+                focusedLightweightProxyIndex !=
+                    handoffIndex
+            ) {
+                return@LaunchedEffect
+            }
+
+            pendingRowFocus.key =
+                row.key
+
+            pendingRowFocus.index =
+                handoffIndex
+
+            pendingRowFocus
+                .suppressBringIntoView =
+                true
+
+            pendingRowFocus.nonce++
+        }
+
         var enrichmentTimeoutReached by rememberSaveable(key = "enrich_timeout_${row.key}") { mutableStateOf(false) }
         LaunchedEffect(row.key, row.items.isNotEmpty()) {
             if (row.items.isNotEmpty() && !row.enrichmentReady && !enrichmentTimeoutReached) {
@@ -361,6 +1164,9 @@ internal fun ModernRowSection(
             )
             return
         }
+
+        // One shimmer clock shared by all loaded cards in this row.
+        val rowShimmerTranslateState = rememberPosterShimmerTranslateState()
 
         val rowListState = rowListStates.getOrPut(row.key) {
             LazyListState(
@@ -681,24 +1487,7 @@ internal fun ModernRowSection(
                             } else false
                         } else false
                     }
-                    .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L)
-                    .focusRestorer {
-                            val hasInteracted = uiCaches.userInteractedRows.contains(row.key)
-                            val rememberedIndex = (focusedItemByRow[row.key] ?: 0)
-                                .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-                            val fallbackIndex = rowListState.firstVisibleItemIndex
-                                .coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
-                            val restoreIndex = if (hasInteracted && rememberedIndex in row.items.indices) {
-                                rememberedIndex
-                            } else {
-                                fallbackIndex
-                            }
-                            val visibleIndices = rowListState.layoutInfo.visibleItemsInfo.map { it.index }.toSet()
-                            val safeIndex = if (restoreIndex in visibleIndices) restoreIndex else
-                                visibleIndices.minByOrNull { kotlin.math.abs(it - restoreIndex) } ?: fallbackIndex
-                            val itemKey = row.items.getOrNull(safeIndex)?.key ?: row.items.first().key
-                            itemFocusRequesters[row.key]?.get(itemKey) ?: FocusRequester.Default
-                    },
+                    .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L),
                 contentPadding = PaddingValues(start = numberedRowStartPadding, end = animatedEndPadding),
                 horizontalArrangement = Arrangement.spacedBy(numberedRowSpacing)
             ) {
@@ -714,9 +1503,27 @@ internal fun ModernRowSection(
                 ) { index, item ->
                     val requester = uiCaches.requesterFor(row.key, item.key)
                     val isContinueWatchingRow = row.key == "continue_watching"
-                    val onFocused = remember(row.key, index, isContinueWatchingRow) {
-                        { onRowItemFocused(row.key, index, isContinueWatchingRow) }
-                    }
+                    val onFocused =
+                        remember(
+                            row.key,
+                            index,
+                            isContinueWatchingRow
+                        ) {
+                            {
+                                /*
+                                 * The real complete card now owns focus. Only
+                                 * at this point may the retained proxy leave.
+                                 */
+                                focusedLightweightProxyIndex =
+                                    null
+
+                                onRowItemFocused(
+                                    row.key,
+                                    index,
+                                    isContinueWatchingRow
+                                )
+                            }
+                        }
 
                     when (val payload = item.payload) {
                         is ModernPayload.ContinueWatching -> {
@@ -788,6 +1595,8 @@ internal fun ModernRowSection(
                                         expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
                                         expandedTrailerPreviewAudioUrl = expandedTrailerPreviewAudioUrl,
                                         isWatched = isWatched,
+                                        showHeavyOverlays = showHeavyOverlays,
+                                        heavyOverlayAlpha = heavyOverlayAlpha,
                                         onFocused = onFocused,
                                         onItemFocus = onItemFocus,
                                         onPreloadAdjacentItem = remember(nextCatalogItem) {
@@ -822,6 +1631,8 @@ internal fun ModernRowSection(
                                     expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
                                     expandedTrailerPreviewAudioUrl = expandedTrailerPreviewAudioUrl,
                                     isWatched = isWatched,
+                                    showHeavyOverlays = showHeavyOverlays,
+                                    heavyOverlayAlpha = heavyOverlayAlpha,
                                     onFocused = onFocused,
                                     onItemFocus = onItemFocus,
                                     onPreloadAdjacentItem = remember(nextCatalogItem) {
@@ -968,6 +1779,8 @@ private fun ModernCarouselCard(
     trailerPreviewUrl: String?,
     trailerPreviewAudioUrl: String?,
     isWatched: Boolean,
+    showHeavyOverlays: Boolean,
+    heavyOverlayAlpha: State<Float>,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
     onClick: () -> Unit,
@@ -1007,7 +1820,10 @@ private fun ModernCarouselCard(
         cardWidth
     }
     // Original: default spring animation — no snap() override
-    val animatedCardWidthBase by if (focusedPosterBackdropExpandEnabled) {
+    // Only pay the animation cost on the card that is actually focused/expanding.
+    // Unfocused, unexpanded cards snap directly to cardWidth — no animation state,
+    // no per-frame Choreographer callback, no row remeasure.
+    val animatedCardWidthBase by if (focusedPosterBackdropExpandEnabled && (isBackdropExpanded || effectiveIsExpanded)) {
         animateDpAsState(
             targetValue = targetCardWidth,
             label = "modernCardWidth"
@@ -1107,13 +1923,24 @@ private fun ModernCarouselCard(
     }
     val effectiveLogoUrl = frozenLogoUrl.value
 
-    val logoModel = remember(item.key, effectiveLogoUrl) {
-        effectiveLogoUrl?.let {
-            ImageRequest.Builder(context)
-                .data(it)
-                .crossfade(false)
-                .size(width = maxLogoWidthPx, height = logoHeightPx)
-                .build()
+    val logoModel = remember(
+        item.key,
+        effectiveLogoUrl,
+        showHeavyOverlays
+    ) {
+        if (!showHeavyOverlays) {
+            null
+        } else {
+            effectiveLogoUrl?.let {
+                ImageRequest.Builder(context)
+                    .data(it)
+                    .crossfade(false)
+                    .size(
+                        width = maxLogoWidthPx,
+                        height = logoHeightPx
+                    )
+                    .build()
+            }
         }
     }
     var landscapeLogoLoadFailed by remember(effectiveLogoUrl) {
@@ -1263,14 +2090,26 @@ private fun ModernCarouselCard(
             scale = CardDefaults.scale(focusedScale = 1f)
         ) {
             Box(modifier = Modifier.fillMaxSize()) {
-                val mediaLayerModifier = remember(hasLandscapeLogo) {
-                    if (hasLandscapeLogo) {
+                val mediaLayerModifier = remember(
+                    hasLandscapeLogo,
+                    showHeavyOverlays
+                ) {
+                    if (
+                        hasLandscapeLogo &&
+                        showHeavyOverlays
+                    ) {
                         Modifier
                             .fillMaxSize()
                             .drawWithCache {
                                 onDrawWithContent {
                                     drawContent()
-                                    drawRect(brush = MODERN_LANDSCAPE_LOGO_GRADIENT, size = size)
+                                    drawRect(
+                                        brush =
+                                            MODERN_LANDSCAPE_LOGO_GRADIENT,
+                                        alpha =
+                                            heavyOverlayAlpha.value,
+                                        size = size
+                                    )
                                 }
                             }
                     } else {
@@ -1355,7 +2194,10 @@ private fun ModernCarouselCard(
                     )
                 }
 
-                if (hasLandscapeLogo) {
+                if (
+                    hasLandscapeLogo &&
+                    showHeavyOverlays
+                ) {
                     AsyncImage(
                         model = logoModel,
                         contentDescription = item.title,
@@ -1366,11 +2208,22 @@ private fun ModernCarouselCard(
                             .align(Alignment.BottomStart)
                             .fillMaxWidth(0.65f)
                             .height(cardHeight * 0.40f)
-                            .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
+                            .padding(
+                                start = 10.dp,
+                                end = 10.dp,
+                                bottom = 8.dp
+                            )
+                            .graphicsLayer {
+                                alpha =
+                                    heavyOverlayAlpha.value
+                            },
                         contentScale = ContentScale.Fit,
                         alignment = Alignment.CenterStart
                     )
-                } else if (useLandscapePosters) {
+                } else if (
+                    useLandscapePosters &&
+                    showHeavyOverlays
+                ) {
                     val posterCaslonTypeface = remember {
                         android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
                             .setFontVariationSettings("'wght' 300")
@@ -1412,7 +2265,15 @@ private fun ModernCarouselCard(
                             .align(Alignment.BottomStart)
                             .fillMaxWidth(0.65f)
                             .height(cardHeight * 0.40f)
-                            .padding(start = 10.dp, end = 10.dp, bottom = 8.dp),
+                            .padding(
+                                start = 10.dp,
+                                end = 10.dp,
+                                bottom = 8.dp
+                            )
+                            .graphicsLayer {
+                                alpha =
+                                    heavyOverlayAlpha.value
+                            },
                         factory = { ctx ->
                             android.widget.TextView(ctx).apply {
                                 layoutParams = android.view.ViewGroup.LayoutParams(
@@ -1436,7 +2297,10 @@ private fun ModernCarouselCard(
                     )
                 }
 
-                if (isWatched) {
+                if (
+                    isWatched &&
+                    showHeavyOverlays
+                ) {
                     Icon(
                         imageVector = Icons.Default.CheckCircle,
                         contentDescription = stringResource(R.string.episodes_cd_watched),
@@ -1446,6 +2310,10 @@ private fun ModernCarouselCard(
                             .padding(end = 8.dp, top = 8.dp)
                             .zIndex(2f)
                             .size(21.dp)
+                            .graphicsLayer {
+                                alpha =
+                                    heavyOverlayAlpha.value
+                            }
                             .drawBehind {
                                 drawCircle(
                                     color = androidx.compose.ui.graphics.Color.Black,
