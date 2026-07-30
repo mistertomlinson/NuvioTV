@@ -602,6 +602,7 @@ fun ModernHomeContent(
             withFrameNanos { }
         }
 
+
         try {
             val layoutInfo =
                 verticalRowListState.layoutInfo
@@ -627,6 +628,7 @@ fun ModernHomeContent(
                     .animateScrollToItem(
                         nearest.index
                     )
+
             }
         } finally {
             /*
@@ -676,14 +678,12 @@ fun ModernHomeContent(
 
                 val positionIsStable =
                     previousIndex != Int.MIN_VALUE &&
-                        !verticalRowListState
-                            .isScrollInProgress &&
                         currentIndex ==
                             previousIndex &&
                         kotlin.math.abs(
                             currentOffset -
                                 previousOffset
-                        ) <= 1
+                        ) <= 4
 
                 if (positionIsStable) {
                     stableFrames++
