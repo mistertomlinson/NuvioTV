@@ -425,7 +425,7 @@ private fun ModernLightweightPosterStrip(
     }
 
     androidx.compose.foundation.layout.BoxWithConstraints(
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier.fillMaxWidth().zIndex(if (retainForHandoff) 2f else 0f)
     ) {
         val availableWidth =
             (
@@ -624,9 +624,7 @@ private fun ModernLightweightPosterStrip(
                      * alive for focus safety, but stop drawing its outline so
                      * the two 2 dp focus rings cannot brighten each other.
                      */
-                    val showProxyOutline =
-                        isFocusProxyFocused &&
-                            !retainForHandoff
+                    val showProxyOutline = isFocusProxyFocused
 
 
                     val focusProxyModifier =
@@ -766,9 +764,7 @@ private fun ModernLightweightPosterStrip(
                                                 if (
                                                     showProxyOutline
                                                 ) {
-                                                    Color.White.copy(
-                                                        alpha = 0.7f
-                                                    )
+                                                    NuvioColors.FocusRing
                                                 } else {
                                                     Color.Transparent
                                                 },
