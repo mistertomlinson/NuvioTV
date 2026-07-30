@@ -283,6 +283,7 @@ private fun ModernCatalogRowItem(
  * focus can reach it, or immediately when fast-scroll selects it as the
  * landing row.
  */
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ModernLightweightPosterStrip(
     row: HeroCarouselRow,
@@ -626,6 +627,15 @@ private fun ModernLightweightPosterStrip(
                      */
                     val showProxyOutline = isFocusProxyFocused
 
+                    val proxyRingColor = NuvioColors.FocusRing
+
+                    val proxyFocusedBorder = remember(cardShape, proxyRingColor) {
+                        Border(
+                            border = BorderStroke(2.dp, proxyRingColor),
+                            shape = cardShape
+                        )
+                    }
+
 
                     val focusProxyModifier =
                         if (
@@ -686,7 +696,6 @@ private fun ModernLightweightPosterStrip(
                                         Modifier
                                     }
                                 )
-                                .focusable()
                         } else {
                             Modifier
                         }
@@ -732,66 +741,77 @@ private fun ModernLightweightPosterStrip(
                         }
                     }
 
+                    val posterInner:
+                        @Composable () -> Unit = {
+                        MonochromePosterPlaceholder(
+                            shimmerTranslateState =
+                                lightweightShimmerTranslate
+                        )
+
+                        if (imageModel != null) {
+                            AsyncImage(
+                                model = imageModel,
+                                contentDescription =
+                                    item.title,
+                                contentScale =
+                                    androidx.compose.ui
+                                        .layout
+                                        .ContentScale.Crop,
+                                modifier =
+                                    Modifier.fillMaxSize()
+                            )
+                        }
+                    }
+
                     val posterContent:
                         @Composable () -> Unit = {
-                        Box(
-                            modifier = Modifier
-                                .size(
-                                    width = cardWidth,
-                                    height = cardHeight
-                                )
-                                .then(
-                                    focusProxyModifier
-                                )
-                                .clip(cardShape)
-                                .background(
-                                    androidx.compose.ui
-                                        .graphics.Color.Black
-                                        .copy(alpha = 0.32f)
-                                )
-                                .then(
-                                    if (isFocusProxy) {
-                                        Modifier.border(
-                                            width =
-                                                if (
-                                                    showProxyOutline
-                                                ) {
-                                                    2.dp
-                                                } else {
-                                                    0.dp
-                                                },
-                                            color =
-                                                if (
-                                                    showProxyOutline
-                                                ) {
-                                                    NuvioColors.FocusRing
-                                                } else {
-                                                    Color.Transparent
-                                                },
-                                            shape = cardShape
+                        if (isFocusProxy) {
+                            Card(
+                                onClick = { },
+                                modifier = Modifier
+                                    .size(
+                                        width = cardWidth,
+                                        height = cardHeight
+                                    )
+                                    .then(focusProxyModifier),
+                                shape = CardDefaults.shape(shape = cardShape),
+                                colors = CardDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = Color.Transparent
+                                ),
+                                border = CardDefaults.border(
+                                    focusedBorder = proxyFocusedBorder
+                                ),
+                                scale = CardDefaults.scale(focusedScale = 1f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .clip(cardShape)
+                                        .background(
+                                            androidx.compose.ui
+                                                .graphics.Color.Black
+                                                .copy(alpha = 0.32f)
                                         )
-                                    } else {
-                                        Modifier
-                                    }
-                                )
-                        ) {
-                            MonochromePosterPlaceholder(
-                                shimmerTranslateState =
-                                    lightweightShimmerTranslate
-                            )
-
-                            if (imageModel != null) {
-                                AsyncImage(
-                                    model = imageModel,
-                                    contentDescription =
-                                        item.title,
-                                    contentScale =
+                                ) {
+                                    posterInner()
+                                }
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .size(
+                                        width = cardWidth,
+                                        height = cardHeight
+                                    )
+                                    .clip(cardShape)
+                                    .background(
                                         androidx.compose.ui
-                                            .layout
-                                            .ContentScale.Crop,
-                                    modifier =
-                                        Modifier.fillMaxSize()
-                                )
+                                            .graphics.Color.Black
+                                            .copy(alpha = 0.32f)
+                                    )
+                            ) {
+                                posterInner()
                             }
                         }
                     }
