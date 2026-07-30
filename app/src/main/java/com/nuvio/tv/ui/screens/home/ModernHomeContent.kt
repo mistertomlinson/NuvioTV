@@ -2979,9 +2979,15 @@ fun ModernHomeContent(
 
 
                 /*
-                 * Deliberately large diagnostic separation. If renderer
-                 * promotion causes the animation-tail hitch, the hitch should
-                 * disappear from the row motion or occur later on a still UI.
+                 * Yield exactly one frame so the anchor key can settle if more
+                 * D-pad input is already in flight; a superseded press fails
+                 * the equality check below and its promotion is abandoned.
+                 *
+                 * This was previously a 120 ms delay plus an isScrollInProgress
+                 * gate, both introduced to avoid an end-of-scroll hitch. Neither
+                 * is needed now: promotion during row motion measured clean, and
+                 * the delay was the main cause of the horizontal dead zone after
+                 * three or more rapid presses.
                  */
                 withFrameNanos { }
 
