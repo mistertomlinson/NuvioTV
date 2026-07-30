@@ -675,27 +675,86 @@ private fun ModernLightweightPosterStrip(
                                         )
                                     }
                                 }
-                                .then(
-                                    if (isFirstRow) {
-                                        Modifier
-                                            .onPreviewKeyEvent {
-                                                event ->
-                                                if (
-                                                    event.type ==
-                                                        KeyEventType.KeyDown &&
-                                                    event.key ==
-                                                        Key.DirectionUp
-                                                ) {
-                                                    onRequestCarouselFocus()
-                                                    true
-                                                } else {
-                                                    false
-                                                }
+                                .onPreviewKeyEvent {
+                                    event ->
+                                    if (
+                                        event.type !=
+                                            KeyEventType.KeyDown
+                                    ) {
+                                        false
+                                    } else if (
+                                        isFirstRow &&
+                                        event.key ==
+                                            Key.DirectionUp
+                                    ) {
+                                        onRequestCarouselFocus()
+                                        true
+                                    } else if (
+                                        event.key ==
+                                            Key.DirectionRight ||
+                                        event.key ==
+                                            Key.DirectionLeft
+                                    ) {
+                                        /*
+                                         * PATCH_PROXY_HORIZONTAL_INTENT_V1
+                                         *
+                                         * The lightweight proxy is a single
+                                         * focus node, so left/right have no
+                                         * sibling to move to and would be
+                                         * silently dropped while the full row
+                                         * is still being promoted. Record the
+                                         * intended index instead; the existing
+                                         * pending-row-focus handoff applies it
+                                         * as soon as the real row composes.
+                                         */
+                                        val step =
+                                            if (
+                                                event.key ==
+                                                    Key.DirectionRight
+                                            ) {
+                                                1
+                                            } else {
+                                                -1
                                             }
+
+                                        val current =
+                                            uiCaches
+                                                .lastActuallyFocusedIndexByRow[
+                                                    row.key
+                                                ]
+                                                ?: absoluteIndex
+
+                                        val next =
+                                            (current + step)
+                                                .coerceIn(
+                                                    0,
+                                                    (row.items.size - 1)
+                                                        .coerceAtLeast(0)
+                                                )
+
+                                        if (next != current) {
+                                            uiCaches
+                                                .lastActuallyFocusedIndexByRow[
+                                                    row.key
+                                                ] = next
+
+                                            uiCaches
+                                                .focusedItemByRow[
+                                                    row.key
+                                                ] = next
+
+                                            onRowItemFocused(
+                                                row.key,
+                                                next,
+                                                false
+                                            )
+                                        }
+
+                                        true
                                     } else {
-                                        Modifier
+                                        false
                                     }
-                                )
+                                }
                         } else {
                             Modifier
                         }

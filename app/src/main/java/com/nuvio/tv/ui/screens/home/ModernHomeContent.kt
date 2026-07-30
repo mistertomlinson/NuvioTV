@@ -2977,19 +2977,15 @@ fun ModernHomeContent(
                     return@LaunchedEffect
                 }
 
-                if (isVerticalRowsScrolling) {
-                    return@LaunchedEffect
-                }
 
                 /*
                  * Deliberately large diagnostic separation. If renderer
                  * promotion causes the animation-tail hitch, the hitch should
                  * disappear from the row motion or occur later on a still UI.
                  */
-                kotlinx.coroutines.delay(120L)
+                withFrameNanos { }
 
                 if (
-                    !verticalRowListState.isScrollInProgress &&
                     !isFastScrollingRef.value &&
                     !fastScrollLandingVisualPendingRef.get() &&
                     desiredFullRendererAnchorKey ==
