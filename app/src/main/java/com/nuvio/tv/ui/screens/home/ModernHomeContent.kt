@@ -657,7 +657,7 @@ fun ModernHomeContent(
             var previousOffset = Int.MIN_VALUE
 
             while (
-                stableFrames < 6 &&
+                stableFrames < 1 &&
                 observedFrames < 120 &&
                 suppressedOverlayGeneration ==
                     landingGeneration &&
