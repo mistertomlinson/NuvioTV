@@ -339,7 +339,7 @@ internal fun buildCatalogItem(
         poster = item.poster,
         backdrop = item.backdropUrl,
         imageUrl = if (useLandscapePosters) {
-            item.landscapePoster ?: item.poster ?: item.backdropUrl
+            item.landscapePoster ?: item.backdropUrl ?: item.poster
         } else {
             item.poster ?: item.backdropUrl
         },
@@ -351,7 +351,7 @@ internal fun buildCatalogItem(
         title = item.name,
         subtitle = item.releaseInfo,
         imageUrl = if (useLandscapePosters) {
-            item.landscapePoster ?: item.poster ?: item.backdropUrl
+            item.landscapePoster ?: item.backdropUrl ?: item.poster
         } else {
             item.poster ?: item.backdropUrl
         },

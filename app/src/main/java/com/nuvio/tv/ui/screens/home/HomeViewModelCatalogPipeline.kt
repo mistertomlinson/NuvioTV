@@ -692,55 +692,150 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
     item: com.nuvio.tv.domain.model.MetaPreview,
     language: String
 ) {
-    if (
-        item.id in prefetchedTmdbIds ||
-        item.id in enrichmentCache ||
-        item.id in homeEnrichmentAttemptedIds
-    ) {
+    if (item.id in homeEnrichmentAttemptedIds) {
         return
     }
 
-    var recordTerminalAttempt = false
+    var reachedTerminalResult = false
 
-    try {
-        val tmdbId =
-            try {
-                tmdbService.ensureTmdbId(
-                    item.id,
-                    item.apiType
-                )
-            } catch (
-                cancellation:
-                    kotlinx.coroutines.CancellationException
-            ) {
-                throw cancellation
-            } catch (_: Exception) {
-                null
-            }
-
-        if (tmdbId == null) {
-            recordTerminalAttempt = true
+    /*
+     * External metadata is supplementary, but it must not remain unbounded.
+     * This includes both a lookup started here and one already owned by a
+     * focus/prefetch job.
+     */
+    suspend fun completeExternalFallback(
+        enrichment:
+            com.nuvio.tv.core.tmdb.TmdbEnrichment
+    ) {
+        if (
+            item.imdbRating != null ||
+            enrichment.rating != null
+        ) {
             return
         }
 
-        val enrichment =
-            try {
-                tmdbMetadataService.fetchEnrichment(
-                    tmdbId = tmdbId,
-                    contentType = item.type,
-                    language = language
-                )
-            } catch (
-                cancellation:
-                    kotlinx.coroutines.CancellationException
+        kotlinx.coroutines.withTimeoutOrNull(
+            10_000L
+        ) {
+            enrichMissingImdbFromExternalMeta(
+                item
+            )
+
+            while (
+                item.id in
+                    externalMetaPrefetchInFlightIds
             ) {
-                throw cancellation
-            } catch (_: Exception) {
-                null
+                delay(16L)
+            }
+        }
+    }
+
+    try {
+        /*
+         * A restored Home cache entry represents a successful prior TMDB
+         * response. It does not need another TMDB request, but any required
+         * external fallback must finish before readiness is recorded.
+         */
+        val cachedEnrichment =
+            enrichmentCache[item.id]
+
+        if (cachedEnrichment != null) {
+            prefetchedTmdbIds.add(item.id)
+
+            completeExternalFallback(
+                cachedEnrichment
+            )
+
+            reachedTerminalResult = true
+            return
+        }
+
+        val normalizedItemId =
+            item.id
+                .removePrefix("tmdb:")
+                .removePrefix("movie:")
+                .removePrefix("series:")
+                .substringBefore(':')
+                .substringBefore('/')
+                .trim()
+
+        val hasResolvableId =
+            normalizedItemId.startsWith("tt") ||
+                (
+                    normalizedItemId.isNotEmpty() &&
+                        normalizedItemId.all {
+                            character ->
+                            character.isDigit()
+                        }
+                )
+
+        /*
+         * An unsupported identifier format is a definitive no-result rather
+         * than a temporary network failure.
+         */
+        if (!hasResolvableId) {
+            reachedTerminalResult = true
+            return
+        }
+
+        /*
+         * Startup previously launched every item from the priority rows at
+         * once. TMDB failures were collapsed to null and immediately treated
+         * as permanent. Retry null results under a strict time and attempt
+         * bound so temporary launch pressure cannot release unfinished cards.
+         */
+        val maximumAttempts = 3
+        var attempt = 1
+        var enrichment:
+            com.nuvio.tv.core.tmdb.TmdbEnrichment? =
+            null
+
+        while (
+            attempt <= maximumAttempts &&
+            enrichment == null
+        ) {
+            enrichment =
+                kotlinx.coroutines.withTimeoutOrNull(
+                    12_000L
+                ) {
+                    val tmdbId =
+                        tmdbService.ensureTmdbId(
+                            item.id,
+                            item.apiType
+                        )
+                            ?: return@withTimeoutOrNull null
+
+                    tmdbMetadataService.fetchEnrichment(
+                        tmdbId = tmdbId,
+                        contentType = item.type,
+                        language = language
+                    )
+                }
+
+            if (
+                enrichment == null &&
+                attempt < maximumAttempts
+            ) {
+                delay(500L * attempt)
             }
 
+            attempt += 1
+        }
+
         if (enrichment == null) {
-            recordTerminalAttempt = true
+            android.util.Log.w(
+                HomeViewModel.TAG,
+                "Home enrichment exhausted " +
+                    "$maximumAttempts attempts " +
+                    "for ${item.id}"
+            )
+
+            /*
+             * Repeated failure is terminal for this Home pass. This is the
+             * finite escape hatch that prevents a missing or unreachable title
+             * from holding the entire row forever.
+             */
+            reachedTerminalResult = true
             return
         }
 
@@ -751,30 +846,34 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
             enrichment
         )
 
-        if (
-            item.imdbRating == null &&
-            enrichment.rating == null
-        ) {
-            enrichMissingImdbFromExternalMeta(
-                item
-            )
-        }
+        completeExternalFallback(
+            enrichment
+        )
+
+        reachedTerminalResult = true
     } catch (
         cancellation:
             kotlinx.coroutines.CancellationException
     ) {
+        /*
+         * Plan replacement is not terminal. The new plan must be able to
+         * include this title again.
+         */
         throw cancellation
-    } catch (_: Exception) {
-        recordTerminalAttempt = true
+    } catch (error: Exception) {
+        android.util.Log.w(
+            HomeViewModel.TAG,
+            "Home enrichment failed after " +
+                "bounded processing for ${item.id}: " +
+                error.message
+        )
+
+        reachedTerminalResult = true
     } finally {
         if (
-            recordTerminalAttempt &&
+            reachedTerminalResult &&
             homeEnrichmentAttemptedIds.add(item.id)
         ) {
-            /*
-             * Successful metadata updates already trigger recomputation.
-             * A no-result attempt needs its own readiness recomputation.
-             */
             scheduleUpdateCatalogRows()
         }
     }
@@ -1099,17 +1198,23 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 nextReadyKeys.add(rowKey)
                 return@forEach
             }
-            val attempted: Int = row.items.count { item ->
-                homeEnrichmentAttemptedIds.contains(item.id) ||
-                prefetchedTmdbIds.contains(item.id) ||
-                enrichmentCache.containsKey(item.id) ||
-                item.ageRating != null ||
-                item.status != null ||
-                item.logo != null
-            }
-            val allowOneMiss: Float = (row.items.size - 1).toFloat() / row.items.size.toFloat()
-            val threshold: Float = if (row.items.size <= 10) maxOf(0.8f, allowOneMiss) else 0.8f
-            if (attempted.toFloat() / row.items.size.toFloat() >= threshold) {
+
+            /*
+             * A logo, age rating, or status supplied by an add-on does not
+             * prove that TMDB artwork and the remaining hero metadata have
+             * finished loading.
+             *
+             * Release the row only after every currently exposed title has
+             * reached a terminal proactive-enrichment result.
+             */
+            val allItemsTerminal =
+                row.items.all { item ->
+                    homeEnrichmentAttemptedIds.contains(
+                        item.id
+                    )
+                }
+
+            if (allItemsTerminal) {
                 nextReadyKeys.add(rowKey)
             }
         }
@@ -1186,10 +1291,13 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val myListItems = myListRow?.items ?: emptyList()
         val allItems = (displayRows.flatMap { it.items } + myListItems)
             .distinctBy { it.id }
+            /*
+             * A cached or previously fetched TMDB result is not enough to
+             * release a title. It must still pass through the terminal path so
+             * any required external metadata fallback finishes first.
+             */
             .filter {
-                it.id !in prefetchedTmdbIds &&
-                    it.id !in enrichmentCache &&
-                    it.id !in homeEnrichmentAttemptedIds
+                it.id !in homeEnrichmentAttemptedIds
             }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
         val myListItemIds = myListItems.map { it.id }.toSet()
@@ -1283,17 +1391,28 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                  * Visible and adjacent rows retain full priority and continue
                  * during hero playback.
                  */
-                coroutineScope {
-                    priorityItems.map { item ->
-                        async {
-                            enrichProactiveHomeItem(
-                                item = item,
-                                language =
-                                    tmdbSettingsSnapshot.language
-                            )
+                /*
+                 * A TMDB enrichment fans out into details, credits, images,
+                 * ratings, and occasionally fallback-logo requests. Launching
+                 * every title from two complete rows simultaneously can create
+                 * hundreds of requests and turn temporary failures into missing
+                 * artwork. Keep four titles active at a time.
+                 */
+                priorityItems
+                    .chunked(4)
+                    .forEach { batch ->
+                        coroutineScope {
+                            batch.map { item ->
+                                async {
+                                    enrichProactiveHomeItem(
+                                        item = item,
+                                        language =
+                                            tmdbSettingsSnapshot.language
+                                    )
+                                }
+                            }.awaitAll()
                         }
-                    }.awaitAll()
-                }
+                    }
                 /*
                  * Lower-row work is deliberately batched so trailer playback
                  * has a suspension point. A batch already in progress may

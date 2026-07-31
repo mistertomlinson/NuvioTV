@@ -575,11 +575,16 @@ class HomeViewModel @Inject constructor(
     internal val prefetchedTmdbIds = Collections.synchronizedSet(mutableSetOf<String>())
 
     /*
-     * Titles whose proactive enrichment attempt completed without a usable
-     * result. They count toward row readiness so legitimate missing metadata
-     * cannot hold an otherwise prepared row.
+     * Titles whose proactive Home enrichment reached a terminal result.
      *
-     * Focus-driven enrichment remains free to retry these titles later.
+     * Terminal means the TMDB attempt and any required external metadata
+     * fallback have both returned. The sources may have supplied complete
+     * metadata or legitimately supplied no result.
+     *
+     * Row readiness depends on completion rather than individual fields being
+     * non-null, so unavailable metadata cannot hold a row forever.
+     *
+     * Focus-driven enrichment remains free to retry missing data later.
      */
     internal val homeEnrichmentAttemptedIds =
         Collections.synchronizedSet(
