@@ -812,20 +812,44 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             filteredRows.map { row ->
                 val key = row.addonId + "_" + row.apiType + "_" + row.catalogId
                 if (key !in shuffleKeys) return@map row
-                val rng = java.util.Random(seed + key.hashCode().toLong())
-                // Find how many items were already shuffled in the current uiState
-                val alreadyShuffled = _uiState.value.catalogRows
-                    .find { r -> r.addonId == row.addonId && r.apiType == row.apiType && r.catalogId == row.catalogId }
-                    ?.items ?: emptyList<com.nuvio.tv.domain.model.MetaPreview>()
-                val alreadyShuffledIds = alreadyShuffled.map { it.id }.toSet()
-                val newItems = row.items.filter { it.id !in alreadyShuffledIds }
-                if (alreadyShuffled.isEmpty()) {
-                    // First load — shuffle everything
-                    row.copy(items = row.items.shuffled(rng))
-                } else {
-                    // Pagination — preserve existing order, shuffle only new items and append
-                    row.copy(items = alreadyShuffled + newItems.shuffled(rng))
-                }
+                /*
+                 * Deterministic shuffle.
+                 *
+                 * An item's position is a pure function of its arrival page and
+                 * a hash of (12h seed, catalog key, item id). Nothing depends on
+                 * how much of the row has loaded, so every pipeline run during
+                 * launch produces the identical order.
+                 *
+                 * The previous implementation shuffled a list whose contents
+                 * were still growing and compared against _uiState, so the same
+                 * seed yielded a different order on each run and rows silently
+                 * reordered themselves while the user was navigating.
+                 *
+                 * Sorting by page bucket first preserves the append-only
+                 * property of pagination: page 2 items always rank after page 1
+                 * items, so already-visible posters never shift position.
+                 */
+                val rowSalt = seed + key.hashCode().toLong()
+                val pageSize = 25
+                row.copy(
+                    items = row.items
+                        .withIndex()
+                        .sortedWith(
+                            compareBy(
+                                { (index, _) -> index / pageSize },
+                                { (_, item) ->
+                                    var h = rowSalt xor
+                                        item.id.hashCode().toLong()
+                                    h = h xor (h ushr 33)
+                                    h *= -0xae502812aa7333L
+                                    h = h xor (h ushr 29)
+                                    h *= -0x3b314601e57a13adL
+                                    h xor (h ushr 32)
+                                }
+                            )
+                        )
+                        .map { (_, item) -> item }
+                )
             }
         }
         val selectedHeroCatalogSet = heroCatalogKeys.toSet()
