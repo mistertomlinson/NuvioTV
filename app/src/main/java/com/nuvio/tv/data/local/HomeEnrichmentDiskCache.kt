@@ -83,6 +83,91 @@ class HomeEnrichmentDiskCache @Inject constructor(
         }
     }
 
+    /*
+     * Persist one repaired title without requiring callers to copy and submit
+     * the complete in-memory Home cache.
+     */
+    suspend fun saveEntry(
+        key: String,
+        enrichment: TmdbEnrichment
+    ) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            try {
+                val now =
+                    System.currentTimeMillis()
+
+                val file =
+                    cacheFile
+
+                val type =
+                    object :
+                        TypeToken<
+                            Map<
+                                String,
+                                HomeEnrichmentEntry
+                            >
+                        >() { }.type
+
+                val existing:
+                    Map<
+                        String,
+                        HomeEnrichmentEntry
+                    > =
+                    if (file.exists()) {
+                        try {
+                            gson.fromJson(
+                                file.readText(),
+                                type
+                            ) ?: emptyMap()
+                        } catch (_: Exception) {
+                            emptyMap()
+                        }
+                    } else {
+                        emptyMap()
+                    }
+
+                val updated =
+                    existing.toMutableMap()
+
+                updated[key] =
+                    HomeEnrichmentEntry(
+                        enrichment =
+                            enrichment,
+                        cachedAtMs =
+                            now
+                    )
+
+                val trimmed =
+                    updated.entries
+                        .sortedByDescending {
+                            it.value.cachedAtMs
+                        }
+                        .take(MAX_ENTRIES)
+                        .associate {
+                            it.key to it.value
+                        }
+
+                atomicWrite(
+                    file,
+                    gson.toJson(trimmed)
+                )
+
+                Log.d(
+                    TAG,
+                    "Saved focused enrichment " +
+                        "repair for $key"
+                )
+            } catch (error: Exception) {
+                Log.w(
+                    TAG,
+                    "Failed to save focused " +
+                        "enrichment repair: " +
+                        error.message
+                )
+            }
+        }
+    }
+
     private fun atomicWrite(target: File, content: String) {
         val tmp = File(target.parentFile, "${target.name}.tmp")
         tmp.writeText(content)

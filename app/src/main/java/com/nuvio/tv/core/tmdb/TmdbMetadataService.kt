@@ -439,6 +439,42 @@ class TmdbMetadataService @Inject constructor(
             }
         }
 
+    suspend fun fetchFreshStatus(
+        tmdbId: String,
+        contentType: ContentType,
+        language: String
+    ): String? = withContext(Dispatchers.IO) {
+        val numericId =
+            tmdbId.toIntOrNull()
+                ?: return@withContext null
+
+        val normalizedLanguage =
+            normalizeTmdbLanguage(language)
+
+        val details =
+            when (contentType) {
+                ContentType.SERIES,
+                ContentType.TV ->
+                    tmdbApi.getTvDetails(
+                        numericId,
+                        TMDB_API_KEY,
+                        normalizedLanguage
+                    ).body()
+
+                else ->
+                    tmdbApi.getMovieDetails(
+                        numericId,
+                        TMDB_API_KEY,
+                        normalizedLanguage
+                    ).body()
+            }
+
+        details
+            ?.status
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }
+
     suspend fun fetchEpisodeEnrichment(
         tmdbId: String,
         seasonNumbers: List<Int>,

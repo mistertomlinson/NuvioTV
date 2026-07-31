@@ -1011,6 +1011,19 @@ internal fun ModernRowSection(
     }
 
     /*
+     * A focused skeleton must remain the focus owner while its real card is
+     * composed. Removing the skeleton first lets Compose choose a card in a
+     * different row and scroll the vertical list before restoration can run.
+     */
+    var focusedSkeletonProxyIndex by remember(
+        row.key
+    ) {
+        mutableStateOf<Int?>(
+            null
+        )
+    }
+
+    /*
      * PATCH_STABLE_ROW_PARENT_FOCUS_RESTORER_V4
      *
      * This parent survives the lightweight-strip/full-LazyRow swap.
@@ -1222,8 +1235,23 @@ internal fun ModernRowSection(
         }
         val showSkeleton = (row.items.isEmpty() && row.isLoading) ||
             (row.items.isNotEmpty() && !row.enrichmentReady && !enrichmentTimeoutReached)
-        if (showSkeleton) {
-            val rowShimmerTranslateState = rememberPosterShimmerTranslateState()
+
+        /*
+         * Keep only the focused skeleton proxy alive during the handoff. Its
+         * outer layout collapses to zero and becomes invisible, while the real
+         * LazyRow is composed at the exact same vertical position underneath.
+         */
+        val retainSkeletonForHandoff =
+            !showSkeleton &&
+                focusedSkeletonProxyIndex != null
+
+        if (
+            showSkeleton ||
+            retainSkeletonForHandoff
+        ) {
+            val rowShimmerTranslateState =
+                rememberPosterShimmerTranslateState()
+
             ModernSkeletonRow(
                 rowKey = row.key,
                 cardWidth = skeletonCardWidth,
@@ -1235,9 +1263,74 @@ internal fun ModernRowSection(
                 uiCaches = uiCaches,
                 pendingRowFocus = pendingRowFocus,
                 onRowItemFocused = onRowItemFocused,
-                onRequestCarouselFocus = onRequestCarouselFocus
+                retainForHandoff =
+                    retainSkeletonForHandoff,
+                onFocusProxyChanged = {
+                    index,
+                    focused ->
+
+                    if (focused) {
+                        focusedSkeletonProxyIndex =
+                            index
+                    } else if (
+                        !retainSkeletonForHandoff &&
+                        focusedSkeletonProxyIndex ==
+                            index
+                    ) {
+                        focusedSkeletonProxyIndex =
+                            null
+                    }
+                },
+                onRequestCarouselFocus =
+                    onRequestCarouselFocus
             )
-            return
+
+            if (showSkeleton) {
+                return
+            }
+        }
+
+        /*
+         * The real row is now in the same composition while the invisible
+         * skeleton still owns focus. Request the matching real card only after
+         * one measure frame, and suppress automatic horizontal repositioning.
+         */
+        LaunchedEffect(
+            showSkeleton,
+            focusedSkeletonProxyIndex,
+            row.key,
+            row.items.size
+        ) {
+            if (showSkeleton) {
+                return@LaunchedEffect
+            }
+
+            val handoffIndex =
+                focusedSkeletonProxyIndex
+                    ?: return@LaunchedEffect
+
+            withFrameNanos { }
+
+            if (
+                showSkeleton ||
+                focusedSkeletonProxyIndex !=
+                    handoffIndex ||
+                row.items.isEmpty()
+            ) {
+                return@LaunchedEffect
+            }
+
+            pendingRowFocus.key =
+                row.key
+            pendingRowFocus.index =
+                handoffIndex.coerceIn(
+                    0,
+                    row.items.lastIndex
+                )
+            pendingRowFocus
+                .suppressBringIntoView =
+                true
+            pendingRowFocus.nonce++
         }
 
         // One shimmer clock shared by all loaded cards in this row.
@@ -1591,6 +1684,8 @@ internal fun ModernRowSection(
                                  */
                                 focusedLightweightProxyIndex =
                                     null
+                                focusedSkeletonProxyIndex =
+                                    null
 
                                 onRowItemFocused(
                                     row.key,
@@ -1745,6 +1840,8 @@ private fun ModernSkeletonRow(
     uiCaches: ModernHomeUiCaches,
     pendingRowFocus: PendingRowFocusHolder,
     onRowItemFocused: (String, Int, Boolean) -> Unit,
+    retainForHandoff: Boolean,
+    onFocusProxyChanged: (Int, Boolean) -> Unit,
     onRequestCarouselFocus: () -> Unit
 ) {
     val density = LocalDensity.current
@@ -1758,13 +1855,68 @@ private fun ModernSkeletonRow(
     val count = (kotlin.math.ceil(availablePx / (cardWidthPx + spacingPx).toFloat()).toInt() + 1)
         .coerceAtLeast(1)
     val sidebarOpenRequest = LocalSidebarOpenRequest.current
-    val rowListState = uiCaches.rowListStates.getOrPut(rowKey) { androidx.compose.foundation.lazy.LazyListState() }
-    val skeletonFallbackRequester = remember(rowKey) { uiCaches.requesterFor(rowKey, "skeleton_0") }
-    var focusedSkeletonIndex by remember(rowKey) { mutableStateOf<Int?>(null) }
+
+    /*
+     * The retained skeleton and the newly composed real LazyRow must not share
+     * one LazyListState while they overlap during the atomic focus handoff.
+     */
+    val rowListState = remember(rowKey) {
+        androidx.compose.foundation.lazy.LazyListState(
+            firstVisibleItemIndex =
+                uiCaches.focusedItemByRow[rowKey]
+                    ?: 0
+        )
+    }
+
+    val skeletonFallbackRequester =
+        remember(rowKey) {
+            uiCaches.requesterFor(
+                rowKey,
+                "skeleton_0"
+            )
+        }
+
+    var focusedSkeletonIndex by remember(rowKey) {
+        mutableStateOf<Int?>(null)
+    }
+
+    val handoffModifier =
+        if (retainForHandoff) {
+            Modifier
+                .layout {
+                    measurable,
+                    constraints ->
+
+                    val placeable =
+                        measurable.measure(
+                            constraints
+                        )
+
+                    /*
+                     * Report zero height so the complete row occupies the same
+                     * slot, but keep the focused proxy placed until the real
+                     * card confirms focus.
+                     */
+                    layout(
+                        placeable.width,
+                        0
+                    ) {
+                        placeable.placeRelative(
+                            0,
+                            0
+                        )
+                    }
+                }
+                .graphicsLayer {
+                    alpha = 0f
+                }
+        } else {
+            Modifier
+        }
 
     LazyRow(
         state = rowListState,
-        modifier = Modifier
+        modifier = handoffModifier
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {
@@ -1801,11 +1953,29 @@ private fun ModernSkeletonRow(
             // The focused skeleton and the real poster use different item keys.
             // Arm the existing row-focus retry loop while disposal still tells us
             // exactly which row and horizontal position owned focus.
-            androidx.compose.runtime.DisposableEffect(rowKey, index) {
+            androidx.compose.runtime.DisposableEffect(
+                rowKey,
+                index,
+                retainForHandoff
+            ) {
                 onDispose {
-                    if (focusedSkeletonIndex == index) {
-                        pendingRowFocus.key = rowKey
-                        pendingRowFocus.index = index
+                    /*
+                     * Fallback for unexpected disposal. During the intentional
+                     * retained handoff, the parent owns the focus request and
+                     * must not be re-armed after the real card succeeds.
+                     */
+                    if (
+                        !retainForHandoff &&
+                        focusedSkeletonIndex ==
+                            index
+                    ) {
+                        pendingRowFocus.key =
+                            rowKey
+                        pendingRowFocus.index =
+                            index
+                        pendingRowFocus
+                            .suppressBringIntoView =
+                            true
                         pendingRowFocus.nonce++
                     }
                 }
@@ -1817,11 +1987,27 @@ private fun ModernSkeletonRow(
                     .clip(RoundedCornerShape(cornerRadius))
                     .focusRequester(requester)
                     .onFocusChanged { fs ->
-                        isFocused = fs.isFocused
+                        isFocused =
+                            fs.isFocused
+
+                        onFocusProxyChanged(
+                            index,
+                            fs.isFocused
+                        )
+
                         if (fs.isFocused) {
-                            focusedSkeletonIndex = index
-                            uiCaches.focusedItemByRow[rowKey] = index
-                            onRowItemFocused(rowKey, index, isContinueWatchingRow)
+                            focusedSkeletonIndex =
+                                index
+                            uiCaches
+                                .focusedItemByRow[
+                                    rowKey
+                                ] =
+                                index
+                            onRowItemFocused(
+                                rowKey,
+                                index,
+                                isContinueWatchingRow
+                            )
                         }
                     }
                     .focusable()

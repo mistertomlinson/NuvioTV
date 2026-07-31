@@ -375,7 +375,29 @@ private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
 
 internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     if (startupGracePeriodActive) return
-    if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) {
+
+    fun needsStatusRepair(): Boolean {
+        val cached =
+            enrichmentCache[item.id]
+                ?: return false
+
+        return currentTmdbSettings.enabled &&
+            currentTmdbSettings.useDetails &&
+            item.status.isNullOrBlank() &&
+            cached.status.isNullOrBlank() &&
+            item.id !in tmdbStatusRepairAttemptedIds
+    }
+
+    val statusRepairNeeded =
+        needsStatusRepair()
+
+    if (
+        (
+            item.id in prefetchedTmdbIds ||
+                item.id in prefetchedExternalMetaIds
+            ) &&
+        !statusRepairNeeded
+    ) {
         return
     }
     if (pendingTmdbEnrichItemId == item.id) {
@@ -387,8 +409,16 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
         setEnrichingItemId(null)
     }
 
-    val willEnrich = currentTmdbSettings.enabled || externalMetaPrefetchEnabled
-    if (willEnrich) setEnrichingItemId(item.id)
+    val willEnrich =
+        !statusRepairNeeded &&
+            (
+                currentTmdbSettings.enabled ||
+                    externalMetaPrefetchEnabled
+                )
+
+    if (willEnrich) {
+        setEnrichingItemId(item.id)
+    }
 
     val focusTimeMs = System.currentTimeMillis()
 
@@ -400,14 +430,163 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
             if (_enrichingItemId.value == item.id) setEnrichingItemId(null)
             return@launch
         }
-        if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) {
-            if (_enrichingItemId.value == item.id) setEnrichingItemId(null)
+        val repairAfterDebounce =
+            needsStatusRepair()
+
+        if (
+            (
+                item.id in prefetchedTmdbIds ||
+                    item.id in prefetchedExternalMetaIds
+                ) &&
+            !repairAfterDebounce
+        ) {
+            if (_enrichingItemId.value == item.id) {
+                setEnrichingItemId(null)
+            }
             return@launch
         }
 
-        val afterDebounceMs = System.currentTimeMillis() - focusTimeMs
+        val afterDebounceMs =
+            System.currentTimeMillis() - focusTimeMs
 
         try {
+            if (repairAfterDebounce) {
+                delay(780L)
+
+                if (
+                    pendingTmdbEnrichItemId != item.id ||
+                    !needsStatusRepair()
+                ) {
+                    return@launch
+                }
+
+                if (
+                    !tmdbStatusRepairAttemptedIds.add(
+                        item.id
+                    )
+                ) {
+                    pendingTmdbEnrichItemId = null
+                    return@launch
+                }
+
+                val cached =
+                    enrichmentCache[item.id]
+
+                val tmdbId =
+                    try {
+                        tmdbService.ensureTmdbId(
+                            item.id,
+                            item.apiType
+                        )
+                    } catch (
+                        cancellation:
+                            kotlinx.coroutines
+                                .CancellationException
+                    ) {
+                        tmdbStatusRepairAttemptedIds
+                            .remove(item.id)
+                        throw cancellation
+                    } catch (_: Exception) {
+                        null
+                    }
+
+                val status =
+                    if (
+                        cached != null &&
+                        tmdbId != null
+                    ) {
+                        try {
+                            kotlinx.coroutines
+                                .withTimeoutOrNull(
+                                    4_000L
+                                ) {
+                                    tmdbMetadataService
+                                        .fetchFreshStatus(
+                                            tmdbId =
+                                                tmdbId,
+                                            contentType =
+                                                item.type,
+                                            language =
+                                                currentTmdbSettings
+                                                    .language
+                                        )
+                                }
+                        } catch (
+                            cancellation:
+                                kotlinx.coroutines
+                                    .CancellationException
+                        ) {
+                            tmdbStatusRepairAttemptedIds
+                                .remove(item.id)
+                            throw cancellation
+                        } catch (_: Exception) {
+                            null
+                        }
+                    } else {
+                        null
+                    }
+
+                /*
+                 * The HTTP request may finish at the same moment focus moves.
+                 * Never apply a result to a title that is no longer the settled
+                 * focus owner, and allow a later genuine focus to retry.
+                 */
+                if (
+                    pendingTmdbEnrichItemId != item.id
+                ) {
+                    tmdbStatusRepairAttemptedIds
+                        .remove(item.id)
+                    return@launch
+                }
+
+                if (
+                    cached != null &&
+                    status != null
+                ) {
+                    val repaired =
+                        cached.copy(
+                            status = status
+                        )
+
+                    updateCatalogItemWithTmdb(
+                        item.id,
+                        repaired
+                    )
+
+                    /*
+                     * Disk persistence is not part of focus completion. Delay
+                     * it so the badge update and subsequent navigation finish
+                     * first, and avoid writing during trailer playback.
+                     */
+                    viewModelScope.launch(
+                        Dispatchers.IO
+                    ) {
+                        delay(5_000L)
+
+                        while (
+                            homeHeroTrailerPlaying
+                        ) {
+                            delay(250L)
+                        }
+
+                        homeEnrichmentDiskCache
+                            .saveEntry(
+                                item.id,
+                                repaired
+                            )
+                    }
+
+                    android.util.Log.d(
+                        HomeViewModel.TAG,
+                        "Focused status repair " +
+                            "${item.id}: $status"
+                    )
+                }
+
+                pendingTmdbEnrichItemId = null
+                return@launch
+            }
+
             var tmdbEnriched = false
             if (currentTmdbSettings.enabled) {
                 val t1 = System.currentTimeMillis()

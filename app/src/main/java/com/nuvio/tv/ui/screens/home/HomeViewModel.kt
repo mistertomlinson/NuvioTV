@@ -197,14 +197,13 @@ class HomeViewModel @Inject constructor(
             return
         }
 
-        modernHomePriorityRowKeys = normalized
-        homeEnrichmentPlanSignature = null
-
         /*
-         * Rebuild the pending enrichment order around the new viewport.
-         * Existing cached/completed items are filtered out by the pipeline.
+         * Viewport priority is advisory. Record the latest rows for the next
+         * naturally-created enrichment plan, but never invalidate or rebuild
+         * active work merely because the user navigated vertically or changed
+         * streaming platforms.
          */
-        scheduleUpdateCatalogRows()
+        modernHomePriorityRowKeys = normalized
     }
 
     suspend fun preloadCachedHomeViewport() {
@@ -573,6 +572,8 @@ class HomeViewModel @Inject constructor(
     internal var externalMetaPrefetchJob: Job? = null
     internal var pendingExternalMetaPrefetchItemId: String? = null
     internal val prefetchedTmdbIds = Collections.synchronizedSet(mutableSetOf<String>())
+    internal val tmdbStatusRepairAttemptedIds =
+        Collections.synchronizedSet(mutableSetOf<String>())
 
     /*
      * Titles whose proactive Home enrichment reached a terminal result.

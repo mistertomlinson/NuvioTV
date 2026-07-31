@@ -225,6 +225,24 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
     homeEnrichmentAttemptedIds.clear()
+
+    /*
+     * In-memory enrichment survived this catalog reload. Accept it in bulk as
+     * completed Home work instead of routing every cached title through the
+     * proactive coroutine and scheduling one completion update per item.
+     */
+    if (enrichmentCache.isNotEmpty()) {
+        val cachedIds =
+            enrichmentCache.keys.toList()
+
+        prefetchedTmdbIds.addAll(
+            cachedIds
+        )
+        homeEnrichmentAttemptedIds.addAll(
+            cachedIds
+        )
+    }
+
     modernHomePriorityRowKeys = emptyList()
     homeEnrichmentPlanSignature = null
     // NOTE: enrichmentCache is intentionally NOT cleared here. It is keyed by
@@ -246,7 +264,25 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         try {
             val restored = homeEnrichmentDiskCache.loadAll()
             if (restored.isNotEmpty()) {
-                enrichmentCache.putAll(restored)
+                enrichmentCache.putAll(
+                    restored
+                )
+
+                /*
+                 * Disk-restored enrichment is already the completed result of
+                 * an earlier Home pass. Restore its readiness in one operation.
+                 * Missing optional fields remain legitimate missing data and
+                 * can be repaired later by the settled focus path.
+                 */
+                val restoredIds =
+                    restored.keys.toList()
+
+                prefetchedTmdbIds.addAll(
+                    restoredIds
+                )
+                homeEnrichmentAttemptedIds.addAll(
+                    restoredIds
+                )
             }
         } finally {
             enrichmentRestoreComplete = true
@@ -732,18 +768,16 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
 
     try {
         /*
-         * A restored Home cache entry represents a successful prior TMDB
-         * response. It does not need another TMDB request, but any required
-         * external fallback must finish before readiness is recorded.
+         * Cached Home enrichment must be a zero-network fast path. Cache
+         * restoration normally marks these IDs terminal in bulk; this branch
+         * safely handles a cache entry that arrived during an active plan.
          */
         val cachedEnrichment =
             enrichmentCache[item.id]
 
         if (cachedEnrichment != null) {
-            prefetchedTmdbIds.add(item.id)
-
-            completeExternalFallback(
-                cachedEnrichment
+            prefetchedTmdbIds.add(
+                item.id
             )
 
             reachedTerminalResult = true
@@ -1071,7 +1105,17 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     }
                     if (currentTmdbSettings.useArtwork) {
                         merged = merged.copy(
-                            logo = cached.logo ?: merged.logo,
+                            /*
+                             * TmdbMetadataService stores a verified MetaHub or
+                             * metadata-addon logo in fallbackLogoUrl when TMDB
+                             * itself has no suitable logo. The direct update
+                             * path already uses it; the state rebuild must not
+                             * silently discard it.
+                             */
+                            logo =
+                                cached.logo
+                                    ?: cached.fallbackLogoUrl
+                                    ?: merged.logo,
                             // Only use detailBackdrop — don't fall back to background to avoid
                             // a visible flash when TMDB enrichment later provides the real image.
                             landscapePoster = cached.detailBackdrop ?: merged.landscapePoster
@@ -1106,7 +1150,12 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                 )
             }
             if (currentTmdbSettings.useArtwork) {
-                merged = merged.copy(logo = cached.logo ?: merged.logo)
+                merged = merged.copy(
+                    logo =
+                        cached.logo
+                            ?: cached.fallbackLogoUrl
+                            ?: merged.logo
+                )
             }
             if (currentTmdbSettings.useDetails) {
                 merged = merged.copy(
@@ -1281,7 +1330,14 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
 
     // Proactive enrichment — enrich all catalog items in the background as rows load,
     // so badges appear without requiring the user to focus each item first.
-    if (currentTmdbSettings.enabled) {
+    //
+    // Cached catalog rows can become available before HomeEnrichmentDiskCache
+    // finishes restoring on a true process cold launch. Starting proactive
+    // work during that window would refetch every cached title unnecessarily.
+    if (
+        currentTmdbSettings.enabled &&
+        enrichmentRestoreComplete
+    ) {
         // Enrich items from earlier rows first so visible content gets badges sooner
         val rowIndexById = displayRows
             .flatMapIndexed { rowIdx, row -> row.items.map { it.id to rowIdx } }
@@ -1292,12 +1348,13 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val allItems = (displayRows.flatMap { it.items } + myListItems)
             .distinctBy { it.id }
             /*
-             * A cached or previously fetched TMDB result is not enough to
-             * release a title. It must still pass through the terminal path so
-             * any required external metadata fallback finishes first.
+             * Restored enrichment is accepted in bulk and must never enter the
+             * launch-time proactive queue again. Only genuinely uncached,
+             * unterminated titles require background enrichment.
              */
             .filter {
-                it.id !in homeEnrichmentAttemptedIds
+                it.id !in homeEnrichmentAttemptedIds &&
+                    it.id !in enrichmentCache
             }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
         val myListItemIds = myListItems.map { it.id }.toSet()
@@ -1314,9 +1371,12 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             append(currentTmdbSettings.useDetails)
             append('|')
             append(externalMetaPrefetchEnabled)
-            append('|')
-            append(modernHomePriorityRowKeys.joinToString(","))
 
+            /*
+             * Viewport movement changes ordering preference, not the identity
+             * of the enrichment work. Excluding row priority prevents vertical
+             * and platform navigation from canceling and recreating the job.
+             */
             displayRows.forEach { row ->
                 append('|')
                 append(row.key())
@@ -1446,7 +1506,21 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             homeEnrichmentPlanSignature =
                 proactivePlanSignature
         }
+    } else if (!currentTmdbSettings.enabled) {
+        proactiveEnrichJob?.cancel()
+        proactiveEnrichJob = null
+        homeEnrichmentPlanSignature = null
     } else {
+        /*
+         * Enrichment cache restoration is still pending. The catalog rows may
+         * be visible as skeletons, but no TMDB or external-metadata work may
+         * begin until restoration has identified which titles are already
+         * complete.
+         *
+         * loadAllCatalogsPipeline() normally cancels the previous job before
+         * entering this state. Cancel again defensively so an older plan can
+         * never continue through a reload race.
+         */
         proactiveEnrichJob?.cancel()
         proactiveEnrichJob = null
         homeEnrichmentPlanSignature = null
