@@ -79,14 +79,17 @@ fun TraktScreen(
     val strAllHistory = stringResource(R.string.trakt_all_history)
     val strDaysFormat = stringResource(R.string.trakt_days_format)
     val strWatchProgressTrakt = stringResource(R.string.trakt_watch_progress_source_trakt)
+    val strWatchProgressSimkl = stringResource(R.string.trakt_watch_progress_source_simkl)
     val strWatchProgressNuvio = stringResource(R.string.trakt_watch_progress_source_nuvio)
     val strLibrarySourceTrakt = stringResource(R.string.trakt_library_source_trakt)
+    val strLibrarySourceSimkl = stringResource(R.string.trakt_library_source_simkl)
     val strLibrarySourceNuvio = stringResource(R.string.trakt_library_source_nuvio)
     val strSettingOn = stringResource(R.string.trakt_setting_on)
     val strSettingOff = stringResource(R.string.trakt_setting_off)
     val librarySourceFormatter: (com.nuvio.tv.domain.model.LibrarySourceMode) -> String = { mode ->
         when (mode) {
             com.nuvio.tv.domain.model.LibrarySourceMode.TRAKT -> strLibrarySourceTrakt
+            com.nuvio.tv.domain.model.LibrarySourceMode.SIMKL -> strLibrarySourceSimkl
             com.nuvio.tv.domain.model.LibrarySourceMode.LOCAL -> strLibrarySourceNuvio
         }
     }
@@ -99,6 +102,7 @@ fun TraktScreen(
     val watchProgressFormatter: (WatchProgressSource) -> String = { source ->
         when (source) {
             WatchProgressSource.TRAKT -> strWatchProgressTrakt
+            WatchProgressSource.SIMKL -> strWatchProgressSimkl
             WatchProgressSource.NUVIO_SYNC -> strWatchProgressNuvio
         }
     }

@@ -291,10 +291,12 @@ fun LibraryScreen(
                 val title = when (uiState.sourceMode) {
                     LibrarySourceMode.LOCAL -> stringResource(R.string.library_empty_local_title, selectedTypeLabel)
                     LibrarySourceMode.TRAKT -> stringResource(R.string.library_empty_trakt_title, selectedTypeLabel)
+                    LibrarySourceMode.SIMKL -> stringResource(R.string.library_empty_simkl_title, selectedTypeLabel)
                 }
                 val subtitle = when (uiState.sourceMode) {
                     LibrarySourceMode.LOCAL -> stringResource(R.string.library_empty_local_subtitle)
                     LibrarySourceMode.TRAKT -> stringResource(R.string.library_empty_trakt_subtitle)
+                    LibrarySourceMode.SIMKL -> stringResource(R.string.library_empty_simkl_subtitle)
                 }
                 EmptyScreenState(
                     title = title,

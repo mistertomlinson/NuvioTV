@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.first
 
 enum class WatchProgressSource {
     TRAKT,
+    SIMKL,
     NUVIO_SYNC;
 
     companion object {

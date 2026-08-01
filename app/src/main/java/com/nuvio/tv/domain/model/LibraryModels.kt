@@ -43,7 +43,8 @@ data class LibraryEntry(
 
 enum class LibrarySourceMode {
     LOCAL,
-    TRAKT
+    TRAKT,
+    SIMKL
 }
 
 enum class TraktListPrivacy(val apiValue: String) {
@@ -69,11 +70,16 @@ data class LibraryListTab(
     val description: String? = null,
     val privacy: TraktListPrivacy? = null,
     val sortBy: String? = null,
-    val sortHow: String? = null
+    val sortHow: String? = null,
+    val trackingProviderId: String? = null,
+    val selectionGroup: String? = null,
+    val supportedContentTypes: Set<String>? = null,
+    val isMembershipDestination: Boolean = true
 ) {
     enum class Type {
         WATCHLIST,
-        PERSONAL
+        PERSONAL,
+        STATUS
     }
 }
 

@@ -858,8 +858,10 @@
     <string name="library_type_items">items</string>
     <string name="library_empty_local_title">No %1$s yet</string>
     <string name="library_empty_trakt_title">No %1$s in this list</string>
+    <string name="library_empty_simkl_title">No %1$s in this list</string>
     <string name="library_empty_local_subtitle">Start saving your favorites to see them here</string>
     <string name="library_empty_trakt_subtitle">Use + in details to add items to watchlist or lists</string>
+    <string name="library_empty_simkl_subtitle">Use + in details to add items to your Simkl library</string>
 
     <!-- AccountSettingsContent -->
     <string name="account_loading">Loading\u2026</string>
@@ -1074,6 +1076,7 @@
     <string name="trakt_watch_progress_trakt_selected">Trakt</string>
     <string name="trakt_watch_progress_source_nuvio">Nuvio</string>
     <string name="trakt_watch_progress_source_trakt">Trakt</string>
+    <string name="trakt_watch_progress_source_simkl">Simkl</string>
     <string name="trakt_watch_progress_title">Watch Progress Source</string>
     <string name="trakt_watch_progress_subtitle">Choose where watch progress is read from</string>
     <string name="trakt_watch_progress_dialog_title">Watch Progress Source</string>
@@ -1095,6 +1098,7 @@
     <string name="trakt_library_source_dialog_title">Library Source</string>
     <string name="trakt_library_source_dialog_subtitle">Choose where to save and manage your library items</string>
     <string name="trakt_library_source_trakt">Trakt</string>
+    <string name="trakt_library_source_simkl">Simkl</string>
     <string name="trakt_library_source_nuvio">Nuvio Library</string>
     <string name="trakt_library_source_trakt_selected">Trakt library selected</string>
     <string name="trakt_library_source_nuvio_selected">Nuvio library selected</string>
