@@ -1,11 +1,13 @@
 package com.nuvio.tv.core.tracking
 
 import android.util.Log
+import com.nuvio.tv.data.local.TraktSettingsDataStore
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.supervisorScope
 
 data class TrackingScrobbleFailure(
@@ -15,13 +17,14 @@ data class TrackingScrobbleFailure(
 
 @Singleton
 class TrackingScrobbleCoordinator @Inject constructor(
-    private val providerRegistry: TrackingProviderRegistry
+    private val providerRegistry: TrackingProviderRegistry,
+    private val trackingSettings: TraktSettingsDataStore
 ) {
     suspend fun scrobble(
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent
     ): List<TrackingScrobbleFailure> {
-        val scrobblers = providerRegistry.connectedScrobblers()
+        val scrobblers = selectedScrobblers()
         Log.d(
             TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
             "coordinator dispatch action=${action.wireValue} providers=" +
@@ -46,10 +49,19 @@ class TrackingScrobbleCoordinator @Inject constructor(
         action: TrackingScrobbleAction,
         event: TrackingScrobbleEvent
     ): List<TrackingScrobbleFailure> = dispatchSeek(
-        scrobblers = providerRegistry.connectedScrobblers(),
+        scrobblers = selectedScrobblers(),
         action = action,
         event = event
     )
+
+
+    private suspend fun selectedScrobblers(): List<TrackingScrobbler> {
+        val selectedProviderId = trackingSettings.watchProgressSource.first().providerId
+            ?: return emptyList()
+
+        return providerRegistry.connectedScrobblers()
+            .filter { scrobbler -> scrobbler.providerId == selectedProviderId }
+    }
 
     private suspend fun dispatch(
         scrobblers: Collection<TrackingScrobbler>,
