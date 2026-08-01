@@ -117,6 +117,44 @@ class SimklSyncRepository @Inject constructor(
     }
 
 
+    internal suspend fun commitScrobble(result: SimklScrobbleResult) {
+        ensureLoaded()
+        val profileId = profileManager.activeProfileId.value
+        val generation = profileGeneration
+        snapshotMutex.withLock {
+            if (!isCurrent(profileId, generation)) return@withLock
+            val current = _state.value
+            val snapshot = current.snapshot.applyScrobbleResult(
+                result = result,
+                committedAtEpochMs = System.currentTimeMillis()
+            )
+            if (snapshot == current.snapshot) return@withLock
+            storage.save(profileId, json.encodeToString(snapshot))
+            if (isCurrent(profileId, generation)) {
+                _state.value = current.copy(snapshot = snapshot)
+            }
+        }
+    }
+
+    internal suspend fun commitMutation(receipt: SimklMutationReceipt) {
+        ensureLoaded()
+        val profileId = profileManager.activeProfileId.value
+        val generation = profileGeneration
+        snapshotMutex.withLock {
+            if (!isCurrent(profileId, generation)) return@withLock
+            val current = _state.value
+            val snapshot = current.snapshot.applyMutationReceipt(
+                receipt = receipt,
+                committedAtEpochMs = System.currentTimeMillis()
+            )
+            if (snapshot == current.snapshot) return@withLock
+            storage.save(profileId, json.encodeToString(snapshot))
+            if (isCurrent(profileId, generation)) {
+                _state.value = current.copy(snapshot = snapshot)
+            }
+        }
+    }
+
     private suspend fun loadProfile(profileId: Int) = loadMutex.withLock {
         if (loadedProfileId == profileId) return@withLock
         val snapshot = storage.load(profileId)
