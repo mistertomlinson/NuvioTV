@@ -1,6 +1,14 @@
 package com.nuvio.tv.core.di
 
 import com.nuvio.tv.core.profile.ProfileScopedCredentialStore
+import com.nuvio.tv.core.tracking.TrackingHistoryWriter
+import com.nuvio.tv.core.tracking.TrackingLibraryProvider
+import com.nuvio.tv.core.tracking.TrackingProgressProvider
+import com.nuvio.tv.core.tracking.TrackingProvider
+import com.nuvio.tv.data.simkl.SimklLibraryService
+import com.nuvio.tv.data.simkl.SimklTrackingHistoryWriter
+import com.nuvio.tv.data.simkl.SimklTrackingProgressProvider
+import com.nuvio.tv.data.simkl.SimklTrackingProvider
 import com.nuvio.tv.data.simkl.AndroidSimklAuthStorage
 import com.nuvio.tv.data.simkl.AndroidSimklSyncStorage
 import com.nuvio.tv.data.simkl.SimklApiSyncRemote
@@ -41,4 +49,29 @@ abstract class SimklAuthModule {
     abstract fun bindSimklSyncRemote(
         remote: SimklApiSyncRemote
     ): SimklSyncRemote
+
+
+    @Binds
+    @IntoSet
+    abstract fun bindSimklTrackingProvider(
+        provider: SimklTrackingProvider
+    ): TrackingProvider
+
+    @Binds
+    @IntoSet
+    abstract fun bindSimklTrackingProgressProvider(
+        provider: SimklTrackingProgressProvider
+    ): TrackingProgressProvider
+
+    @Binds
+    @IntoSet
+    abstract fun bindSimklTrackingHistoryWriter(
+        writer: SimklTrackingHistoryWriter
+    ): TrackingHistoryWriter
+
+    @Binds
+    @IntoSet
+    abstract fun bindSimklTrackingLibraryProvider(
+        provider: SimklLibraryService
+    ): TrackingLibraryProvider
 }
