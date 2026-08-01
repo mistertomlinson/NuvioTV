@@ -34,6 +34,12 @@ import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import com.nuvio.tv.core.network.IPv4FirstDns
+import com.nuvio.tv.data.simkl.OkHttpSimklEngine
+import com.nuvio.tv.data.simkl.SimklApiClient
+import com.nuvio.tv.data.simkl.SimklApiConfiguration
+import com.nuvio.tv.data.simkl.SimklAuthError
+import com.nuvio.tv.data.simkl.SimklAuthStorage
+import com.nuvio.tv.data.simkl.defaultSimklApiConfiguration
 import java.io.File
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -84,6 +90,39 @@ object NetworkModule {
             }
         }
         .build()
+
+    @Provides
+    @Singleton
+    @Named("simkl")
+    fun provideSimklOkHttpClient(): OkHttpClient = OkHttpClient.Builder()
+        .dns(IPv4FirstDns())
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(60, TimeUnit.SECONDS)
+        .build()
+
+    @Provides
+    @Singleton
+    fun provideSimklApiConfiguration(): SimklApiConfiguration =
+        defaultSimklApiConfiguration()
+
+    @Provides
+    @Singleton
+    fun provideSimklApiClient(
+        @Named("simkl") okHttpClient: OkHttpClient,
+        configuration: SimklApiConfiguration,
+        storage: SimklAuthStorage
+    ): SimklApiClient = SimklApiClient(
+        engine = OkHttpSimklEngine(okHttpClient),
+        configuration = configuration,
+        authorization = storage::authorization,
+        onUnauthorized = { authorization ->
+            storage.clearAuth(
+                error = SimklAuthError.AUTHORIZATION_REVOKED,
+                scope = authorization.scope,
+                expectedAccessToken = authorization.accessToken
+            )
+        }
+    )
 
     @Provides
     @Singleton
