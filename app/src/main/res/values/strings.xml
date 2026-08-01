@@ -1307,5 +1307,30 @@
     <string name="stream_starting">Starting stream</string>
     <string name="hero_metadata_large_title">Large Hero Metadata</string>
     <string name="hero_metadata_large_desc">Makes metadata items ~40% larger</string>
+
+    <!-- Simkl authentication -->
+    <string name="simkl_name">Simkl</string>
+    <string name="simkl_account_title">Simkl account</string>
+    <string name="simkl_description">Connect Simkl to sync lists, watched history, playback progress, and scrobbles.</string>
+    <string name="simkl_connect">Connect Simkl</string>
+    <string name="simkl_disconnect">Disconnect Simkl</string>
+    <string name="simkl_disconnect_title">Disconnect Simkl?</string>
+    <string name="simkl_disconnect_subtitle">This removes the Simkl account from this profile.</string>
+    <string name="simkl_connected_as">Connected as %1$s</string>
+    <string name="simkl_user_fallback">Simkl user</string>
+    <string name="simkl_awaiting_instruction">Open the Simkl verification page and enter this code.</string>
+    <string name="simkl_code_expires">Code expires in %1$s</string>
+    <string name="simkl_visit">Visit Simkl</string>
+    <string name="simkl_cancel">Cancel</string>
+    <string name="simkl_retry">Retry</string>
+    <string name="simkl_missing_credentials">Missing SIMKL_CLIENT_ID</string>
+    <string name="simkl_status_enter_code">Enter the code on Simkl to finish connecting</string>
+    <string name="simkl_status_waiting">Waiting for Simkl approval…</string>
+    <string name="simkl_status_connected">Connected to Simkl</string>
+    <string name="simkl_status_disconnected">Disconnected from Simkl</string>
+    <string name="simkl_error_code_expired">Simkl code expired. Start again.</string>
+    <string name="simkl_error_authorization_revoked">Simkl authorization was revoked. Connect again.</string>
+    <string name="simkl_error_network">Unable to reach Simkl. Try again.</string>
+
 </resources>
 
