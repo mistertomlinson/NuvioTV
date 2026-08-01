@@ -132,7 +132,7 @@ fun WatchedRatingOverlay(
                         nextFocusUp = dismissFocusRequester,
                         nextFocusLeft = dislikeFocusRequester,
                         nextFocusRight = loveFocusRequester,
-                        onClick = { if (!consumed) { consumed = true; onRate(8) } }
+                        onClick = { if (!consumed) { consumed = true; onRate(7) } }
                     )
                     WatchedRatingButton(
                         iconRes = R.raw.ic_player_rating_love,

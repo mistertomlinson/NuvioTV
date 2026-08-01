@@ -142,7 +142,7 @@ fun RatingOverlay(
         // 1. Icon pulse
         val scaleAnim = when (selectedRating) {
             2 -> dislikeScale
-            8 -> likeScale
+            7 -> likeScale
             else -> loveScale
         }
         launch {
@@ -333,7 +333,7 @@ fun RatingOverlay(
                         nextFocusUp = dismissFocusRequester,
                         nextFocusLeft = dislikeFocusRequester,
                         nextFocusRight = loveFocusRequester,
-                        onClick = { if (!isExiting) selectedRating = 8 }
+                        onClick = { if (!isExiting) selectedRating = 7 }
                     )
                     RatingButton(
                         iconRes = R.raw.ic_player_rating_love,
