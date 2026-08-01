@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.simkl.SimklAnimeIdPreference
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -55,6 +56,7 @@ class TraktSettingsDataStore @Inject constructor(
     private val watchProgressSourceKey = stringPreferencesKey("watch_progress_source")
     private val librarySourceModeKey = stringPreferencesKey("library_source_mode")
     private val showMetaCommentsKey = booleanPreferencesKey("show_meta_comments")
+    private val simklAnimeIdPreferenceKey = stringPreferencesKey("simkl_anime_id_preference")
 
     val continueWatchingDaysCap: Flow<Int> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -158,6 +160,24 @@ class TraktSettingsDataStore @Inject constructor(
     suspend fun setLibrarySourceMode(mode: LibrarySourceMode) {
         store().edit { prefs ->
             prefs[librarySourceModeKey] = mode.name
+        }
+    }
+
+
+    val simklAnimeIdPreference: Flow<SimklAnimeIdPreference> =
+        profileManager.activeProfileId.flatMapLatest { pid ->
+            factory.get(pid, FEATURE).data.map { prefs ->
+                SimklAnimeIdPreference.fromStorage(
+                    prefs[simklAnimeIdPreferenceKey]
+                )
+            }
+        }
+
+    suspend fun setSimklAnimeIdPreference(
+        preference: SimklAnimeIdPreference
+    ) {
+        store().edit { prefs ->
+            prefs[simklAnimeIdPreferenceKey] = preference.name
         }
     }
 }

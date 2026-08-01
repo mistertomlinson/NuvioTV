@@ -21,8 +21,15 @@ data class LibraryEntry(
     val traktRank: Int? = null,
     val imdbId: String? = null,
     val tmdbId: Int? = null,
-    val traktId: Int? = null
-) {
+    val traktId: Int? = null,
+    val simklId: Long? = null,
+    override val trackingProviderId: String? = null,
+    override val trackingProviderItemId: String? = null,
+    override val trackingSourceUrl: String? = null
+) : TrackingAttributedItem {
+    override val trackingContentId: String
+        get() = id
+
     fun toMetaPreview(): MetaPreview {
         return MetaPreview(
             id = id,
@@ -100,6 +107,7 @@ data class LibraryEntryInput(
     val title: String,
     val year: Int? = null,
     val traktId: Int? = null,
+    val simklId: Long? = null,
     val imdbId: String? = null,
     val tmdbId: Int? = null,
     val poster: String? = null,
