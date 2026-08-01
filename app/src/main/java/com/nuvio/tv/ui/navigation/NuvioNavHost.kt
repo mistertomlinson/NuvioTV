@@ -31,6 +31,7 @@ import com.nuvio.tv.ui.screens.settings.AboutScreen
 import com.nuvio.tv.ui.screens.settings.LayoutSettingsScreen
 import com.nuvio.tv.ui.screens.settings.PlaybackSettingsScreen
 import com.nuvio.tv.ui.screens.settings.SettingsScreen
+import com.nuvio.tv.ui.screens.settings.SimklScreen
 import com.nuvio.tv.ui.screens.settings.SupportersContributorsScreen
 import com.nuvio.tv.ui.screens.settings.ThemeSettingsScreen
 import com.nuvio.tv.ui.screens.settings.TraktScreen
@@ -883,6 +884,7 @@ fun NuvioNavHost(
             SettingsScreen(
                 showBuiltInHeader = !hideBuiltInHeaders,
                 onNavigateToTrakt = { navController.navigate(Screen.Trakt.route) },
+                onNavigateToSimkl = { navController.navigate(Screen.Simkl.route) },
                 onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
                 onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
                 onNavigateToSupportersContributors = {
@@ -901,6 +903,12 @@ fun NuvioNavHost(
 
         composable(Screen.Trakt.route) {
             TraktScreen(
+                onBackPress = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Simkl.route) {
+            SimklScreen(
                 onBackPress = { navController.popBackStack() }
             )
         }

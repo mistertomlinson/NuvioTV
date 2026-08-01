@@ -1332,5 +1332,11 @@
     <string name="simkl_error_authorization_revoked">Simkl authorization was revoked. Connect again.</string>
     <string name="simkl_error_network">Unable to reach Simkl. Try again.</string>
 
+
+    <string name="settings_simkl_subtitle">Connect and manage your Simkl account</string>
+    <string name="simkl_login_instruction">Connect your Simkl account using a verification code.</string>
+    <string name="simkl_connecting">Connecting…</string>
+    <string name="simkl_back">Back</string>
+
 </resources>
 

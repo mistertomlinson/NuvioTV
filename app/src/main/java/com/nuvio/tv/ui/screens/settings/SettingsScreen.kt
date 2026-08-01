@@ -68,6 +68,7 @@ internal enum class SettingsCategory {
     PLAYBACK,
     ADVANCED,
     TRAKT,
+    SIMKL,
     ABOUT,
     DEBUG
 }
@@ -157,6 +158,13 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.External
     ),
     SettingsSectionSpec(
+        category = SettingsCategory.SIMKL,
+        title = stringResource(R.string.simkl_name),
+        rawIconRes = R.raw.simkl_tv_glyph,
+        subtitle = stringResource(R.string.settings_simkl_subtitle),
+        destination = SettingsSectionDestination.External
+    ),
+    SettingsSectionSpec(
         category = SettingsCategory.ABOUT,
         title = stringResource(R.string.about_title),
         icon = Icons.Default.Info,
@@ -183,6 +191,7 @@ private fun rememberSettingsSectionSpecs() = listOf(
 fun SettingsScreen(
     showBuiltInHeader: Boolean = true,
     onNavigateToTrakt: () -> Unit = {},
+    onNavigateToSimkl: () -> Unit = {},
     onNavigateToAuthQrSignIn: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
@@ -325,6 +334,7 @@ fun SettingsScreen(
                                     when (section.category) {
                                         SettingsCategory.ACCOUNT -> onNavigateToAuthQrSignIn()
                                         SettingsCategory.TRAKT -> onNavigateToTrakt()
+                                        SettingsCategory.SIMKL -> onNavigateToSimkl()
                                         else -> Unit
                                     }
                                 } else {
@@ -431,6 +441,7 @@ fun SettingsScreen(
                         )
                         SettingsCategory.DEBUG -> DebugSettingsContent()
                         SettingsCategory.TRAKT -> Unit
+                        SettingsCategory.SIMKL -> Unit
                     }
                 }
             }
