@@ -1338,5 +1338,9 @@
     <string name="simkl_connecting">Connecting…</string>
     <string name="simkl_back">Back</string>
 
+
+    <string name="simkl_sync_now">Sync Now</string>
+    <string name="simkl_status_syncing">Syncing…</string>
+    <string name="simkl_status_synced">Simkl sync complete</string>
 </resources>
 

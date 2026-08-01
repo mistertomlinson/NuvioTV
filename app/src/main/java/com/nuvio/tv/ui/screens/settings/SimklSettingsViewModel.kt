@@ -4,11 +4,13 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.data.simkl.SimklAuthError
 import com.nuvio.tv.data.simkl.SimklAuthException
 import com.nuvio.tv.data.simkl.SimklAuthRepository
 import com.nuvio.tv.data.simkl.SimklConnectionMode
 import com.nuvio.tv.data.simkl.SimklPinPollResult
+import com.nuvio.tv.data.simkl.SimklSyncRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -40,6 +42,7 @@ data class SimklSettingsUiState(
 @HiltViewModel
 class SimklSettingsViewModel @Inject constructor(
     private val authRepository: SimklAuthRepository,
+    private val syncRepository: SimklSyncRepository,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -168,17 +171,47 @@ class SimklSettingsViewModel @Inject constructor(
     }
 
     fun onDisconnect() {
-        pollJob?.cancel()
-        pollJob = null
-        authRepository.disconnect()
+        viewModelScope.launch {
+            pollJob?.cancel()
+            pollJob = null
+            authRepository.disconnect()
+            syncRepository.clearCurrentProfile()
 
-        _uiState.update {
-            it.copy(
-                isLoading = false,
-                isPolling = false,
-                statusMessage = context.getString(R.string.simkl_status_disconnected),
-                errorMessage = null
-            )
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    isPolling = false,
+                    statusMessage = context.getString(R.string.simkl_status_disconnected),
+                    errorMessage = null
+                )
+            }
+        }
+    }
+
+    fun onSyncNow() {
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    errorMessage = null,
+                    statusMessage = context.getString(R.string.simkl_status_syncing)
+                )
+            }
+
+            syncRepository.refresh(TrackingRefreshIntent.USER_INITIATED)
+            val error = syncRepository.state.value.errorMessage
+
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    statusMessage = if (error == null) {
+                        context.getString(R.string.simkl_status_synced)
+                    } else {
+                        null
+                    },
+                    errorMessage = error
+                )
+            }
         }
     }
 
@@ -229,6 +262,7 @@ class SimklSettingsViewModel @Inject constructor(
                         }
 
                         SimklPinPollResult.Authorized -> {
+                            syncRepository.refresh(TrackingRefreshIntent.INVALIDATED)
                             _uiState.update {
                                 it.copy(
                                     isPolling = false,

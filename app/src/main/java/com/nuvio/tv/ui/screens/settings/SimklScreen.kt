@@ -337,22 +337,35 @@ fun SimklScreen(
 
                     SimklConnectionMode.CONNECTED -> {
                         Button(
-                            onClick = {
-                                showDisconnectConfirm = true
-                            },
+                            onClick = viewModel::onSyncNow,
+                            enabled = !uiState.isLoading,
                             modifier = Modifier.focusRequester(
                                 primaryFocusRequester
                             ),
+                            colors = ButtonDefaults.colors(
+                                containerColor = NuvioColors.Primary,
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            Text(
+                                if (uiState.isLoading) {
+                                    stringResource(R.string.simkl_status_syncing)
+                                } else {
+                                    stringResource(R.string.simkl_sync_now)
+                                }
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                showDisconnectConfirm = true
+                            },
                             colors = ButtonDefaults.colors(
                                 containerColor = NuvioColors.BackgroundCard,
                                 contentColor = NuvioColors.TextPrimary
                             )
                         ) {
-                            Text(
-                                stringResource(
-                                    R.string.simkl_disconnect
-                                )
-                            )
+                            Text(stringResource(R.string.simkl_disconnect))
                         }
                     }
                 }
