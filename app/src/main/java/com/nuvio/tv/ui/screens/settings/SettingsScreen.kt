@@ -67,8 +67,7 @@ internal enum class SettingsCategory {
     INTEGRATION,
     PLAYBACK,
     ADVANCED,
-    TRAKT,
-    SIMKL,
+    TRACKING,
     ABOUT,
     DEBUG
 }
@@ -151,17 +150,10 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
-        category = SettingsCategory.TRAKT,
-        title = "Trakt",
-        rawIconRes = R.raw.trakt_tv_glyph,
-        subtitle = stringResource(R.string.settings_trakt_subtitle),
-        destination = SettingsSectionDestination.External
-    ),
-    SettingsSectionSpec(
-        category = SettingsCategory.SIMKL,
-        title = stringResource(R.string.simkl_name),
-        rawIconRes = R.raw.simkl_tv_glyph,
-        subtitle = stringResource(R.string.settings_simkl_subtitle),
+        category = SettingsCategory.TRACKING,
+        title = stringResource(R.string.settings_tracking_title),
+        icon = Icons.Default.Link,
+        subtitle = stringResource(R.string.settings_tracking_description),
         destination = SettingsSectionDestination.External
     ),
     SettingsSectionSpec(
@@ -190,8 +182,7 @@ private fun rememberSettingsSectionSpecs() = listOf(
 @Composable
 fun SettingsScreen(
     showBuiltInHeader: Boolean = true,
-    onNavigateToTrakt: () -> Unit = {},
-    onNavigateToSimkl: () -> Unit = {},
+    onNavigateToTracking: () -> Unit = {},
     onNavigateToAuthQrSignIn: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
@@ -206,7 +197,7 @@ fun SettingsScreen(
                 SettingsCategory.DEBUG -> BuildConfig.IS_DEBUG_BUILD
                 SettingsCategory.PROFILES -> isPrimaryProfileActive
                 SettingsCategory.ACCOUNT -> isPrimaryProfileActive
-                SettingsCategory.TRAKT -> true
+                SettingsCategory.TRACKING -> true
                 else -> true
             }
         }
@@ -333,8 +324,7 @@ fun SettingsScreen(
                                 if (section.destination == SettingsSectionDestination.External) {
                                     when (section.category) {
                                         SettingsCategory.ACCOUNT -> onNavigateToAuthQrSignIn()
-                                        SettingsCategory.TRAKT -> onNavigateToTrakt()
-                                        SettingsCategory.SIMKL -> onNavigateToSimkl()
+                                        SettingsCategory.TRACKING -> onNavigateToTracking()
                                         else -> Unit
                                     }
                                 } else {
@@ -440,8 +430,7 @@ fun SettingsScreen(
                             onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn
                         )
                         SettingsCategory.DEBUG -> DebugSettingsContent()
-                        SettingsCategory.TRAKT -> Unit
-                        SettingsCategory.SIMKL -> Unit
+                        SettingsCategory.TRACKING -> Unit
                     }
                 }
             }

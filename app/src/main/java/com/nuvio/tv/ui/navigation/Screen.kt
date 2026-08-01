@@ -136,6 +136,7 @@ sealed class Screen(val route: String) {
     data object Discover : Screen("discover")
     data object Library : Screen("library")
     data object Settings : Screen("settings")
+    data object Tracking : Screen("tracking")
     data object Trakt : Screen("trakt")
     data object Simkl : Screen("simkl")
     data object TmdbSettings : Screen("tmdb_settings")

@@ -1342,5 +1342,22 @@
     <string name="simkl_sync_now">Sync Now</string>
     <string name="simkl_status_syncing">Syncing…</string>
     <string name="simkl_status_synced">Simkl sync complete</string>
+
+    <!-- Centralized tracking settings -->
+    <string name="settings_tracking_title">Tracking</string>
+    <string name="settings_tracking_description">Connect tracking providers and choose which one powers your Library, Continue Watching, and playback scrobbling.</string>
+    <string name="tracking_accounts_title">Accounts</string>
+    <string name="tracking_accounts_subtitle">Connect and manage tracking services</string>
+    <string name="tracking_sources_title">Sources</string>
+    <string name="tracking_sources_subtitle">Choose where Nuvio reads your library and watch progress. Playback scrobbles only to the selected Watch Progress source.</string>
+    <string name="tracking_status_connected">Connected</string>
+    <string name="tracking_status_disconnected">Not connected</string>
+    <string name="tracking_status_waiting">Waiting for approval</string>
+    <string name="tracking_status_connecting">Connecting</string>
+    <string name="tracking_watch_progress_dialog_subtitle">Choose the service Nuvio reads for resume and Continue Watching. Playback scrobbles only to this selected service.</string>
+    <string name="tracking_library_source_dialog_subtitle">Choose the service Nuvio reads for your Library.</string>
+
+    <string name="trakt_name">Trakt</string>
+    <string name="trakt_user_fallback">Trakt user</string>
 </resources>
 
