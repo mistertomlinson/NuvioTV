@@ -316,6 +316,34 @@ class WatchProgressPreferences @Inject constructor(
         }
     }
 
+
+    /**
+     * Clears Trakt-compatible progress while retaining entries Trakt cannot
+     * represent, such as MAL, Kitsu, AniList, or other provider-specific IDs.
+     */
+    suspend fun clearAllPreservingNonTraktIds(
+        profileId: Int = profileManager.activeProfileId.value,
+        isNonTraktId: (String) -> Boolean
+    ) {
+        store(profileId).edit { preferences ->
+            val json = preferences[watchProgressKey] ?: "{}"
+            val current = parseProgressMap(json)
+            val preserved = current.filter { (_, progress) ->
+                isNonTraktId(progress.contentId)
+            }
+
+            if (preserved.isEmpty()) {
+                preferences.remove(watchProgressKey)
+            } else {
+                preferences[watchProgressKey] = gson.toJson(preserved)
+                Log.d(
+                    TAG,
+                    "clearAllPreservingNonTraktIds: preserved ${preserved.size} non-Trakt entries"
+                )
+            }
+        }
+    }
+
     private fun createKey(progress: WatchProgress): String {
         return if (progress.season != null && progress.episode != null) {
             "${progress.contentId}_s${progress.season}e${progress.episode}"

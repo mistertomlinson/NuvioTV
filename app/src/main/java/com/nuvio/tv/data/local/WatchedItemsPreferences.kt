@@ -133,4 +133,13 @@ class WatchedItemsPreferences @Inject constructor(
                 .toSet()
         }
     }
+
+    suspend fun clearAll(
+        profileId: Int = profileManager.activeProfileId.value
+    ) {
+        store(profileId).edit { preferences ->
+            preferences.remove(watchedItemsKey)
+        }
+    }
+
 }
