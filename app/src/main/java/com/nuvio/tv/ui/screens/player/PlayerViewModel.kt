@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.ExoPlayer
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.tracking.TrackingScrobbleCoordinator
 import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
@@ -33,6 +34,7 @@ class PlayerViewModel @Inject constructor(
     private val pluginManager: PluginManager,
     private val subtitleRepository: com.nuvio.tv.domain.repository.SubtitleRepository,
     private val parentalGuideRepository: ParentalGuideRepository,
+    private val trackingScrobbleCoordinator: TrackingScrobbleCoordinator,
     private val traktScrobbleService: TraktScrobbleService,
     private val traktEpisodeMappingService: TraktEpisodeMappingService,
     private val skipIntroRepository: SkipIntroRepository,
@@ -54,6 +56,7 @@ class PlayerViewModel @Inject constructor(
         pluginManager = pluginManager,
         subtitleRepository = subtitleRepository,
         parentalGuideRepository = parentalGuideRepository,
+        trackingScrobbleCoordinator = trackingScrobbleCoordinator,
         traktScrobbleService = traktScrobbleService,
         traktEpisodeMappingService = traktEpisodeMappingService,
         skipIntroRepository = skipIntroRepository,

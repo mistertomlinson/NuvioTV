@@ -2,6 +2,11 @@ package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
 import androidx.media3.common.Player
+import com.nuvio.tv.core.tracking.TrackingMediaKind
+import com.nuvio.tv.core.tracking.TrackingMediaReference
+import com.nuvio.tv.core.tracking.TrackingScrobbleAction
+import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
+import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import com.nuvio.tv.data.local.SubtitleStyleSettings
 import com.nuvio.tv.data.repository.TraktScrobbleItem
 import com.nuvio.tv.data.repository.extractYear
@@ -48,7 +53,7 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 }
                 updateActiveSkipInterval(pos)
 
-                // Periodic scrobble-pause so Trakt has a saved state even on force-stop
+                // Periodic provider pause snapshot so progress survives a force-stop
                 if (player.isPlaying && hasRequestedScrobbleStartForCurrentItem) {
                     val nowMs = System.currentTimeMillis()
                     if (nowMs - lastPeriodicScrobbleMs >= periodicScrobbleIntervalMs) {
@@ -57,7 +62,15 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                         if (pct >= 1f && pct < 80f) {
                             val scrobbleItem = currentScrobbleItem
                             if (scrobbleItem != null) {
-                                scope.launch { traktScrobbleService.scrobblePause(scrobbleItem, pct) }
+                                scope.launch {
+                                    trackingScrobbleCoordinator.scrobble(
+                                        action = TrackingScrobbleAction.PAUSE,
+                                        event = TrackingScrobbleEvent(
+                                            media = scrobbleItem,
+                                            progressPercent = pct.toDouble()
+                                        )
+                                    )
+                                }
                             }
                         }
                     }
@@ -182,25 +195,53 @@ internal fun PlayerRuntimeController.refreshScrobbleItem() {
     hasSentCompletionScrobbleForCurrentItem = false
 }
 
-internal fun PlayerRuntimeController.buildScrobbleItem(): TraktScrobbleItem? {
+internal fun PlayerRuntimeController.buildScrobbleItem(): TrackingMediaReference? {
+    val rawContentId = contentId ?: return null
+    val reference = buildTrackingMediaReference(
+        contentType = contentType ?: "movie",
+        parentMetaId = rawContentId,
+        videoId = currentVideoId,
+        title = contentName ?: title,
+        releaseInfo = year,
+        seasonNumber = currentSeason,
+        episodeNumber = currentEpisode,
+        episodeTitle = currentEpisodeTitle
+    )
+
+    return reference.takeIf { media ->
+        media.hasResolvableIdentity &&
+            (media.kind == TrackingMediaKind.MOVIE || media.episode != null)
+    }
+}
+
+/**
+ * Builds the legacy Trakt item used only by the custom rating prompt.
+ *
+ * Playback scrobbling itself must use [TrackingScrobbleCoordinator].
+ */
+internal fun PlayerRuntimeController.buildTraktRatingItem(): TraktScrobbleItem? {
     val rawContentId = contentId ?: return null
     val parsedIds = parseContentIds(rawContentId)
     val ids = toTraktIds(parsedIds)
     val parsedYear = extractYear(year)
     val normalizedType = contentType?.lowercase()
     val currentMappingKey = currentEpisodeMappingCacheKey()
-    val mappedEpisode = if (currentTraktEpisodeMappingKey == currentMappingKey) {
-        currentTraktEpisodeMapping
-    } else {
-        null
-    }
+    val mappedEpisode =
+        if (currentTraktEpisodeMappingKey == currentMappingKey) {
+            currentTraktEpisodeMapping
+        } else {
+            null
+        }
+
     val effectiveSeason = mappedEpisode?.season ?: currentSeason
     val effectiveEpisode = mappedEpisode?.episode ?: currentEpisode
 
-    val isEpisode = normalizedType in listOf("series", "tv") &&
-        effectiveSeason != null && effectiveEpisode != null
+    val isEpisode =
+        normalizedType in listOf("series", "tv") &&
+            effectiveSeason != null &&
+            effectiveEpisode != null
 
-    val item = if (isEpisode) {
+    return if (isEpisode) {
         TraktScrobbleItem.Episode(
             showTitle = contentName ?: title,
             showYear = parsedYear,
@@ -216,58 +257,88 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TraktScrobbleItem? {
             ids = ids
         )
     }
-    return item
 }
 
 internal fun PlayerRuntimeController.emitScrobbleStart() {
-    val item = currentScrobbleItem ?: buildScrobbleItem().also { currentScrobbleItem = it }
+    val item =
+        currentScrobbleItem
+            ?: buildScrobbleItem().also { currentScrobbleItem = it }
+
     if (item == null) return
     if (hasRequestedScrobbleStartForCurrentItem) return
 
     hasRequestedScrobbleStartForCurrentItem = true
     val requestGeneration = ++scrobbleStartRequestGeneration
+
     scope.launch {
         val progressPercent = currentPlaybackProgressPercent()
-        traktScrobbleService.scrobbleStart(
-            item = item,
-            progressPercent = progressPercent
+        trackingScrobbleCoordinator.scrobble(
+            action = TrackingScrobbleAction.START,
+            event = TrackingScrobbleEvent(
+                media = item,
+                progressPercent = progressPercent.toDouble()
+            )
         )
-        if (requestGeneration != scrobbleStartRequestGeneration || !hasRequestedScrobbleStartForCurrentItem) return@launch
+
+        if (
+            requestGeneration != scrobbleStartRequestGeneration ||
+            !hasRequestedScrobbleStartForCurrentItem
+        ) {
+            return@launch
+        }
+
         hasSentScrobbleStartForCurrentItem = true
     }
 }
 
-internal fun PlayerRuntimeController.emitScrobbleStop(progressPercent: Float? = null) {
-    val item = currentScrobbleItem
-    if (item == null) return
-
+internal fun PlayerRuntimeController.emitScrobbleStop(
+    progressPercent: Float? = null
+) {
+    val item = currentScrobbleItem ?: return
     val provided = progressPercent
-    if (!hasRequestedScrobbleStartForCurrentItem && (provided ?: 0f) < 80f) return
+
+    if (
+        !hasRequestedScrobbleStartForCurrentItem &&
+        (provided ?: 0f) < 80f
+    ) {
+        return
+    }
 
     val percent = provided ?: currentPlaybackProgressPercent()
+
     scope.launch {
-        traktScrobbleService.scrobbleStop(
-            item = item,
-            progressPercent = percent
+        trackingScrobbleCoordinator.scrobble(
+            action = TrackingScrobbleAction.STOP,
+            event = TrackingScrobbleEvent(
+                media = item,
+                progressPercent = percent.toDouble()
+            )
         )
     }
+
     scrobbleStartRequestGeneration++
     hasRequestedScrobbleStartForCurrentItem = false
     hasSentScrobbleStartForCurrentItem = false
 }
 
-internal fun PlayerRuntimeController.emitPauseScrobbleStop(progressPercent: Float) {
+internal fun PlayerRuntimeController.emitPauseScrobbleStop(
+    progressPercent: Float
+) {
     if (progressPercent < 1f || progressPercent >= 80f) return
-    val item = currentScrobbleItem
-    if (item == null) return
+
+    val item = currentScrobbleItem ?: return
     if (!hasRequestedScrobbleStartForCurrentItem) return
 
     scope.launch {
-        traktScrobbleService.scrobbleStop(
-            item = item,
-            progressPercent = progressPercent
+        trackingScrobbleCoordinator.scrobble(
+            action = TrackingScrobbleAction.PAUSE,
+            event = TrackingScrobbleEvent(
+                media = item,
+                progressPercent = progressPercent.toDouble()
+            )
         )
     }
+
     scrobbleStartRequestGeneration++
     hasRequestedScrobbleStartForCurrentItem = false
     hasSentScrobbleStartForCurrentItem = false
@@ -290,18 +361,45 @@ internal fun PlayerRuntimeController.flushPlaybackSnapshotForSwitchOrExit() {
     saveWatchProgress()
 }
 
+internal fun PlayerRuntimeController.emitSeekScrobbleRestart(
+    progressPercent: Float
+) {
+    if (progressPercent < 1f || progressPercent >= 80f) return
+
+    val item = currentScrobbleItem ?: return
+    if (!hasRequestedScrobbleStartForCurrentItem) return
+
+    scope.launch {
+        trackingScrobbleCoordinator.scrobbleSeek(
+            action = TrackingScrobbleAction.STOP,
+            event = TrackingScrobbleEvent(
+                media = item,
+                progressPercent = progressPercent.toDouble()
+            )
+        )
+
+        if (_exoPlayer?.isPlaying == true) {
+            trackingScrobbleCoordinator.scrobbleSeek(
+                action = TrackingScrobbleAction.START,
+                event = TrackingScrobbleEvent(
+                    media = item,
+                    progressPercent =
+                        currentPlaybackProgressPercent().toDouble()
+                )
+            )
+        }
+    }
+}
+
 internal fun PlayerRuntimeController.scheduleProgressSyncAfterSeek() {
     seekProgressSyncJob?.cancel()
     seekProgressSyncJob = scope.launch {
         delay(seekProgressSyncDebounceMs)
         saveWatchProgress()
 
-        val progressPercent = currentPlaybackProgressPercent()
-        emitPauseScrobbleStop(progressPercent = progressPercent)
-
-        if (_exoPlayer?.isPlaying == true && progressPercent >= 1f && progressPercent < 80f) {
-            emitScrobbleStart()
-        }
+        emitSeekScrobbleRestart(
+            progressPercent = currentPlaybackProgressPercent()
+        )
     }
 }
 
@@ -879,7 +977,7 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         PlayerEvent.OnRatingExitComplete -> {
             val rating = _uiState.value.pendingRating
-            val scrobbleItem = currentScrobbleItem ?: buildScrobbleItem()
+            val scrobbleItem = buildTraktRatingItem()
             if (rating != null && scrobbleItem != null) {
                 scope.launch {
                     traktScrobbleService.postRating(item = scrobbleItem, rating = rating)

@@ -7,6 +7,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.tracking.TrackingMediaReference
+import com.nuvio.tv.core.tracking.TrackingScrobbleCoordinator
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
@@ -43,6 +45,7 @@ class PlayerRuntimeController(
     internal val pluginManager: PluginManager,
     internal val subtitleRepository: com.nuvio.tv.domain.repository.SubtitleRepository,
     internal val parentalGuideRepository: ParentalGuideRepository,
+    internal val trackingScrobbleCoordinator: TrackingScrobbleCoordinator,
     internal val traktScrobbleService: TraktScrobbleService,
     internal val traktEpisodeMappingService: TraktEpisodeMappingService,
     internal val skipIntroRepository: SkipIntroRepository,
@@ -251,7 +254,7 @@ class PlayerRuntimeController(
     internal var autoAdvanceStreamIndex: Int = 0
     internal var errorRetryJob: kotlinx.coroutines.Job? = null
     internal var stableProgressResetJob: kotlinx.coroutines.Job? = null
-    internal var currentScrobbleItem: TraktScrobbleItem? = null
+    internal var currentScrobbleItem: TrackingMediaReference? = null
     internal var currentTraktEpisodeMapping: EpisodeMappingEntry? = null
     internal var currentTraktEpisodeMappingKey: String? = null
     internal var hasSentScrobbleStartForCurrentItem: Boolean = false

@@ -193,3 +193,26 @@ Immediate next action:
 2. Preserve the existing Trakt-only rating overlay and `postRating()` behavior.
 3. Build and commit the internal-player conversion separately.
 4. Add provider-neutral video-ID and parent-ID normalization APIs for Details/anime watched-state handling.
+
+## Internal playback provider-neutral scrobbling
+
+Completed after commit `6faad75e`:
+
+- Converted internal-player START, PAUSE, STOP, periodic progress snapshots, completion, and seek handling to `TrackingScrobbleCoordinator`.
+- Playback scrobbles now go only to the selected, authenticated Watch Progress provider.
+- Added provider-neutral `TrackingMediaReference` construction for internal playback.
+- Trakt-specific episode mapping remains inside `TraktTrackingScrobbler`.
+- Simkl-specific enrichment remains inside `SimklTrackingScrobbler`.
+- Seek STOP/restart behavior is dispatched only to providers whose seek policy requires it.
+- No direct `traktScrobbleService.scrobbleStart`, `scrobblePause`, or `scrobbleStop` calls remain in the internal player.
+- Preserved the existing Trakt authentication check used to expose the custom rating prompt.
+- Preserved the existing Trakt-only `postRating()` path and custom rating values.
+- Normal incremental `./gradlew assembleDebug` passed.
+
+Immediate next action:
+
+1. Add provider-neutral `isWatchedByVideoId()` and `normalizeParentContentId()` APIs to `WatchProgressRepository`.
+2. Delegate those APIs to the active tracking progress provider.
+3. Wire Details/anime watched-state and relevant player progress normalization through them.
+4. Build and commit separately.
+5. Then begin runtime validation for Trakt, Simkl, and Nuvio Sync.
