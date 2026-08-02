@@ -94,3 +94,27 @@ internal fun isTraktCompatibleId(contentId: String?): Boolean {
 
     return raw.substringBefore(':').toIntOrNull() != null
 }
+
+/**
+ * Uses a valid ID embedded in [videoId] when an addon's parent [contentId]
+ * cannot be resolved by Trakt.
+ */
+internal fun resolveEffectiveContentId(contentId: String, videoId: String?): String {
+    val parsedContent = parseContentIds(contentId)
+    val contentIds = toTraktIds(parsedContent)
+    if (contentIds.hasAnyId()) return contentId
+
+    if (videoId.isNullOrBlank() || videoId == contentId) return contentId
+
+    val parsedVideo = parseContentIds(videoId)
+    val videoIds = toTraktIds(parsedVideo)
+    if (!videoIds.hasAnyId()) return contentId
+
+    return when {
+        !parsedVideo.imdb.isNullOrBlank() -> parsedVideo.imdb
+        parsedVideo.tmdb != null -> "tmdb:${parsedVideo.tmdb}"
+        parsedVideo.trakt != null -> parsedVideo.trakt.toString()
+        else -> contentId
+    }
+}
+

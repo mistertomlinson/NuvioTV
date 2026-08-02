@@ -317,6 +317,35 @@ class TraktProgressService @Inject constructor(
         requestFastSync()
     }
 
+    /**
+     * Updates optimistic Trakt progress without forcing an immediate network refresh.
+     * Periodic player saves use this so the UI stays current without creating
+     * extra refresh work during active playback.
+     */
+    fun updateOptimisticProgressQuietly(progress: WatchProgress) {
+        val now = System.currentTimeMillis()
+        val derivedPercent = when {
+            progress.progressPercent != null -> progress.progressPercent
+            progress.duration > 0L ->
+                (progress.position.toFloat() / progress.duration.toFloat()) * 100f
+            else -> null
+        }?.coerceIn(0f, 100f)
+
+        val optimistic = progress.copy(
+            progressPercent = derivedPercent,
+            source = WatchProgress.SOURCE_TRAKT_PLAYBACK
+        )
+
+        optimisticProgress.update { current ->
+            current.toMutableMap().apply {
+                this[progressKey(optimistic)] = OptimisticProgressEntry(
+                    progress = optimistic,
+                    expiresAtMs = now + optimisticTtlMs
+                )
+            }
+        }
+    }
+
     fun applyOptimisticRemoval(contentId: String, season: Int?, episode: Int?) {
         val contentKeyPrefix = contentId.trim()
         optimisticProgress.update { current ->
@@ -1721,6 +1750,32 @@ class TraktProgressService @Inject constructor(
     }.getOrElse { error ->
         Log.w(TAG, "markAsWatched: episode remap fallback failed", error)
         null
+    }
+
+    /**
+     * Provider-facing adapter for mapping a canonical Trakt episode seed back
+     * to the episode numbering and video ID exposed by the active addon.
+     */
+    internal suspend fun remapEpisodeSeedToAddon(
+        contentId: String,
+        contentType: String,
+        season: Int,
+        episode: Int,
+        episodeTitle: String?
+    ): EpisodeMappingEntry? {
+        return traktEpisodeMappingService.resolveEpisodeMapping(
+            contentId = contentId,
+            contentType = contentType,
+            videoId = null,
+            season = season,
+            episode = episode
+        )?.let { mapping ->
+            if (mapping.title == null && episodeTitle != null) {
+                mapping.copy(title = episodeTitle)
+            } else {
+                mapping
+            }
+        }
     }
 
     private suspend fun resolveCanonicalEpisodeMapping(
