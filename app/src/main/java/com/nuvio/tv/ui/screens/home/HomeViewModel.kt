@@ -46,13 +46,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import java.util.Collections
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.HomeEnrichmentDiskCache
 import com.nuvio.tv.data.repository.TraktLibraryService
-import com.nuvio.tv.data.repository.TraktScrobbleService
+import com.nuvio.tv.data.repository.TrackingRatingCoordinator
 import com.nuvio.tv.data.repository.parseContentIds
-import com.nuvio.tv.data.repository.TraktScrobbleItem
-import com.nuvio.tv.data.remote.dto.trakt.TraktIdsDto
 import com.nuvio.tv.data.repository.TraktProgressService
 import javax.inject.Inject
 import android.os.SystemClock
@@ -100,7 +99,7 @@ class HomeViewModel @Inject constructor(
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     internal val homeEnrichmentDiskCache: HomeEnrichmentDiskCache,
     internal val myListDiskCache: MyListDiskCache,
-    internal val traktScrobbleService: TraktScrobbleService,
+    internal val trackingRatingCoordinator: TrackingRatingCoordinator,
     internal val homeTrailerPlayerHolder: com.nuvio.tv.ui.components.HomeTrailerPlayerHolder,
 ) : ViewModel() {
     companion object {
@@ -1168,15 +1167,14 @@ class HomeViewModel @Inject constructor(
         _uiState.update { it.copy(showWatchedRatingOverlay = false) }
         viewModelScope.launch {
             runCatching {
-                val parsedIds = parseContentIds(itemId)
-                val imdbId = state.watchedRatingImdbId ?: parsedIds.imdb
-                val traktIds = TraktIdsDto(imdb = imdbId, tmdb = parsedIds.tmdb)
-                val scrobbleItem = TraktScrobbleItem.Movie(
+                val media = buildTrackingMediaReference(
+                    contentType = itemType,
+                    parentMetaId = itemId,
+                    videoId = state.watchedRatingImdbId,
                     title = state.watchedRatingTitle,
-                    year = state.watchedRatingYear,
-                    ids = traktIds
+                    releaseInfo = state.watchedRatingYear?.toString()
                 )
-                traktScrobbleService.postRating(item = scrobbleItem, rating = rating)
+                trackingRatingCoordinator.submit(media = media, rating = rating)
             }.onFailure { error ->
                 android.util.Log.w(TAG, "Failed to submit watched rating: ${error.message}")
             }

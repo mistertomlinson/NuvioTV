@@ -241,3 +241,52 @@ Immediate next action:
 5. Test Nuvio Sync/local mode and verify no remote provider receives playback writes.
 6. Allow Home to warm fully before evaluating scrolling performance.
 7. Run the established full AOT command only when beginning performance validation.
+## Provider-neutral ratings
+
+Completed in commit `Add provider-neutral ratings`:
+
+- Added `TrackingRatingCoordinator` as the single rating-submission path.
+- Ratings are routed only to the selected Watch Progress provider.
+- Trakt selected and connected:
+  - rating prompt is available
+  - rating is submitted only to Trakt
+- Simkl selected and connected:
+  - rating prompt is available
+  - rating is submitted only to Simkl through `POST /sync/ratings`
+- Nuvio Sync selected:
+  - rating prompt is not available
+  - no external rating is submitted
+- A disconnected selected provider does not expose the rating prompt.
+- Having both Trakt and Simkl connected never causes dual rating writes.
+- Home, Details, and Player now use the same provider-aware availability rule.
+- Removed all direct UI calls to Trakt `postRating()`.
+- Simkl ratings validate the 1-10 range client-side.
+- Simkl responses are inspected to confirm `added.statuses` contains an applied item;
+  an HTTP success response alone is not treated as proof that the rating was stored.
+- Preserved Trakt title/year fallback compatibility.
+- Preserved the existing rating interface and exact mappings:
+  - Thumbs down = 2
+  - Thumbs up = 7
+  - Love it = 10
+- The two rating overlay files were not modified.
+- Normal incremental `./gradlew assembleDebug` passed.
+- No Home active-scroll-path work was added; availability checks occur only during
+  watched actions or playback preparation/completion.
+
+Files intentionally still uncommitted because they contain temporary diagnostics:
+
+- `WatchProgressRepositoryImpl.kt`
+- `SimklSyncRemote.kt`
+- `SimklSyncRepository.kt`
+- `HomeViewModelContinueWatching.kt`
+
+Immediate next action:
+
+1. Install the current debug APK without clearing app data.
+2. Test rating visibility and submission with Trakt selected and connected.
+3. Test rating visibility and submission with Simkl selected and connected.
+4. Verify no rating prompt appears with Nuvio Sync selected.
+5. Verify no rating prompt appears when the selected provider is disconnected.
+6. Do not run AOT solely for this functional rating test.
+7. After rating validation, remove the temporary diagnostic changes before the
+   next production commit.

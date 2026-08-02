@@ -12,8 +12,10 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
     playbackPreparationJob = scope.launch {
         warmTraktEpisodeMappingForCurrentPlayback()
         refreshScrobbleItem()
-        val isTraktConnected = traktScrobbleService.isTraktAuthenticated()
-        _uiState.update { it.copy(isTraktConnected = isTraktConnected) }
+        val isRatingProviderConnected = trackingRatingCoordinator.isAvailable()
+        _uiState.update {
+            it.copy(isRatingProviderConnected = isRatingProviderConnected)
+        }
         initializePlayer(url, headers)
         if (loadSavedProgress) {
             loadSavedProgressFor(currentSeason, currentEpisode)

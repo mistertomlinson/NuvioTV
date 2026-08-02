@@ -132,7 +132,7 @@ data class PlayerUiState(
     val showStreamInfoOverlay: Boolean = false,
     val streamInfoData: StreamInfoData? = null,
     // Post-playback rating overlay
-    val isTraktConnected: Boolean = false,
+    val isRatingProviderConnected: Boolean = false,
     val showRatingOverlay: Boolean = false,
     val ratingSubmitted: Boolean = false,
     val showPlayerBlackout: Boolean = false,

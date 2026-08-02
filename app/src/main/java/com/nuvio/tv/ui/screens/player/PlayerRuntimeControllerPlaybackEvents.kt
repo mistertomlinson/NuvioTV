@@ -8,10 +8,6 @@ import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import com.nuvio.tv.data.local.SubtitleStyleSettings
-import com.nuvio.tv.data.repository.TraktScrobbleItem
-import com.nuvio.tv.data.repository.extractYear
-import com.nuvio.tv.data.repository.parseContentIds
-import com.nuvio.tv.data.repository.toTraktIds
 import com.nuvio.tv.domain.model.WatchProgress
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
@@ -220,51 +216,6 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TrackingMediaReference
     return reference.takeIf { media ->
         media.hasResolvableIdentity &&
             (media.kind == TrackingMediaKind.MOVIE || media.episode != null)
-    }
-}
-
-/**
- * Builds the legacy Trakt item used only by the custom rating prompt.
- *
- * Playback scrobbling itself must use [TrackingScrobbleCoordinator].
- */
-internal fun PlayerRuntimeController.buildTraktRatingItem(): TraktScrobbleItem? {
-    val rawContentId = contentId ?: return null
-    val parsedIds = parseContentIds(rawContentId)
-    val ids = toTraktIds(parsedIds)
-    val parsedYear = extractYear(year)
-    val normalizedType = contentType?.lowercase()
-    val currentMappingKey = currentEpisodeMappingCacheKey()
-    val mappedEpisode =
-        if (currentTraktEpisodeMappingKey == currentMappingKey) {
-            currentTraktEpisodeMapping
-        } else {
-            null
-        }
-
-    val effectiveSeason = mappedEpisode?.season ?: currentSeason
-    val effectiveEpisode = mappedEpisode?.episode ?: currentEpisode
-
-    val isEpisode =
-        normalizedType in listOf("series", "tv") &&
-            effectiveSeason != null &&
-            effectiveEpisode != null
-
-    return if (isEpisode) {
-        TraktScrobbleItem.Episode(
-            showTitle = contentName ?: title,
-            showYear = parsedYear,
-            showIds = ids,
-            season = effectiveSeason ?: return null,
-            number = effectiveEpisode ?: return null,
-            episodeTitle = currentEpisodeTitle
-        )
-    } else {
-        TraktScrobbleItem.Movie(
-            title = contentName ?: title,
-            year = parsedYear,
-            ids = ids
-        )
     }
 }
 
@@ -961,15 +912,30 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             _uiState.update { it.copy(showStreamInfoOverlay = false) }
         }
         PlayerEvent.OnShowRatingOverlay -> {
-            _exoPlayer?.pause()
-            _uiState.update {
-                it.copy(
-                    showRatingOverlay = true,
-                    showControls = false,
-                    showPauseOverlay = false,
-                    showPlayerBlackout = false,
-                    ratingSubmitted = false
-                )
+            scope.launch {
+                val available = trackingRatingCoordinator.isAvailable()
+                if (!available) {
+                    _uiState.update {
+                        it.copy(
+                            isRatingProviderConnected = false,
+                            showRatingOverlay = false,
+                            ratingSubmitted = true
+                        )
+                    }
+                    return@launch
+                }
+
+                _exoPlayer?.pause()
+                _uiState.update {
+                    it.copy(
+                        isRatingProviderConnected = true,
+                        showRatingOverlay = true,
+                        showControls = false,
+                        showPauseOverlay = false,
+                        showPlayerBlackout = false,
+                        ratingSubmitted = false
+                    )
+                }
             }
         }
         is PlayerEvent.OnSubmitRating -> {
@@ -986,13 +952,21 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         }
         PlayerEvent.OnRatingExitComplete -> {
             val rating = _uiState.value.pendingRating
-            val scrobbleItem = buildTraktRatingItem()
-            if (rating != null && scrobbleItem != null) {
+            val media = buildScrobbleItem()
+            if (rating != null && media != null) {
                 scope.launch {
-                    traktScrobbleService.postRating(item = scrobbleItem, rating = rating)
+                    runCatching {
+                        trackingRatingCoordinator.submit(media = media, rating = rating)
+                    }
+                    _uiState.update {
+                        it.copy(ratingSubmitted = true, showRatingOverlay = false)
+                    }
+                }
+            } else {
+                _uiState.update {
+                    it.copy(ratingSubmitted = true, showRatingOverlay = false)
                 }
             }
-            _uiState.update { it.copy(ratingSubmitted = true, showRatingOverlay = false) }
         }
     }
 }

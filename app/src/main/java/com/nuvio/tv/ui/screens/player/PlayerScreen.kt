@@ -201,7 +201,7 @@ fun PlayerScreen(
                 ) == null
             val isFinale = isSeasonFinale || isSeriesFinale
             val shouldPromptRating = progressPct >= 85f &&
-                uiState.isTraktConnected &&
+                uiState.isRatingProviderConnected &&
                 !uiState.showRatingOverlay && (isMovie || isFinale)
             if (shouldPromptRating) {
                 viewModel.onEvent(PlayerEvent.OnShowRatingOverlay)

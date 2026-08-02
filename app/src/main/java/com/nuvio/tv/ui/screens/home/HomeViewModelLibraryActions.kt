@@ -278,8 +278,8 @@ fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
                 watchProgressRepository.removeFromHistory(item.id, videoId = item.imdbId)
             } else {
                 watchProgressRepository.markAsCompleted(buildCompletedMovieProgress(item))
-                // Show rating overlay if Trakt is connected
-                if (traktScrobbleService.isTraktAuthenticated()) {
+                // Rate only through the selected connected Trakt or Simkl account.
+                if (trackingRatingCoordinator.isAvailable()) {
                     val parsedIds = parseContentIds(item.id)
                     val year = Regex("(\\d{4})").find(item.releaseInfo ?: "")
                         ?.groupValues?.getOrNull(1)?.toIntOrNull()
