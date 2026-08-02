@@ -4,11 +4,9 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
-import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktAuthState
 import com.nuvio.tv.data.local.TraktSettingsDataStore
-import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.repository.TraktAuthService
 import com.nuvio.tv.data.repository.TraktProgressService
 import com.nuvio.tv.data.repository.TraktTokenPollResult
@@ -16,7 +14,6 @@ import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.WatchedSeriesStateHolder
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.core.sync.WatchedItemsSyncService
-import com.nuvio.tv.domain.model.LibrarySourceMode
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -49,9 +46,7 @@ data class TraktUiState(
     val deviceCodeExpiresAtMillis: Long? = null,
     val continueWatchingDaysCap: Int = TraktSettingsDataStore.DEFAULT_CONTINUE_WATCHING_DAYS_CAP,
     val showUnairedNextUp: Boolean = TraktSettingsDataStore.DEFAULT_SHOW_UNAIRED_NEXT_UP,
-    val watchProgressSource: WatchProgressSource = TraktSettingsDataStore.DEFAULT_WATCH_PROGRESS_SOURCE,
     val showMetaComments: Boolean = TraktSettingsDataStore.DEFAULT_SHOW_META_COMMENTS,
-    val librarySourceMode: LibrarySourceMode = TraktSettingsDataStore.DEFAULT_LIBRARY_SOURCE_MODE,
     val connectedStats: TraktProgressService.TraktCachedStats? = null,
     val statusMessage: String? = null,
     val errorMessage: String? = null
@@ -63,7 +58,6 @@ class TraktViewModel @Inject constructor(
     private val traktAuthDataStore: TraktAuthDataStore,
     private val traktProgressService: TraktProgressService,
     private val traktSettingsDataStore: TraktSettingsDataStore,
-    private val startupSyncService: StartupSyncService,
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val watchedItemsSyncService: WatchedItemsSyncService,
     private val watchedSeriesStateHolder: WatchedSeriesStateHolder,
@@ -114,29 +108,6 @@ class TraktViewModel @Inject constructor(
         }
     }
 
-    fun onWatchProgressSourceSelected(source: WatchProgressSource) {
-        viewModelScope.launch {
-            traktSettingsDataStore.setWatchProgressSource(source)
-            if (source == WatchProgressSource.TRAKT) {
-                watchedItemsPreferences.replaceWithRemoteItems(emptyList())
-                traktProgressService.refreshNow()
-            } else {
-                repopulateWatchedItemsFromNuvioSync()
-                startupSyncService.requestSyncNow()
-            }
-            _uiState.update {
-                it.copy(
-                    watchProgressSource = source,
-                    statusMessage = if (source == WatchProgressSource.TRAKT) {
-                        context.getString(R.string.trakt_watch_progress_trakt_selected)
-                    } else {
-                        context.getString(R.string.trakt_watch_progress_nuvio_selected)
-                    }
-                )
-            }
-        }
-    }
-
     fun onConnectClick() {
         if (!traktAuthService.hasRequiredCredentials()) {
             _uiState.update {
@@ -179,22 +150,6 @@ class TraktViewModel @Inject constructor(
                         context.getString(R.string.trakt_comments_now_shown)
                     } else {
                         context.getString(R.string.trakt_comments_now_hidden)
-                    }
-                )
-            }
-        }
-    }
-
-    fun onLibrarySourceModeSelected(mode: LibrarySourceMode) {
-        viewModelScope.launch {
-            traktSettingsDataStore.setLibrarySourceMode(mode)
-            _uiState.update {
-                it.copy(
-                    librarySourceMode = mode,
-                    statusMessage = if (mode == LibrarySourceMode.TRAKT) {
-                        context.getString(R.string.trakt_library_source_trakt_selected)
-                    } else {
-                        context.getString(R.string.trakt_library_source_nuvio_selected)
                     }
                 )
             }
@@ -272,25 +227,19 @@ class TraktViewModel @Inject constructor(
             combine(
                 traktSettingsDataStore.continueWatchingDaysCap,
                 traktSettingsDataStore.showUnairedNextUp,
-                traktSettingsDataStore.showMetaComments,
-                traktSettingsDataStore.watchProgressSource,
-                traktSettingsDataStore.librarySourceMode
-            ) { daysCap, showUnairedNextUp, showMetaComments, watchProgressSource, librarySourceMode ->
+                traktSettingsDataStore.showMetaComments
+            ) { daysCap, showUnairedNextUp, showMetaComments ->
                 SettingsSnapshot(
                     continueWatchingDaysCap = daysCap,
                     showUnairedNextUp = showUnairedNextUp,
-                    showMetaComments = showMetaComments,
-                    watchProgressSource = watchProgressSource,
-                    librarySourceMode = librarySourceMode
+                    showMetaComments = showMetaComments
                 )
             }.collectLatest { snapshot ->
                 _uiState.update {
                     it.copy(
                         continueWatchingDaysCap = snapshot.continueWatchingDaysCap,
                         showUnairedNextUp = snapshot.showUnairedNextUp,
-                        showMetaComments = snapshot.showMetaComments,
-                        watchProgressSource = snapshot.watchProgressSource,
-                        librarySourceMode = snapshot.librarySourceMode
+                        showMetaComments = snapshot.showMetaComments
                     )
                 }
             }
@@ -381,9 +330,7 @@ class TraktViewModel @Inject constructor(
     private data class SettingsSnapshot(
         val continueWatchingDaysCap: Int,
         val showUnairedNextUp: Boolean,
-        val showMetaComments: Boolean,
-        val watchProgressSource: WatchProgressSource,
-        val librarySourceMode: LibrarySourceMode
+        val showMetaComments: Boolean
     )
 
     private suspend fun repopulateWatchedItemsFromNuvioSync() {

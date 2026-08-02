@@ -91,42 +91,51 @@ progress copy until dedicated Simkl optimistic projection support is added.
 The provider-neutral Home code has compiled successfully but has not yet been
 installed or runtime-tested with Trakt, Simkl, and Nuvio Sync selections.
 
+The obsolete source-selection paths in `TraktViewModel` have also been removed:
+
+- `onWatchProgressSourceSelected()` and `onLibrarySourceModeSelected()` had no
+  callers and bypassed the centralized provider-aware transition logic.
+- Their duplicate `TraktUiState` fields, settings observers, imports, and the
+  now-unused `StartupSyncService` dependency were removed.
+- The only remaining direct writes to `watchProgressSource` and
+  `librarySourceMode` are inside `TrackingSourceController`.
+- Trakt disconnect behavior and its required watched-item, watched-series, and
+  Continue Watching cache cleanup dependencies remain unchanged.
+- The normal incremental `assembleDebug` build passed after this cleanup.
+
 ## Next steps, in dependency order
 
-1. Commit the provider-neutral Home Continue Watching/Next Up integration with
-   this handoff update.
-2. Audit old Trakt settings/source-switching methods that may remain reachable
-   outside the centralized `TrackingSourceController`.
-3. Add or expose provider-neutral video-ID/anime watched lookup where Details,
+1. Commit the removal of obsolete Trakt source-selection paths with this
+   handoff update.
+2. Add or expose provider-neutral video-ID/anime watched lookup where Details,
    episode badges, or player state require it.
-4. Verify Home Continue Watching and Next Up behavior with Trakt selected:
+3. Verify Home Continue Watching and Next Up behavior with Trakt selected:
    - cached rows survive initial remote loading
    - completed-history seeds resolve correctly
    - configured age cutoff remains unchanged
-5. Verify the same Home paths with Simkl selected:
+4. Verify the same Home paths with Simkl selected:
    - cached rows survive initial snapshot loading
    - Simkl progress and watched seeds populate
    - no Trakt-only cutoff is applied
-6. Verify local/Nuvio Sync behavior when no external provider is selected.
-7. Finish watched badges, Details, manual watched/unwatched, and player-state
+5. Verify local/Nuvio Sync behavior when no external provider is selected.
+6. Finish watched badges, Details, manual watched/unwatched, and player-state
    integration.
-8. Finish mixed newest-first Simkl My List/library behavior.
-9. Implement durable unfinished Simkl playback beyond Simkl's remote
+7. Finish mixed newest-first Simkl My List/library behavior.
+8. Implement durable unfinished Simkl playback beyond Simkl's remote
    playback-retention window.
-10. Add dedicated Simkl optimistic projection support if runtime behavior shows
+9. Add dedicated Simkl optimistic projection support if runtime behavior shows
     it is needed for immediate Continue Watching updates.
-11. Finish hidden/dismissed Continue Watching behavior and release alerts.
-12. Install and test with Trakt, Simkl, and Nuvio Sync selected.
-13. Run fully warmed Home scrolling tests in every navigation mode before
+10. Finish hidden/dismissed Continue Watching behavior and release alerts.
+11. Install and test with Trakt, Simkl, and Nuvio Sync selected.
+12. Run fully warmed Home scrolling tests in every navigation mode before
     declaring parity complete.
 
 ## Immediate next action
 
-Commit the provider-neutral Home Continue Watching/Next Up conversion and this
-updated handoff.
+Commit the obsolete Trakt source-selection cleanup and this updated handoff.
 
-After that, audit the remaining old source-switching methods outside the
-centralized tracking settings/controller before installing the build.
+After that, audit Details, episode badges, and player-state callers that still
+need provider-neutral video-ID or anime watched lookup.
 
 ## Files most relevant to the next step
 
