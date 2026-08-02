@@ -291,3 +291,37 @@ Immediate next action:
    synchronization runs only when Nuvio Sync is the selected effective source.
 2. Build and commit that correction separately.
 3. Then implement durable per-profile unfinished Simkl progress.
+
+## Nuvio Sync progress isolation
+
+Completed in commit `Isolate Nuvio Sync progress synchronization`:
+
+- Supabase watch-progress synchronization now runs only when the stored Watch
+  Progress Source is exactly `NUVIO_SYNC`.
+- Applied the same source-isolation rule to watched-item synchronization.
+- Removed the previous Trakt-authentication-based gate.
+- Trakt-selected and Simkl-selected modes now skip all Supabase:
+  - progress pushes
+  - single-progress pushes
+  - progress deletions
+  - progress pulls
+  - watched-item pushes
+  - watched-item pulls
+- Account sync checks the Nuvio Sync gate before consuming progress or watched
+  item pull results.
+- Startup sync checks the Nuvio Sync gate before consuming progress or watched
+  item pull results.
+- A skipped provider pull is no longer treated as authoritative empty remote
+  data by Account or startup synchronization.
+- Existing library synchronization behavior was preserved.
+- Existing Nuvio Sync source-selection restoration remains intact.
+- Normal incremental `./gradlew assembleDebug` passed.
+- No Home active-scroll-path work was added.
+
+Immediate next action:
+
+1. Install the APK without clearing app data.
+2. Confirm Trakt-selected and Simkl-selected playback does not alter Nuvio Sync
+   progress or watched history.
+3. Confirm Nuvio Sync-selected playback still synchronizes normally.
+4. Then implement durable per-profile unfinished Simkl progress.

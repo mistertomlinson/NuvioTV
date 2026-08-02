@@ -3,7 +3,6 @@ package com.nuvio.tv.core.sync
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
-import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.local.WatchedItemsPreferences
@@ -28,7 +27,6 @@ class WatchedItemsSyncService @Inject constructor(
     private val authManager: AuthManager,
     private val postgrest: Postgrest,
     private val watchedItemsPreferences: WatchedItemsPreferences,
-    private val traktAuthDataStore: TraktAuthDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val profileManager: ProfileManager
 ) {
@@ -41,16 +39,13 @@ class WatchedItemsSyncService @Inject constructor(
         }
     }
 
-    private suspend fun shouldUseSupabaseWatchProgressSync(): Boolean {
-        val hasEffectiveTraktConnection = traktAuthDataStore.isEffectivelyAuthenticated.first()
-        val source = traktSettingsDataStore.watchProgressSource.first()
-        return !(hasEffectiveTraktConnection && source == WatchProgressSource.TRAKT)
-    }
+    private suspend fun shouldUseSupabaseWatchProgressSync(): Boolean =
+        traktSettingsDataStore.watchProgressSource.first() == WatchProgressSource.NUVIO_SYNC
 
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (!shouldUseSupabaseWatchProgressSync()) {
-                Log.d(TAG, "Using Trakt watch progress, skipping watched items push")
+                Log.d(TAG, "Nuvio Sync is not selected, skipping watched items push")
                 return@withContext Result.success(Unit)
             }
 
@@ -90,7 +85,7 @@ class WatchedItemsSyncService @Inject constructor(
     suspend fun pullFromRemote(): Result<List<WatchedItem>> = withContext(Dispatchers.IO) {
         try {
             if (!shouldUseSupabaseWatchProgressSync()) {
-                Log.d(TAG, "Using Trakt watch progress, skipping watched items pull")
+                Log.d(TAG, "Nuvio Sync is not selected, skipping watched items pull")
                 return@withContext Result.success(emptyList())
             }
 

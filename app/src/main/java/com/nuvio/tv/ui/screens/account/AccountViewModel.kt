@@ -593,48 +593,77 @@ class AccountViewModel @Inject constructor(
             addonRepository.isSyncingFromRemote = false
 
             val isTraktConnected = traktAuthDataStore.isEffectivelyAuthenticated.first()
-            val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
+            val shouldUseSupabaseWatchProgressSync =
+                watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
             Log.d(
                 "AccountViewModel",
-                "pullRemoteData: isTraktConnected=$isTraktConnected shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
+                "pullRemoteData: isTraktConnected=$isTraktConnected " +
+                    "shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
             )
-            if (!isTraktConnected) {
-                watchProgressRepository.isSyncingFromRemote = true
-                val remoteEntries = watchProgressSyncService.pullFromRemote().getOrElse { throw it }
-                Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteEntries.size} watch progress entries")
-                watchProgressPreferences.replaceWithRemoteEntries(remoteEntries.toMap())
-                Log.d("AccountViewModel", "pullRemoteData: reconciled local watch progress with ${remoteEntries.size} remote entries")
-                watchProgressRepository.isSyncingFromRemote = false
 
+            if (!isTraktConnected) {
                 libraryRepository.isSyncingFromRemote = true
                 librarySyncService.pullFromRemote().fold(
                     onSuccess = { remoteLibraryItems ->
-                        Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteLibraryItems.size} library items")
+                        Log.d(
+                            "AccountViewModel",
+                            "pullRemoteData: pulled ${remoteLibraryItems.size} library items"
+                        )
                         libraryPreferences.mergeRemoteItems(remoteLibraryItems)
-                        Log.d("AccountViewModel", "pullRemoteData: reconciled local library with ${remoteLibraryItems.size} remote items")
+                        Log.d(
+                            "AccountViewModel",
+                            "pullRemoteData: reconciled local library with " +
+                                "${remoteLibraryItems.size} remote items"
+                        )
                     },
-                    onFailure = { e ->
-                        Log.e("AccountViewModel", "pullRemoteData: failed to pull library items", e)
+                    onFailure = { error ->
+                        Log.e(
+                            "AccountViewModel",
+                            "pullRemoteData: failed to pull library items",
+                            error
+                        )
                     }
                 )
                 libraryRepository.isSyncingFromRemote = false
+            }
 
-                val remoteWatchedItems = watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
-                Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteWatchedItems.size} watched items")
-                watchedItemsPreferences.replaceWithRemoteItems(remoteWatchedItems)
-                Log.d("AccountViewModel", "pullRemoteData: reconciled local watched items with ${remoteWatchedItems.size} remote items")
-            } else if (shouldUseSupabaseWatchProgressSync) {
+            if (shouldUseSupabaseWatchProgressSync) {
                 watchProgressRepository.isSyncingFromRemote = true
-                val remoteEntries = watchProgressSyncService.pullFromRemote().getOrElse { throw it }
-                Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteEntries.size} watch progress entries in Trakt mode")
-                watchProgressPreferences.replaceWithRemoteEntries(remoteEntries.toMap())
-                Log.d("AccountViewModel", "pullRemoteData: replaced local watch progress with ${remoteEntries.size} remote entries")
-                watchProgressRepository.isSyncingFromRemote = false
+                try {
+                    val remoteEntries =
+                        watchProgressSyncService.pullFromRemote().getOrElse { throw it }
+                    Log.d(
+                        "AccountViewModel",
+                        "pullRemoteData: pulled ${remoteEntries.size} Nuvio Sync progress entries"
+                    )
+                    watchProgressPreferences.replaceWithRemoteEntries(remoteEntries.toMap())
+                    Log.d(
+                        "AccountViewModel",
+                        "pullRemoteData: reconciled local progress with " +
+                            "${remoteEntries.size} Nuvio Sync entries"
+                    )
+                } finally {
+                    watchProgressRepository.isSyncingFromRemote = false
+                }
 
-                val remoteWatchedItems = watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
-                Log.d("AccountViewModel", "pullRemoteData: pulled ${remoteWatchedItems.size} watched items in Trakt mode")
+                val remoteWatchedItems =
+                    watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
+                Log.d(
+                    "AccountViewModel",
+                    "pullRemoteData: pulled ${remoteWatchedItems.size} Nuvio Sync watched items"
+                )
                 watchedItemsPreferences.replaceWithRemoteItems(remoteWatchedItems)
-                Log.d("AccountViewModel", "pullRemoteData: reconciled local watched items with ${remoteWatchedItems.size} remote items")
+                Log.d(
+                    "AccountViewModel",
+                    "pullRemoteData: reconciled local watched items with " +
+                        "${remoteWatchedItems.size} Nuvio Sync items"
+                )
+            } else {
+                Log.d(
+                    "AccountViewModel",
+                    "pullRemoteData: skipping Supabase progress and watched items; " +
+                        "Nuvio Sync is not selected"
+                )
             }
             return Result.success(Unit)
         } catch (e: Exception) {

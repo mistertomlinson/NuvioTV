@@ -182,77 +182,83 @@ class StartupSyncService @Inject constructor(
             }
 
             val isPrimaryProfile = profileManager.activeProfileId.value == 1
-            val isTraktConnected = isPrimaryProfile && traktAuthDataStore.isAuthenticated.first()
-            val shouldUseSupabaseWatchProgressSync = watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
+            val isTraktConnected =
+                isPrimaryProfile && traktAuthDataStore.isAuthenticated.first()
+            val shouldUseSupabaseWatchProgressSync =
+                watchProgressSyncService.shouldUseSupabaseWatchProgressSync()
             Log.d(
                 TAG,
-                "Watch progress sync: isTraktConnected=$isTraktConnected isPrimaryProfile=$isPrimaryProfile shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
+                "Watch progress sync: isTraktConnected=$isTraktConnected " +
+                    "isPrimaryProfile=$isPrimaryProfile " +
+                    "shouldUseSupabaseWatchProgressSync=$shouldUseSupabaseWatchProgressSync"
             )
-            if (!isTraktConnected) {
-                // Pull library and watched items first — these are lightweight and critical.
-                // Watch progress is pulled last because the table is large and may time out;
-                // a failure there must not block the other syncs.
 
+            if (!isTraktConnected) {
                 libraryRepository.isSyncingFromRemote = true
                 try {
-                    val remoteLibraryItems = librarySyncService.pullFromRemote().getOrElse { throw it }
-                    Log.d(TAG, "Pulled ${remoteLibraryItems.size} library items from remote")
+                    val remoteLibraryItems =
+                        librarySyncService.pullFromRemote().getOrElse { throw it }
+                    Log.d(
+                        TAG,
+                        "Pulled ${remoteLibraryItems.size} library items from remote"
+                    )
                     libraryPreferences.mergeRemoteItems(remoteLibraryItems)
                     libraryRepository.hasCompletedInitialPull = true
-                    Log.d(TAG, "Reconciled local library with ${remoteLibraryItems.size} remote items")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to pull library, continuing with other syncs", e)
+                    Log.d(
+                        TAG,
+                        "Reconciled local library with ${remoteLibraryItems.size} remote items"
+                    )
+                } catch (error: Exception) {
+                    Log.e(TAG, "Failed to pull library, continuing with other syncs", error)
                 } finally {
                     libraryRepository.isSyncingFromRemote = false
                 }
+            }
 
+            if (shouldUseSupabaseWatchProgressSync) {
                 try {
-                    val remoteWatchedItems = watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
-                    Log.d(TAG, "Pulled ${remoteWatchedItems.size} watched items from remote")
+                    val remoteWatchedItems =
+                        watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
+                    Log.d(
+                        TAG,
+                        "Pulled ${remoteWatchedItems.size} Nuvio Sync watched items"
+                    )
                     watchedItemsPreferences.replaceWithRemoteItems(remoteWatchedItems)
                     watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
-                    Log.d(TAG, "Reconciled local watched items with ${remoteWatchedItems.size} remote items")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to pull watched items, continuing with other syncs", e)
+                    Log.d(
+                        TAG,
+                        "Reconciled local watched items with " +
+                            "${remoteWatchedItems.size} Nuvio Sync items"
+                    )
+                } catch (error: Exception) {
+                    Log.e(TAG, "Failed to pull Nuvio Sync watched items, continuing", error)
                 }
 
                 watchProgressRepository.isSyncingFromRemote = true
                 try {
-                    val remoteEntries = watchProgressSyncService.pullFromRemote().getOrElse { throw it }
-                    Log.d(TAG, "Pulled ${remoteEntries.size} watch progress entries from remote")
+                    val remoteEntries =
+                        watchProgressSyncService.pullFromRemote().getOrElse { throw it }
+                    Log.d(
+                        TAG,
+                        "Pulled ${remoteEntries.size} Nuvio Sync progress entries"
+                    )
                     watchProgressPreferences.mergeRemoteEntries(remoteEntries.toMap())
                     watchProgressRepository.hasCompletedInitialPull = true
-                    Log.d(TAG, "Merged local watch progress with ${remoteEntries.size} remote entries")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to pull watch progress, continuing", e)
-                } finally {
-                    watchProgressRepository.isSyncingFromRemote = false
-                }
-            } else if (shouldUseSupabaseWatchProgressSync) {
-                try {
-                    val remoteWatchedItems = watchedItemsSyncService.pullFromRemote().getOrElse { throw it }
-                    Log.d(TAG, "Pulled ${remoteWatchedItems.size} watched items from remote")
-                    watchedItemsPreferences.replaceWithRemoteItems(remoteWatchedItems)
-                    watchProgressRepository.hasCompletedInitialWatchedItemsPull = true
-                    Log.d(TAG, "Reconciled local watched items with ${remoteWatchedItems.size} remote items")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to pull watched items, continuing with Trakt library mode", e)
-                }
-
-                watchProgressRepository.isSyncingFromRemote = true
-                try {
-                    val remoteEntries = watchProgressSyncService.pullFromRemote().getOrElse { throw it }
-                    Log.d(TAG, "Pulled ${remoteEntries.size} watch progress entries from remote")
-                    watchProgressPreferences.mergeRemoteEntries(remoteEntries.toMap())
-                    watchProgressRepository.hasCompletedInitialPull = true
-                    Log.d(TAG, "Merged local watch progress with ${remoteEntries.size} remote entries")
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to pull watch progress while Trakt is connected, continuing", e)
+                    Log.d(
+                        TAG,
+                        "Merged local progress with ${remoteEntries.size} Nuvio Sync entries"
+                    )
+                } catch (error: Exception) {
+                    Log.e(TAG, "Failed to pull Nuvio Sync progress, continuing", error)
                 } finally {
                     watchProgressRepository.isSyncingFromRemote = false
                 }
             } else {
-                Log.d(TAG, "Skipping watch progress & library sync (Trakt connected)")
+                Log.d(
+                    TAG,
+                    "Skipping Supabase progress and watched-item sync; " +
+                        "Nuvio Sync is not selected"
+                )
             }
             return Result.success(Unit)
         } catch (e: Exception) {

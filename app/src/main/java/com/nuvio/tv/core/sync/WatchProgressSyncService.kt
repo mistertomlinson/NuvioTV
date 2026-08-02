@@ -3,7 +3,6 @@ package com.nuvio.tv.core.sync
 import android.util.Log
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.profile.ProfileManager
-import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.local.WatchProgressPreferences
@@ -28,7 +27,6 @@ class WatchProgressSyncService @Inject constructor(
     private val authManager: AuthManager,
     private val postgrest: Postgrest,
     private val watchProgressPreferences: WatchProgressPreferences,
-    private val traktAuthDataStore: TraktAuthDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val profileManager: ProfileManager
 ) {
@@ -41,11 +39,8 @@ class WatchProgressSyncService @Inject constructor(
         }
     }
 
-    suspend fun shouldUseSupabaseWatchProgressSync(): Boolean {
-        val hasEffectiveTraktConnection = traktAuthDataStore.isEffectivelyAuthenticated.first()
-        val source = traktSettingsDataStore.watchProgressSource.first()
-        return !(hasEffectiveTraktConnection && source == WatchProgressSource.TRAKT)
-    }
+    suspend fun shouldUseSupabaseWatchProgressSync(): Boolean =
+        traktSettingsDataStore.watchProgressSource.first() == WatchProgressSource.NUVIO_SYNC
 
     suspend fun deleteFromRemote(keys: Collection<String>): Result<Unit> = withContext(Dispatchers.IO) {
         try {
@@ -81,12 +76,12 @@ class WatchProgressSyncService @Inject constructor(
 
     /**
      * Push all local watch progress to Supabase via RPC.
-     * Skips if Trakt is connected (Trakt handles progress when active).
+     * Runs only when Nuvio Sync is the selected watch-progress source.
      */
     suspend fun pushToRemote(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (!shouldUseSupabaseWatchProgressSync()) {
-                Log.d(TAG, "Using Trakt watch progress, skipping watch progress push")
+                Log.d(TAG, "Nuvio Sync is not selected, skipping watch progress push")
                 return@withContext Result.success(Unit)
             }
 
@@ -134,7 +129,7 @@ class WatchProgressSyncService @Inject constructor(
     suspend fun pushSingleToRemote(key: String, progress: WatchProgress): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             if (!shouldUseSupabaseWatchProgressSync()) {
-                Log.d(TAG, "Using Trakt watch progress, skipping single watch progress push")
+                Log.d(TAG, "Nuvio Sync is not selected, skipping single watch progress push")
                 return@withContext Result.success(Unit)
             }
 
@@ -172,12 +167,12 @@ class WatchProgressSyncService @Inject constructor(
      * Pull watch progress from Supabase via SECURITY DEFINER RPC.
      * Uses get_sync_owner() server-side to fetch the correct user's data,
      * bypassing RLS (which would block linked devices from reading owner data).
-     * Skips if Trakt is connected. Caller is responsible for merging into local.
+     * Runs only when Nuvio Sync is selected. Caller is responsible for merging into local.
      */
     suspend fun pullFromRemote(): Result<List<Pair<String, WatchProgress>>> = withContext(Dispatchers.IO) {
         try {
             if (!shouldUseSupabaseWatchProgressSync()) {
-                Log.d(TAG, "Using Trakt watch progress, skipping watch progress pull")
+                Log.d(TAG, "Nuvio Sync is not selected, skipping watch progress pull")
                 return@withContext Result.success(emptyList())
             }
 
