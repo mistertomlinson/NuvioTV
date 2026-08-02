@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.tracking
 
 import com.nuvio.tv.core.sync.StartupSyncService
+import com.nuvio.tv.core.sync.WatchProgressSyncService
 import com.nuvio.tv.core.sync.WatchedItemsSyncService
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -26,6 +27,7 @@ class TrackingSourceController @Inject constructor(
     private val startupSyncService: StartupSyncService,
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val watchProgressPreferences: WatchProgressPreferences,
+    private val watchProgressSyncService: WatchProgressSyncService,
     private val watchedItemsSyncService: WatchedItemsSyncService,
     private val watchedSeriesStateHolder: WatchedSeriesStateHolder,
     private val continueWatchingEnrichmentCache: ContinueWatchingEnrichmentCache
@@ -38,7 +40,12 @@ class TrackingSourceController @Inject constructor(
     suspend fun selectWatchProgressSource(source: WatchProgressSource) {
         mutationMutex.withLock {
             if (settingsDataStore.watchProgressSource.first() == source) return
-            applyWatchProgressSource(source)
+
+            if (source == WatchProgressSource.NUVIO_SYNC) {
+                selectNuvioSyncAuthoritatively()
+            } else {
+                applyWatchProgressSource(source)
+            }
         }
     }
 
@@ -64,6 +71,40 @@ class TrackingSourceController @Inject constructor(
             applyLibrarySourceMode(effective.librarySourceMode)
         }
         effective
+    }
+
+    private suspend fun selectNuvioSyncAuthoritatively() {
+        // Fetch first while the previous provider remains selected. The explicit
+        // bypass avoids opening a window where stale local data could be pushed
+        // to Nuvio Sync before its cloud snapshot has been downloaded.
+        val remoteProgress = watchProgressSyncService
+            .pullFromRemote(allowWhenNotSelected = true)
+            .getOrThrow()
+            .toMap()
+        val remoteWatchedItems = watchedItemsSyncService
+            .pullFromRemote(allowWhenNotSelected = true)
+            .getOrThrow()
+
+        // An explicit user switch treats Nuvio Sync as authoritative, including
+        // a genuinely empty cloud account.
+        watchProgressPreferences.clearAll()
+        watchedItemsPreferences.clearAll()
+
+        if (remoteProgress.isNotEmpty()) {
+            watchProgressPreferences.replaceWithRemoteEntries(remoteProgress)
+        }
+        if (remoteWatchedItems.isNotEmpty()) {
+            watchedItemsPreferences.replaceWithRemoteItems(remoteWatchedItems)
+        }
+
+        watchedSeriesStateHolder.update(emptySet())
+        settingsDataStore.setWatchProgressSource(WatchProgressSource.NUVIO_SYNC)
+        continueWatchingEnrichmentCache.saveInProgressSnapshot(emptyList(), force = true)
+        continueWatchingEnrichmentCache.saveNextUpSnapshot(emptyList(), force = true)
+
+        // Normal startup synchronization remains merge-based after the
+        // authoritative source transition has completed.
+        startupSyncService.requestSyncNow()
     }
 
     private suspend fun applyWatchProgressSource(source: WatchProgressSource) {

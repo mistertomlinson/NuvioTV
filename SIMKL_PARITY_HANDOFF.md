@@ -318,10 +318,41 @@ Completed in commit `Isolate Nuvio Sync progress synchronization`:
 - Normal incremental `./gradlew assembleDebug` passed.
 - No Home active-scroll-path work was added.
 
+Runtime validation completed:
+
+- Simkl-selected startup reported
+  `shouldUseSupabaseWatchProgressSync=false`.
+- Simkl-selected startup skipped Supabase progress and watched-item sync.
+- Nuvio Sync-selected startup reported
+  `shouldUseSupabaseWatchProgressSync=true`.
+- Nuvio Sync successfully pulled zero watched items and zero progress entries
+  from an intentionally empty cloud account.
+- No deleted cloud entries were restored.
+- Trakt was not directly runtime-tested because it is disconnected, but it uses
+  the same exact stored-source gate as Simkl.
+
+## Authoritative Nuvio Sync source selection
+
+Completed and runtime-tested after the isolation commit:
+
+- A deliberate user switch to Nuvio Sync now downloads both progress and
+  watched-item snapshots before changing the selected source.
+- The preselection pull can explicitly bypass the normal source gate.
+- The cloud snapshot is authoritative during this deliberate transition,
+  including when the cloud account is empty.
+- Existing local progress and watched items are cleared only after both remote
+  pulls succeed.
+- A pull failure leaves the previous source and local state intact.
+- The source is changed to Nuvio Sync only after authoritative replacement
+  completes.
+- Continue Watching and Next Up caches are invalidated after the transition.
+- Normal startup synchronization remains merge-based and non-destructive.
+- Runtime testing confirmed that switching Simkl -> Nuvio Sync with an empty
+  cloud account removes stale local Continue Watching titles.
+- No Home active-scroll-path work was added.
+- Normal incremental `./gradlew assembleDebug` passed before runtime testing.
+
 Immediate next action:
 
-1. Install the APK without clearing app data.
-2. Confirm Trakt-selected and Simkl-selected playback does not alter Nuvio Sync
-   progress or watched history.
-3. Confirm Nuvio Sync-selected playback still synchronizes normally.
-4. Then implement durable per-profile unfinished Simkl progress.
+1. Commit the authoritative Nuvio Sync source-selection behavior and handoff.
+2. Implement durable per-profile unfinished Simkl progress.

@@ -82,9 +82,11 @@ class WatchedItemsSyncService @Inject constructor(
         }
     }
 
-    suspend fun pullFromRemote(): Result<List<WatchedItem>> = withContext(Dispatchers.IO) {
+    suspend fun pullFromRemote(
+        allowWhenNotSelected: Boolean = false
+    ): Result<List<WatchedItem>> = withContext(Dispatchers.IO) {
         try {
-            if (!shouldUseSupabaseWatchProgressSync()) {
+            if (!allowWhenNotSelected && !shouldUseSupabaseWatchProgressSync()) {
                 Log.d(TAG, "Nuvio Sync is not selected, skipping watched items pull")
                 return@withContext Result.success(emptyList())
             }

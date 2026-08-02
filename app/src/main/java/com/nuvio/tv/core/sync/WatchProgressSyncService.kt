@@ -167,11 +167,15 @@ class WatchProgressSyncService @Inject constructor(
      * Pull watch progress from Supabase via SECURITY DEFINER RPC.
      * Uses get_sync_owner() server-side to fetch the correct user's data,
      * bypassing RLS (which would block linked devices from reading owner data).
-     * Runs only when Nuvio Sync is selected. Caller is responsible for merging into local.
+     * Normally runs only when Nuvio Sync is selected. Explicit source selection may
+     * bypass the gate to fetch an authoritative snapshot before changing the stored source.
+     * Caller is responsible for merging or replacing local data.
      */
-    suspend fun pullFromRemote(): Result<List<Pair<String, WatchProgress>>> = withContext(Dispatchers.IO) {
+    suspend fun pullFromRemote(
+        allowWhenNotSelected: Boolean = false
+    ): Result<List<Pair<String, WatchProgress>>> = withContext(Dispatchers.IO) {
         try {
-            if (!shouldUseSupabaseWatchProgressSync()) {
+            if (!allowWhenNotSelected && !shouldUseSupabaseWatchProgressSync()) {
                 Log.d(TAG, "Nuvio Sync is not selected, skipping watch progress pull")
                 return@withContext Result.success(emptyList())
             }
