@@ -2,15 +2,14 @@ package com.nuvio.tv.core.player
 
 import android.content.Context
 import android.util.Log
+import com.nuvio.tv.core.tracking.TrackingMediaKind
+import com.nuvio.tv.core.tracking.TrackingMediaReference
+import com.nuvio.tv.core.tracking.TrackingScrobbleAction
+import com.nuvio.tv.core.tracking.TrackingScrobbleCoordinator
+import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
+import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.WatchProgressRepository
-import com.nuvio.tv.data.repository.TraktScrobbleService
-import com.nuvio.tv.data.repository.TraktScrobbleItem
-import com.nuvio.tv.data.repository.TraktEpisodeMappingService
-import com.nuvio.tv.data.repository.TraktAuthService
-import com.nuvio.tv.data.repository.parseContentIds
-import com.nuvio.tv.data.repository.extractYear
-import com.nuvio.tv.data.repository.toTraktIds
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -66,16 +65,14 @@ data class ExternalPlaybackMetadata(
  * - Process ActivityResult data when external player returns
  * - Run Zidoo REST API polling on Zidoo devices
  * - Save progress to WatchProgressRepository
- * - Send Trakt scrobble (start + stop)
+ * - Send selected tracking-provider scrobble (start + stop)
  * - Start/stop the keep-alive foreground service
  */
 @Singleton
 class ExternalPlaybackTracker @Inject constructor(
     @ApplicationContext private val appContext: Context,
     private val watchProgressRepository: WatchProgressRepository,
-    private val traktScrobbleService: TraktScrobbleService,
-    private val traktEpisodeMappingService: TraktEpisodeMappingService,
-    private val traktAuthService: TraktAuthService
+    private val trackingScrobbleCoordinator: TrackingScrobbleCoordinator
 ) {
     companion object {
         private const val TAG = "ExtPlaybackTracker"
@@ -315,60 +312,49 @@ class ExternalPlaybackTracker @Inject constructor(
                 "progressPct=${progress.progressPercentage}, isInProgress=${progress.isInProgress()}")
             watchProgressRepository.saveProgress(progress)
 
-            // Trakt scrobble
-            if (traktAuthService.getCurrentAuthState().isAuthenticated &&
-                traktAuthService.hasRequiredCredentials()) {
-                val progressPercent = if (effectiveDuration > 0L) {
-                    (positionMs.toFloat() / effectiveDuration.toFloat() * 100f).coerceIn(0f, 100f)
-                } else {
-                    0f
-                }
-                if (progressPercent > 0f) {
-                    val scrobbleItem = buildScrobbleItem(metadata)
-                    if (scrobbleItem != null) {
-                        Log.d(TAG, "Sending Trakt scrobble: ${progressPercent}%")
-                        traktScrobbleService.scrobbleStart(scrobbleItem, progressPercent = 0f)
-                        traktScrobbleService.scrobbleStop(scrobbleItem, progressPercent = progressPercent)
-                    }
+            val progressPercent = if (effectiveDuration > 0L) {
+                (positionMs.toFloat() / effectiveDuration.toFloat() * 100f)
+                    .coerceIn(0f, 100f)
+            } else {
+                0f
+            }
+
+            if (progressPercent > 0f) {
+                val scrobbleItem = buildScrobbleItem(metadata)
+                if (scrobbleItem != null) {
+                    trackingScrobbleCoordinator.scrobble(
+                        action = TrackingScrobbleAction.START,
+                        event = TrackingScrobbleEvent(
+                            media = scrobbleItem,
+                            progressPercent = 0.0
+                        )
+                    )
+                    trackingScrobbleCoordinator.scrobble(
+                        action = TrackingScrobbleAction.STOP,
+                        event = TrackingScrobbleEvent(
+                            media = scrobbleItem,
+                            progressPercent = progressPercent.toDouble()
+                        )
+                    )
                 }
             }
         }
     }
 
-    private suspend fun buildScrobbleItem(metadata: ExternalPlaybackMetadata): TraktScrobbleItem? {
-        val parsedIds = parseContentIds(metadata.contentId)
-        val ids = toTraktIds(parsedIds)
-        if (ids.trakt == null && ids.imdb.isNullOrBlank() && ids.tmdb == null) return null
-
-        val parsedYear = extractYear(metadata.year)
-        val isEpisode = metadata.contentType.lowercase() in listOf("series", "tv") &&
-            metadata.season != null && metadata.episode != null
-
-        return if (isEpisode) {
-            val mapped = traktEpisodeMappingService.prefetchEpisodeMapping(
-                contentId = metadata.contentId,
-                contentType = metadata.contentType,
-                videoId = metadata.videoId,
-                season = metadata.season,
-                episode = metadata.episode
-            )
-            val effectiveSeason = mapped?.season ?: metadata.season ?: return null
-            val effectiveEpisode = mapped?.episode ?: metadata.episode ?: return null
-
-            TraktScrobbleItem.Episode(
-                showTitle = metadata.contentName,
-                showYear = parsedYear,
-                showIds = ids,
-                season = effectiveSeason,
-                number = effectiveEpisode,
-                episodeTitle = metadata.episodeTitle
-            )
-        } else {
-            TraktScrobbleItem.Movie(
-                title = metadata.contentName,
-                year = parsedYear,
-                ids = ids
-            )
+    private fun buildScrobbleItem(
+        metadata: ExternalPlaybackMetadata
+    ): TrackingMediaReference? =
+        buildTrackingMediaReference(
+            contentType = metadata.contentType,
+            parentMetaId = metadata.contentId,
+            videoId = metadata.videoId,
+            title = metadata.contentName,
+            releaseInfo = metadata.year,
+            seasonNumber = metadata.season,
+            episodeNumber = metadata.episode,
+            episodeTitle = metadata.episodeTitle
+        ).takeIf { media ->
+            media.hasResolvableIdentity &&
+                (media.kind == TrackingMediaKind.MOVIE || media.episode != null)
         }
-    }
 }

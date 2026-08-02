@@ -174,3 +174,22 @@ Immediate next action:
 2. Build and commit that conversion separately.
 3. Convert internal playback scrobbling while retaining Trakt-only rating submission.
 4. Expose provider-neutral video-ID and parent-ID normalization APIs for Details/anime watched-state handling.
+
+## External playback provider-neutral scrobbling
+
+Completed after commit `e1716637`:
+
+- Converted `ExternalPlaybackTracker` from direct Trakt authentication and scrobble calls to `TrackingScrobbleCoordinator`.
+- External playback now sends START and STOP only to the selected, authenticated Watch Progress provider.
+- Trakt episode mapping remains inside `TraktTrackingScrobbler`.
+- Simkl identity enrichment remains inside `SimklTrackingScrobbler`.
+- Removed Trakt-specific authentication, episode-mapping, and item-building dependencies from `ExternalPlaybackTracker`.
+- Normal incremental `./gradlew assembleDebug` passed.
+- No direct Trakt scrobble references remain in `ExternalPlaybackTracker`.
+
+Immediate next action:
+
+1. Convert internal-player scrobble START, PAUSE, STOP, completion, periodic, and seek handling to `TrackingScrobbleCoordinator`.
+2. Preserve the existing Trakt-only rating overlay and `postRating()` behavior.
+3. Build and commit the internal-player conversion separately.
+4. Add provider-neutral video-ID and parent-ID normalization APIs for Details/anime watched-state handling.
