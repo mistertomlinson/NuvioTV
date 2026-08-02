@@ -51,6 +51,17 @@ interface WatchProgressRepository {
     fun observeNextUpSeeds(): Flow<List<WatchProgress>>
 
     /**
+     * Emits true once the active remote tracking provider has completed its
+     * initial progress load. Local/Nuvio Sync mode emits true immediately.
+     */
+    fun observeRemoteProgressLoaded(): Flow<Boolean>
+
+    /**
+     * Allows the active provider to remap a Next Up seed before metadata lookup.
+     */
+    suspend fun prepareNextUpSeed(progress: WatchProgress): WatchProgress
+
+    /**
      * Emits immediate optimistic updates that should patch Continue Watching
      * without waiting for the regular progress flows to settle.
      */
@@ -119,7 +130,29 @@ interface WatchProgressRepository {
     fun isDroppedShow(contentId: String): Boolean
 
     /**
-     * Returns true if Trakt is both configured AND authenticated as the active progress source.
+     * Returns true when Trakt or Simkl currently owns the progress projection.
      */
-    suspend fun isTraktProgressActive(): Boolean
+    fun hasActiveTrackingProgressProvider(): Boolean
+
+    /**
+     * Returns whether the active provider supplies the completed-history
+     * projection used to build Next Up.
+     */
+    fun activeProviderOwnsCompletedHistoryProjection(): Boolean
+
+    /**
+     * Returns the active provider's Continue Watching cutoff, when applicable.
+     */
+    fun activeProviderContinueWatchingCutoffEpochMs(
+        daysCap: Int,
+        nowEpochMs: Long
+    ): Long?
+
+    /**
+     * Applies the active provider's completed-seed eligibility rules.
+     */
+    fun shouldUseAsNextUpSeed(
+        progress: WatchProgress,
+        nowEpochMs: Long
+    ): Boolean
 }

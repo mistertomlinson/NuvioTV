@@ -49,13 +49,20 @@ private const val CW_MAX_NEXT_UP_CONCURRENCY = 4
 private const val CW_MAX_ENRICHMENT_CONCURRENCY = 4
 private const val CW_PROGRESS_DEBOUNCE_MS = 500L
 
+private data class ProgressSnapshot(
+    val items: List<WatchProgress>,
+    val nextUpSeeds: List<WatchProgress>,
+    val hasLoadedRemoteProgress: Boolean
+)
+
 private data class ContinueWatchingSettingsSnapshot(
     val items: List<WatchProgress>,
     val nextUpSeeds: List<WatchProgress>,
     val daysCap: Int,
     val dismissedNextUp: Set<String>,
     val showUnairedNextUp: Boolean,
-    val watchedItemsVersion: Int  // triggers re-evaluation when watched items change
+    val watchedItemsVersion: Int,  // triggers re-evaluation when watched items change
+    val hasLoadedRemoteProgress: Boolean
 )
 
 /**
@@ -269,9 +276,14 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
         combine(
             combine(
                 watchProgressRepository.allProgress,
-                watchProgressRepository.observeNextUpSeeds()
-            ) { items, nextUpSeeds ->
-                items to nextUpSeeds
+                watchProgressRepository.observeNextUpSeeds(),
+                watchProgressRepository.observeRemoteProgressLoaded()
+            ) { items, nextUpSeeds, hasLoadedRemoteProgress ->
+                ProgressSnapshot(
+                    items = items,
+                    nextUpSeeds = nextUpSeeds,
+                    hasLoadedRemoteProgress = hasLoadedRemoteProgress
+                )
             },
             combine(
                 traktSettingsDataStore.continueWatchingDaysCap,
@@ -283,33 +295,36 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             watchedItemsPreferences.allItems.map { it.size },
             cwPipelineRefreshTrigger
         ) { progressSnapshot, settingsSnapshot, watchedItemsSize, _ ->
-            val (items, nextUpSeeds) = progressSnapshot
-            val (daysCap, dismissedNextUp, showUnairedNextUp) = settingsSnapshot
+            val (items, nextUpSeeds, hasLoadedRemoteProgress) =
+                progressSnapshot
+            val (daysCap, dismissedNextUp, showUnairedNextUp) =
+                settingsSnapshot
             ContinueWatchingSettingsSnapshot(
                 items = items,
                 nextUpSeeds = nextUpSeeds,
                 daysCap = daysCap,
                 dismissedNextUp = dismissedNextUp,
                 showUnairedNextUp = showUnairedNextUp,
-                watchedItemsVersion = watchedItemsSize
+                watchedItemsVersion = watchedItemsSize,
+                hasLoadedRemoteProgress = hasLoadedRemoteProgress
             )
         }.debounce(CW_PROGRESS_DEBOUNCE_MS).collectLatest { snapshot ->
             val debug = CwDebugSession()
             try {
                 debug.markPhase("filter-snapshot")
                 val cycleStartMs = SystemClock.elapsedRealtime()
-                val useTraktProgress = watchProgressRepository.isTraktProgressActive()
+                val useTrackingProvider =
+                    watchProgressRepository.hasActiveTrackingProgressProvider()
                 val items = snapshot.items
                 val nextUpSeeds = snapshot.nextUpSeeds
                 val daysCap = snapshot.daysCap
                 val dismissedNextUp = snapshot.dismissedNextUp
                 val showUnairedNextUp = snapshot.showUnairedNextUp
-                val cutoffMs = if (daysCap == TraktSettingsDataStore.CONTINUE_WATCHING_DAYS_CAP_ALL) {
-                    null
-                } else {
-                    val windowMs = daysCap.toLong() * 24L * 60L * 60L * 1000L
-                    System.currentTimeMillis() - windowMs
-                }
+                val cutoffMs =
+                    watchProgressRepository.activeProviderContinueWatchingCutoffEpochMs(
+                        daysCap = daysCap,
+                        nowEpochMs = System.currentTimeMillis()
+                    )
                 val recentItems = items
                     .asSequence()
                     .filter { progress -> cutoffMs == null || progress.lastWatched >= cutoffMs }
@@ -327,21 +342,19 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // have been fully unmarked as watched.
                 val activeSeedContentIds = nextUpSeeds
                     .mapTo(mutableSetOf()) { it.contentId }
-                // When Trakt seeds haven't loaded yet (empty seeds + empty items),
-                // we can't tell which shows were truly unmarked vs simply not
-                // fetched yet. Skip the seed-based eviction so cached next-up
-                // items survive until real data arrives.
-                val seedsNotYetLoaded = useTraktProgress && activeSeedContentIds.isEmpty() && items.isEmpty()
-
-                // Evict in-memory next-up caches for series that lost all seeds
-                // (e.g. user unmarked all episodes as watched).
-                // Skip eviction when seeds haven't loaded yet to avoid wiping
-                // valid cached items before Trakt responds.
-                if (!seedsNotYetLoaded) {
+                // Do not evict valid cached rows until the selected remote
+                // provider has conclusively completed its initial load.
+                if (snapshot.hasLoadedRemoteProgress) {
                     synchronized(discoveredOlderNextUpItems) {
-                        discoveredOlderNextUpItems.removeAll { it.info.contentId !in activeSeedContentIds }
+                        discoveredOlderNextUpItems.removeAll {
+                            it.info.contentId !in activeSeedContentIds
+                        }
                     }
-                    cwEnrichedNextUpOverlay.keys.removeAll { it !in activeSeedContentIds }
+                    synchronized(cwEnrichedNextUpOverlay) {
+                        cwEnrichedNextUpOverlay.keys.removeAll {
+                            it !in activeSeedContentIds
+                        }
+                    }
                 }
 
                 debug.logStart(
@@ -429,8 +442,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             )
                         }
                     }
-                    // For Trakt: show cached in-progress until Trakt responds (items non-empty).
-                    if (liveInProgress.isEmpty() && useTraktProgress && cachedInProgress.isNotEmpty() && items.isEmpty()) {
+                    // Keep the last cached projection visible while either
+                    // remote provider is still loading.
+                    if (
+                        liveInProgress.isEmpty() &&
+                        useTrackingProvider &&
+                        cachedInProgress.isNotEmpty() &&
+                        items.isEmpty() &&
+                        !snapshot.hasLoadedRemoteProgress
+                    ) {
                         cachedInProgress.forEach { cached ->
                             add(
                                 ContinueWatchingItem.InProgress(
@@ -473,7 +493,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     if (!cached.hasAired && !showUnairedNextUp) return@mapNotNull null
                     // Drop if the series no longer has any watched-episode seeds
                     // (e.g. user unmarked all episodes as watched).
-                    if (!seedsNotYetLoaded && cached.contentId !in activeSeedContentIds) return@mapNotNull null
+                    if (snapshot.hasLoadedRemoteProgress && cached.contentId !in activeSeedContentIds) return@mapNotNull null
                     ContinueWatchingItem.NextUp(
                         info = NextUpInfo(
                             contentId = cached.contentId,
@@ -782,8 +802,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                         kotlinx.coroutines.yield()
                                         continue
                                     }
+                                    val preparedSeed =
+                                        watchProgressRepository.prepareNextUpSeed(seed)
                                     val item = buildNextUpItem(
-                                        progress = seed,
+                                        progress = preparedSeed,
                                         showUnairedNextUp = showUnairedNextUp
                                     )
                                     if (item != null) {
@@ -792,11 +814,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                         if (resolvedSinceLastEmit >= 3) {
                                             resolvedSinceLastEmit = 0
                                             // Partial emit: inject discovered items into UI
-                                            val partialToInject = if (useTraktProgress) {
-                                                discoveredNextUpItems.filter { it.info.isReleaseAlert }
-                                            } else {
-                                                discoveredNextUpItems.toList()
-                                            }
+                                            val partialToInject =
+                                                if (cutoffMs != null) {
+                                                    discoveredNextUpItems.filter { item ->
+                                                        item.info.sortTimestamp >= cutoffMs ||
+                                                            item.info.isReleaseAlert
+                                                    }
+                                                } else {
+                                                    discoveredNextUpItems.toList()
+                                                }
                                             if (partialToInject.isNotEmpty()) {
                                                 synchronized(discoveredOlderNextUpItems) {
                                                     discoveredOlderNextUpItems.removeAll { old ->
@@ -852,13 +878,17 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 publishBadgeUpdate(asyncWatchedEpisodes)
 
                                 if (discoveredNextUpItems.isNotEmpty()) {
-                                    // For Trakt users, only inject release alerts.
-                                    // For Nuvio Sync users, inject all next-up items (workaround for seed limit).
-                                    val itemsToInject = if (useTraktProgress) {
-                                        discoveredNextUpItems.filter { it.info.isReleaseAlert }
-                                    } else {
-                                        discoveredNextUpItems
-                                    }
+                                    // Respect the active provider's age
+                                    // window while retaining release alerts.
+                                    val itemsToInject =
+                                        if (cutoffMs != null) {
+                                            discoveredNextUpItems.filter { item ->
+                                                item.info.sortTimestamp >= cutoffMs ||
+                                                    item.info.isReleaseAlert
+                                            }
+                                        } else {
+                                            discoveredNextUpItems
+                                        }
                                     synchronized(discoveredOlderNextUpItems) {
                                         discoveredOlderNextUpItems.removeAll { old ->
                                             itemsToInject.any { it.info.contentId == old.info.contentId }
@@ -926,7 +956,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // Drop items whose series no longer has any watched-episode seeds.
                 // When seeds haven't loaded yet, keep all cached items.
                 val cachedOlderNextUp = cachedNextUp
-                    .filter { seedsNotYetLoaded || it.contentId in activeSeedContentIds }
+                    .filter { !snapshot.hasLoadedRemoteProgress || it.contentId in activeSeedContentIds }
                     .map { cached ->
                         ContinueWatchingItem.NextUp(
                             info = NextUpInfo(
@@ -970,7 +1000,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     .filter {
                         val isCachedFromDisk = cachedOlderNextUp.any { c -> c.info.contentId == it.info.contentId }
                         val pass =
-                            (seedsNotYetLoaded || it.info.contentId in activeSeedContentIds || isCachedFromDisk) &&
+                            (!snapshot.hasLoadedRemoteProgress || it.info.contentId in activeSeedContentIds || isCachedFromDisk) &&
                             it.info.contentId !in recentIds &&
                             it.info.contentId !in inProgressIds &&
                             // Reject items the fresh pipeline evaluated but produced no
@@ -1009,8 +1039,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 )
 
                 _uiState.update { state ->
-                    // Don't overwrite cached CW with empty data while waiting for Trakt.
-                    if (normalItems.isEmpty() && useTraktProgress && items.isEmpty() && state.continueWatchingItems.isNotEmpty()) {
+                    // Do not replace a valid cached projection with an
+                    // inconclusive empty result while a provider is loading.
+                    if (
+                        normalItems.isEmpty() &&
+                        useTrackingProvider &&
+                        !snapshot.hasLoadedRemoteProgress &&
+                        items.isEmpty() &&
+                        state.continueWatchingItems.isNotEmpty()
+                    ) {
                         state
                     } else if (state.continueWatchingItems == normalItems) {
                         state
@@ -1024,7 +1061,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 )
                 // Signal that the first CW cycle completed (items or confirmed empty).
                 if (!_initialCwResolved.value) {
-                    val hasRealData = normalItems.isNotEmpty() || !useTraktProgress || items.isNotEmpty()
+                    val hasRealData =
+                        normalItems.isNotEmpty() ||
+                            !useTrackingProvider ||
+                            snapshot.hasLoadedRemoteProgress
                     if (hasRealData) {
                         _initialCwResolved.value = true
                     }
@@ -1139,12 +1179,14 @@ private fun shouldTreatAsInProgressForContinueWatching(progress: WatchProgress):
     return result
 }
 
-private fun shouldUseAsCompletedSeed(progress: WatchProgress): Boolean {
+private fun HomeViewModel.shouldUseAsCompletedSeed(
+    progress: WatchProgress
+): Boolean {
     if (isMalformedNextUpSeedContentId(progress.contentId)) return false
-    if (!progress.isCompleted()) return false
-    if (progress.source != WatchProgress.SOURCE_TRAKT_PLAYBACK) return true
-    val explicitPercent = progress.progressPercent ?: return false
-    return explicitPercent >= 95f
+    return watchProgressRepository.shouldUseAsNextUpSeed(
+        progress = progress,
+        nowEpochMs = System.currentTimeMillis()
+    )
 }
 
 private fun shouldTreatAsActiveInProgressForNextUpSuppression(

@@ -836,6 +836,20 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .distinctUntilChanged()
     }
 
+    override fun observeRemoteProgressLoaded(): Flow<Boolean> {
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                provider?.remoteProgressLoaded ?: flowOf(true)
+            }
+            .distinctUntilChanged()
+    }
+
+    override suspend fun prepareNextUpSeed(
+        progress: WatchProgress
+    ): WatchProgress {
+        return activeProgressProvider()?.prepareNextUpSeed(progress) ?: progress
+    }
+
     override fun observeOptimisticContinueWatchingUpdates(): Flow<WatchProgress> {
         return optimisticContinueWatchingUpdates
     }
@@ -892,9 +906,32 @@ class WatchProgressRepositoryImpl @Inject constructor(
             ?: false
     }
 
-    override suspend fun isTraktProgressActive(): Boolean =
-        activeProgressProvider()?.providerId == TrackingProviderId.TRAKT
+    override fun hasActiveTrackingProgressProvider(): Boolean =
+        activeProgressProviderId != null
 
+    override fun activeProviderOwnsCompletedHistoryProjection(): Boolean =
+        activeProgressProviderId
+            ?.let(trackingProgressProviders::provider)
+            ?.ownsCompletedHistoryProjection == true
+
+    override fun activeProviderContinueWatchingCutoffEpochMs(
+        daysCap: Int,
+        nowEpochMs: Long
+    ): Long? {
+        return activeProgressProviderId
+            ?.let(trackingProgressProviders::provider)
+            ?.continueWatchingCutoffEpochMs(daysCap, nowEpochMs)
+    }
+
+    override fun shouldUseAsNextUpSeed(
+        progress: WatchProgress,
+        nowEpochMs: Long
+    ): Boolean {
+        return activeProgressProviderId
+            ?.let(trackingProgressProviders::provider)
+            ?.shouldUseAsNextUpSeed(progress, nowEpochMs)
+            ?: progress.isCompleted()
+    }
 
     private fun progressKey(progress: WatchProgress): String {
         return if (progress.season != null && progress.episode != null) {
