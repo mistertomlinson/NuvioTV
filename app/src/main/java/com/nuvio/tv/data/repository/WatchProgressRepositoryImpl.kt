@@ -880,6 +880,17 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return activeProgressProvider()?.showIdSiblings().orEmpty()
     }
 
+    override fun isWatchedByVideoId(
+        videoId: String,
+        episode: Int
+    ): Boolean {
+        val providerId = activeProgressProviderId ?: return false
+        return trackingProgressProviders
+            .provider(providerId)
+            ?.isWatchedByVideoId(videoId, episode)
+            ?: false
+    }
+
     override suspend fun saveProgressBatch(progressList: List<WatchProgress>, syncRemote: Boolean) {
         progressList.forEach { saveProgress(it, syncRemote) }
     }
@@ -931,6 +942,15 @@ class WatchProgressRepositoryImpl @Inject constructor(
             ?.let(trackingProgressProviders::provider)
             ?.shouldUseAsNextUpSeed(progress, nowEpochMs)
             ?: progress.isCompleted()
+    }
+
+    override suspend fun normalizeParentContentId(
+        parentContentId: String,
+        videoId: String?
+    ): String {
+        return activeProgressProvider()
+            ?.normalizeParentContentId(parentContentId, videoId)
+            ?: parentContentId
     }
 
     private fun progressKey(progress: WatchProgress): String {

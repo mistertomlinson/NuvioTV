@@ -216,3 +216,28 @@ Immediate next action:
 3. Wire Details/anime watched-state and relevant player progress normalization through them.
 4. Build and commit separately.
 5. Then begin runtime validation for Trakt, Simkl, and Nuvio Sync.
+
+## Provider-neutral watched-ID and parent-ID helpers
+
+Completed after commit `cb375df8`:
+
+- Exposed `isWatchedByVideoId(videoId, episode)` through `WatchProgressRepository`.
+- Exposed `normalizeParentContentId(parentContentId, videoId)` through `WatchProgressRepository`.
+- Delegated both helpers to the selected active `TrackingProgressProvider`.
+- Simkl can now project anime watched state using episode video IDs when the parent series ID cannot be matched reliably.
+- Details retains its existing local plus authoritative watched-episode projection and supplements it with the provider video-ID fallback.
+- The existing Next-to-Watch algorithm was preserved.
+- Internal-player progress now normalizes the parent content ID before saving.
+- Trakt continues using its existing effective-content-ID mapping.
+- Local/Nuvio Sync mode retains the original parent content ID.
+- Normal incremental `./gradlew assembleDebug` passed.
+
+Immediate next action:
+
+1. Install the current APK without clearing app data.
+2. Validate Tracking settings and account state.
+3. Test Trakt-selected Home, Details, internal-player, and external-player behavior.
+4. Test Simkl-selected Home, Details, internal-player, and external-player behavior.
+5. Test Nuvio Sync/local mode and verify no remote provider receives playback writes.
+6. Allow Home to warm fully before evaluating scrolling performance.
+7. Run the established full AOT command only when beginning performance validation.

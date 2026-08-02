@@ -342,12 +342,40 @@ _uiState.update { state ->
 
     private fun observeWatchedEpisodes() {
         if (itemType.lowercase() == "movie") return
+
         viewModelScope.launch {
             kotlinx.coroutines.flow.combine(
                 watchedItemsPreferences.getWatchedEpisodesForContent(itemId),
-                authoritativeWatchedEpisodes
-            ) { localWatched, remoteWatched ->
-                localWatched + remoteWatched
+                authoritativeWatchedEpisodes,
+                _uiState
+                    .map { state ->
+                        state.meta?.videos.orEmpty() to
+                            state.episodeProgressMap
+                    }
+                    .distinctUntilChanged()
+            ) { localWatched, remoteWatched, detailsSnapshot ->
+                val videos = detailsSnapshot.first
+                val merged = (localWatched + remoteWatched).toMutableSet()
+
+                // Simkl anime history may identify watched episodes through
+                // the episode video ID rather than the parent series ID.
+                for (video in videos) {
+                    val season = video.season ?: continue
+                    val episode = video.episode ?: continue
+                    val key = season to episode
+
+                    if (
+                        key !in merged &&
+                        watchProgressRepository.isWatchedByVideoId(
+                            videoId = video.id,
+                            episode = episode
+                        )
+                    ) {
+                        merged += key
+                    }
+                }
+
+                merged.toSet()
             }
                 .distinctUntilChanged()
                 .collectLatest { watchedSet ->

@@ -81,6 +81,12 @@ interface WatchProgressRepository {
     suspend fun getShowIdSiblings(): Map<String, Set<String>>
 
     /**
+     * Provider-specific watched lookup for episode video IDs, including
+     * anime IDs that cannot be reliably matched by the parent content ID.
+     */
+    fun isWatchedByVideoId(videoId: String, episode: Int): Boolean = false
+
+    /**
      * Save or update watch progress
      */
     suspend fun saveProgress(progress: WatchProgress, syncRemote: Boolean = true)
@@ -155,4 +161,13 @@ interface WatchProgressRepository {
         progress: WatchProgress,
         nowEpochMs: Long
     ): Boolean
+
+    /**
+     * Lets the active provider replace an unresolvable parent ID with a
+     * compatible ID found in the episode/video ID.
+     */
+    suspend fun normalizeParentContentId(
+        parentContentId: String,
+        videoId: String?
+    ): String
 }

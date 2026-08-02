@@ -175,7 +175,16 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
     )
 
     scope.launch {
-        watchProgressRepository.saveProgress(progress, syncRemote = syncRemote)
+        val effectiveContentId =
+            watchProgressRepository.normalizeParentContentId(
+                parentContentId = progress.contentId,
+                videoId = progress.videoId
+            )
+
+        watchProgressRepository.saveProgress(
+            progress = progress.copy(contentId = effectiveContentId),
+            syncRemote = syncRemote
+        )
     }
 }
 
