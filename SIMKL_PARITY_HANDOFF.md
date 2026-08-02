@@ -273,20 +273,21 @@ Completed in commit `Add provider-neutral ratings`:
 - No Home active-scroll-path work was added; availability checks occur only during
   watched actions or playback preparation/completion.
 
-Files intentionally still uncommitted because they contain temporary diagnostics:
+Runtime rating validation completed successfully:
 
-- `WatchProgressRepositoryImpl.kt`
-- `SimklSyncRemote.kt`
-- `SimklSyncRepository.kt`
-- `HomeViewModelContinueWatching.kt`
+- Trakt-selected ratings work.
+- Simkl-selected ratings work.
+- Nuvio Sync does not expose the rating prompt.
+- A disconnected selected provider does not expose the rating prompt.
+- No dual rating writes occurred.
+- Home, Details, and Player behavior all passed.
+- Exact 2 / 7 / 10 mappings were confirmed.
+- Temporary Continue Watching and Simkl ordering diagnostics were removed.
+- The working tree was clean after diagnostic removal.
 
 Immediate next action:
 
-1. Install the current debug APK without clearing app data.
-2. Test rating visibility and submission with Trakt selected and connected.
-3. Test rating visibility and submission with Simkl selected and connected.
-4. Verify no rating prompt appears with Nuvio Sync selected.
-5. Verify no rating prompt appears when the selected provider is disconnected.
-6. Do not run AOT solely for this functional rating test.
-7. After rating validation, remove the temporary diagnostic changes before the
-   next production commit.
+1. Fix the Nuvio Sync watch-progress isolation gate so Supabase watch-progress
+   synchronization runs only when Nuvio Sync is the selected effective source.
+2. Build and commit that correction separately.
+3. Then implement durable per-profile unfinished Simkl progress.
