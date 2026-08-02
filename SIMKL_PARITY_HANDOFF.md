@@ -48,56 +48,54 @@ Updated: 2026-08-02
 
 ## Current integration point
 
-`WatchProgressRepositoryImpl` now selects its active read provider through:
+`WatchProgressRepositoryImpl` now routes both reads and writes through the
+selected active tracking provider.
 
-- `TrackingProgressProviderRegistry`
-- provider authentication flows
-- `effectiveWatchProgressSource`
-- the configured Watch Progress source
+Completed provider-neutral behavior:
 
-The following reads are now provider-neutral and route through either Trakt,
-Simkl, or local/Nuvio Sync as appropriate:
+- Trakt selected: reads, playback removal, optimistic state, and manual history
+  mutations route only to Trakt.
+- Simkl selected: reads, playback removal, and manual history mutations route
+  only to Simkl.
+- Nuvio Sync selected: local/Supabase synchronization is used and neither
+  external provider receives repository mutations.
+- A durable local progress copy is retained in every mode.
+- Manual watched/unwatched operations use the matching writer from
+  `TrackingHistoryWriterRegistry`.
+- No direct Trakt progress-service dependency remains in
+  `WatchProgressRepositoryImpl`.
+- `removeProgress()` no longer deletes Trakt playback merely because Trakt is
+  connected.
+- `markAsCompleted()` no longer mirrors completion to an unselected provider.
+- The normal incremental `assembleDebug` build passed after the write-path
+  conversion and legacy dependency cleanup.
 
-- all progress and Continue Watching
-- single-title and episode progress
-- full episode-progress maps
-- Next Up seeds
-- watched movie IDs
-- watched status
-- aired episode order
-- watched show episodes and sibling IDs
-- dropped/hidden progress status
-
-The normal incremental `assembleDebug` build passed after this conversion.
-
-Writes and history mutations remain intentionally unchanged for now. They still
-contain Trakt-specific behavior and must be converted separately so this read
-migration cannot accidentally introduce dual-writing or change established
-Trakt behavior.
+Simkl's provider-level optimistic methods are currently no-ops. Immediate UI
+and long-term playback durability therefore continue to depend on the local
+progress copy until dedicated Simkl optimistic projection support is added.
 
 ## Next steps, in dependency order
 
-1. Commit the provider-neutral read-path conversion with this updated handoff.
-2. Convert optimistic progress writes to the selected active provider:
-   - `saveProgress`
-   - batch progress saves
-   - optimistic progress updates
-   - optimistic progress removals
-   - clearing optimistic state
-3. Preserve durable local progress regardless of the selected remote provider.
-4. Convert playback-record removal without deleting unrelated provider history.
-5. Convert manual watched/unwatched history mutations through the selected
-   provider's history writer.
-6. Prevent any operation from silently broadcasting writes to both Trakt and
-   Simkl.
-7. Make Supabase/Nuvio Sync upload and delete guards provider-neutral rather
-   than Trakt-specific.
-8. Add any provider-neutral repository interface methods required by Home,
-   Details, watched badges, and player state.
-9. Finish Home, Details, watched-badge, and player integration.
-10. Finish mixed newest-first Simkl My List/library behavior.
-11. Implement durable unfinished Simkl playback beyond Simkl's remote
+1. Commit the provider-neutral write-path conversion with this handoff update.
+2. Audit remaining Supabase/Nuvio Sync guards outside
+   `WatchProgressRepositoryImpl` and remove any Trakt-specific assumptions.
+3. Replace or supplement the compatibility method
+   `isTraktProgressActive()` with provider-neutral repository APIs where callers
+   require active-provider information.
+4. Add repository APIs needed by Home and Details:
+   - remote progress loaded state
+   - active-provider Continue Watching cutoff
+   - Next Up seed preparation/remapping
+   - video-ID/anime watched lookup
+5. Verify Home Continue Watching and Next Up behavior with Trakt selected.
+6. Verify the same Home paths with Simkl selected.
+7. Verify local/Nuvio Sync behavior when no external provider is selected.
+8. Finish watched badges, Details, and player-state integration.
+9. Finish mixed newest-first Simkl My List/library behavior.
+10. Implement durable unfinished Simkl playback beyond Simkl's remote
     playback-retention window.
+11. Add dedicated Simkl optimistic projection support if required for immediate
+    Continue Watching updates.
 12. Finish hidden/dismissed Continue Watching behavior and release alerts.
 13. Install and test with Trakt, Simkl, and Nuvio Sync selected.
 14. Run fully warmed Home scrolling tests in every navigation mode before
@@ -105,17 +103,10 @@ Trakt behavior.
 
 ## Immediate next action
 
-Convert the progress write/removal paths to the selected active provider while
-preserving durable local progress. Then route manual watched/unwatched history
-through `TrackingHistoryWriterRegistry` using only the selected provider.
+Commit the provider-neutral write-path conversion and this updated handoff.
 
-Known hazards that must be removed:
-
-- `removeProgress()` currently deletes Trakt playback whenever Trakt is merely
-  connected, even when Simkl or Nuvio Sync is selected.
-- `markAsCompleted()` can mirror completion to Trakt when Trakt is not the
-  selected Watch Progress provider.
-- No mutation may silently write to both Trakt and Simkl.
+After that, audit all remaining callers of `isTraktProgressActive()` and all
+Supabase synchronization guards before changing Home behavior.
 
 ## Files most relevant to the next step
 

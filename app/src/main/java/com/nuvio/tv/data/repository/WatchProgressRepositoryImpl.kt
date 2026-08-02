@@ -2,17 +2,20 @@ package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.network.NetworkResult
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.sync.WatchProgressSyncService
 import com.nuvio.tv.core.sync.WatchedItemsSyncService
 import com.nuvio.tv.core.tracking.TrackingProgressProvider
+import com.nuvio.tv.core.tracking.TrackingHistoryItem
+import com.nuvio.tv.core.tracking.TrackingHistoryWriterRegistry
 import com.nuvio.tv.core.tracking.TrackingProgressProviderRegistry
 import com.nuvio.tv.core.tracking.TrackingProviderId
 import com.nuvio.tv.core.tracking.effectiveWatchProgressSource
 import com.nuvio.tv.core.tracking.mergeProgressProjectionWithRetainedLocal
 import com.nuvio.tv.core.tracking.mergeWatchedEpisodeProjection
 import com.nuvio.tv.core.tracking.providerId
+import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import android.util.Log
-import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.local.WatchProgressPreferences
@@ -54,10 +57,10 @@ import kotlinx.coroutines.flow.flowOf
 @OptIn(ExperimentalCoroutinesApi::class)
 class WatchProgressRepositoryImpl @Inject constructor(
     private val watchProgressPreferences: WatchProgressPreferences,
-    private val traktAuthDataStore: TraktAuthDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
-    private val traktProgressService: TraktProgressService,
     private val trackingProgressProviders: TrackingProgressProviderRegistry,
+    private val trackingHistoryWriters: TrackingHistoryWriterRegistry,
+    private val profileManager: ProfileManager,
     private val watchProgressSyncService: WatchProgressSyncService,
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val watchedItemsSyncService: WatchedItemsSyncService,
@@ -273,18 +276,6 @@ class WatchProgressRepositoryImpl @Inject constructor(
 
     private suspend fun activeProgressProvider(): TrackingProgressProvider? =
         activeProgressProviderFlow().first()
-
-    private fun useTraktProgressFlow(): Flow<Boolean> {
-        return activeProgressProviderFlow()
-            .map { provider -> provider?.providerId == TrackingProviderId.TRAKT }
-            .distinctUntilChanged()
-    }
-
-    private suspend fun shouldUseTraktProgress(): Boolean =
-        useTraktProgressFlow().first()
-
-    private suspend fun hasEffectiveTraktConnection(): Boolean =
-        traktAuthDataStore.isEffectivelyAuthenticated.first()
 
     private fun progressProjectionKey(progress: WatchProgress): String =
         "${progress.contentId}_${progress.season}_${progress.episode}"
@@ -559,43 +550,28 @@ class WatchProgressRepositoryImpl @Inject constructor(
             }
             .distinctUntilChanged()
     }
+    override suspend fun saveProgress(
+        progress: WatchProgress,
+        syncRemote: Boolean
+    ) {
+        val provider = activeProgressProvider()
 
-    override suspend fun saveProgress(progress: WatchProgress, syncRemote: Boolean) {
-        if (shouldUseTraktProgress()) {
-            traktProgressService.applyOptimisticProgress(progress)
-            watchProgressPreferences.saveProgress(progress)
-            val isSeriesEp = (progress.contentType.equals("series", ignoreCase = true) || progress.contentType.equals("tv", ignoreCase = true)) && progress.season != null && progress.episode != null && progress.season != 0
-            if (progress.isCompleted() && isSeriesEp) {
-                // Optimistically remove the in-progress playback record so CW doesn't
-                // show both InProgress and NextUp simultaneously while scrobble completes.
-                traktProgressService.applyOptimisticRemoval(
-                    contentId = progress.contentId,
-                    season = progress.season,
-                    episode = progress.episode
-                )
-                watchedItemsPreferences.markAsWatched(
-                    WatchedItem(
-                        contentId = progress.contentId,
-                        contentType = progress.contentType,
-                        title = progress.name,
-                        season = progress.season,
-                        episode = progress.episode,
-                        watchedAt = progress.lastWatched
-                    )
-                )
-            }
-            return
-        }
+        // Always retain a durable local copy. The selected provider receives
+        // only its own optimistic projection; no write is broadcast.
+        provider?.applyOptimisticProgress(
+            progress = progress,
+            quiet = false
+        )
         watchProgressPreferences.saveProgress(progress)
 
-        if (syncRemote && authManager.isAuthenticated) {
-            syncScope.launch {
-                watchProgressSyncService.pushSingleToRemote(progressKey(progress), progress)
-                    .onFailure { error ->
-                        Log.w(TAG, "Failed single progress push; falling back to full sync next cycle", error)
-                    }
-            }
-        }
+        val isSeriesEpisode =
+            (
+                progress.contentType.equals("series", ignoreCase = true) ||
+                    progress.contentType.equals("tv", ignoreCase = true)
+                ) &&
+                progress.season != null &&
+                progress.episode != null &&
+                progress.season != 0
 
         if (progress.isCompleted()) {
             watchedItemsPreferences.markAsWatched(
@@ -605,145 +581,250 @@ class WatchProgressRepositoryImpl @Inject constructor(
                     title = progress.name,
                     season = progress.season,
                     episode = progress.episode,
-                    watchedAt = System.currentTimeMillis()
+                    watchedAt = progress.lastWatched
                 )
             )
+
+            if (provider != null && isSeriesEpisode) {
+                // Prevent the completed episode from remaining in Continue
+                // Watching while its selected provider settles.
+                provider.applyOptimisticRemoval(
+                    contentId = progress.contentId,
+                    season = progress.season,
+                    episode = progress.episode
+                )
+            }
+        }
+
+        if (provider != null) {
+            return
+        }
+
+        // Nuvio Sync is the active destination only when no external
+        // progress provider is selected.
+        if (syncRemote && authManager.isAuthenticated) {
+            syncScope.launch {
+                watchProgressSyncService
+                    .pushSingleToRemote(progressKey(progress), progress)
+                    .onFailure { error ->
+                        Log.w(
+                            TAG,
+                            "Failed single progress push; " +
+                                "falling back to full sync next cycle",
+                            error
+                        )
+                    }
+            }
+        }
+
+        if (progress.isCompleted()) {
             triggerWatchedItemsSync()
         }
     }
+    override suspend fun removeProgress(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) {
+        val provider = activeProgressProvider()
 
-    override suspend fun removeProgress(contentId: String, season: Int?, episode: Int?) {
-        val useTraktProgress = shouldUseTraktProgress()
-        val hasEffectiveTraktConnection = hasEffectiveTraktConnection()
-        val remoteDeleteKeys = if (!useTraktProgress) {
-            resolveRemoteDeleteKeys(contentId, season, episode)
-        } else {
-            emptyList()
+        val remoteDeleteKeys =
+            if (provider == null) {
+                resolveRemoteDeleteKeys(contentId, season, episode)
+            } else {
+                emptyList()
+            }
+
+        if (provider != null) {
+            provider.applyOptimisticRemoval(
+                contentId = contentId,
+                season = season,
+                episode = episode
+            )
+            provider.removeProgress(contentId, season, episode)
         }
-        if (hasEffectiveTraktConnection) {
-            traktProgressService.applyOptimisticRemoval(contentId, season, episode)
-            traktProgressService.removeProgress(contentId, season, episode)
-        }
-        watchProgressPreferences.removeProgress(contentId, season, episode)
-        if (useTraktProgress) {
+
+        watchProgressPreferences.removeProgress(
+            contentId,
+            season,
+            episode
+        )
+
+        if (provider != null) {
             return
         }
-        if (authManager.isAuthenticated && remoteDeleteKeys.isNotEmpty()) {
-            watchProgressSyncService.deleteFromRemote(remoteDeleteKeys)
+
+        if (
+            authManager.isAuthenticated &&
+            remoteDeleteKeys.isNotEmpty()
+        ) {
+            watchProgressSyncService
+                .deleteFromRemote(remoteDeleteKeys)
                 .onFailure { error ->
-                    Log.w(TAG, "removeProgress remote delete failed; relying on push sync", error)
+                    Log.w(
+                        TAG,
+                        "removeProgress remote delete failed; " +
+                            "relying on push sync",
+                        error
+                    )
                 }
         }
+
         triggerRemoteSync()
     }
+    override suspend fun removeFromHistory(
+        contentId: String,
+        videoId: String?,
+        season: Int?,
+        episode: Int?
+    ) {
+        val provider = activeProgressProvider()
 
-    override suspend fun removeFromHistory(contentId: String, videoId: String?, season: Int?, episode: Int?) {
-        val useTraktProgress = shouldUseTraktProgress()
-        val remoteDeleteKeys = if (!useTraktProgress) {
-            resolveRemoteDeleteKeys(contentId, season, episode)
-        } else {
-            emptyList()
+        val remoteDeleteKeys =
+            if (provider == null) {
+                resolveRemoteDeleteKeys(contentId, season, episode)
+            } else {
+                emptyList()
+            }
+
+        if (provider != null) {
+            val writer = trackingHistoryWriters.writer(
+                provider.providerId
+            ) ?: throw IllegalStateException(
+                "No history writer registered for ${provider.providerId}"
+            )
+
+            val media = buildTrackingMediaReference(
+                contentType =
+                    if (season != null && episode != null) {
+                        "series"
+                    } else {
+                        "movie"
+                    },
+                parentMetaId = contentId,
+                videoId = videoId,
+                seasonNumber = season,
+                episodeNumber = episode
+            )
+
+            writer.removeFromHistory(
+                profileId = profileManager.activeProfileId.value,
+                items = listOf(media)
+            )
         }
-        if (hasEffectiveTraktConnection()) {
-            traktProgressService.removeFromHistory(contentId, videoId, season, episode)
-        }
-        watchProgressPreferences.removeProgress(contentId, season, episode)
-        watchedItemsPreferences.unmarkAsWatched(contentId, season, episode)
-        if (useTraktProgress) {
+
+        watchProgressPreferences.removeProgress(
+            contentId,
+            season,
+            episode
+        )
+        watchedItemsPreferences.unmarkAsWatched(
+            contentId,
+            season,
+            episode
+        )
+
+        if (provider != null) {
             return
         }
-        if (authManager.isAuthenticated && remoteDeleteKeys.isNotEmpty()) {
-            watchProgressSyncService.deleteFromRemote(remoteDeleteKeys)
+
+        if (
+            authManager.isAuthenticated &&
+            remoteDeleteKeys.isNotEmpty()
+        ) {
+            watchProgressSyncService
+                .deleteFromRemote(remoteDeleteKeys)
                 .onFailure { error ->
-                    Log.w(TAG, "removeFromHistory remote delete failed; relying on push sync", error)
+                    Log.w(
+                        TAG,
+                        "removeFromHistory remote delete failed; " +
+                            "relying on push sync",
+                        error
+                    )
                 }
         }
+
         triggerRemoteSync()
         triggerWatchedItemsSync()
     }
+    override suspend fun markAsCompleted(
+        progress: WatchProgress
+    ) {
+        val provider = activeProgressProvider()
+        val now = System.currentTimeMillis()
+        val duration = progress.duration.takeIf { it > 0L } ?: 1L
 
-    override suspend fun markAsCompleted(progress: WatchProgress) {
-        val useTraktProgress = shouldUseTraktProgress()
-        val hasEffectiveTraktConnection = hasEffectiveTraktConnection()
-        if (useTraktProgress && hasEffectiveTraktConnection) {
-            val now = System.currentTimeMillis()
-            val duration = progress.duration.takeIf { it > 0L } ?: 1L
-            val completed = progress.copy(
-                position = duration,
-                duration = duration,
-                progressPercent = 100f,
-                lastWatched = now
+        val completed = progress.copy(
+            position = duration,
+            duration = duration,
+            progressPercent = 100f,
+            lastWatched = now
+        )
+
+        if (provider != null) {
+            provider.applyOptimisticProgress(
+                progress = completed,
+                quiet = false
             )
-            traktProgressService.applyOptimisticProgress(completed)
+
+            val writer = trackingHistoryWriters.writer(
+                provider.providerId
+            ) ?: throw IllegalStateException(
+                "No history writer registered for ${provider.providerId}"
+            )
+
+            val media = buildTrackingMediaReference(
+                contentType = completed.contentType,
+                parentMetaId = completed.contentId,
+                videoId = completed.videoId,
+                title = completed.name,
+                seasonNumber = completed.season,
+                episodeNumber = completed.episode,
+                episodeTitle = completed.episodeTitle
+            )
+
             runCatching {
-                traktProgressService.markAsWatched(
-                    progress = completed,
-                    title = completed.name.takeIf { it.isNotBlank() },
-                    year = null
+                writer.addToHistory(
+                    profileId = profileManager.activeProfileId.value,
+                    items = listOf(
+                        TrackingHistoryItem(
+                            media = media,
+                            watchedAtEpochMs = now
+                        )
+                    )
                 )
             }.onFailure {
-                traktProgressService.applyOptimisticRemoval(
+                provider.applyOptimisticRemoval(
                     contentId = completed.contentId,
                     season = completed.season,
                     episode = completed.episode
                 )
                 throw it
             }
-            watchProgressPreferences.markAsCompleted(progress)
-            watchedItemsPreferences.markAsWatched(
-                WatchedItem(
-                    contentId = progress.contentId,
-                    contentType = progress.contentType,
-                    title = progress.name,
-                    season = progress.season,
-                    episode = progress.episode,
-                    watchedAt = System.currentTimeMillis()
-                )
-            )
-            return
         }
-        watchProgressPreferences.markAsCompleted(progress)
+
+        watchProgressPreferences.markAsCompleted(completed)
         watchedItemsPreferences.markAsWatched(
             WatchedItem(
-                contentId = progress.contentId,
-                contentType = progress.contentType,
-                title = progress.name,
-                season = progress.season,
-                episode = progress.episode,
-                watchedAt = System.currentTimeMillis()
+                contentId = completed.contentId,
+                contentType = completed.contentType,
+                title = completed.name,
+                season = completed.season,
+                episode = completed.episode,
+                watchedAt = now
             )
         )
-        if (hasEffectiveTraktConnection) {
-            val now = System.currentTimeMillis()
-            val duration = progress.duration.takeIf { it > 0L } ?: 1L
-            val completed = progress.copy(
-                position = duration,
-                duration = duration,
-                progressPercent = 100f,
-                lastWatched = now
-            )
-            runCatching {
-                traktProgressService.markAsWatched(
-                    progress = completed,
-                    title = completed.name.takeIf { it.isNotBlank() },
-                    year = null
-                )
-            }.onFailure { error ->
-                Log.w(TAG, "Failed to mirror completed state to Trakt", error)
-            }
-        }
-        triggerRemoteSync()
-        triggerWatchedItemsSync()
-    }
 
-    override suspend fun clearAll() {
-        if (shouldUseTraktProgress()) {
-            traktProgressService.clearOptimistic()
-            watchProgressPreferences.clearAll()
-            return
+        if (provider == null) {
+            triggerRemoteSync()
+            triggerWatchedItemsSync()
         }
+    }
+    override suspend fun clearAll() {
+        activeProgressProvider()?.clearOptimistic()
         watchProgressPreferences.clearAll()
     }
+
 
     override fun getAiredEpisodeOrder(
         contentId: String
@@ -811,7 +892,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
             ?: false
     }
 
-    override suspend fun isTraktProgressActive(): Boolean = shouldUseTraktProgress()
+    override suspend fun isTraktProgressActive(): Boolean =
+        activeProgressProvider()?.providerId == TrackingProviderId.TRAKT
 
 
     private fun progressKey(progress: WatchProgress): String {
