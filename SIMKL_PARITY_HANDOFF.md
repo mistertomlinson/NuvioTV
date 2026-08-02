@@ -147,3 +147,30 @@ need provider-neutral video-ID or anime watched lookup.
 - `app/src/main/java/com/nuvio/tv/data/simkl/SimklTrackingProgressProvider.kt`
 - `app/src/main/java/com/nuvio/tv/core/di/TraktTrackingModule.kt`
 - `app/src/main/java/com/nuvio/tv/core/di/SimklAuthModule.kt`
+
+## Trakt provider-neutral scrobbler registration
+
+Completed after commit `636f2b6b`:
+
+- Added `TraktTrackingProvider`.
+- Added `TraktTrackingScrobbler`.
+- Registered the Trakt `TrackingProvider` in `TraktTrackingModule`.
+- Preserved the existing Trakt episode-mapping service.
+- Preserved the existing Trakt pause-scrobble action.
+- Normal incremental `./gradlew assembleDebug` passed.
+- Rating submission remains Trakt-specific and was not changed.
+
+Important current state:
+
+- `TrackingScrobbleCoordinator` can now resolve both Trakt and Simkl scrobblers.
+- It still sends only to the selected Watch Progress provider.
+- Internal and external players still contain their old direct Trakt scrobble calls.
+- Do not remove those direct calls until each player is converted to the coordinator.
+- Do not alter the custom rating overlay while converting playback scrobbles.
+
+Immediate next action:
+
+1. Convert external playback scrobbling to `TrackingScrobbleCoordinator`.
+2. Build and commit that conversion separately.
+3. Convert internal playback scrobbling while retaining Trakt-only rating submission.
+4. Expose provider-neutral video-ID and parent-ID normalization APIs for Details/anime watched-state handling.
