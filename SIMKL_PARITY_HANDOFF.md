@@ -40,8 +40,11 @@ Updated: 2026-08-02
 - Simkl snapshot projections cached off the main thread.
 - Dedicated Simkl projection tests pass.
 - Incremental debug build passed after the projection-cache backport.
-- Trakt provider adapter and registry binding are being added in the commit
-  containing this handoff update.
+- Trakt progress provider and registry binding are complete.
+- Trakt history writer and registry binding are complete. This branch lacks
+  upstream Trakt batch-history service methods, so the adapter deliberately
+  performs history mutations one item at a time through the existing tested
+  service APIs.
 
 ## Current integration point
 
@@ -102,9 +105,17 @@ Trakt behavior.
 
 ## Immediate next action
 
-Commit the provider-neutral read path and this handoff together. Then inspect
-the existing `saveProgress`, `removeProgress`, `removeFromHistory`,
-`markAsCompleted`, and batch-write paths before converting writes.
+Convert the progress write/removal paths to the selected active provider while
+preserving durable local progress. Then route manual watched/unwatched history
+through `TrackingHistoryWriterRegistry` using only the selected provider.
+
+Known hazards that must be removed:
+
+- `removeProgress()` currently deletes Trakt playback whenever Trakt is merely
+  connected, even when Simkl or Nuvio Sync is selected.
+- `markAsCompleted()` can mirror completion to Trakt when Trakt is not the
+  selected Watch Progress provider.
+- No mutation may silently write to both Trakt and Simkl.
 
 ## Files most relevant to the next step
 

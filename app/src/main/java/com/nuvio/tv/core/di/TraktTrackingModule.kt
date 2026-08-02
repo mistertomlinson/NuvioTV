@@ -1,6 +1,8 @@
 package com.nuvio.tv.core.di
 
+import com.nuvio.tv.core.tracking.TrackingHistoryWriter
 import com.nuvio.tv.core.tracking.TrackingProgressProvider
+import com.nuvio.tv.data.repository.TraktTrackingHistoryWriter
 import com.nuvio.tv.data.repository.TraktTrackingProgressProvider
 import dagger.Binds
 import dagger.Module
@@ -21,4 +23,11 @@ abstract class TraktTrackingModule {
     abstract fun bindTraktTrackingProgressProvider(
         provider: TraktTrackingProgressProvider
     ): TrackingProgressProvider
+
+    @Binds
+    @IntoSet
+    abstract fun bindTraktTrackingHistoryWriter(
+        writer: TraktTrackingHistoryWriter
+    ): TrackingHistoryWriter
+
 }
