@@ -45,65 +45,66 @@ Updated: 2026-08-02
 
 ## Current integration point
 
-`WatchProgressRepositoryImpl` still selects only between:
+`WatchProgressRepositoryImpl` now selects its active read provider through:
 
-- direct Trakt-specific repository code; and
-- local/Nuvio Sync storage.
+- `TrackingProgressProviderRegistry`
+- provider authentication flows
+- `effectiveWatchProgressSource`
+- the configured Watch Progress source
 
-It does not yet use `TrackingProgressProviderRegistry`, so selecting Simkl in
-settings does not yet route Home, Continue Watching, Next Up, watched badges,
-or Details lookups through `SimklTrackingProgressProvider`.
+The following reads are now provider-neutral and route through either Trakt,
+Simkl, or local/Nuvio Sync as appropriate:
 
-The provider registry previously contained only Simkl. The next commit adds
-`TraktTrackingProgressProvider` and its Hilt multibinding so the repository can
-be converted without breaking existing Trakt behavior.
+- all progress and Continue Watching
+- single-title and episode progress
+- full episode-progress maps
+- Next Up seeds
+- watched movie IDs
+- watched status
+- aired episode order
+- watched show episodes and sibling IDs
+- dropped/hidden progress status
+
+The normal incremental `assembleDebug` build passed after this conversion.
+
+Writes and history mutations remain intentionally unchanged for now. They still
+contain Trakt-specific behavior and must be converted separately so this read
+migration cannot accidentally introduce dual-writing or change established
+Trakt behavior.
 
 ## Next steps, in dependency order
 
-1. Build and verify the Trakt provider registration added with this handoff.
-2. Commit the provider registration and this handoff together.
-3. Convert `WatchProgressRepositoryImpl` to use:
-   - `TrackingProgressProviderRegistry`
-   - provider authentication flows
-   - `effectiveWatchProgressSource`
-   - the currently selected active provider
-4. Preserve the branch's custom local-progress retention and Next Up behavior
-   while replacing Trakt-only read paths.
-5. Make these repository reads provider-neutral:
-   - all progress
-   - Continue Watching
-   - single-item progress
-   - episode progress
-   - Next Up seeds
-   - watched movie IDs
-   - watched status
-   - watched show episodes
-   - sibling IDs
-   - dropped/hidden status
-6. Make optimistic progress/removal provider-neutral.
-7. Keep local durable unfinished progress merged with providers where required.
-8. Make Supabase/Nuvio Sync guards provider-neutral rather than Trakt-specific.
-9. Add provider-neutral remote-loaded and Next Up preparation APIs to the
-   repository interface where required by Home.
-10. Wire Home, Details, watched badges, and player state to the active provider.
-11. Implement provider-neutral manual watched/unwatched history mutations.
-12. Finish the mixed newest-first Simkl My List/library behavior.
-13. Implement durable local unfinished Simkl playback beyond Simkl's remote
+1. Commit the provider-neutral read-path conversion with this updated handoff.
+2. Convert optimistic progress writes to the selected active provider:
+   - `saveProgress`
+   - batch progress saves
+   - optimistic progress updates
+   - optimistic progress removals
+   - clearing optimistic state
+3. Preserve durable local progress regardless of the selected remote provider.
+4. Convert playback-record removal without deleting unrelated provider history.
+5. Convert manual watched/unwatched history mutations through the selected
+   provider's history writer.
+6. Prevent any operation from silently broadcasting writes to both Trakt and
+   Simkl.
+7. Make Supabase/Nuvio Sync upload and delete guards provider-neutral rather
+   than Trakt-specific.
+8. Add any provider-neutral repository interface methods required by Home,
+   Details, watched badges, and player state.
+9. Finish Home, Details, watched-badge, and player integration.
+10. Finish mixed newest-first Simkl My List/library behavior.
+11. Implement durable unfinished Simkl playback beyond Simkl's remote
     playback-retention window.
-14. Finish hidden/dismissed Continue Watching behavior and release alerts.
-15. Install and test both Trakt-selected and Simkl-selected configurations.
-16. Run warmed Home scrolling tests in every navigation mode before declaring
-    parity complete.
+12. Finish hidden/dismissed Continue Watching behavior and release alerts.
+13. Install and test with Trakt, Simkl, and Nuvio Sync selected.
+14. Run fully warmed Home scrolling tests in every navigation mode before
+    declaring parity complete.
 
 ## Immediate next action
 
-Run the incremental debug build. If it passes, inspect the staged diff and
-commit with a message similar to:
-
-`Register Trakt progress provider`
-
-Then begin the surgical provider-neutral conversion of
-`WatchProgressRepositoryImpl`.
+Commit the provider-neutral read path and this handoff together. Then inspect
+the existing `saveProgress`, `removeProgress`, `removeFromHistory`,
+`markAsCompleted`, and batch-write paths before converting writes.
 
 ## Files most relevant to the next step
 

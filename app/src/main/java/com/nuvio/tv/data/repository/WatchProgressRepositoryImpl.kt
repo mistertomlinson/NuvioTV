@@ -4,6 +4,13 @@ import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.sync.WatchProgressSyncService
 import com.nuvio.tv.core.sync.WatchedItemsSyncService
+import com.nuvio.tv.core.tracking.TrackingProgressProvider
+import com.nuvio.tv.core.tracking.TrackingProgressProviderRegistry
+import com.nuvio.tv.core.tracking.TrackingProviderId
+import com.nuvio.tv.core.tracking.effectiveWatchProgressSource
+import com.nuvio.tv.core.tracking.mergeProgressProjectionWithRetainedLocal
+import com.nuvio.tv.core.tracking.mergeWatchedEpisodeProjection
+import com.nuvio.tv.core.tracking.providerId
 import android.util.Log
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -24,6 +31,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -49,6 +57,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private val traktAuthDataStore: TraktAuthDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
     private val traktProgressService: TraktProgressService,
+    private val trackingProgressProviders: TrackingProgressProviderRegistry,
     private val watchProgressSyncService: WatchProgressSyncService,
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val watchedItemsSyncService: WatchedItemsSyncService,
@@ -227,71 +236,126 @@ class WatchProgressRepositoryImpl @Inject constructor(
         )
     }
 
-    private fun useTraktProgressFlow(): Flow<Boolean> {
-        return combine(
-            traktAuthDataStore.isEffectivelyAuthenticated,
-            traktSettingsDataStore.watchProgressSource
-        ) { isEffectivelyAuthenticated, source ->
-            isEffectivelyAuthenticated && source == WatchProgressSource.TRAKT
-        }.distinctUntilChanged()
+    private val progressProviderConnections = combine(
+        trackingProgressProviders.providers().map { provider ->
+            provider.isAuthenticated.map { authenticated ->
+                provider.providerId to authenticated
+            }
+        }
+    ) { states ->
+        states.toMap()
     }
 
-    private suspend fun shouldUseTraktProgress(): Boolean = useTraktProgressFlow().first()
+    @Volatile
+    private var activeProgressProviderId: TrackingProviderId? = null
+
+    init {
+        syncScope.launch {
+            activeProgressProviderFlow().collect { provider ->
+                activeProgressProviderId = provider?.providerId
+            }
+        }
+    }
+
+    @OptIn(FlowPreview::class)
+    private fun activeProgressProviderFlow(): Flow<TrackingProgressProvider?> {
+        return combine(
+            traktSettingsDataStore.watchProgressSource,
+            progressProviderConnections
+        ) { requestedSource, connections ->
+            effectiveWatchProgressSource(requestedSource) { providerId ->
+                connections[providerId] == true
+            }.providerId?.let(trackingProgressProviders::provider)
+        }
+            .debounce { provider -> if (provider == null) 300L else 0L }
+            .distinctUntilChanged()
+    }
+
+    private suspend fun activeProgressProvider(): TrackingProgressProvider? =
+        activeProgressProviderFlow().first()
+
+    private fun useTraktProgressFlow(): Flow<Boolean> {
+        return activeProgressProviderFlow()
+            .map { provider -> provider?.providerId == TrackingProviderId.TRAKT }
+            .distinctUntilChanged()
+    }
+
+    private suspend fun shouldUseTraktProgress(): Boolean =
+        useTraktProgressFlow().first()
 
     private suspend fun hasEffectiveTraktConnection(): Boolean =
         traktAuthDataStore.isEffectivelyAuthenticated.first()
 
-    private fun traktAllProgressFlow(): Flow<List<WatchProgress>> {
+    private fun progressProjectionKey(progress: WatchProgress): String =
+        "${progress.contentId}_${progress.season}_${progress.episode}"
+
+    private fun providerAllProgressFlow(
+        provider: TrackingProgressProvider
+    ): Flow<List<WatchProgress>> {
         return combine(
-            traktProgressService.observeAllProgress().onStart { emit(emptyList()) },
+            provider.allProgress.onStart { emit(emptyList()) },
             watchProgressPreferences.allProgress.onStart { emit(emptyList()) },
             metadataState
-        ) { remoteItems, localItems, metadataMap ->
-            hydrateMetadata(remoteItems)
-            val localByKey = localItems.associateBy { "${it.contentId}_${it.season}_${it.episode}" }
-            remoteItems.map { remote ->
-                val enriched = enrichWithMetadata(remote, metadataMap)
-                val key = "${enriched.contentId}_${enriched.season}_${enriched.episode}"
-                val local = localByKey[key]
-                var result = enriched
-                if (result.duration <= 0L && local != null && local.duration > 0L) {
-                    result = result.copy(duration = local.duration)
-                }
-                if (result.position <= 0L && local != null && local.position > 0L) {
-                    result = result.copy(position = local.position)
-                }
-                result
-            }
+        ) { providerItems, localItems, metadataMap ->
+            hydrateMetadata(providerItems)
+
+            val localByKey = localItems.associateBy(::progressProjectionKey)
+            mergeProgressProjectionWithRetainedLocal(
+                providerEntries = providerItems,
+                localEntries = localItems,
+                retainsLocalProgress = provider::retainsLocalProgress
+            ).map { item ->
+                val enriched = enrichWithMetadata(item, metadataMap)
+                val local = localByKey[progressProjectionKey(enriched)]
+
+                enriched.copy(
+                    duration = if (enriched.duration <= 0L && local?.duration?.let { it > 0L } == true) {
+                        local.duration
+                    } else {
+                        enriched.duration
+                    },
+                    position = if (enriched.position <= 0L && local?.position?.let { it > 0L } == true) {
+                        local.position
+                    } else {
+                        enriched.position
+                    }
+                )
+            }.sortedByDescending(WatchProgress::lastWatched)
+        }.distinctUntilChanged()
+    }
+
+    private fun localAllProgressFlow(): Flow<List<WatchProgress>> {
+        return combine(
+            watchProgressPreferences.allProgress,
+            metadataState
+        ) { items, metadataMap ->
+            hydrateMetadata(items)
+            items.map { item -> enrichWithMetadata(item, metadataMap) }
+                .sortedByDescending(WatchProgress::lastWatched)
         }.distinctUntilChanged()
     }
 
     override val allProgress: Flow<List<WatchProgress>>
-        get() = useTraktProgressFlow()
-            .flatMapLatest { useTraktProgress ->
-                if (useTraktProgress) {
-                    traktAllProgressFlow()
-                } else {
-                    combine(
-                        watchProgressPreferences.allProgress,
-                        metadataState
-                    ) { items, metadataMap ->
-                        hydrateMetadata(items)
-                        items.map { enrichWithMetadata(it, metadataMap) }
-                    }
-                }
+        get() = activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                provider?.let(::providerAllProgressFlow) ?: localAllProgressFlow()
             }
 
     override val continueWatching: Flow<List<WatchProgress>>
-        get() = allProgress.map { list -> list.filter { it.isInProgress() } }
+        get() = allProgress.map { items ->
+            items.filter(WatchProgress::isInProgress)
+        }
 
     override fun getProgress(contentId: String): Flow<WatchProgress?> {
-        return useTraktProgressFlow()
-            .flatMapLatest { useTraktProgress ->
-                if (useTraktProgress) {
-                    traktProgressService.observeAllProgress().map { items ->
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                if (provider != null) {
+                    provider.allProgress.map { items ->
                         items
-                            .filter { it.contentId == contentId }
-                            .maxByOrNull { it.lastWatched }
+                            .filter { item ->
+                                item.contentId.equals(contentId, ignoreCase = true)
+                            }
+                            .maxByOrNull(WatchProgress::lastWatched)
                     }
                 } else {
                     watchProgressPreferences.getProgress(contentId)
@@ -299,101 +363,31 @@ class WatchProgressRepositoryImpl @Inject constructor(
             }
     }
 
-    override fun getEpisodeProgress(contentId: String, season: Int, episode: Int): Flow<WatchProgress?> {
-        return useTraktProgressFlow()
-            .flatMapLatest { useTraktProgress ->
-                if (useTraktProgress) {
-                    traktProgressService.observeAllProgress().map { items ->
-                        items.firstOrNull {
-                            it.contentId == contentId && it.season == season && it.episode == episode
-                        }
-                    }
+    override fun getEpisodeProgress(
+        contentId: String,
+        season: Int,
+        episode: Int
+    ): Flow<WatchProgress?> {
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                if (provider != null) {
+                    provider.episodeProgress(contentId)
+                        .map { progress -> progress[season to episode] }
                 } else {
-                    watchProgressPreferences.getEpisodeProgress(contentId, season, episode)
+                    watchProgressPreferences.getEpisodeProgress(
+                        contentId,
+                        season,
+                        episode
+                    )
                 }
             }
     }
 
     override fun observeNextUpSeeds(): Flow<List<WatchProgress>> {
-        return useTraktProgressFlow()
-            .flatMapLatest { useTraktProgress ->
-                if (useTraktProgress) {
-                    combine(
-                        traktProgressService.observeAllProgress()
-                            .map { items ->
-                                val nowMs = System.currentTimeMillis()
-                                items.filter { progress ->
-                                    isOptimisticNextUpSeedCandidate(progress, nowMs)
-                                }
-                            }
-                            .onStart { emit(emptyList()) },
-                        traktProgressService.observeAllProgress()
-                            .map { items ->
-                                items
-                                    .filter { it.contentType.equals("series", ignoreCase = true) || it.contentType.equals("tv", ignoreCase = true) }
-                                    .filter { it.season != null && it.episode != null && it.season != 0 }
-                                    .filter { it.isCompleted() }
-                                    .filter { !isMalformedNextUpSeedContentId(it.contentId) }
-                                    .groupBy { it.contentId }
-                                    .mapNotNull { (_, episodes) ->
-                                        episodes.maxWithOrNull(
-                                            compareBy<WatchProgress>({ it.season ?: -1 }, { it.episode ?: -1 }, { it.lastWatched })
-                                        )
-                                    }
-                            }
-                            .onStart { emit(emptyList()) },
-                        watchedItemsPreferences.allItems
-                            .map { items ->
-                                items
-                                    .filter { item ->
-                                        (item.contentType.equals("series", ignoreCase = true) ||
-                                            item.contentType.equals("tv", ignoreCase = true)) &&
-                                            item.season != null &&
-                                            item.episode != null &&
-                                            item.season != 0 &&
-                                            !isMalformedNextUpSeedContentId(item.contentId)
-                                    }
-                                    .groupBy { it.contentId }
-                                    .mapNotNull { (_, episodes) ->
-                                        val latest = episodes.maxWithOrNull(
-                                            compareBy<WatchedItem>({ it.season ?: 0 }, { it.episode ?: 0 }, { it.watchedAt })
-                                        ) ?: return@mapNotNull null
-                                        WatchProgress(
-                                            contentId = latest.contentId,
-                                            contentType = latest.contentType,
-                                            name = latest.title,
-                                            poster = null, backdrop = null, logo = null,
-                                            videoId = latest.contentId,
-                                            season = latest.season,
-                                            episode = latest.episode,
-                                            episodeTitle = null,
-                                            position = 1L, duration = 1L,
-                                            lastWatched = latest.watchedAt,
-                                            progressPercent = 100f,
-                                            source = WatchProgress.SOURCE_LOCAL
-                                        )
-                                    }
-                            }
-                            .onStart { emit(emptyList()) }
-                    ) { optimisticSeeds, canonicalSeeds, localSeeds ->
-                        // Use local seeds for shows Trakt already knows about,
-                        // OR for seeds written very recently (within 5 min) — catches the case
-                        // where a just-completed episode hasn't yet appeared in Trakt history.
-                        val traktContentIds = (canonicalSeeds + optimisticSeeds).map { it.contentId }.toSet()
-                        val recentThresholdMs = System.currentTimeMillis() - 5 * 60 * 1000L
-                        val filteredLocalSeeds = localSeeds.filter { seed ->
-                            seed.contentId in traktContentIds || seed.lastWatched >= recentThresholdMs
-                        }
-                        // Merge local seeds with canonical — pick furthest episode per show
-                        val allCanonical = (canonicalSeeds + filteredLocalSeeds)
-                            .groupBy { it.contentId }
-                            .mapNotNull { (_, items) ->
-                                items.maxWithOrNull(
-                                    compareBy<WatchProgress>({ it.season ?: -1 }, { it.episode ?: -1 }, { it.lastWatched })
-                                )
-                            }
-                        mergeNextUpSeeds(allCanonical, optimisticSeeds)
-                    }
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                if (provider != null) {
+                    provider.nextUpSeeds
                 } else {
                     watchedItemsPreferences.allItems.map { items ->
                         items
@@ -405,13 +399,14 @@ class WatchProgressRepositoryImpl @Inject constructor(
                                     item.season != 0 &&
                                     !isMalformedNextUpSeedContentId(item.contentId)
                             }
-                            .groupBy { it.contentId }
+                            .groupBy(WatchedItem::contentId)
                             .mapNotNull { (_, episodes) ->
                                 val latest = episodes.maxWithOrNull(
                                     compareBy<WatchedItem> { it.watchedAt }
                                         .thenBy { it.season ?: 0 }
                                         .thenBy { it.episode ?: 0 }
                                 ) ?: return@mapNotNull null
+
                                 WatchProgress(
                                     contentId = latest.contentId,
                                     contentType = latest.contentType,
@@ -426,7 +421,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
                                     position = 1L,
                                     duration = 1L,
                                     lastWatched = latest.watchedAt,
-                                    progressPercent = 100f
+                                    progressPercent = 100f,
+                                    source = WatchProgress.SOURCE_LOCAL
                                 )
                             }
                     }
@@ -435,65 +431,40 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .distinctUntilChanged()
     }
 
-    private fun isOptimisticNextUpSeedCandidate(progress: WatchProgress, nowMs: Long): Boolean {
-        if (!progress.contentType.equals("series", ignoreCase = true) &&
-            !progress.contentType.equals("tv", ignoreCase = true)) return false
-        if (!progress.isCompleted()) return false
-        if (progress.source != WatchProgress.SOURCE_TRAKT_PLAYBACK) return false
-        if (progress.season == null || progress.episode == null || progress.season == 0) return false
-        val ageMs = nowMs - progress.lastWatched
-        return ageMs in 0..OPTIMISTIC_NEXT_UP_SEED_WINDOW_MS
-    }
-
-    private fun mergeNextUpSeeds(
-        canonicalSeeds: List<WatchProgress>,
-        optimisticSeeds: List<WatchProgress>
-    ): List<WatchProgress> {
-        val merged = linkedMapOf<String, WatchProgress>()
-        canonicalSeeds.forEach { seed -> merged[nextUpSeedKey(seed)] = seed }
-        optimisticSeeds.forEach { seed ->
-            val key = nextUpSeedKey(seed)
-            val existing = merged[key]
-            if (existing == null || shouldReplaceNextUpSeed(existing, seed)) merged[key] = seed
-        }
-        return merged.values.sortedByDescending { it.lastWatched }
-    }
-
     private fun isMalformedNextUpSeedContentId(contentId: String?): Boolean {
-        val t = contentId?.trim().orEmpty()
-        if (t.isEmpty()) return true
-        val l = t.lowercase()
-        return l == "tmdb" || l == "imdb" || l == "trakt" ||
-            l == "tmdb:" || l == "imdb:" || l == "trakt:"
+        val trimmed = contentId?.trim().orEmpty()
+        if (trimmed.isEmpty()) return true
+
+        return when (trimmed.lowercase()) {
+            "tmdb", "imdb", "trakt", "tmdb:", "imdb:", "trakt:" -> true
+            else -> false
+        }
     }
 
-    private fun nextUpSeedKey(progress: WatchProgress): String =
-        progress.contentId.trim()
-
-    private fun shouldReplaceNextUpSeed(existing: WatchProgress, candidate: WatchProgress): Boolean {
-        val cs = candidate.season ?: -1; val ce = candidate.episode ?: -1
-        val es = existing.season ?: -1;  val ee = existing.episode ?: -1
-        return cs > es || (cs == es && (ce > ee || (ce == ee && candidate.lastWatched >= existing.lastWatched)))
-    }
-
-        override fun getAllEpisodeProgress(contentId: String): Flow<Map<Pair<Int, Int>, WatchProgress>> {
-        return useTraktProgressFlow()
-            .flatMapLatest { useTraktProgress ->
-                if (useTraktProgress) {
+    override fun getAllEpisodeProgress(
+        contentId: String
+    ): Flow<Map<Pair<Int, Int>, WatchProgress>> {
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                if (provider != null) {
                     combine(
-                        traktProgressService.observeEpisodeProgress(contentId)
+                        provider.episodeProgress(contentId)
                             .onStart { emit(emptyMap()) },
-                        allProgress.map { items ->
-                            items.filter { it.contentId == contentId && it.season != null && it.episode != null }
+                        provider.allProgress.map { items ->
+                            items.filter { progress ->
+                                progress.contentId.equals(contentId, ignoreCase = true) &&
+                                    progress.season != null &&
+                                    progress.episode != null
+                            }
                         }
-                    ) { remoteMap, liveEpisodes ->
-                        val merged = remoteMap.toMutableMap()
-                        liveEpisodes.forEach { episodeProgress ->
-                            val seasonNum = episodeProgress.season ?: return@forEach
-                            val episodeNum = episodeProgress.episode ?: return@forEach
-                            merged[seasonNum to episodeNum] = episodeProgress
+                    ) { providerMap, liveEpisodes ->
+                        providerMap.toMutableMap().apply {
+                            liveEpisodes.forEach { progress ->
+                                val season = progress.season ?: return@forEach
+                                val episode = progress.episode ?: return@forEach
+                                this[season to episode] = progress
+                            }
                         }
-                        merged
                     }.distinctUntilChanged()
                 } else {
                     watchProgressPreferences.getAllEpisodeProgress(contentId)
@@ -503,10 +474,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
 
     @OptIn(FlowPreview::class)
     override fun observeWatchedMovieIds(): Flow<Set<String>> {
-        return useTraktProgressFlow()
-            .flatMapLatest { useTraktProgress ->
-                if (useTraktProgress) {
-                    traktProgressService.observeAllWatchedMovieIds()
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                if (provider != null) {
+                    provider.watchedMovieIds
                 } else {
                     combine(
                         watchProgressPreferences.allProgress,
@@ -514,19 +485,25 @@ class WatchProgressRepositoryImpl @Inject constructor(
                     ) { progressList, watchedItems ->
                         val completedIds = mutableSetOf<String>()
                         val replayingIds = mutableSetOf<String>()
-                        for (progress in progressList) {
+
+                        progressList.forEach { progress ->
                             if (progress.isCompleted()) {
-                                completedIds.add(progress.contentId)
-                            } else if (progress.position > 0L ||
+                                completedIds += progress.contentId
+                            } else if (
+                                progress.position > 0L ||
                                 progress.progressPercent?.let { it > 0f } == true
                             ) {
-                                replayingIds.add(progress.contentId)
+                                replayingIds += progress.contentId
                             }
                         }
+
                         val watchedItemIds = watchedItems
-                            .filter { it.season == null && it.episode == null }
-                            .map { it.contentId }
+                            .filter { item ->
+                                item.season == null && item.episode == null
+                            }
+                            .map(WatchedItem::contentId)
                             .toSet()
+
                         (completedIds + watchedItemIds) - replayingIds
                     }.debounce(500)
                 }
@@ -534,42 +511,53 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .distinctUntilChanged()
     }
 
-    override fun isWatched(contentId: String, videoId: String?, season: Int?, episode: Int?): Flow<Boolean> {
-        return useTraktProgressFlow()
-            .flatMapLatest { useTraktProgress ->
-                if (!useTraktProgress) {
-                    val progressFlow = if (season != null && episode != null) {
-                        watchProgressPreferences.getEpisodeProgress(contentId, season, episode)
-                    } else {
-                        watchProgressPreferences.getProgress(contentId)
-                    }
-                    return@flatMapLatest combine(
+    override fun isWatched(
+        contentId: String,
+        videoId: String?,
+        season: Int?,
+        episode: Int?
+    ): Flow<Boolean> {
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                if (provider != null) {
+                    provider.isWatched(contentId, videoId, season, episode)
+                } else {
+                    val progressFlow =
+                        if (season != null && episode != null) {
+                            watchProgressPreferences.getEpisodeProgress(
+                                contentId,
+                                season,
+                                episode
+                            )
+                        } else {
+                            watchProgressPreferences.getProgress(contentId)
+                        }
+
+                    combine(
                         progressFlow,
-                        watchedItemsPreferences.isWatched(contentId, season, episode)
+                        watchedItemsPreferences.isWatched(
+                            contentId,
+                            season,
+                            episode
+                        )
                     ) { progressEntry, itemWatched ->
                         val hasStartedReplay = progressEntry?.let { entry ->
                             !entry.isCompleted() &&
-                                (entry.position > 0L || entry.progressPercent?.let { it > 0f } == true)
+                                (
+                                    entry.position > 0L ||
+                                        entry.progressPercent?.let { it > 0f } == true
+                                    )
                         } == true
 
                         if (hasStartedReplay) {
                             false
                         } else {
-                            (progressEntry?.isCompleted() == true) || itemWatched
+                            progressEntry?.isCompleted() == true || itemWatched
                         }
                     }
                 }
-
-                if (season != null && episode != null) {
-                    traktProgressService.observeEpisodeProgress(contentId)
-                        .map { progressMap ->
-                            progressMap[season to episode]?.isCompleted() == true
-                        }
-                        .distinctUntilChanged()
-                } else {
-                    traktProgressService.observeMovieWatched(contentId, videoId)
-                }
             }
+            .distinctUntilChanged()
     }
 
     override suspend fun saveProgress(progress: WatchProgress, syncRemote: Boolean) {
@@ -757,12 +745,14 @@ class WatchProgressRepositoryImpl @Inject constructor(
         watchProgressPreferences.clearAll()
     }
 
-    override fun getAiredEpisodeOrder(contentId: String): Flow<List<Pair<Int, Int>>> {
-        return if (kotlinx.coroutines.runBlocking { shouldUseTraktProgress() }) {
-            traktProgressService.observeAiredEpisodes(contentId)
-        } else {
-            flowOf(emptyList())
-        }
+    override fun getAiredEpisodeOrder(
+        contentId: String
+    ): Flow<List<Pair<Int, Int>>> {
+        return activeProgressProviderFlow()
+            .flatMapLatest { provider ->
+                provider?.airedEpisodeOrder(contentId) ?: flowOf(emptyList())
+            }
+            .distinctUntilChanged()
     }
 
     override fun observeOptimisticContinueWatchingUpdates(): Flow<WatchProgress> {
@@ -770,22 +760,29 @@ class WatchProgressRepositoryImpl @Inject constructor(
     }
 
     override suspend fun getWatchedShowEpisodes(): Map<String, Set<Pair<Int, Int>>> {
-        return if (shouldUseTraktProgress()) {
-            traktProgressService.getWatchedShowEpisodes()
-        } else {
-            watchedItemsPreferences.allItems.first()
-                .filter { it.season != null && it.episode != null }
-                .groupBy { it.contentId }
-                .mapValues { (_, items) -> items.map { it.season!! to it.episode!! }.toSet() }
+        val provider = activeProgressProvider()
+        if (provider != null) {
+            return mergeWatchedEpisodeProjection(
+                providerEpisodes = provider.watchedShowEpisodes(),
+                localItems = watchedItemsPreferences.getAllItems(),
+                retainsLocalWatchedEpisode = provider::retainsLocalWatchedEpisode
+            )
         }
+
+        return watchedItemsPreferences.allItems.first()
+            .filter { item ->
+                item.season != null && item.episode != null
+            }
+            .groupBy(WatchedItem::contentId)
+            .mapValues { (_, items) ->
+                items.map { item ->
+                    requireNotNull(item.season) to requireNotNull(item.episode)
+                }.toSet()
+            }
     }
 
     override suspend fun getShowIdSiblings(): Map<String, Set<String>> {
-        return if (shouldUseTraktProgress()) {
-            traktProgressService.getShowIdSiblings()
-        } else {
-            emptyMap()
-        }
+        return activeProgressProvider()?.showIdSiblings().orEmpty()
     }
 
     override suspend fun saveProgressBatch(progressList: List<WatchProgress>, syncRemote: Boolean) {
@@ -807,7 +804,11 @@ class WatchProgressRepositoryImpl @Inject constructor(
     }
 
     override fun isDroppedShow(contentId: String): Boolean {
-        return traktProgressService.isShowHiddenFromProgress(contentId)
+        val providerId = activeProgressProviderId ?: return false
+        return trackingProgressProviders
+            .provider(providerId)
+            ?.isHiddenFromProgress(contentId)
+            ?: false
     }
 
     override suspend fun isTraktProgressActive(): Boolean = shouldUseTraktProgress()
