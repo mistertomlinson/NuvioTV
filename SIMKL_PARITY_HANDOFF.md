@@ -125,7 +125,7 @@ The obsolete source-selection paths in `TraktViewModel` have also been removed:
    playback-retention window is complete.
 9. Add dedicated Simkl optimistic projection support if runtime behavior shows
     it is needed for immediate Continue Watching updates.
-10. Finish hidden/dismissed Continue Watching behavior and release alerts.
+10. Simkl stale-playback reappearance suppression is complete; provider-neutral Next Up dismissal and release alerts remain.
 11. Install and test with Trakt, Simkl, and Nuvio Sync selected.
 12. Run fully warmed Home scrolling tests in every navigation mode before
     declaring parity complete.
@@ -407,6 +407,25 @@ Completed in the provider-neutral library work following `65fe0df8`:
 - Focused provider-routing unit tests passed.
 - Normal incremental `assembleDebug` passed.
 - No Home UI or active scrolling-path code was changed.
+
+## Simkl removed-playback suppression
+
+Completed after `e9119471`:
+
+- Added a profile-scoped Simkl progress-dismissal tombstone store.
+- Removing Simkl progress now clears the durable fallback and records the
+  removal before deleting the remote playback session.
+- Stale Simkl snapshots and stale durable entries are filtered so a removed
+  Continue Watching item cannot immediately reappear.
+- Episode-specific removal suppresses only that episode.
+- Whole-title removal suppresses all playback entries for that title.
+- Genuinely newer playback automatically clears matching tombstones and
+  becomes visible again.
+- Matching is case-insensitive and tombstones are capped at 300 entries.
+- Existing durable-progress tests and focused dismissal tests passed.
+- Normal incremental `assembleDebug` passed.
+- No Home UI or active scrolling-path code was changed.
+- Provider-neutral Next Up dismissal still requires later Home pipeline wiring.
 
 ## Current immediate next action
 

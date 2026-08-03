@@ -21,26 +21,31 @@ class SimklTrackingProgressProvider @Inject constructor(
     private val apiClient: SimklApiClient,
     private val authStorage: SimklAuthStorage,
     private val layoutPreferences: LayoutPreferenceDataStore,
-    private val durableProgressStore: SimklDurableProgressStore
+    private val durableProgressStore: SimklDurableProgressStore,
+    private val progressDismissalStore: SimklProgressDismissalStore
 ) : TrackingProgressProvider {
     override val providerId = TrackingProviderId.SIMKL
     override val isAuthenticated = authStorage.state.map { state -> state.isAuthenticated }
         .distinctUntilChanged()
     override val allProgress = combine(
         syncRepository.projection,
-        durableProgressStore.allProgress
-    ) { projection, durableEntries ->
-        mergeSimklProgressWithDurable(
-            remoteEntries = projection.progress,
-            durableEntries = durableEntries,
-            isWatched = { progress ->
-                projection.isWatched(
-                    contentId = progress.contentId,
-                    videoId = progress.videoId,
-                    season = progress.season,
-                    episode = progress.episode
-                )
-            }
+        durableProgressStore.allProgress,
+        progressDismissalStore.dismissedAtByKey
+    ) { projection, durableEntries, dismissedAtByKey ->
+        filterSimklDismissedProgress(
+            entries = mergeSimklProgressWithDurable(
+                remoteEntries = projection.progress,
+                durableEntries = durableEntries,
+                isWatched = { progress ->
+                    projection.isWatched(
+                        contentId = progress.contentId,
+                        videoId = progress.videoId,
+                        season = progress.season,
+                        episode = progress.episode
+                    )
+                }
+            ),
+            dismissedAtByKey = dismissedAtByKey
         )
     }.onStart { syncRepository.refresh(TrackingRefreshIntent.AUTOMATIC) }
         .distinctUntilChanged()
@@ -65,8 +70,9 @@ class SimklTrackingProgressProvider @Inject constructor(
         contentId: String
     ): Flow<Map<Pair<Int, Int>, WatchProgress>> = combine(
         syncRepository.projection,
-        durableProgressStore.episodeProgress(contentId)
-    ) { projection, durableEntries ->
+        durableProgressStore.episodeProgress(contentId),
+        progressDismissalStore.dismissedAtByKey
+    ) { projection, durableEntries, dismissedAtByKey ->
         mergeSimklEpisodeProgressWithDurable(
             remoteEntries = projection.episodeProgress(contentId),
             durableEntries = durableEntries,
@@ -78,7 +84,12 @@ class SimklTrackingProgressProvider @Inject constructor(
                     episode = progress.episode
                 )
             }
-        )
+        ).filterValues { progress ->
+            !isSimklProgressDismissed(
+                progress = progress,
+                dismissedAtByKey = dismissedAtByKey
+            )
+        }
     }.onStart { syncRepository.refresh(TrackingRefreshIntent.AUTOMATIC) }
         .distinctUntilChanged()
 
@@ -108,10 +119,16 @@ class SimklTrackingProgressProvider @Inject constructor(
         syncRepository.refresh(intent)
 
     override suspend fun persistDurableProgress(progress: WatchProgress) {
+        progressDismissalStore.clearForNewerProgress(progress)
         durableProgressStore.persist(progress)
     }
 
     override suspend fun removeProgress(contentId: String, season: Int?, episode: Int?) {
+        progressDismissalStore.dismiss(
+            contentId = contentId,
+            season = season,
+            episode = episode
+        )
         durableProgressStore.removeProgress(contentId, season, episode)
         syncRepository.ensureLoaded()
         val sessions = syncRepository.state.value.snapshot.playback.filter { session ->
