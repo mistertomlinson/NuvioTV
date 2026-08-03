@@ -427,6 +427,21 @@ Completed after `e9119471`:
 - No Home UI or active scrolling-path code was changed.
 - Provider-neutral Next Up dismissal still requires later Home pipeline wiring.
 
+## Selected-provider refresh routing
+
+Completed after `e60cf9e0`:
+
+- App resume still requests the normal Nuvio startup/account synchronization.
+- External tracking refresh now targets only the selected authenticated provider.
+- Selecting Trakt refreshes Trakt only.
+- Selecting Simkl refreshes Simkl only.
+- Selecting Nuvio Sync refreshes no external tracking provider.
+- Existing `refreshConnected()` behavior remains available for operations that
+  deliberately refresh every connected provider.
+- Focused routing tests passed.
+- Normal incremental `assembleDebug` passed.
+- The previous unconditional Trakt refresh was removed from `MainActivity`.
+
 ## Current immediate next action
 
 After the unrelated Home UI work is complete, wire the custom

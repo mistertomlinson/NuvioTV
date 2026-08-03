@@ -108,7 +108,8 @@ import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.data.local.AppOnboardingDataStore
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.ThemeDataStore
-import com.nuvio.tv.data.repository.TraktProgressService
+import com.nuvio.tv.core.tracking.TrackingProgressRefreshCoordinator
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.AuthState
@@ -176,7 +177,7 @@ class MainActivity : ComponentActivity() {
     lateinit var layoutPreferenceDataStore: LayoutPreferenceDataStore
 
     @Inject
-    lateinit var traktProgressService: TraktProgressService
+    lateinit var trackingProgressRefreshCoordinator: TrackingProgressRefreshCoordinator
 
     @Inject
     lateinit var startupSyncService: StartupSyncService
@@ -637,7 +638,9 @@ class MainActivity : ComponentActivity() {
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
         startupSyncService.requestSyncNow()
         lifecycleScope.launch {
-            traktProgressService.refreshNow()
+            trackingProgressRefreshCoordinator.refreshSelected(
+                TrackingRefreshIntent.AUTOMATIC
+            )
         }
         // If resumed without a deep link intent, reset the skip-picker flag
         // so the profile picker works normally on next manual open.
