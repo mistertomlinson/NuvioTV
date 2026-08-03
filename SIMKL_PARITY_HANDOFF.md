@@ -1,6 +1,6 @@
 # Nuvio Simkl Parity Handoff
 
-Updated: 2026-08-02
+Updated: 2026-08-03
 
 ## Repository state
 
@@ -535,10 +535,38 @@ Performance diagnosis and validation:
 - The small remaining one-row behavior is not currently attributable to the
   Simkl/My List work and may predate it.
 
+## Final direct Trakt and dual-write audit
+
+Completed after the Home My List performance validation:
+
+- Active internal-player scrobbling routes through
+  `TrackingScrobbleCoordinator`.
+- Active external-player tracking routes through `ExternalPlaybackTracker`
+  and `TrackingScrobbleCoordinator`.
+- Ratings route through `TrackingRatingCoordinator` and only the selected
+  connected provider receives the rating.
+- Manual watched, unwatched, history, progress, and library operations route
+  through the provider-neutral repositories.
+- Expected direct Trakt references remain inside Trakt implementations,
+  authentication/settings screens, API dependency injection, and the explicit
+  Trakt branch inside provider-routing coordinators.
+- The audit found one obsolete direct-Trakt external-player function,
+  `StreamScreenViewModel.saveExternalPlayerProgress()`.
+- No call sites existed for that function or its private Trakt scrobble helper.
+- Commit `d900760e` removed the dead function, helper, three unused Trakt
+  constructor dependencies, and their unused imports.
+- The normal incremental build succeeded, the APK installed, and full AOT
+  compilation completed.
+- External-player runtime validation was skipped because no external player is
+  configured on the test device.
+- No active accidental Trakt and Simkl dual-write path was found.
+- The tracked working tree was clean after commit `d900760e`.
+
 ## Current immediate next action
 
-1. Run the final direct Trakt-only-path and accidental-dual-write audit.
-2. Confirm whether the fork's primary integration branch is `dev` or
+1. Determine whether the fork's primary integration branch is `dev` or
    `my-features`.
-3. Integrate `feature/simkl-parity-20260801`, rerun final validation, push to
-   the fork, and verify the feature branch is fully contained.
+2. Integrate `feature/simkl-parity-20260801` into that branch without losing
+   unrelated current work.
+3. Rerun final build and validation on the integrated branch.
+4. Push to the fork and verify the feature branch is fully contained.
