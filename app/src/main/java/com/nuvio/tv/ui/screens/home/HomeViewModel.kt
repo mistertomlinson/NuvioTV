@@ -65,6 +65,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.flowOn
 
 @Volatile private var homeViewModelActiveInstanceId: Int = -1
 
@@ -1114,6 +1115,7 @@ class HomeViewModel @Inject constructor(
 
                     libraryRepository.watchlistItems
                         .distinctUntilChanged()
+                        .flowOn(kotlinx.coroutines.Dispatchers.Default)
                         .collectLatest items@{ liveEntries ->
                             val entries = liveEntries
                                 .sortedByDescending { it.listedAt }
