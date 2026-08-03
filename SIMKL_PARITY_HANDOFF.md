@@ -7,7 +7,7 @@ Updated: 2026-08-02
 - Project: `/Users/mac/Developer/NuvioTV_420`
 - Branch: `feature/simkl-parity-20260801`
 - Base before Simkl work: `b022d6ce`
-- Latest committed performance fix before this work: `614110b6`
+- Latest committed Home My List performance fix: `29175a77`
 - Upstream reference used for the curated backport:
   `f6eb38ce1682d697d841f5246bede90ec0f9a4a5`
 - Do not modify or delete untracked `.bak` files.
@@ -484,7 +484,13 @@ Completed on branch `feature/simkl-parity-20260801` after
 - The legacy profile-only cache is migrated only into the Trakt-scoped cache;
   it is never imported into Simkl or local mode.
 - The startup catalog pipeline restores only the active profile/source cache.
-- No work was added to the active Home scrolling path.
+- The initial live My List observer collected the cold provider-neutral
+  `watchlistItems` flow from Home's main-thread collector. Its upstream
+  provider/local projection work caused a measurable one-row scrolling
+  regression.
+- Commit `29175a77` adds `flowOn(Dispatchers.Default)` before Home collection,
+  moving that upstream projection work off the main thread without changing
+  My List behavior.
 
 Validation:
 
@@ -498,15 +504,41 @@ Validation:
   committed baseline `e5565c21`, confirming it predates and is unrelated to
   the Home My List changes.
 - `git diff --check` passes.
-- Runtime provider switching and performance validation are still pending.
+
+Runtime My List validation completed:
+
+- Simkl My List displayed the correct Plan to Watch titles.
+- Home and Details add/remove actions updated Home immediately and correctly
+  updated the remote Simkl Plan to Watch list.
+- Newly added entries appeared first.
+- Restarting the app restored the correct source-scoped cache.
+- Switching profiles did not expose another profile's My List.
+- Switching Simkl to Nuvio Sync/local hid the Simkl row and displayed the
+  device-local library; switching back restored the correct Simkl row.
+- No app data was cleared during testing.
+- Trakt runtime My List validation remains unavailable because Trakt is
+  disconnected; provider routing tests passed.
+
+Performance diagnosis and validation:
+
+- With full AOT, committed baseline `e5565c21` was smooth while the original
+  Home My List build at `eac47ad5` introduced visible one-row vertical lag.
+- Disabling the live My List observer removed the added lag.
+- Keeping cached My List restoration while disabling only the live observer
+  also remained smooth.
+- Keeping the live `watchlistItems` subscription while removing row rebuilding,
+  enrichment, scheduling, and disk writes brought the lag back.
+- Moving upstream `watchlistItems` flow work to `Dispatchers.Default` removed
+  approximately 95 percent of the added lag.
+- The real branch build with commit `29175a77` was installed, full-AOT tested,
+  and all tested My List behavior continued to work.
+- The small remaining one-row behavior is not currently attributable to the
+  Simkl/My List work and may predate it.
 
 ## Current immediate next action
 
-1. Review and commit the provider-neutral Home My List changes with this
-   handoff update.
-2. Install `app-universal-debug.apk` without clearing app data.
-3. Runtime-test My List with Trakt, Simkl, and Nuvio Sync/local selected.
-4. Verify provider switching never shows another provider's cached row.
-5. Validate add/remove behavior from Home and Details for each provider.
-6. Run the established full AOT command, allow Home to warm completely, and
-   verify every vertical and horizontal navigation mode remains smooth.
+1. Run the final direct Trakt-only-path and accidental-dual-write audit.
+2. Confirm whether the fork's primary integration branch is `dev` or
+   `my-features`.
+3. Integrate `feature/simkl-parity-20260801`, rerun final validation, push to
+   the fork, and verify the feature branch is fully contained.
