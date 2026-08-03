@@ -215,6 +215,19 @@ class HomeViewModel @Inject constructor(
             }
             val w = backdropPreloadWidthPx
             val h = backdropPreloadHeightPx
+            /*
+             * Time the preload itself rather than trying to detect "cache was
+             * cleared" directly - there's no OS signal for that. A call that
+             * resolves near-instantly means the image was already in memory
+             * (profile switch, back-nav, warm process). One slow enough to
+             * need real disk or network I/O means it wasn't, which in
+             * practice means a cold process start or a cleared cache. Either
+             * way the visible screen is busier settling in, so a longer
+             * curtain fade suits it. Heuristic, not exact: a warm cache on a
+             * badly congested network could occasionally read as cold - worst
+             * case is a slightly longer fade than strictly necessary, never a
+             * wrong image or a stuck gate.
+             */
             kotlinx.coroutines.withTimeoutOrNull(2_500L) {
                 runCatching {
                     coil.Coil.imageLoader(appContext).execute(

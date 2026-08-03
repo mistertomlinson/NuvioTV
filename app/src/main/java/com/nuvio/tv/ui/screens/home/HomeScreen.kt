@@ -416,10 +416,16 @@ fun HomeScreen(
                 // Loader overlay. Driven by a transition state so REVEAL only
                 // starts once this fade-out is fully idle. Content is NOT visible
                 // during the fade, so loader animation and home never contend.
+                // Flat slower dissolve. Attempts to detect cold-vs-warm and
+                // shorten this on warm launches (elapsed-time heuristic, then a
+                // direct Coil memory-cache check) did not reliably distinguish
+                // the two in practice, so this is deliberately unconditional
+                // rather than shipping logic that claims a distinction it
+                // doesn't actually make. Revisit if a reliable signal is found.
                 AnimatedVisibility(
                     visibleState = overlayState,
                     enter = fadeIn(animationSpec = tween(150)),
-                    exit = fadeOut(animationSpec = tween(200)),
+                    exit = fadeOut(animationSpec = tween(900)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(
