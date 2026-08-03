@@ -119,27 +119,7 @@ internal fun ModernHeroMediaLayer(
     // The outgoing image keeps its original scale for the full crossfade duration;
     // the incoming image starts at the correct scale from frame 1.
     data class BackdropFrame(val url: String?, val scale: Float)
-    /*
-     * Seed to the real URL only if it's already decoded and sitting in Coil's
-     * memory cache (matches the check at "already memory-cached" below) - that
-     * makes the very first paint correct with no wasted frame, and it's the
-     * common case: warm relaunch, back-navigation, or our own hero prewarm.
-     * On a genuinely cold cache (e.g. right after Clear Cache) nothing is
-     * warm, so seed null instead. The LaunchedEffect below then does a real
-     * null -> target transition once the image actually arrives, and
-     * Crossfade has something to animate. Seeding the real URL unconditionally
-     * made that first run a same-value no-op whenever the 2s preload timeout
-     * was hit before the network delivered the image, which is exactly what a
-     * cleared cache triggers - Crossfade saw no change and the image just
-     * snapped in whenever AsyncImage's own (non-crossfading) load finished.
-     */
-    val initiallyCached = remember(heroBackdrop) {
-        heroBackdrop != null &&
-            imageLoader.memoryCache?.get(coil.memory.MemoryCache.Key(heroBackdrop)) != null
-    }
-    var displayedFrame by remember {
-        mutableStateOf(BackdropFrame(if (initiallyCached) heroBackdrop else null, cinematicScale))
-    }
+    var displayedFrame by remember { mutableStateOf(BackdropFrame(heroBackdrop, cinematicScale)) }
 
     // URL loading: only re-run when the backdrop URL changes.
     // Scale is captured at the moment the URL is ready — incoming image
