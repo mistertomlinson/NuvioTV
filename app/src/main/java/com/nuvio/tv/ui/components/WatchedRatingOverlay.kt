@@ -170,10 +170,10 @@ fun WatchedRatingOverlay(
                             } else false
                         },
                     colors = ButtonDefaults.colors(
-                        containerColor = Color.Transparent,
-                        focusedContainerColor = NuvioColors.BackgroundCard,
+                        containerColor = NuvioColors.BackgroundCard,
+                        focusedContainerColor = Color.White.copy(alpha = 0.28f),
                         contentColor = NuvioColors.TextSecondary,
-                        focusedContentColor = NuvioColors.TextPrimary
+                        focusedContentColor = Color.White
                     )
                 ) {
                     Icon(

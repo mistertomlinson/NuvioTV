@@ -59,7 +59,8 @@ private data class StreamCandidate(
     val itag: String,
     val height: Int,
     val fps: Int,
-    val ext: String
+    val ext: String,
+    val codecs: String = ""
 )
 
 private data class ManifestBestVariant(
@@ -343,7 +344,8 @@ class InAppYouTubeExtractor @Inject constructor() {
                         itag = format.stringValue("itag").orEmpty(),
                         height = height,
                         fps = fps,
-                        ext = if (mimeType.contains("webm")) "webm" else "mp4"
+                        ext = if (mimeType.contains("webm")) "webm" else "mp4",
+                        codecs = parseCodecs(mimeType)
                     )
                 }
 
@@ -371,7 +373,8 @@ class InAppYouTubeExtractor @Inject constructor() {
                             itag = format.stringValue("itag").orEmpty(),
                             height = height,
                             fps = fps,
-                            ext = if (mimeType.contains("webm")) "webm" else "mp4"
+                            ext = if (mimeType.contains("webm")) "webm" else "mp4",
+                            codecs = parseCodecs(mimeType)
                         )
                     } else if (hasAudio) {
                         val bitrate = format.numberValue("bitrate")
@@ -437,9 +440,23 @@ class InAppYouTubeExtractor @Inject constructor() {
             }
         }
 
-        val bestProgressive = sortCandidates(progressive).firstOrNull()
-        val bestVideo = pickBestForClient(adaptiveVideo, PREFERRED_SEPARATE_CLIENT)
+        val bestProgressive = sortCandidates(
+            progressive.filter { isDecodableByDevice(it.codecs) }.ifEmpty { progressive }
+        ).firstOrNull()
+        val decodableVideo = adaptiveVideo.filter { isDecodableByDevice(it.codecs) }
+        if (decodableVideo.size != adaptiveVideo.size) {
+            Log.d(TAG, "Dropped " + (adaptiveVideo.size - decodableVideo.size) +
+                " undecodable video candidates of " + adaptiveVideo.size)
+        }
+        val bestVideo = pickBestForClient(
+            decodableVideo.ifEmpty { adaptiveVideo },
+            PREFERRED_SEPARATE_CLIENT
+        )
         val bestAudio = pickBestForClient(adaptiveAudio, PREFERRED_SEPARATE_CLIENT)
+        Log.d(TAG, "SELECTED video itag=" + (bestVideo?.itag ?: "none") +
+            " h=" + (bestVideo?.height ?: -1) + " codecs=" + (bestVideo?.codecs ?: "none") +
+            " client=" + (bestVideo?.client ?: "none") +
+            " | audio itag=" + (bestAudio?.itag ?: "none"))
 
         // Try adaptive video + audio first (best quality, separate streams)
         kotlinx.coroutines.yield()
@@ -672,6 +689,91 @@ class InAppYouTubeExtractor @Inject constructor() {
         return runCatching {
             !Uri.parse(url).getQueryParameter("n").isNullOrBlank()
         }.getOrDefault(false)
+    }
+
+    /*
+     * Some uploads tag every AVC rung as level 6.2 (the 8K tier), which most
+     * TV boxes reject. The stream resolves fine, then the decoder discards
+     * every frame -- no first frame, no expansion, no audio, and ExoPlayer
+     * never treats it as fatal so nothing retries. Drop what the device
+     * cannot decode before ranking; equal-resolution VP9/AV1 rungs remain.
+     */
+    private val codecSupportCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
+
+    private fun parseCodecs(mimeType: String): String {
+        val raw = mimeType.substringAfter("codecs=", "")
+        if (raw.isBlank()) return ""
+        return raw.trim().trim('"').split(",").firstOrNull().orEmpty().trim().trim('"').lowercase()
+    }
+
+    private fun isDecodableByDevice(codecs: String): Boolean {
+        if (codecs.isBlank()) return true
+        return codecSupportCache.getOrPut(codecs) { computeDecodable(codecs) }
+    }
+
+    private fun computeDecodable(codecs: String): Boolean {
+        val mime = when {
+            codecs.startsWith("avc1") || codecs.startsWith("avc3") -> "video/avc"
+            codecs.startsWith("vp9") || codecs.startsWith("vp09") -> "video/x-vnd.on2.vp9"
+            codecs.startsWith("av01") -> "video/av01"
+            codecs.startsWith("hev1") || codecs.startsWith("hvc1") -> "video/hevc"
+            else -> return true
+        }
+        val requiredLevel = if (mime == "video/avc") avcLevelConstant(codecs) else null
+
+        var found = false
+        var deviceMaxLevel = 0
+        val list = android.media.MediaCodecList(android.media.MediaCodecList.REGULAR_CODECS)
+        for (info in list.codecInfos) {
+            if (info.isEncoder) continue
+            if (info.supportedTypes.none { it.equals(mime, ignoreCase = true) }) continue
+            found = true
+            if (requiredLevel == null) break
+            val caps = runCatching { info.getCapabilitiesForType(mime) }.getOrNull() ?: continue
+            for (pl in caps.profileLevels) {
+                if (pl.level > deviceMaxLevel) deviceMaxLevel = pl.level
+            }
+        }
+
+        if (!found) {
+            Log.d(TAG, "No decoder for " + mime + " (codecs=" + codecs + ")")
+            return false
+        }
+        if (requiredLevel == null) return true
+        val ok = deviceMaxLevel >= requiredLevel
+        if (!ok) {
+            Log.d(TAG, "Level unsupported: codecs=" + codecs + " needs=" + requiredLevel +
+                " deviceMax=" + deviceMaxLevel)
+        }
+        return ok
+    }
+
+    private fun avcLevelConstant(codecs: String): Int? {
+        val suffix = codecs.substringAfter('.', "")
+        if (suffix.length < 6) return null
+        val levelIdc = suffix.takeLast(2).toIntOrNull(16) ?: return null
+        return when (levelIdc) {
+            10 -> 1
+            11 -> 4
+            12 -> 8
+            13 -> 16
+            20 -> 32
+            21 -> 64
+            22 -> 128
+            30 -> 256
+            31 -> 512
+            32 -> 1024
+            40 -> 2048
+            41 -> 4096
+            42 -> 8192
+            50 -> 16384
+            51 -> 32768
+            52 -> 65536
+            60 -> 131072
+            61 -> 262144
+            62 -> 524288
+            else -> null
+        }
     }
 
     private fun videoScore(height: Int, fps: Int, bitrate: Double): Double {

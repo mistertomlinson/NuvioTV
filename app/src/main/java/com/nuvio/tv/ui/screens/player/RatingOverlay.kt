@@ -30,6 +30,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -52,6 +53,7 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.launch
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -469,11 +471,15 @@ private fun RatingButton(
     onClick: () -> Unit
 ) {
     val painter = rememberRawSvgPainter(iconRes)
+    Box(
+        modifier = Modifier
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+    ) {
     IconButton(
         onClick = onClick,
         modifier = Modifier
-            .size(64.dp)
-            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .size(60.dp)
             .focusRequester(focusRequester)
             .focusProperties {
                 down = nextFocusDown
@@ -506,9 +512,9 @@ private fun RatingButton(
                 } else false
             },
         colors = IconButtonDefaults.colors(
-            containerColor = Color.White.copy(alpha = 0.12f),
+            containerColor = NuvioColors.BackgroundCard,
             focusedContainerColor = Color.White,
-            contentColor = Color.White,
+            contentColor = NuvioColors.TextPrimary,
             focusedContentColor = Color.Black
         ),
         shape = IconButtonDefaults.shape(shape = CircleShape)
@@ -516,7 +522,8 @@ private fun RatingButton(
         Icon(
             painter = painter,
             contentDescription = contentDescription,
-            modifier = Modifier.size(28.dp)
+            modifier = Modifier.size(26.dp)
         )
+    }
     }
 }

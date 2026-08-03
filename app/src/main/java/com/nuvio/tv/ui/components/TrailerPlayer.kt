@@ -188,6 +188,14 @@ fun TrailerPlayer(
                 hasRenderedFirstFrame = true
                 currentOnFirstFrameRendered()
             }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.e(
+                    "TrailerPlayer",
+                    "Playback error: " + error.errorCodeName + " / " + error.message,
+                    error
+                )
+            }
         }
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
