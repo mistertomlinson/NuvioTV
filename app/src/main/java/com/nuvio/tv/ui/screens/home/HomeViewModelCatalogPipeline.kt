@@ -49,6 +49,57 @@ internal fun HomeViewModel.scheduleCatalogPipeline(addons: List<Addon>, forceRel
     catalogReloadTrigger.tryEmit(addons to forceReload)
 }
 
+/*
+ * Apply display-only manifest changes without replacing loaded rows.
+ *
+ * A stale-manifest refresh may change catalog titles or addon display names
+ * while preserving the same catalog identities. Keep the existing items,
+ * enrichment readiness, horizontal positions, and focus requesters intact.
+ */
+internal fun HomeViewModel.refreshCatalogDisplayMetadataPipeline(
+    addons: List<Addon>
+) {
+    var changed = false
+
+    addons.forEach { addon ->
+        addon.catalogs.forEach { catalog ->
+            val key = catalogKey(
+                addonId = addon.id,
+                type = catalog.apiType,
+                catalogId = catalog.id
+            )
+
+            catalogsMap[key]?.let { current ->
+                val updated = current.copy(
+                    addonName = addon.displayName,
+                    addonBaseUrl = addon.baseUrl,
+                    catalogName = catalog.name
+                )
+                if (updated != current) {
+                    catalogsMap[key] = updated
+                    changed = true
+                }
+            }
+
+            catalogSourceRows[key]?.let { current ->
+                val updated = current.copy(
+                    addonName = addon.displayName,
+                    addonBaseUrl = addon.baseUrl,
+                    catalogName = catalog.name
+                )
+                if (updated != current) {
+                    catalogSourceRows[key] = updated
+                    changed = true
+                }
+            }
+        }
+    }
+
+    if (changed) {
+        scheduleUpdateCatalogRows()
+    }
+}
+
 internal fun HomeViewModel.loadDisabledHomeCatalogPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.disabledHomeCatalogKeys.collectLatest { keys ->
@@ -133,6 +184,14 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
         addonRepository.getInstalledAddons()
             .collectLatest { addons ->
                 addonsCache = addons
+
+                /*
+                 * Refresh names before evaluating the structural signature.
+                 * Name-only manifest refreshes now update the existing rows,
+                 * while scheduleCatalogPipeline() is safely rejected by the
+                 * unchanged structural signature.
+                 */
+                refreshCatalogDisplayMetadataPipeline(addons)
                 scheduleCatalogPipeline(addons)
             }
     }
@@ -537,6 +596,24 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         )
                         if (pendingCatalogLoads == 0) {
                             catalogsLoadInProgress = false
+                            val saveProfileId =
+                                profileManager.activeProfileId.value
+
+                            /*
+                             * Successful catalogs must still be persisted when
+                             * the final catalog finishes with an error. Previously
+                             * disk saving happened only when the final completion
+                             * was successful, so one failing catalog could leave
+                             * the next launch without the completed catalog cache.
+                             */
+                            viewModelScope.launch {
+                                kotlinx.coroutines.delay(500)
+                                if (pendingCatalogLoads == 0) {
+                                    catalogRepository.saveCatalogsToDisk(
+                                        saveProfileId
+                                    )
+                                }
+                            }
                         }
                         scheduleUpdateCatalogRows()
                     }
@@ -1478,29 +1555,51 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                         }
                     }
                 /*
-                 * Lower-row work is deliberately batched so trailer playback
-                 * has a suspension point. A batch already in progress may
-                 * finish, but the next batch waits until playback stops.
+                 * Never completely suspend lower-row enrichment behind trailer
+                 * playback. A stale trailer-playing flag previously left every
+                 * non-priority Home and platform row gated indefinitely.
+                 *
+                 * Keep contention minimal by processing one title at a time
+                 * while a trailer is active, then return to two-title batches
+                 * when playback is no longer active.
                  */
-                remainingItems
-                    .chunked(2)
-                    .forEach { batch ->
-                        while (homeHeroTrailerPlaying) {
-                            delay(100L)
-                        }
+                var remainingIndex = 0
 
-                        coroutineScope {
-                            batch.map { item ->
-                                async {
-                                    enrichProactiveHomeItem(
-                                        item = item,
-                                        language =
-                                            tmdbSettingsSnapshot.language
-                                    )
-                                }
-                            }.awaitAll()
-                        }
+                while (remainingIndex < remainingItems.size) {
+                    val trailerActive =
+                        homeHeroTrailerPlaying
+
+                    val batchSize =
+                        if (trailerActive) 1 else 2
+
+                    val batchEnd =
+                        (remainingIndex + batchSize)
+                            .coerceAtMost(remainingItems.size)
+
+                    val batch =
+                        remainingItems.subList(
+                            remainingIndex,
+                            batchEnd
+                        )
+
+                    if (trailerActive) {
+                        delay(250L)
                     }
+
+                    coroutineScope {
+                        batch.map { item ->
+                            async {
+                                enrichProactiveHomeItem(
+                                    item = item,
+                                    language =
+                                        tmdbSettingsSnapshot.language
+                                )
+                            }
+                        }.awaitAll()
+                    }
+
+                    remainingIndex = batchEnd
+                }
                 // Save entire enrichment cache to disk once after all items processed
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
                     homeEnrichmentDiskCache.saveAll(enrichmentCache.toMap())

@@ -10,10 +10,22 @@ internal fun HomeViewModel.catalogKey(addonId: String, type: String, catalogId: 
 }
 
 internal fun HomeViewModel.buildHomeCatalogLoadSignature(addons: List<Addon>): String {
+    /*
+     * Catalog names are display metadata, not catalog identity.
+     *
+     * Installed-addon observation can emit a cached manifest followed by a
+     * refreshed manifest. Dynamic catalog names may legitimately differ
+     * between those emissions. Including catalog.name here treated that
+     * harmless label refresh as a structural change and destructively
+     * restarted Home, temporarily replacing loaded rows with skeletons.
+     *
+     * Display metadata is refreshed in place by
+     * refreshCatalogDisplayMetadataPipeline().
+     */
     val addonCatalogSignature = addons
         .flatMap { addon ->
             addon.catalogs.map { catalog ->
-                "${addon.id}|${addon.baseUrl}|${catalog.apiType}|${catalog.id}|${catalog.name}|${catalog.showInHome}|${catalog.hasExplicitShowInHome}"
+                "${addon.id}|${addon.baseUrl}|${catalog.apiType}|${catalog.id}|${catalog.showInHome}|${catalog.hasExplicitShowInHome}"
             }
         }
         .sorted()
