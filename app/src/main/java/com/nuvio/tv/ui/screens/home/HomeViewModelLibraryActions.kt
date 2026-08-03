@@ -11,6 +11,7 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.WatchProgress
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -95,55 +96,57 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
     } else item
 
     viewModelScope.launch {
-        runCatching {
-            libraryRepository.toggleDefault(enrichedItemForPersist.toLibraryEntryInput(addonBaseUrl))
-        }.onFailure { error ->
-            Log.w(HomeViewModel.TAG, "Failed to toggle poster library for ${item.id}: ${error.message}")
+        val sourceMode = libraryRepository.sourceMode.first()
+        val wasInDefaultList = runCatching {
+            when (sourceMode) {
+                LibrarySourceMode.SIMKL ->
+                    libraryRepository.isInLibrary(
+                        itemId = item.id,
+                        itemType = item.apiType
+                    ).first()
+
+                LibrarySourceMode.TRAKT,
+                LibrarySourceMode.LOCAL ->
+                    libraryRepository.isInWatchlist(
+                        itemId = item.id,
+                        itemType = item.apiType
+                    ).first()
+            }
+        }.getOrDefault(false)
+
+        val result = runCatching {
+            libraryRepository.toggleDefault(
+                enrichedItemForPersist.toLibraryEntryInput(
+                    addonBaseUrl
+                )
+            )
         }
+
+        result.onFailure { error ->
+            Log.w(
+                HomeViewModel.TAG,
+                "Failed to toggle poster library for ${item.id}: " +
+                    error.message
+            )
+        }
+
         _uiState.update { state ->
-            state.copy(posterLibraryPending = state.posterLibraryPending - statusKey)
+            state.copy(
+                posterLibraryPending =
+                    state.posterLibraryPending - statusKey
+            )
         }
-        // Update ML row directly — avoid full Trakt re-fetch which causes poster flash
-        val currentMlRow = catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY]
-        val isCurrentlyInList = currentMlRow?.items?.any { it.id == item.id } == true
-        if (isCurrentlyInList) {
-            // Remove item from ML row
-            val updatedItems = currentMlRow!!.items.filter { it.id != item.id }
-            if (updatedItems.isEmpty()) {
-                catalogsMap.remove(HomeViewModel.MY_LIST_CATALOG_KEY)
+
+        if (result.isSuccess) {
+            val message = if (wasInDefaultList) {
+                com.nuvio.tv.R.string.detail_removed_from_library
             } else {
-                catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = currentMlRow.copy(items = updatedItems)
+                com.nuvio.tv.R.string.detail_added_to_library
             }
-            showHomeMessage(appContext.getString(com.nuvio.tv.R.string.detail_removed_from_library))
-        } else {
-            val enrichedItem = enrichedItemForPersist
-            showHomeMessage(appContext.getString(com.nuvio.tv.R.string.detail_added_to_library))
-            if (currentMlRow != null) {
-                catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = currentMlRow.copy(
-                    items = listOf(enrichedItem) + currentMlRow.items
-                )
-            } else {
-                catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY] = com.nuvio.tv.domain.model.CatalogRow(
-                    addonId = HomeViewModel.MY_LIST_ADDON_ID,
-                    addonName = "Built-In",
-                    addonBaseUrl = "",
-                    catalogId = HomeViewModel.MY_LIST_CATALOG_ID,
-                    catalogName = "My List",
-                    type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
-                    rawType = "mixed",
-                    items = listOf(enrichedItem),
-                    isLoading = false,
-                    hasMore = false,
-                    supportsSkip = false
-                )
-                if (HomeViewModel.MY_LIST_CATALOG_KEY !in catalogOrder) {
-                    catalogOrder.add(0, HomeViewModel.MY_LIST_CATALOG_KEY)
-                }
-            }
+            showHomeMessage(appContext.getString(message))
         }
-        scheduleUpdateCatalogRows()
-        // snapshotState stays in sync via performOptimisticMutation in toggleWatchlist
     }
+
 }
 
 fun HomeViewModel.openPosterListPicker(item: MetaPreview, addonBaseUrl: String?) {

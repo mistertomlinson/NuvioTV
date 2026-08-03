@@ -13,6 +13,7 @@ import com.nuvio.tv.domain.model.ListMembershipSnapshot
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -32,12 +33,11 @@ class SimklLibraryService @Inject constructor(
         projection.library.items
     }.onStart { syncRepository.refresh(TrackingRefreshIntent.AUTOMATIC) }
         .distinctUntilChanged()
-    override val tabs = isAuthenticated.map { authenticated ->
-        if (authenticated) {
-            syncRepository.projection.value.library.tabs
-        } else {
-            emptyList()
-        }
+    override val tabs = combine(
+        isAuthenticated,
+        syncRepository.projection
+    ) { authenticated, projection ->
+        if (authenticated) projection.library.tabs else emptyList()
     }.distinctUntilChanged()
 
     override fun recognizesListKey(key: String): Boolean = simklLibraryStatusDefinition(key) != null
@@ -52,13 +52,14 @@ class SimklLibraryService @Inject constructor(
 
     override fun toggledDefaultMembership(
         currentMembership: Map<String, Boolean>
-    ): Map<String, Boolean> = currentMembership.mapValues { false }.toMutableMap().apply {
-        if (currentMembership.values.none { selected -> selected }) {
-            this[simklLibraryStatusDefinitions.single {
-                it.status == SimklListStatus.PLAN_TO_WATCH
-            }.key] = true
+    ): Map<String, Boolean> =
+        currentMembership.mapValues { false }.toMutableMap().apply {
+            if (currentMembership.values.none { selected -> selected }) {
+                this[simklLibraryStatusDefinitions.single {
+                    it.status == SimklListStatus.PLAN_TO_WATCH
+                }.key] = true
+            }
         }
-    }
 
     override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {
         syncRepository.ensureLoaded()

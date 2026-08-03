@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.sync.LibrarySyncService
 import com.nuvio.tv.core.tracking.TrackingLibraryProvider
 import com.nuvio.tv.core.tracking.TrackingLibraryProviderRegistry
@@ -39,6 +40,35 @@ class LibraryRepositoryProviderRoutingTest {
 
         assertEquals(LibrarySourceMode.SIMKL, repository.sourceMode.first())
     }
+
+
+    @Test
+    fun `selected Simkl watchlist items contain only Plan to Watch`() =
+        runTest {
+            val provider = FakeLibraryProvider(authenticated = true)
+            provider.items.value = listOf(
+                libraryEntry(
+                    id = "tt0000001",
+                    listKey = FakeLibraryProvider.PLAN_TO_WATCH_KEY,
+                    listedAt = 200L
+                ),
+                libraryEntry(
+                    id = "tt0000002",
+                    listKey = FakeLibraryProvider.WATCHING_KEY,
+                    listedAt = 300L
+                )
+            )
+
+            val repository = createRepository(
+                requestedSource = LibrarySourceMode.SIMKL,
+                provider = provider
+            ).first
+
+            assertEquals(
+                listOf("tt0000001"),
+                repository.watchlistItems.first().map(LibraryEntry::id)
+            )
+        }
 
     @Test
     fun `disconnected selected Simkl falls back to local library`() = runTest {
@@ -95,6 +125,26 @@ class LibraryRepositoryProviderRoutingTest {
         )
     }
 
+    private fun libraryEntry(
+        id: String,
+        listKey: String,
+        listedAt: Long
+    ): LibraryEntry = LibraryEntry(
+        id = id,
+        type = "movie",
+        name = id,
+        poster = null,
+        background = null,
+        logo = null,
+        description = null,
+        releaseInfo = null,
+        imdbRating = null,
+        genres = emptyList(),
+        addonBaseUrl = null,
+        listKeys = setOf(listKey),
+        listedAt = listedAt
+    )
+
     private fun createRepository(
         requestedSource: LibrarySourceMode,
         provider: FakeLibraryProvider,
@@ -106,6 +156,9 @@ class LibraryRepositoryProviderRoutingTest {
         val traktSettingsDataStore = mockk<TraktSettingsDataStore>()
         val librarySyncService = mockk<LibrarySyncService>(relaxed = true)
         val authManager = mockk<AuthManager>(relaxed = true)
+        val profileManager = mockk<ProfileManager>()
+        every { profileManager.activeProfileId } returns
+            MutableStateFlow(1)
 
         every { libraryPreferences.libraryItems } returns flowOf(emptyList())
         every {
@@ -127,7 +180,8 @@ class LibraryRepositoryProviderRoutingTest {
             authManager = authManager,
             trackingProviders = TrackingLibraryProviderRegistry(
                 setOf(provider)
-            )
+            ),
+            profileManager = profileManager
         ) to traktLibraryService
     }
 
@@ -136,7 +190,9 @@ class LibraryRepositoryProviderRoutingTest {
     ) : TrackingLibraryProvider {
 
         companion object {
-            const val PLAN_TO_WATCH_KEY = "simkl:plan-to-watch"
+            const val PLAN_TO_WATCH_KEY =
+                "simkl:status:plantowatch"
+            const val WATCHING_KEY = "simkl:status:watching"
         }
 
         override val providerId = TrackingProviderId.SIMKL
@@ -159,7 +215,7 @@ class LibraryRepositoryProviderRoutingTest {
         val refreshIntents = mutableListOf<TrackingRefreshIntent>()
 
         override fun recognizesListKey(key: String): Boolean =
-            key == PLAN_TO_WATCH_KEY
+            key == PLAN_TO_WATCH_KEY || key == WATCHING_KEY
 
         override fun observeMembership(
             itemId: String,

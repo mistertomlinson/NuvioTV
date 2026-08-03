@@ -120,22 +120,21 @@ The obsolete source-selection paths in `TraktViewModel` have also been removed:
 5. Verify local/Nuvio Sync behavior when no external provider is selected.
 6. Finish watched badges, Details, manual watched/unwatched, and player-state
    integration.
-7. Provider-neutral Simkl My List/library backend is complete; Home catalog and cache wiring remain.
+7. Provider-neutral Simkl My List/library backend and Home catalog/cache wiring are complete.
 8. Durable unfinished Simkl playback beyond Simkl's remote
    playback-retention window is complete.
 9. Add dedicated Simkl optimistic projection support if runtime behavior shows
     it is needed for immediate Continue Watching updates.
-10. Simkl stale-playback reappearance suppression is complete; provider-neutral Next Up dismissal and release alerts remain.
+10. Simkl stale-playback reappearance suppression and provider-neutral Next Up dismissal are complete; release-alert validation remains.
 11. Install and test with Trakt, Simkl, and Nuvio Sync selected.
 12. Run fully warmed Home scrolling tests in every navigation mode before
     declaring parity complete.
 
 ## Immediate next action
 
-Commit the obsolete Trakt source-selection cleanup and this updated handoff.
-
-After that, audit Details, episode badges, and player-state callers that still
-need provider-neutral video-ID or anime watched lookup.
+Review and commit the provider-neutral Home My List wiring and this updated
+handoff. Then install the universal debug APK without clearing app data and
+runtime-test Trakt, Simkl, and Nuvio Sync library-source isolation.
 
 ## Files most relevant to the next step
 
@@ -458,14 +457,56 @@ Completed after `5aff5829`:
 - Focused routing and Simkl dismissal regression tests passed.
 - Normal incremental `assembleDebug` passed.
 
+## Provider-neutral Home My List
+
+Completed on branch `feature/simkl-parity-20260801` after
+`e5565c21`:
+
+- The custom `nuvio.mylist` Home catalog now reads through
+  `LibraryRepository.watchlistItems`.
+- Trakt displays only its Watchlist entries.
+- Simkl displays only Plan to Watch entries.
+- Local/Nuvio library mode displays the local library.
+- Mixed movies, shows, and anime are preserved.
+- Entries remain newest-first using `LibraryEntry.listedAt`.
+- Home no longer injects or calls `TraktLibraryService`.
+- Trakt optimistic snapshot mutations and Simkl optimistic projection
+  mutations now drive the same provider-neutral Home flow.
+- Poster long-press membership remains provider-neutral and bounded to the
+  existing observer limit.
+- Default Home toggles write only to the selected effective library provider.
+- Trakt and local toggle messaging reflects default/watchlist membership.
+- Simkl toggle messaging reflects membership in any Simkl status because its
+  default action removes an existing status or adds Plan to Watch.
+- Simkl tabs now react to projection changes as well as authentication changes.
+- My List disk caches are isolated by active profile and effective library
+  source.
+- The legacy profile-only cache is migrated only into the Trakt-scoped cache;
+  it is never imported into Simkl or local mode.
+- The startup catalog pipeline restores only the active profile/source cache.
+- No work was added to the active Home scrolling path.
+
+Validation:
+
+- `LibraryRepositoryProviderRoutingTest` passed.
+- Normal incremental `assembleDebug` passed in 1 minute 58 seconds.
+- The complete debug unit-test suite passed 37 of 38 tests.
+- The sole failure is the unrelated
+  `StreamAutoPlaySelectorTest > bingeGroup-first selects matching stream before
+  first stream mode` assertion at line 39.
+- The identical failure was reproduced in an untouched temporary worktree at
+  committed baseline `e5565c21`, confirming it predates and is unrelated to
+  the Home My List changes.
+- `git diff --check` passes.
+- Runtime provider switching and performance validation are still pending.
+
 ## Current immediate next action
 
-After the unrelated Home UI work is complete, wire the custom
-`nuvio.mylist` Home catalog and cache to the provider-neutral repository:
-
-- Simkl uses Plan to Watch.
-- Preserve mixed movies, shows, and anime.
-- Preserve newest-first ordering and provider attribution.
-- Add/remove must update only the selected provider.
-- Replace stale Trakt-backed Home cache behavior without adding work to the
-  active scrolling path.
+1. Review and commit the provider-neutral Home My List changes with this
+   handoff update.
+2. Install `app-universal-debug.apk` without clearing app data.
+3. Runtime-test My List with Trakt, Simkl, and Nuvio Sync/local selected.
+4. Verify provider switching never shows another provider's cached row.
+5. Validate add/remove behavior from Home and Details for each provider.
+6. Run the established full AOT command, allow Home to warm completely, and
+   verify every vertical and horizontal navigation mode remains smooth.

@@ -50,7 +50,6 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.buildTrackingMediaReference
 import com.nuvio.tv.data.local.ContinueWatchingEnrichmentCache
 import com.nuvio.tv.data.local.HomeEnrichmentDiskCache
-import com.nuvio.tv.data.repository.TraktLibraryService
 import com.nuvio.tv.data.repository.TrackingRatingCoordinator
 import com.nuvio.tv.data.repository.parseContentIds
 import javax.inject.Inject
@@ -90,7 +89,6 @@ class HomeViewModel @Inject constructor(
     @ApplicationContext internal val appContext: Context,
     internal val homeScreenChannelManager: HomeScreenChannelManager,
     internal val profileManager: ProfileManager,
-    internal val traktLibraryService: TraktLibraryService,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     internal val collectionsDataStore: com.nuvio.tv.data.local.CollectionsDataStore,
     internal val mdbListSettingsDataStore: com.nuvio.tv.data.local.MDBListSettingsDataStore,
@@ -736,74 +734,6 @@ class HomeViewModel @Inject constructor(
             observeLibraryState()
             observeMyList()
             observeTmdbSettings()
-            launch {
-                traktLibraryService.watchlistChangedSignal.collect { change ->
-// Apply immediate optimistic update to ML row — covers detail screen add/remove
-                    val currentMlRow = catalogsMap[MY_LIST_CATALOG_KEY]
-                    if (change.added) {
-                        // Add item to ML row if not already present
-                        val alreadyPresent = currentMlRow?.items?.any { it.id == change.item.itemId } == true
-                        if (!alreadyPresent) {
-                            val newItem = com.nuvio.tv.domain.model.MetaPreview(
-                                id = change.item.itemId,
-                                type = com.nuvio.tv.domain.model.ContentType.fromString(change.item.itemType),
-                                rawType = change.item.itemType,
-                                name = change.item.title,
-                                poster = change.item.poster,
-                                posterShape = change.item.posterShape ?: com.nuvio.tv.domain.model.PosterShape.POSTER,
-                                background = change.item.background,
-                                logo = change.item.logo,
-                                description = change.item.description,
-                                releaseInfo = change.item.releaseInfo,
-                                imdbRating = change.item.imdbRating,
-                                genres = change.item.genres
-                            )
-                            val cached = enrichmentCache[newItem.id]
-                            val enrichedItem = if (cached != null) {
-                                newItem.copy(
-                                    poster = newItem.poster ?: cached.poster,
-                                    background = newItem.background ?: cached.backdrop,
-                                    logo = cached.logo ?: newItem.logo,
-                                    landscapePoster = cached.detailBackdrop ?: newItem.landscapePoster
-                                )
-                            } else newItem
-                            if (currentMlRow != null) {
-                                catalogsMap[MY_LIST_CATALOG_KEY] = currentMlRow.copy(
-                                    items = listOf(enrichedItem) + currentMlRow.items
-                                )
-                            } else {
-                                catalogsMap[MY_LIST_CATALOG_KEY] = com.nuvio.tv.domain.model.CatalogRow(
-                                    addonId = MY_LIST_ADDON_ID,
-                                    addonName = "Built-In",
-                                    addonBaseUrl = "",
-                                    catalogId = MY_LIST_CATALOG_ID,
-                                    catalogName = "My List",
-                                    type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
-                                    rawType = "mixed",
-                                    items = listOf(enrichedItem),
-                                    isLoading = false,
-                                    hasMore = false,
-                                    supportsSkip = false
-                                )
-                                if (MY_LIST_CATALOG_KEY !in catalogOrder) {
-                                    catalogOrder.add(0, MY_LIST_CATALOG_KEY)
-                                }
-                            }
-                        }
-                    } else {
-                        // Remove item from ML row
-                        if (currentMlRow != null) {
-                            val updatedItems = currentMlRow.items.filter { it.id != change.item.itemId }
-                            if (updatedItems.isEmpty()) {
-                                catalogsMap.remove(MY_LIST_CATALOG_KEY)
-                            } else {
-                                catalogsMap[MY_LIST_CATALOG_KEY] = currentMlRow.copy(items = updatedItems)
-                            }
-                        }
-                    }
-                    scheduleUpdateCatalogRows()
-                }
-            }
             observeMdbListSettings()
             observeBlurUnwatchedEpisodes()
             observeMemoryOnlyVerticalScroll()
@@ -839,7 +769,6 @@ class HomeViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(continueWatchingItems = emptyList(), layoutPreferencesReady = false)
                     }
-                    traktLibraryService.resetSnapshot()
                     loadContinueWatching()
                     watchedSeriesStateHolder.update(emptySet())
                     _uiState.update { it.copy(movieWatchedStatus = emptyMap()) }
@@ -1002,238 +931,374 @@ class HomeViewModel @Inject constructor(
 
     private var myListJob: kotlinx.coroutines.Job? = null
 
+    @Volatile
+    private var currentMyListEntries:
+        List<com.nuvio.tv.domain.model.LibraryEntry> = emptyList()
+
     fun showHomeMessage(message: String, isError: Boolean = false) {
-        _uiState.update { it.copy(userMessage = HomeUserMessage(message, isError)) }
+        _uiState.update {
+            it.copy(userMessage = HomeUserMessage(message, isError))
+        }
         viewModelScope.launch {
             kotlinx.coroutines.delay(2500)
             _uiState.update { state ->
-                if (state.userMessage?.message == message) state.copy(userMessage = null)
-                else state
+                if (state.userMessage?.message == message) {
+                    state.copy(userMessage = null)
+                } else {
+                    state
+                }
             }
         }
     }
 
-    fun isInWatchlist(itemId: String, itemType: String): Boolean {
-        if (_uiState.value.librarySourceMode != com.nuvio.tv.domain.model.LibrarySourceMode.TRAKT) return false
-        return traktLibraryService.isInWatchlistSync(itemId, itemType)
+    fun isInWatchlist(itemId: String, itemType: String): Boolean =
+        currentMyListEntries.any { entry ->
+            entry.matchesMyListIdentity(itemId, itemType)
+        }
+
+    private fun com.nuvio.tv.domain.model.LibraryEntry.matchesMyListIdentity(
+        itemId: String,
+        itemType: String
+    ): Boolean {
+        fun normalizedType(value: String): String =
+            when (value.trim().lowercase()) {
+                "tv", "show", "anime" -> "series"
+                else -> value.trim().lowercase()
+            }
+
+        if (normalizedType(type) != normalizedType(itemType)) return false
+        if (id.equals(itemId.trim(), ignoreCase = true)) return true
+
+        val candidate = parseContentIds(itemId)
+        val entryIds = parseContentIds(id)
+
+        if (
+            candidate.imdb != null &&
+            (
+                candidate.imdb.equals(imdbId, ignoreCase = true) ||
+                    candidate.imdb.equals(entryIds.imdb, ignoreCase = true)
+            )
+        ) {
+            return true
+        }
+
+        if (
+            candidate.tmdb != null &&
+            (candidate.tmdb == tmdbId || candidate.tmdb == entryIds.tmdb)
+        ) {
+            return true
+        }
+
+        if (
+            candidate.trakt != null &&
+            (candidate.trakt == traktId || candidate.trakt == entryIds.trakt)
+        ) {
+            return true
+        }
+
+        val normalizedId = itemId.trim()
+        return simklId != null &&
+            (
+                normalizedId.equals("simkl:$simklId", ignoreCase = true) ||
+                    normalizedId == simklId.toString()
+            )
+    }
+
+    private fun cachedMyListRow(
+        cached: List<com.nuvio.tv.data.local.CachedMyListItem>,
+        isLoading: Boolean
+    ): com.nuvio.tv.domain.model.CatalogRow? {
+        if (cached.isEmpty()) return null
+
+        val items = cached.map { item ->
+            com.nuvio.tv.domain.model.MetaPreview(
+                id = item.id,
+                type = com.nuvio.tv.domain.model.ContentType.fromString(
+                    item.type
+                ),
+                rawType = item.type,
+                name = item.name,
+                poster = item.poster,
+                posterShape =
+                    com.nuvio.tv.domain.model.PosterShape.POSTER,
+                background = item.background,
+                logo = item.logo,
+                description = item.description,
+                releaseInfo = item.releaseInfo,
+                imdbRating = item.imdbRating,
+                genres = item.genres,
+                status = item.status,
+                ageRating = item.ageRating,
+                runtime = item.runtime,
+                country = item.country,
+                language = item.language
+            )
+        }
+
+        return com.nuvio.tv.domain.model.CatalogRow(
+            addonId = MY_LIST_ADDON_ID,
+            addonName = "Built-In",
+            addonBaseUrl = "",
+            catalogId = MY_LIST_CATALOG_ID,
+            catalogName = "My List",
+            type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
+            rawType = "mixed",
+            items = items,
+            isLoading = isLoading,
+            hasMore = false,
+            supportsSkip = false
+        )
+    }
+
+    private fun replaceMyListRow(
+        row: com.nuvio.tv.domain.model.CatalogRow?
+    ) {
+        catalogsMap.remove(MY_LIST_CATALOG_KEY)
+
+        if (row != null) {
+            catalogsMap[MY_LIST_CATALOG_KEY] = row
+            if (MY_LIST_CATALOG_KEY !in catalogOrder) {
+                catalogOrder.add(0, MY_LIST_CATALOG_KEY)
+            }
+        }
+
+        _uiState.update { state ->
+            val oldIndex = state.catalogRows.indexOfFirst {
+                it.addonId == MY_LIST_ADDON_ID
+            }
+            val withoutMyList = state.catalogRows.filter {
+                it.addonId != MY_LIST_ADDON_ID
+            }
+            val updatedRows = when {
+                row == null -> withoutMyList
+                oldIndex >= 0 -> withoutMyList.toMutableList().also {
+                    it.add(oldIndex.coerceAtMost(it.size), row)
+                }
+                else -> listOf(row) + withoutMyList
+            }
+
+            if (updatedRows == state.catalogRows) {
+                state
+            } else {
+                state.copy(catalogRows = updatedRows)
+            }
+        }
+
+        scheduleUpdateCatalogRows()
     }
 
     internal fun observeMyList() {
         myListJob?.cancel()
         myListJob = viewModelScope.launch {
-            profileManager.activeProfileId
-                .collectLatest { profileId ->
-                    // Load the new profile's cache from disk first (fast ~10-50ms)
-                    val cached = myListDiskCache.load(profileId)
+            kotlinx.coroutines.flow.combine(
+                profileManager.activeProfileId,
+                libraryRepository.sourceMode
+            ) { profileId, sourceMode ->
+                profileId to sourceMode
+            }
+                .distinctUntilChanged()
+                .collectLatest source@{ (profileId, sourceMode) ->
+                    currentMyListEntries = emptyList()
 
-                    // Build the new cached row (or null if no cache)
-                    val newCachedRow = if (cached.isNotEmpty()) {
-                        val cachedItems = cached.map { c ->
-                            com.nuvio.tv.domain.model.MetaPreview(
-                                id = c.id,
-                                type = com.nuvio.tv.domain.model.ContentType.fromString(c.type),
-                                rawType = c.type,
-                                name = c.name,
-                                poster = c.poster,
-                                posterShape = com.nuvio.tv.domain.model.PosterShape.POSTER,
-                                background = c.background,
-                                logo = c.logo,
-                                description = c.description,
-                                releaseInfo = c.releaseInfo,
-                                imdbRating = c.imdbRating,
-                                genres = c.genres,
-                                status = c.status,
-                                ageRating = c.ageRating,
-                                runtime = c.runtime,
-                                country = c.country,
-                                language = c.language
-                            )
-                        }
-                        com.nuvio.tv.domain.model.CatalogRow(
-                            addonId = MY_LIST_ADDON_ID,
-                            addonName = "Built-In",
-                            addonBaseUrl = "",
-                            catalogId = MY_LIST_CATALOG_ID,
-                            catalogName = "My List",
-                            type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
-                            rawType = "mixed",
-                            items = cachedItems,
-                            isLoading = true,
-                            hasMore = false,
-                            supportsSkip = false
-                        )
-                    } else null
+                    val cached = myListDiskCache.load(
+                        profileId = profileId,
+                        sourceMode = sourceMode
+                    )
+                    val cachedRow = cachedMyListRow(
+                        cached = cached,
+                        isLoading = true
+                    )
+                    replaceMyListRow(cachedRow)
 
-                    // Update catalogsMap
-                    catalogsMap.remove(MY_LIST_CATALOG_KEY)
-                    if (newCachedRow != null) {
-                        catalogsMap[MY_LIST_CATALOG_KEY] = newCachedRow
-                        if (MY_LIST_CATALOG_KEY !in catalogOrder) {
-                            catalogOrder.add(0, MY_LIST_CATALOG_KEY)
-                        }
-                    }
+                    var hasPublishedLiveItems = false
 
-                    // Bypass debounce — swap old/new profile row in uiState directly
-                    // so the correct profile's data renders in a single frame.
-                    _uiState.update { state ->
-                        val withoutMyList = state.catalogRows.filter { it.addonId != MY_LIST_ADDON_ID }
-                        val newRows = if (newCachedRow != null) {
-                            val insertIdx = state.catalogRows.indexOfFirst { it.addonId == MY_LIST_ADDON_ID }
-                            if (insertIdx >= 0) {
-                                withoutMyList.toMutableList().also { it.add(insertIdx, newCachedRow) }
-                            } else {
-                                listOf(newCachedRow) + withoutMyList
+                    libraryRepository.watchlistItems
+                        .distinctUntilChanged()
+                        .collectLatest items@{ liveEntries ->
+                            val entries = liveEntries
+                                .sortedByDescending { it.listedAt }
+                            currentMyListEntries = entries
+
+                            if (entries.isEmpty()) {
+                                if (
+                                    hasPublishedLiveItems ||
+                                    cached.isEmpty()
+                                ) {
+                                    replaceMyListRow(null)
+                                    myListDiskCache.clear(
+                                        profileId = profileId,
+                                        sourceMode = sourceMode
+                                    )
+                                } else {
+                                    replaceMyListRow(
+                                        cachedRow?.copy(isLoading = false)
+                                    )
+                                }
+                                return@items
                             }
-                        } else {
-                            withoutMyList
-                        }
-                        state.copy(catalogRows = newRows)
-                    }
-                    scheduleUpdateCatalogRows()
 
-                    // Fetch live watchlist directly — bypasses shared snapshotState
-                    // so there is zero risk of serving another profile's cached data
-                    val entries = runCatching {
-                        // fetchWatchlistEntries sorts by traktRank ASC (1=newest on Trakt)
-                        // Re-sort by listedAt DESC to show most recently added first
-                        traktLibraryService.fetchWatchlistEntries()
-                            .sortedByDescending { it.listedAt }
-                    }.getOrNull()
+                            hasPublishedLiveItems = true
 
-                    // snapshotState is kept in sync via performOptimisticMutation in toggleWatchlist
-                    // No need to call refreshNow() here — it causes race conditions with Trakt API eventual consistency
+                            val priorImages =
+                                catalogsMap[MY_LIST_CATALOG_KEY]
+                                    ?.items
+                                    .orEmpty()
+                                    .associate { item ->
+                                        item.id to Triple(
+                                            item.poster,
+                                            item.background,
+                                            item.logo
+                                        )
+                                    }
 
-                    if (entries == null) {
-                        // Network failed — keep showing cache, mark as not loading
-                        catalogsMap[MY_LIST_CATALOG_KEY]?.let {
-                            catalogsMap[MY_LIST_CATALOG_KEY] = it.copy(isLoading = false)
-                        }
-                        scheduleUpdateCatalogRows()
-                        return@collectLatest
-                    }
+                            val items = entries.map { entry ->
+                                val preview = entry.toMetaPreview()
+                                val cachedImages =
+                                    priorImages[preview.id]
+                                        ?: Triple(null, null, null)
 
-                    if (entries.isEmpty()) {
-                        // Only remove row if we have no cache either.
-                        // Empty fetch could mean network not ready or Trakt not authed.
-                        // Never clear disk cache based on an empty fetch result.
-                        if (cached.isEmpty()) {
-                            catalogsMap.remove(MY_LIST_CATALOG_KEY)
-                            scheduleUpdateCatalogRows()
-                        } else {
-                            // Cache exists but fetch returned empty — Trakt may not be ready yet.
-                            // Mark row as not loading so cache stays visible, then retry after delay.
-                            catalogsMap[MY_LIST_CATALOG_KEY]?.let {
-                                catalogsMap[MY_LIST_CATALOG_KEY] = it.copy(isLoading = false)
+                                preview.copy(
+                                    poster =
+                                        preview.poster
+                                            ?: cachedImages.first,
+                                    background =
+                                        preview.background
+                                            ?: cachedImages.second,
+                                    logo =
+                                        preview.logo
+                                            ?: cachedImages.third
+                                )
                             }
-                            scheduleUpdateCatalogRows()
-                            viewModelScope.launch {
-                                delay(3000)
-                                val retryEntries = runCatching {
-                                    traktLibraryService.fetchWatchlistEntries()
-                                        .sortedByDescending { it.listedAt }
-                                }.getOrNull()
-                                if (!retryEntries.isNullOrEmpty()) {
-                                    observeMyList()
+
+                            if (enrichmentCache.isEmpty()) {
+                                val restored =
+                                    homeEnrichmentDiskCache.loadAll()
+                                if (restored.isNotEmpty()) {
+                                    enrichmentCache.putAll(restored)
                                 }
                             }
-                        }
-                        return@collectLatest
-                    }
 
-                    // Merge live entries with cached images to prevent poster flash
-                    val cachedImageById = cached.associate { c ->
-                        c.id to Triple(c.poster, c.background, c.logo)
-                    }
-                    val items = entries.map { entry ->
-                        val preview = entry.toMetaPreview()
-                        val (cachedPoster, cachedBg, cachedLogo) =
-                            cachedImageById[preview.id] ?: Triple(null, null, null)
-                        preview.copy(
-                            poster = preview.poster ?: cachedPoster,
-                            background = preview.background ?: cachedBg,
-                            logo = preview.logo ?: cachedLogo
-                        )
-                    }
+                            val enrichedItems = items.map { item ->
+                                val enrichment =
+                                    enrichmentCache[item.id]
+                                        ?: item.id
+                                            .takeIf {
+                                                it.startsWith("tt")
+                                            }
+                                            ?.let {
+                                                tmdbService
+                                                    .getCachedTmdbId(it)
+                                            }
+                                            ?.let {
+                                                enrichmentCache[
+                                                    "tmdb:$it"
+                                                ]
+                                            }
+                                        ?: return@map item
 
-                    // Ensure enrichment cache is populated before applying to ML items —
-                    // it may still be loading from disk asynchronously after profile switch.
-                    if (enrichmentCache.isEmpty()) {
-                        val restored = homeEnrichmentDiskCache.loadAll()
-                        if (restored.isNotEmpty()) enrichmentCache.putAll(restored)
-                    }
-                    // Apply enrichment cache immediately so newly added items
-                    // don't flash backdrop while waiting for TMDB enrichment to re-apply.
-                    // Apply unconditionally — don't gate on currentTmdbSettings since
-                    // settings may not be loaded yet when observeMyList() runs after toggle.
-                    val enrichedItems = items.map { item ->
-                        // Trakt-sourced items are keyed by IMDb id (tt...) while the enrichment
-                        // cache is keyed by the catalog id (tmdb:...) — try the cross-mapped key
-                        // before giving up, otherwise Trakt My List items never get enriched.
-                        val cached = enrichmentCache[item.id]
-                            ?: item.id.takeIf { it.startsWith("tt") }
-                                ?.let { tmdbService.getCachedTmdbId(it) }
-                                ?.let { enrichmentCache["tmdb:" + it] }
-                            ?: return@map item
-                        item.copy(
-                            poster = item.poster ?: cached.poster,
-                            background = item.background ?: cached.backdrop,
-                            logo = cached.logo ?: cached.fallbackLogoUrl ?: item.logo,
-                            landscapePoster = cached.detailBackdrop ?: item.landscapePoster,
-                            name = cached.localizedTitle ?: item.name,
-                            description = cached.description ?: item.description,
-                            genres = if (cached.genres.isNotEmpty()) cached.genres else item.genres,
-                            imdbRating = cached.rating?.toFloat() ?: item.imdbRating,
-                            ageRating = cached.ageRating ?: item.ageRating,
-                            status = cached.status ?: item.status,
-                            runtime = cached.runtimeMinutes?.toString() ?: item.runtime
-                        )
-                    }
+                                item.copy(
+                                    poster =
+                                        item.poster
+                                            ?: enrichment.poster,
+                                    background =
+                                        item.background
+                                            ?: enrichment.backdrop,
+                                    logo =
+                                        enrichment.logo
+                                            ?: enrichment
+                                                .fallbackLogoUrl
+                                            ?: item.logo,
+                                    landscapePoster =
+                                        enrichment.detailBackdrop
+                                            ?: item.landscapePoster,
+                                    name =
+                                        enrichment.localizedTitle
+                                            ?: item.name,
+                                    description =
+                                        enrichment.description
+                                            ?: item.description,
+                                    genres =
+                                        if (
+                                            enrichment.genres
+                                                .isNotEmpty()
+                                        ) {
+                                            enrichment.genres
+                                        } else {
+                                            item.genres
+                                        },
+                                    imdbRating =
+                                        enrichment.rating?.toFloat()
+                                            ?: item.imdbRating,
+                                    ageRating =
+                                        enrichment.ageRating
+                                            ?: item.ageRating,
+                                    status =
+                                        enrichment.status
+                                            ?: item.status,
+                                    runtime =
+                                        enrichment.runtimeMinutes
+                                            ?.toString()
+                                            ?: item.runtime
+                                )
+                            }
 
-                    catalogsMap[MY_LIST_CATALOG_KEY] = com.nuvio.tv.domain.model.CatalogRow(
-                        addonId = MY_LIST_ADDON_ID,
-                        addonName = "Built-In",
-                        addonBaseUrl = "",
-                        catalogId = MY_LIST_CATALOG_ID,
-                        catalogName = "My List",
-                        type = com.nuvio.tv.domain.model.ContentType.UNKNOWN,
-                        rawType = "mixed",
-                        items = enrichedItems,
-                        isLoading = false,
-                        hasMore = false,
-                        supportsSkip = false
-                    )
-                    if (MY_LIST_CATALOG_KEY !in catalogOrder) {
-                        catalogOrder.add(0, MY_LIST_CATALOG_KEY)
-                    }
-                    scheduleUpdateCatalogRows()
-
-                    // Save to disk only when we have posters — use enrichedItems so
-                    // TMDB poster URLs are persisted, not raw Trakt data with poster=null
-                    val hasImages = enrichedItems.any { it.poster != null }
-                    if (hasImages) {
-                        val toCache = enrichedItems.map { item ->
-                            com.nuvio.tv.data.local.CachedMyListItem(
-                                id = item.id,
-                                type = item.rawType,
-                                name = item.name,
-                                poster = item.poster,
-                                background = item.background,
-                                logo = item.logo,
-                                description = item.description,
-                                releaseInfo = item.releaseInfo,
-                                imdbRating = item.imdbRating,
-                                genres = item.genres,
-                                status = item.status,
-                                ageRating = item.ageRating,
-                                runtime = item.runtime,
-                                country = item.country,
-                                language = item.language
+                            replaceMyListRow(
+                                com.nuvio.tv.domain.model.CatalogRow(
+                                    addonId = MY_LIST_ADDON_ID,
+                                    addonName = "Built-In",
+                                    addonBaseUrl = "",
+                                    catalogId = MY_LIST_CATALOG_ID,
+                                    catalogName = "My List",
+                                    type =
+                                        com.nuvio.tv.domain.model
+                                            .ContentType.UNKNOWN,
+                                    rawType = "mixed",
+                                    items = enrichedItems,
+                                    isLoading = false,
+                                    hasMore = false,
+                                    supportsSkip = false
+                                )
                             )
+
+                            if (
+                                enrichedItems.any {
+                                    it.poster != null
+                                }
+                            ) {
+                                val cacheItems = enrichedItems.map {
+                                    item ->
+                                    com.nuvio.tv.data.local
+                                        .CachedMyListItem(
+                                            id = item.id,
+                                            type = item.rawType,
+                                            name = item.name,
+                                            poster = item.poster,
+                                            background =
+                                                item.background,
+                                            logo = item.logo,
+                                            description =
+                                                item.description,
+                                            releaseInfo =
+                                                item.releaseInfo,
+                                            imdbRating =
+                                                item.imdbRating,
+                                            genres = item.genres,
+                                            status = item.status,
+                                            ageRating =
+                                                item.ageRating,
+                                            runtime = item.runtime,
+                                            country = item.country,
+                                            language = item.language
+                                        )
+                                }
+
+                                myListDiskCache.save(
+                                    profileId = profileId,
+                                    sourceMode = sourceMode,
+                                    items = cacheItems
+                                )
+                            }
                         }
-                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            myListDiskCache.save(profileId, toCache)
-                        }
-                    }
                 }
         }
     }

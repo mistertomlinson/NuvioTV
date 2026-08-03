@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.auth.AuthManager
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.sync.LibrarySyncService
 import com.nuvio.tv.core.tracking.TrackingLibraryProviderRegistry
 import com.nuvio.tv.core.tracking.TrackingRefreshIntent
@@ -27,6 +28,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
@@ -44,13 +46,27 @@ class LibraryRepositoryImpl @Inject constructor(
     private val traktLibraryService: TraktLibraryService,
     private val librarySyncService: LibrarySyncService,
     private val authManager: AuthManager,
-    private val trackingProviders: TrackingLibraryProviderRegistry
+    private val trackingProviders: TrackingLibraryProviderRegistry,
+    private val profileManager: ProfileManager
 ) : LibraryRepository {
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var syncJob: Job? = null
     var isSyncingFromRemote = false
     var hasCompletedInitialPull = false
+
+    init {
+        syncScope.launch {
+            profileManager.activeProfileId
+                .drop(1)
+                .collect {
+                    traktLibraryService.resetSnapshot()
+                    if (sourceMode.first() == LibrarySourceMode.TRAKT) {
+                        runCatching { traktLibraryService.refreshNow() }
+                    }
+                }
+        }
+    }
 
     private fun triggerRemoteSync() {
         if (isSyncingFromRemote) return
@@ -89,30 +105,58 @@ class LibraryRepositoryImpl @Inject constructor(
         }
         .distinctUntilChanged()
 
+    private val localLibraryEntries: Flow<List<LibraryEntry>> =
+        libraryPreferences.libraryItems.map { items ->
+            items.map { saved ->
+                LibraryEntry(
+                    id = saved.id,
+                    type = saved.type,
+                    name = saved.name,
+                    poster = saved.poster,
+                    posterShape = saved.posterShape,
+                    background = saved.background,
+                    logo = saved.logo,
+                    description = saved.description,
+                    releaseInfo = saved.releaseInfo,
+                    imdbRating = saved.imdbRating,
+                    genres = saved.genres,
+                    addonBaseUrl = saved.addonBaseUrl,
+                    listedAt = saved.addedAt
+                )
+            }
+        }
+
     override val libraryItems: Flow<List<LibraryEntry>> = sourceMode
         .flatMapLatest { mode ->
+            mode.providerId
+                ?.let(trackingProviders::provider)
+                ?.items
+                ?: localLibraryEntries
+        }
+        .distinctUntilChanged()
+
+    override val watchlistItems: Flow<List<LibraryEntry>> = sourceMode
+        .flatMapLatest { mode ->
             val provider = mode.providerId?.let(trackingProviders::provider)
-            if (provider != null) {
-                provider.items
+            if (provider == null) {
+                localLibraryEntries.map { entries ->
+                    entries.sortedByDescending(LibraryEntry::listedAt)
+                }
             } else {
-                libraryPreferences.libraryItems.map { items ->
-                    items.map { saved ->
-                        LibraryEntry(
-                            id = saved.id,
-                            type = saved.type,
-                            name = saved.name,
-                            poster = saved.poster,
-                            posterShape = saved.posterShape,
-                            background = saved.background,
-                            logo = saved.logo,
-                            description = saved.description,
-                            releaseInfo = saved.releaseInfo,
-                            imdbRating = saved.imdbRating,
-                            genres = saved.genres,
-                            addonBaseUrl = saved.addonBaseUrl,
-                            listedAt = saved.addedAt
-                        )
-                    }
+                combine(provider.items, provider.tabs) { items, tabs ->
+                    val watchlistKeys = tabs.asSequence()
+                        .filter { tab ->
+                            tab.type == LibraryListTab.Type.WATCHLIST
+                        }
+                        .map(LibraryListTab::key)
+                        .toSet()
+
+                    items.asSequence()
+                        .filter { entry ->
+                            entry.listKeys.any(watchlistKeys::contains)
+                        }
+                        .sortedByDescending(LibraryEntry::listedAt)
+                        .toList()
                 }
             }
         }

@@ -3,6 +3,7 @@ package com.nuvio.tv.data.local
 import android.content.Context
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import com.nuvio.tv.domain.model.LibrarySourceMode
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -37,27 +38,57 @@ class MyListDiskCache @Inject constructor(
     private val gson = Gson()
     private val mutex = Mutex()
 
-    private fun cacheFile(profileId: Int): File {
-        val dir = File(context.filesDir, "my_list_cache")
-        dir.mkdirs()
-        return File(dir, "my_list_profile_$profileId.json")
-    }
+    private fun cacheDirectory(): File =
+        File(context.filesDir, "my_list_cache").also(File::mkdirs)
 
-    suspend fun load(profileId: Int): List<CachedMyListItem> = withContext(Dispatchers.IO) {
+    private fun cacheFile(
+        profileId: Int,
+        sourceMode: LibrarySourceMode
+    ): File = File(
+        cacheDirectory(),
+        "my_list_profile_${profileId}_${sourceMode.name.lowercase()}.json"
+    )
+
+    private fun legacyTraktCacheFile(profileId: Int): File =
+        File(cacheDirectory(), "my_list_profile_$profileId.json")
+
+    suspend fun load(
+        profileId: Int,
+        sourceMode: LibrarySourceMode
+    ): List<CachedMyListItem> = withContext(Dispatchers.IO) {
         mutex.withLock {
             runCatching {
-                val file = cacheFile(profileId)
-                if (!file.exists()) return@withLock emptyList()
-                val type = object : TypeToken<List<CachedMyListItem>>() {}.type
-                gson.fromJson<List<CachedMyListItem>>(file.readText(), type) ?: emptyList()
+                val scopedFile = cacheFile(profileId, sourceMode)
+                val sourceFile = when {
+                    scopedFile.exists() -> scopedFile
+                    sourceMode == LibrarySourceMode.TRAKT &&
+                        legacyTraktCacheFile(profileId).exists() -> {
+                        legacyTraktCacheFile(profileId)
+                    }
+                    else -> return@withLock emptyList()
+                }
+
+                val payload = sourceFile.readText()
+                if (sourceFile != scopedFile) {
+                    runCatching { scopedFile.writeText(payload) }
+                }
+
+                val type =
+                    object : TypeToken<List<CachedMyListItem>>() {}.type
+                gson.fromJson<List<CachedMyListItem>>(payload, type)
+                    ?: emptyList()
             }.getOrDefault(emptyList())
         }
     }
 
-    suspend fun save(profileId: Int, items: List<CachedMyListItem>) = withContext(Dispatchers.IO) {
+    suspend fun save(
+        profileId: Int,
+        sourceMode: LibrarySourceMode,
+        items: List<CachedMyListItem>
+    ) = withContext(Dispatchers.IO) {
         mutex.withLock {
             runCatching {
-                val file = cacheFile(profileId)
+                val file = cacheFile(profileId, sourceMode)
                 val tmp = File(file.parent, file.name + ".tmp")
                 tmp.writeText(gson.toJson(items))
                 tmp.renameTo(file)
@@ -65,9 +96,12 @@ class MyListDiskCache @Inject constructor(
         }
     }
 
-    suspend fun clear(profileId: Int) = withContext(Dispatchers.IO) {
+    suspend fun clear(
+        profileId: Int,
+        sourceMode: LibrarySourceMode
+    ) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            runCatching { cacheFile(profileId).delete() }
+            runCatching { cacheFile(profileId, sourceMode).delete() }
         }
     }
 }

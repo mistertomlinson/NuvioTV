@@ -13,6 +13,7 @@ interface LibraryRepository {
     val sourceMode: Flow<LibrarySourceMode>
     val isSyncing: Flow<Boolean>
     val libraryItems: Flow<List<LibraryEntry>>
+    val watchlistItems: Flow<List<LibraryEntry>>
     val listTabs: Flow<List<LibraryListTab>>
 
     fun isInLibrary(itemId: String, itemType: String): Flow<Boolean>

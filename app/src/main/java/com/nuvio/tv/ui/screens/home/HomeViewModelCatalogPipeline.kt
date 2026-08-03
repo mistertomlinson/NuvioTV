@@ -172,7 +172,11 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     catalogSourceRows.clear()
     // Re-inject ML row from disk cache immediately so it survives pipeline restart
     val mlProfileId = profileManager.activeProfileId.value
-    val mlCached = myListDiskCache.load(mlProfileId)
+    val mlSourceMode = libraryRepository.sourceMode.first()
+    val mlCached = myListDiskCache.load(
+        profileId = mlProfileId,
+        sourceMode = mlSourceMode
+    )
     if (mlCached.isNotEmpty()) {
         val mlItems = mlCached.map { c ->
             com.nuvio.tv.domain.model.MetaPreview(
