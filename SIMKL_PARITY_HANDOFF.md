@@ -121,8 +121,8 @@ The obsolete source-selection paths in `TraktViewModel` have also been removed:
 6. Finish watched badges, Details, manual watched/unwatched, and player-state
    integration.
 7. Finish mixed newest-first Simkl My List/library behavior.
-8. Implement durable unfinished Simkl playback beyond Simkl's remote
-   playback-retention window.
+8. Durable unfinished Simkl playback beyond Simkl's remote
+   playback-retention window is complete.
 9. Add dedicated Simkl optimistic projection support if runtime behavior shows
     it is needed for immediate Continue Watching updates.
 10. Finish hidden/dismissed Continue Watching behavior and release alerts.
@@ -356,3 +356,45 @@ Immediate next action:
 
 1. Commit the authoritative Nuvio Sync source-selection behavior and handoff.
 2. Implement durable per-profile unfinished Simkl progress.
+
+## Durable per-profile unfinished Simkl progress
+
+Completed and runtime-validated:
+
+- Added a dedicated per-profile DataStore for unfinished Simkl playback.
+- Only progress from 2% through less than 85% is retained.
+- Simkl remote playback remains authoritative while it exists.
+- When Simkl removes or expires remote playback, Nuvio falls back to its
+  durable local copy and keeps the title in Continue Watching.
+- Remote and durable entries are deduplicated by title so separate episodes
+  cannot create duplicate Continue Watching entries.
+- Completed, removed, or explicitly dismissed progress clears the durable copy.
+- Simkl durable progress is visible only while Simkl is the selected Watch
+  Progress Source.
+- It does not leak into Trakt or Nuvio Sync.
+- Switching away from Simkl hides the progress; switching back restores it.
+- The store follows the existing profile DataStore isolation.
+- Clearing app data or uninstalling Nuvio removes this device-local fallback.
+- No work was added to the active Home scrolling path.
+
+Validation completed:
+
+- Focused `SimklDurableProgressTest` passed.
+- Normal incremental `assembleDebug` passed.
+- Installed without clearing app data.
+- Progress survived removal from both Simkl watched history and Simkl playback,
+  followed by a manual Simkl sync.
+- Provider switching correctly hid and restored the Simkl-owned entry.
+- Removing the entry inside Nuvio kept it removed after restart.
+- Cross-episode Continue Watching deduplication test passed.
+
+## Current immediate next action
+
+Implement the Simkl My List equivalent as the `nuvio.mylist` catalog:
+
+- mixed movies, shows, and anime
+- newest-first ordering
+- add and remove support
+- per-profile isolation
+- provider attribution
+- no Home scrolling-path regression

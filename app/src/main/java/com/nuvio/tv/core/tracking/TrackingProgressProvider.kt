@@ -31,6 +31,7 @@ interface TrackingProgressProvider {
     suspend fun showIdSiblings(): Map<String, Set<String>>
     fun isWatchedByVideoId(videoId: String, episode: Int): Boolean = false
     suspend fun refresh(intent: TrackingRefreshIntent)
+    suspend fun persistDurableProgress(progress: WatchProgress) = Unit
     suspend fun removeProgress(contentId: String, season: Int?, episode: Int?)
     fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean)
     fun applyOptimisticRemoval(contentId: String, season: Int?, episode: Int?)

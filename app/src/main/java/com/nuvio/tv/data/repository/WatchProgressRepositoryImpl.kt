@@ -563,6 +563,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
             quiet = false
         )
         watchProgressPreferences.saveProgress(progress)
+        provider?.persistDurableProgress(progress)
 
         val isSeriesEpisode =
             (
