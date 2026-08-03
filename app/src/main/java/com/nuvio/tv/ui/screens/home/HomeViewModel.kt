@@ -53,7 +53,6 @@ import com.nuvio.tv.data.local.HomeEnrichmentDiskCache
 import com.nuvio.tv.data.repository.TraktLibraryService
 import com.nuvio.tv.data.repository.TrackingRatingCoordinator
 import com.nuvio.tv.data.repository.parseContentIds
-import com.nuvio.tv.data.repository.TraktProgressService
 import javax.inject.Inject
 import android.os.SystemClock
 import com.nuvio.tv.data.local.CollectionsDataStore
@@ -92,7 +91,6 @@ class HomeViewModel @Inject constructor(
     internal val homeScreenChannelManager: HomeScreenChannelManager,
     internal val profileManager: ProfileManager,
     internal val traktLibraryService: TraktLibraryService,
-    internal val traktProgressService: TraktProgressService,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     internal val collectionsDataStore: com.nuvio.tv.data.local.CollectionsDataStore,
     internal val mdbListSettingsDataStore: com.nuvio.tv.data.local.MDBListSettingsDataStore,
@@ -1292,20 +1290,72 @@ class HomeViewModel @Inject constructor(
         // dismissed. Idempotent server-side; gated per profile.
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             runCatching {
-                if (traktSettingsDataStore.isHiddenMigrationDone(preRenderProfileId)) return@launch
+                val selectedSource = traktSettingsDataStore.watchProgressSource.first()
+                if (
+                    selectedSource !=
+                    com.nuvio.tv.data.local.WatchProgressSource.TRAKT
+                ) {
+                    return@launch
+                }
+                if (
+                    traktSettingsDataStore.isHiddenMigrationDone(
+                        preRenderProfileId
+                    )
+                ) {
+                    return@launch
+                }
+
                 val keys = traktSettingsDataStore.dismissedNextUpKeys.first()
-                val contentIds = keys.map { it.substringBefore("|").trim() }
-                    .filter { it.isNotBlank() }
+                val contentIds = keys
+                    .map { key -> key.substringBefore("|").trim() }
+                    .filter(String::isNotBlank)
                     .distinct()
-                android.util.Log.d("HiddenMigration", "migrating " + contentIds.size + " dismissed shows to Trakt hidden list (profile=" + preRenderProfileId + ")")
+
+                android.util.Log.d(
+                    "HiddenMigration",
+                    "migrating ${contentIds.size} dismissed shows through " +
+                        "the selected Trakt provider " +
+                        "(profile=$preRenderProfileId)"
+                )
+
+                var migrationComplete = true
                 contentIds.forEach { contentId ->
-                    runCatching { traktProgressService.hideShowFromProgress(contentId) }
-                        .onFailure { android.util.Log.w("HiddenMigration", "hide failed for " + contentId, it) }
+                    val migrated = runCatching {
+                        watchProgressRepository.dismissNextUp(
+                            contentId = contentId,
+                            season = null,
+                            episode = null
+                        )
+                    }.onFailure { error ->
+                        android.util.Log.w(
+                            "HiddenMigration",
+                            "hide failed for $contentId",
+                            error
+                        )
+                    }.getOrDefault(false)
+
+                    if (!migrated) {
+                        migrationComplete = false
+                    }
                     kotlinx.coroutines.delay(250L)
                 }
-                traktSettingsDataStore.setHiddenMigrationDone(preRenderProfileId)
-                android.util.Log.d("HiddenMigration", "migration complete")
-            }.onFailure { android.util.Log.w("HiddenMigration", "migration aborted", it) }
+
+                if (migrationComplete) {
+                    traktSettingsDataStore.setHiddenMigrationDone(
+                        preRenderProfileId
+                    )
+                    android.util.Log.d(
+                        "HiddenMigration",
+                        "migration complete"
+                    )
+                }
+            }.onFailure { error ->
+                android.util.Log.w(
+                    "HiddenMigration",
+                    "migration aborted",
+                    error
+                )
+            }
         }
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             val cachedInProgress = runCatching { cwEnrichmentCache.getInProgressSnapshot(preRenderProfileId) }.getOrElse { emptyList<com.nuvio.tv.data.local.CachedInProgressItem>() }

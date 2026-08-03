@@ -2831,9 +2831,19 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
         }
         viewModelScope.launch {
             traktSettingsDataStore.addDismissedNextUpKey(dismissKey)
-            // Durable server-side hide: survives app data clears and cleans the
-            // show off trakt.tv's up-next as well.
-            runCatching { traktProgressService.hideShowFromProgress(contentId) }
+            runCatching {
+                watchProgressRepository.dismissNextUp(
+                    contentId = contentId,
+                    season = season,
+                    episode = episode
+                )
+            }.onFailure { error ->
+                android.util.Log.w(
+                    HomeViewModel.TAG,
+                    "Failed to dismiss Next Up through selected provider",
+                    error
+                )
+            }
         }
         // Refresh channel immediately with the already-filtered list
         val channelItemsAfterDismiss = _uiState.value.continueWatchingItems

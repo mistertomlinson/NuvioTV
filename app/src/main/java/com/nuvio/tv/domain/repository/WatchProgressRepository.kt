@@ -102,6 +102,18 @@ interface WatchProgressRepository {
     suspend fun removeProgress(contentId: String, season: Int? = null, episode: Int? = null)
 
     /**
+     * Dismiss a Next Up seed through the active external tracking provider.
+     *
+     * Returns false when Nuvio Sync/local progress is active or the selected
+     * external provider is unavailable.
+     */
+    suspend fun dismissNextUp(
+        contentId: String,
+        season: Int? = null,
+        episode: Int? = null
+    ): Boolean
+
+    /**
      * Remove from watch history (marks as unwatched on Trakt)
      */
     suspend fun removeFromHistory(contentId: String, videoId: String? = null, season: Int? = null, episode: Int? = null)

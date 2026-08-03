@@ -33,6 +33,7 @@ interface TrackingProgressProvider {
     suspend fun refresh(intent: TrackingRefreshIntent)
     suspend fun persistDurableProgress(progress: WatchProgress) = Unit
     suspend fun removeProgress(contentId: String, season: Int?, episode: Int?)
+    suspend fun dismissNextUp(contentId: String, season: Int?, episode: Int?) = Unit
     fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean)
     fun applyOptimisticRemoval(contentId: String, season: Int?, episode: Int?)
     fun clearOptimistic()

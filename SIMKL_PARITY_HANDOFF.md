@@ -442,6 +442,22 @@ Completed after `e60cf9e0`:
 - Normal incremental `assembleDebug` passed.
 - The previous unconditional Trakt refresh was removed from `MainActivity`.
 
+## Provider-neutral Next Up dismissal
+
+Completed after `5aff5829`:
+
+- Home no longer injects or calls `TraktProgressService` directly.
+- Next Up dismissal routes through the active tracking provider.
+- Trakt preserves its server-side hidden-progress behavior.
+- Simkl stores profile-scoped dismissal tombstones and filters dismissed
+  Next Up seeds from its projection.
+- Nuvio Sync/local mode retains the existing local Home dismissal only.
+- Historical Trakt dismissal migration runs only while Trakt is selected.
+- The migration is not marked complete unless the active provider handles
+  every migrated dismissal.
+- Focused routing and Simkl dismissal regression tests passed.
+- Normal incremental `assembleDebug` passed.
+
 ## Current immediate next action
 
 After the unrelated Home UI work is complete, wire the custom

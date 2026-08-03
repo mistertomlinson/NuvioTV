@@ -66,6 +66,14 @@ class TraktTrackingProgressProvider @Inject constructor(
     override suspend fun removeProgress(contentId: String, season: Int?, episode: Int?) =
         service.removeProgress(contentId, season, episode)
 
+    override suspend fun dismissNextUp(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) {
+        service.hideShowFromProgress(contentId)
+    }
+
     override fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean) {
         if (quiet) service.updateOptimisticProgressQuietly(progress) else service.applyOptimisticProgress(progress)
     }

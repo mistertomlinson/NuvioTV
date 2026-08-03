@@ -673,6 +673,18 @@ class WatchProgressRepositoryImpl @Inject constructor(
 
         triggerRemoteSync()
     }
+
+    override suspend fun dismissNextUp(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ): Boolean = dismissNextUpWithProvider(
+        provider = activeProgressProvider(),
+        contentId = contentId,
+        season = season,
+        episode = episode
+    )
+
     override suspend fun removeFromHistory(
         contentId: String,
         videoId: String?,
@@ -985,4 +997,20 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return resolvedKeys
     }
 
+}
+
+
+internal suspend fun dismissNextUpWithProvider(
+    provider: TrackingProgressProvider?,
+    contentId: String,
+    season: Int?,
+    episode: Int?
+): Boolean {
+    provider ?: return false
+    provider.dismissNextUp(
+        contentId = contentId,
+        season = season,
+        episode = episode
+    )
+    return true
 }

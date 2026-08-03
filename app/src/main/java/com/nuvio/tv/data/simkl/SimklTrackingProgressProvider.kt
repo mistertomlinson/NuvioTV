@@ -54,9 +54,13 @@ class SimklTrackingProgressProvider @Inject constructor(
     }.distinctUntilChanged()
     override val nextUpSeeds = combine(
         syncRepository.projection,
-        layoutPreferences.nextUpFromFurthestEpisode
-    ) { projection, preferFurthestEpisode ->
-        projection.nextUp(preferFurthestEpisode)
+        layoutPreferences.nextUpFromFurthestEpisode,
+        progressDismissalStore.dismissedAtByKey
+    ) { projection, preferFurthestEpisode, dismissedAtByKey ->
+        filterSimklDismissedProgress(
+            entries = projection.nextUp(preferFurthestEpisode),
+            dismissedAtByKey = dismissedAtByKey
+        )
     }.distinctUntilChanged()
     override val watchedMovieIds = syncRepository.projection.map { projection ->
         projection.watchedMovieIds
@@ -159,6 +163,18 @@ class SimklTrackingProgressProvider @Inject constructor(
             }
         }
         syncRepository.removePlaybackSessions(removed)
+    }
+
+    override suspend fun dismissNextUp(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) {
+        progressDismissalStore.dismiss(
+            contentId = contentId,
+            season = season,
+            episode = episode
+        )
     }
 
     override fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean) = Unit
