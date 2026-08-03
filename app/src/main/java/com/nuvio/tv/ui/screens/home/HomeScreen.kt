@@ -108,6 +108,19 @@ fun HomeScreen(
         initialValue = false
     )
     val platformBackdropsPreloaded by viewModel.platformBackdropsPreloaded.collectAsStateWithLifecycle()
+    val heroBackdropWarm by viewModel.heroBackdropWarm.collectAsStateWithLifecycle()
+    /*
+     * Kick the ViewModel-side warm as soon as layout prefs are known (they pick
+     * the rows-viewport fraction, so the hero size depends on them). This also
+     * seeds backdropPreloadWidthPx/HeightPx, which unblocks the platform
+     * backdrop preload that previously could not run before this screen
+     * composed.
+     */
+    LaunchedEffect(uiState.layoutPreferencesReady, uiState.modernLandscapePostersEnabled) {
+        if (uiState.layoutPreferencesReady) {
+            viewModel.warmFirstHeroBackdrop(uiState.modernLandscapePostersEnabled)
+        }
+    }
     // No home screen gate on backdrop preload — preloadPlatformBackdrops has its own
     // 3s internal timeout so it always completes. Icons are gated on backdropsPreloaded
     // via stablePlatformIds below and all appear at once when preload finishes.
@@ -182,8 +195,46 @@ fun HomeScreen(
                 // Gate on catalogsReady (all catalog rows finished loading their items —
                 // not TMDB enrichment, which runs separately in the background).
                 // This is a one-way monotonic flip so it can't regress back to false.
+                /*
+                 * Hero items arrive in a later emission than skeletonReady, so
+                 * releasing on skeleton alone let the backdrop snap in with
+                 * metadata still unrendered on cold launch. Profile switches
+                 * looked correct only because the VM survived with hero data
+                 * already in state. Independent 2.5s timeout: if hero never
+                 * arrives we degrade to the old behaviour rather than hang.
+                 * Do NOT add platformBackdropsPreloaded here - that flag is
+                 * set only after ModernHomeContent reports its render size,
+                 * which cannot happen until this gate releases (deadlock).
+                 */
+                var heroGateTimedOut by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(2_500L)
+                    heroGateTimedOut = true
+                }
+                val heroGateSatisfied = !uiState.heroSectionEnabled ||
+                    uiState.heroItems.isNotEmpty() ||
+                    heroGateTimedOut
+                /*
+                 * Release only once the hero backdrop is in Coil and the
+                 * platform backdrops are preloaded, so the backdrop fades in
+                 * from cache (instead of snapping), hero metadata is already
+                 * composed, and the icon row is present at reveal. Both flags
+                 * are self-releasing: heroBackdropWarm on a 2.5s bound in the
+                 * VM, platformBackdropsPreloaded on the 3s bound in
+                 * preloadPlatformBackdrops. Local 6s backstop below covers the
+                 * case where neither ever fires.
+                 */
+                var gateBackstopElapsed by remember { mutableStateOf(false) }
+                LaunchedEffect(Unit) {
+                    kotlinx.coroutines.delay(6_000L)
+                    gateBackstopElapsed = true
+                }
+                val warmupSatisfied = gateBackstopElapsed ||
+                    (heroBackdropWarm && platformBackdropsPreloaded)
                 val shouldShowLoadingGate = !uiState.skeletonReady ||
-                    !uiState.layoutPreferencesReady
+                    !uiState.layoutPreferencesReady ||
+                    !warmupSatisfied ||
+                    !heroGateSatisfied
 
                 // Strict loader sequence with whole-cycle dismissal:
                 // LOADING -> (data ready, wait for next sweep boundary) -> FADING
@@ -276,11 +327,19 @@ fun HomeScreen(
                 }
 
                 Box(modifier = Modifier.fillMaxSize()) {
-                AnimatedVisibility(
-                    visible = loaderPhase == 2,
-                        enter = fadeIn(animationSpec = tween(250))
-                    ) {
-                        when (uiState.homeLayout) {
+                    /*
+                     * Content mounts and renders unconditionally now, instead
+                     * of waiting for loaderPhase == 2. It lays out - and the
+                     * hero backdrop, catalog rows, and platform icons all
+                     * start their image requests - while the curtain below
+                     * (drawn after this in the same Box, so already on top)
+                     * is still opaque. The curtain's fadeOut is the only
+                     * reveal animation left: it now dissolves over content
+                     * that's already complete, instead of revealing nothing
+                     * and having content pop in and fade on its own right
+                     * after.
+                     */
+                    when (uiState.homeLayout) {
                             HomeLayout.CLASSIC -> ClassicHomeRoute(
                                 viewModel = viewModel,
                                 uiState = uiState,
@@ -354,7 +413,6 @@ fun HomeScreen(
                                 }
                             )
                         }
-                    }
                 // Loader overlay. Driven by a transition state so REVEAL only
                 // starts once this fade-out is fully idle. Content is NOT visible
                 // during the fade, so loader animation and home never contend.
@@ -632,7 +690,10 @@ private fun ModernHomeRoute(
         cachedPlatformIds.isNotEmpty() -> cachedPlatformIds
         else -> emptySet()
     }
-    var carouselReady by rememberSaveable { mutableStateOf(false) }
+    // Seed true when platform ids are already resolved at first composition
+    // (now typical, since the loading gate waits on platformBackdropsPreloaded)
+    // so the icon row doesn't fade in a beat after the rest of Home.
+    var carouselReady by rememberSaveable { mutableStateOf(stablePlatformIds.isNotEmpty()) }
     var isHeroTrailerPlaying by remember { mutableStateOf(false) }
 
     androidx.compose.runtime.DisposableEffect(Unit) {

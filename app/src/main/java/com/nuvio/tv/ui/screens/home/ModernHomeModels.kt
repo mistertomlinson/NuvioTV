@@ -23,6 +23,40 @@ enum class NumberStyle { OFF, SOLID, OUTLINE }
 internal val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
 internal const val MODERN_HERO_TEXT_WIDTH_FRACTION = 0.42f
 internal const val MODERN_HERO_MEDIA_WIDTH_FRACTION = 0.72f
+
+/*
+ * Single source of truth for the hero backdrop request size.
+ *
+ * Coil cache keys include the requested size, so a preload that guesses a
+ * slightly different size warms an entry the renderer never reads. The
+ * ViewModel needs this size before first composition (to warm the hero
+ * backdrop and to unblock triggerPlatformPreloadIfReady, which waits on
+ * backdropPreloadWidthPx/HeightPx that only Compose used to supply), so the
+ * formula lives here and both callers use it rather than duplicating it.
+ *
+ * Mirrors ModernHomeContent: rowsViewportHeight = maxHeight * fraction,
+ * heroBackdropHeight = maxHeight - rowsViewportHeight + rowTitleHeight +
+ * rowTitleBottom, coerced at maxHeight.
+ */
+internal const val MODERN_ROWS_VIEWPORT_FRACTION_LANDSCAPE = 0.49f
+internal const val MODERN_ROWS_VIEWPORT_FRACTION_PORTRAIT = 0.52f
+internal val MODERN_ROW_TITLE_BOTTOM = 14.dp
+internal val MODERN_ROW_TITLE_HEIGHT_FALLBACK = 24.dp
+
+internal fun computeHeroBackdropHeightDp(
+    maxHeightDp: androidx.compose.ui.unit.Dp,
+    useLandscapePosters: Boolean,
+    rowTitleHeightDp: androidx.compose.ui.unit.Dp
+): androidx.compose.ui.unit.Dp {
+    val fraction = if (useLandscapePosters) {
+        MODERN_ROWS_VIEWPORT_FRACTION_LANDSCAPE
+    } else {
+        MODERN_ROWS_VIEWPORT_FRACTION_PORTRAIT
+    }
+    val rowsViewportHeight = maxHeightDp * fraction
+    val raw = maxHeightDp - rowsViewportHeight + rowTitleHeightDp + MODERN_ROW_TITLE_BOTTOM
+    return if (raw > maxHeightDp) maxHeightDp else raw
+}
 internal const val MODERN_TRAILER_OVERSCAN_ZOOM = 1.35f
 internal const val MODERN_HERO_FOCUS_DEBOUNCE_MS = 90L
 internal val MODERN_ROW_HEADER_FOCUS_INSET = 40.dp

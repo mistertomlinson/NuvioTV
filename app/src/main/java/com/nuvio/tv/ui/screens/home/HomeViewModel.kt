@@ -19,6 +19,7 @@ import com.nuvio.tv.core.homechannel.HomeScreenChannelManager
 import com.nuvio.tv.data.trailer.TrailerService
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
+import androidx.compose.ui.unit.dp
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.CatalogRow
@@ -156,6 +157,77 @@ class HomeViewModel @Inject constructor(
     fun setBackdropPreloadSize(widthPx: Int, heightPx: Int) {
         backdropPreloadWidthPx = widthPx
         backdropPreloadHeightPx = heightPx
+    }
+
+    // True once the first hero backdrop is in Coil's memory cache (or we gave up).
+    internal val _heroBackdropWarm = MutableStateFlow(false)
+    val heroBackdropWarm: StateFlow<Boolean> = _heroBackdropWarm.asStateFlow()
+    @Volatile private var heroWarmStarted = false
+
+    /*
+     * Compute the hero request size from display metrics instead of waiting for
+     * Compose to report it. triggerPlatformPreloadIfReady blocks on
+     * backdropPreloadWidthPx/HeightPx, which were only ever set from
+     * ModernHomeContent -- and that cannot compose until the loading gate opens,
+     * so no preload could ever finish before release. Seeding the size here
+     * breaks that cycle; Compose still calls setBackdropPreloadSize afterward
+     * and overwrites with the authoritative value.
+     */
+    fun seedBackdropPreloadSizeFromDisplay(useLandscapePosters: Boolean) {
+        if (backdropPreloadWidthPx > 0 && backdropPreloadHeightPx > 0) return
+        val metrics = appContext.resources.displayMetrics
+        val density = androidx.compose.ui.unit.Density(
+            density = metrics.density,
+            fontScale = 1f
+        )
+        val widthDp = (metrics.widthPixels / metrics.density).dp
+        val heightDp = (metrics.heightPixels / metrics.density).dp
+        val heroHeightDp = computeHeroBackdropHeightDp(
+            maxHeightDp = heightDp,
+            useLandscapePosters = useLandscapePosters,
+            rowTitleHeightDp = MODERN_ROW_TITLE_HEIGHT_FALLBACK
+        )
+        with(density) {
+            backdropPreloadWidthPx = (widthDp * MODERN_HERO_MEDIA_WIDTH_FRACTION).roundToPx()
+            backdropPreloadHeightPx = heroHeightDp.roundToPx()
+        }
+    }
+
+    /*
+     * Warm the first hero backdrop into Coil before the gate releases. The
+     * renderer (ModernHeroMediaLayer) checks the memory cache and flips
+     * instantly on a hit, which is why profile switches fade correctly and cold
+     * launches snap. 2.5s bound: on a slow network we release anyway and get
+     * today's behaviour rather than a hang.
+     */
+    fun warmFirstHeroBackdrop(useLandscapePosters: Boolean) {
+        if (heroWarmStarted) return
+        heroWarmStarted = true
+        viewModelScope.launch {
+            seedBackdropPreloadSizeFromDisplay(useLandscapePosters)
+            val url = kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                _uiState.first { it.heroItems.isNotEmpty() }
+                    .heroItems.firstOrNull()?.backdropUrl?.takeIf { it.isNotBlank() }
+            }
+            if (url == null) {
+                _heroBackdropWarm.value = true
+                return@launch
+            }
+            val w = backdropPreloadWidthPx
+            val h = backdropPreloadHeightPx
+            kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+                runCatching {
+                    coil.Coil.imageLoader(appContext).execute(
+                        coil.request.ImageRequest.Builder(appContext)
+                            .data(url)
+                            .apply { if (w > 0 && h > 0) size(width = w, height = h) }
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .build()
+                    )
+                }
+            }
+            _heroBackdropWarm.value = true
+        }
     }
     // Platform catalog tracking — keys identified at skeleton-seed time, decremented
     // as each platform catalog resolves (success or error).

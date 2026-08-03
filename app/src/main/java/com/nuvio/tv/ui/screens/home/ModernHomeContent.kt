@@ -2017,8 +2017,11 @@ fun ModernHomeContent(
             runCatching { rowTitleLineHeight.toDp() }
                 .getOrDefault(24.dp)
         }
-        val heroBackdropHeight = (maxHeight - rowsViewportHeight + rowTitleHeight + rowTitleBottom)
-            .coerceAtMost(maxHeight)
+        val heroBackdropHeight = computeHeroBackdropHeightDp(
+            maxHeightDp = maxHeight,
+            useLandscapePosters = useLandscapePosters,
+            rowTitleHeightDp = rowTitleHeight
+        )
         val bgColor = NuvioColors.Background
         val contentFocusRequester = LocalContentFocusRequester.current
         val carouselFocusRequester = LocalCarouselFocusRequester.current
