@@ -120,7 +120,7 @@ The obsolete source-selection paths in `TraktViewModel` have also been removed:
 5. Verify local/Nuvio Sync behavior when no external provider is selected.
 6. Finish watched badges, Details, manual watched/unwatched, and player-state
    integration.
-7. Finish mixed newest-first Simkl My List/library behavior.
+7. Provider-neutral Simkl My List/library backend is complete; Home catalog and cache wiring remain.
 8. Durable unfinished Simkl playback beyond Simkl's remote
    playback-retention window is complete.
 9. Add dedicated Simkl optimistic projection support if runtime behavior shows
@@ -388,13 +388,34 @@ Validation completed:
 - Removing the entry inside Nuvio kept it removed after restart.
 - Cross-episode Continue Watching deduplication test passed.
 
+## Provider-neutral Simkl library backend
+
+Completed in the provider-neutral library work following `65fe0df8`:
+
+- Registered the existing Trakt library service as a
+  `TrackingLibraryProvider`.
+- `LibraryRepositoryImpl` now honors the profile-selected `LOCAL`, `TRAKT`,
+  or `SIMKL` library source.
+- Library items, list tabs, membership reads, default toggles, membership
+  changes, and manual refreshes route only through the selected provider.
+- Simkl default add/remove behavior maps to Plan to Watch.
+- Provider writes remain isolated; selecting Simkl does not write to Trakt.
+- A disconnected selected provider safely falls back to the local library.
+- Normal Plan to Watch removal is allowed.
+- Simkl removals that would also erase watched history or a rating fail before
+  mutation until the confirmation-capable UI is wired.
+- Focused provider-routing unit tests passed.
+- Normal incremental `assembleDebug` passed.
+- No Home UI or active scrolling-path code was changed.
+
 ## Current immediate next action
 
-Implement the Simkl My List equivalent as the `nuvio.mylist` catalog:
+After the unrelated Home UI work is complete, wire the custom
+`nuvio.mylist` Home catalog and cache to the provider-neutral repository:
 
-- mixed movies, shows, and anime
-- newest-first ordering
-- add and remove support
-- per-profile isolation
-- provider attribution
-- no Home scrolling-path regression
+- Simkl uses Plan to Watch.
+- Preserve mixed movies, shows, and anime.
+- Preserve newest-first ordering and provider attribution.
+- Add/remove must update only the selected provider.
+- Replace stale Trakt-backed Home cache behavior without adding work to the
+  active scrolling path.

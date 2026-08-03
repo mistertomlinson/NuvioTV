@@ -2,8 +2,13 @@ package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.sync.LibrarySyncService
+import com.nuvio.tv.core.tracking.TrackingLibraryProviderRegistry
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
+import com.nuvio.tv.core.tracking.effectiveLibrarySourceMode
+import com.nuvio.tv.core.tracking.providerId
 import com.nuvio.tv.data.local.LibraryPreferences
 import com.nuvio.tv.data.local.TraktAuthDataStore
+import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.domain.model.LibraryEntry
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibraryListTab
@@ -20,6 +25,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -34,9 +40,11 @@ import javax.inject.Singleton
 class LibraryRepositoryImpl @Inject constructor(
     private val libraryPreferences: LibraryPreferences,
     private val traktAuthDataStore: TraktAuthDataStore,
+    private val traktSettingsDataStore: TraktSettingsDataStore,
     private val traktLibraryService: TraktLibraryService,
     private val librarySyncService: LibrarySyncService,
-    private val authManager: AuthManager
+    private val authManager: AuthManager,
+    private val trackingProviders: TrackingLibraryProviderRegistry
 ) : LibraryRepository {
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -55,26 +63,37 @@ class LibraryRepositoryImpl @Inject constructor(
         }
     }
 
-    override val sourceMode: Flow<LibrarySourceMode> = traktAuthDataStore.isEffectivelyAuthenticated
-        .map { isAuthenticated ->
-            if (isAuthenticated) LibrarySourceMode.TRAKT else LibrarySourceMode.LOCAL
+    private val providerConnections = combine(
+        trackingProviders.providers().map { provider ->
+            provider.isAuthenticated.map { authenticated ->
+                provider.providerId to authenticated
+            }
         }
-        .distinctUntilChanged()
+    ) { states -> states.toMap() }
+
+    override val sourceMode: Flow<LibrarySourceMode> = combine(
+        traktSettingsDataStore.librarySourceMode,
+        providerConnections
+    ) { requestedMode, connections ->
+        effectiveLibrarySourceMode(requestedMode) { providerId ->
+            connections[providerId] == true
+        }
+    }.distinctUntilChanged()
 
     override val isSyncing: Flow<Boolean> = sourceMode
         .flatMapLatest { mode ->
-            if (mode == LibrarySourceMode.TRAKT) {
-                traktLibraryService.observeIsRefreshing()
-            } else {
-                flowOf(false)
-            }
+            mode.providerId
+                ?.let(trackingProviders::provider)
+                ?.isRefreshing
+                ?: flowOf(false)
         }
         .distinctUntilChanged()
 
     override val libraryItems: Flow<List<LibraryEntry>> = sourceMode
         .flatMapLatest { mode ->
-            if (mode == LibrarySourceMode.TRAKT) {
-                traktLibraryService.observeAllItems()
+            val provider = mode.providerId?.let(trackingProviders::provider)
+            if (provider != null) {
+                provider.items
             } else {
                 libraryPreferences.libraryItems.map { items ->
                     items.map { saved ->
@@ -101,79 +120,156 @@ class LibraryRepositoryImpl @Inject constructor(
 
     override val listTabs: Flow<List<LibraryListTab>> = sourceMode
         .flatMapLatest { mode ->
-            if (mode == LibrarySourceMode.TRAKT) {
-                traktLibraryService.observeListTabs()
-            } else {
-                flowOf(emptyList())
-            }
+            mode.providerId
+                ?.let(trackingProviders::provider)
+                ?.tabs
+                ?: flowOf(emptyList())
         }
         .distinctUntilChanged()
 
-    override fun isInLibrary(itemId: String, itemType: String): Flow<Boolean> {
+    override fun isInLibrary(
+        itemId: String,
+        itemType: String
+    ): Flow<Boolean> {
         return sourceMode.flatMapLatest { mode ->
-            if (mode == LibrarySourceMode.TRAKT) {
-                traktLibraryService.observeMembership(itemId, itemType)
+            val provider = mode.providerId?.let(trackingProviders::provider)
+            if (provider != null) {
+                provider.observeMembership(itemId, itemType)
                     .map { memberships -> memberships.isNotEmpty() }
             } else {
-                libraryPreferences.isInLibrary(itemId = itemId, itemType = itemType)
+                libraryPreferences.isInLibrary(
+                    itemId = itemId,
+                    itemType = itemType
+                )
             }
         }.distinctUntilChanged()
     }
 
-    override fun isInWatchlist(itemId: String, itemType: String): Flow<Boolean> {
+    override fun isInWatchlist(
+        itemId: String,
+        itemType: String
+    ): Flow<Boolean> {
         return sourceMode.flatMapLatest { mode ->
-            if (mode == LibrarySourceMode.TRAKT) {
-                traktLibraryService.observeMembership(itemId, itemType)
-                    .map { memberships -> memberships.contains(TraktLibraryService.WATCHLIST_KEY) }
+            val provider = mode.providerId?.let(trackingProviders::provider)
+            if (provider != null) {
+                combine(
+                    provider.observeMembership(itemId, itemType),
+                    provider.tabs
+                ) { memberships, tabs ->
+                    tabs.any { tab ->
+                        tab.type == LibraryListTab.Type.WATCHLIST &&
+                            tab.key in memberships
+                    }
+                }
             } else {
-                libraryPreferences.isInLibrary(itemId = itemId, itemType = itemType)
+                libraryPreferences.isInLibrary(
+                    itemId = itemId,
+                    itemType = itemType
+                )
             }
         }.distinctUntilChanged()
     }
 
     override suspend fun toggleDefault(item: LibraryEntryInput) {
-        if (traktAuthDataStore.isEffectivelyAuthenticated.first()) {
-            // emitSignal=false — home screen handles catalogsMap update directly
-            traktLibraryService.toggleWatchlist(item, emitSignal = false)
+        toggleDefaultForSelectedProvider(item, emitTraktSignal = false)
+    }
+
+    override suspend fun toggleDefaultWithSignal(item: LibraryEntryInput) {
+        toggleDefaultForSelectedProvider(item, emitTraktSignal = true)
+    }
+
+    private suspend fun toggleDefaultForSelectedProvider(
+        item: LibraryEntryInput,
+        emitTraktSignal: Boolean
+    ) {
+        val mode = sourceMode.first()
+
+        if (mode == LibrarySourceMode.TRAKT) {
+            traktLibraryService.toggleWatchlist(
+                item = item,
+                emitSignal = emitTraktSignal
+            )
             return
         }
 
-        val isInLocal = libraryPreferences.isInLibrary(item.itemId, item.itemType).first()
+        val provider = mode.providerId?.let(trackingProviders::provider)
+        if (provider != null) {
+            val current = provider
+                .getMembershipSnapshot(item)
+                .listMembership
+            provider.applyMembershipChanges(
+                item = item,
+                changes = ListMembershipChanges(
+                    provider.toggledDefaultMembership(current)
+                )
+            )
+            return
+        }
+
+        val isInLocal = libraryPreferences
+            .isInLibrary(item.itemId, item.itemType)
+            .first()
+
         if (isInLocal) {
-            libraryPreferences.removeItem(itemId = item.itemId, itemType = item.itemType)
+            libraryPreferences.removeItem(
+                itemId = item.itemId,
+                itemType = item.itemType
+            )
         } else {
             libraryPreferences.addItem(item.toSavedLibraryItem())
         }
         triggerRemoteSync()
     }
 
-    override suspend fun toggleDefaultWithSignal(item: LibraryEntryInput) {
-        if (traktAuthDataStore.isEffectivelyAuthenticated.first()) {
-            traktLibraryService.toggleWatchlist(item, emitSignal = true)
-            return
+    override suspend fun getMembershipSnapshot(
+        item: LibraryEntryInput
+    ): ListMembershipSnapshot {
+        val provider = sourceMode.first()
+            .providerId
+            ?.let(trackingProviders::provider)
+
+        if (provider != null) {
+            return provider.getMembershipSnapshot(item)
         }
-        toggleDefault(item)
+
+        val inLocal = libraryPreferences
+            .isInLibrary(item.itemId, item.itemType)
+            .first()
+
+        return ListMembershipSnapshot(
+            listMembership = mapOf(LOCAL_LIST_KEY to inLocal)
+        )
     }
 
-    override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {
-        if (traktAuthDataStore.isEffectivelyAuthenticated.first()) {
-            return traktLibraryService.getMembershipSnapshot(item)
-        }
-        val inLocal = libraryPreferences.isInLibrary(item.itemId, item.itemType).first()
-        return ListMembershipSnapshot(listMembership = mapOf(LOCAL_LIST_KEY to inLocal))
-    }
+    override suspend fun applyMembershipChanges(
+        item: LibraryEntryInput,
+        changes: ListMembershipChanges
+    ) {
+        val provider = sourceMode.first()
+            .providerId
+            ?.let(trackingProviders::provider)
 
-    override suspend fun applyMembershipChanges(item: LibraryEntryInput, changes: ListMembershipChanges) {
-        if (traktAuthDataStore.isEffectivelyAuthenticated.first()) {
-            traktLibraryService.applyMembershipChanges(item, changes)
+        if (provider != null) {
+            val providerMembership = changes.desiredMembership
+                .filterKeys(provider::recognizesListKey)
+
+            provider.applyMembershipChanges(
+                item = item,
+                changes = ListMembershipChanges(providerMembership)
+            )
             return
         }
 
-        val shouldBeSaved = changes.desiredMembership.values.any { it }
+        val shouldBeSaved =
+            changes.desiredMembership[LOCAL_LIST_KEY] == true
+
         if (shouldBeSaved) {
             libraryPreferences.addItem(item.toSavedLibraryItem())
         } else {
-            libraryPreferences.removeItem(itemId = item.itemId, itemType = item.itemType)
+            libraryPreferences.removeItem(
+                itemId = item.itemId,
+                itemType = item.itemType
+            )
         }
         triggerRemoteSync()
     }
@@ -209,9 +305,12 @@ class LibraryRepositoryImpl @Inject constructor(
     }
 
     override suspend fun refreshNow() {
-        if (traktAuthDataStore.isEffectivelyAuthenticated.first()) {
-            traktLibraryService.refreshNow()
-        }
+        val provider = sourceMode.first()
+            .providerId
+            ?.let(trackingProviders::provider)
+            ?: return
+
+        provider.refresh(TrackingRefreshIntent.USER_INITIATED)
     }
 
     private suspend fun requireTraktAuth() {
