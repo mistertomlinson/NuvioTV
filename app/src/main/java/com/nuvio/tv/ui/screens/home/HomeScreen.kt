@@ -27,6 +27,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -66,6 +67,25 @@ private data class HomePosterOptionsTarget(
     val isFromMyList: Boolean = false
 )
 
+private const val HOME_COLD_REVEAL_SENTINEL = "home_cold_reveal_seen"
+private var coldHomeRevealClaimedInProcess = false
+
+private fun claimColdHomeReveal(context: android.content.Context): Boolean {
+    // Only the first Home instance in this process may claim the cold reveal.
+    // This guarantees profile changes in the same process use 450ms.
+    if (coldHomeRevealClaimedInProcess) return false
+    coldHomeRevealClaimedInProcess = true
+
+    val sentinel = context.cacheDir.resolve(HOME_COLD_REVEAL_SENTINEL)
+    val isColdCacheLaunch = !sentinel.exists()
+
+    if (isColdCacheLaunch) {
+        runCatching { sentinel.createNewFile() }
+    }
+
+    return isColdCacheLaunch
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun HomeScreen(
@@ -89,6 +109,7 @@ fun HomeScreen(
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     // Clear stale trailer URLs after 5+ hours in background — YouTube stream
     // URLs expire after 6 hours, causing a frozen first-frame on wake.
@@ -246,6 +267,10 @@ fun HomeScreen(
                 // loader only runs when we genuinely start not-ready (cold start /
                 // profile switch). remember{} captures the value at first composition.
                 val initiallyReady = remember { uiState.skeletonReady && uiState.layoutPreferencesReady }
+                val useColdLaunchReveal = remember {
+                    !initiallyReady && claimColdHomeReveal(context)
+                }
+                val homeRevealDurationMs = if (useColdLaunchReveal) 900 else 450
                 var loaderPhase by remember { mutableStateOf(if (initiallyReady) 2 else 0) }
                 val dataReady = !shouldShowLoadingGate
 
@@ -416,16 +441,14 @@ fun HomeScreen(
                 // Loader overlay. Driven by a transition state so REVEAL only
                 // starts once this fade-out is fully idle. Content is NOT visible
                 // during the fade, so loader animation and home never contend.
-                // Flat slower dissolve. Attempts to detect cold-vs-warm and
-                // shorten this on warm launches (elapsed-time heuristic, then a
-                // direct Coil memory-cache check) did not reliably distinguish
-                // the two in practice, so this is deliberately unconditional
-                // rather than shipping logic that claims a distinction it
-                // doesn't actually make. Revisit if a reliable signal is found.
+                // Home is already fully rendered behind this opaque curtain.
+                // Android Clear cache removes the sentinel, so the next genuine
+                // cold-cache reveal uses 900ms. Warm launches and profile changes
+                // use 450ms. No timing or Coil-cache heuristic is involved.
                 AnimatedVisibility(
                     visibleState = overlayState,
                     enter = fadeIn(animationSpec = tween(150)),
-                    exit = fadeOut(animationSpec = tween(900)),
+                    exit = fadeOut(animationSpec = tween(homeRevealDurationMs)),
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Box(
