@@ -160,6 +160,7 @@ class HomeViewModel @Inject constructor(
     internal val _heroBackdropWarm = MutableStateFlow(false)
     val heroBackdropWarm: StateFlow<Boolean> = _heroBackdropWarm.asStateFlow()
     @Volatile private var heroWarmStarted = false
+    @Volatile private var homeWarmupGeneration: Long = 0L
 
     /*
      * Compute the hero request size from display metrics instead of waiting for
@@ -200,6 +201,7 @@ class HomeViewModel @Inject constructor(
     fun warmFirstHeroBackdrop(useLandscapePosters: Boolean) {
         if (heroWarmStarted) return
         heroWarmStarted = true
+        val warmupGeneration = homeWarmupGeneration
         viewModelScope.launch {
             seedBackdropPreloadSizeFromDisplay(useLandscapePosters)
             val url = kotlinx.coroutines.withTimeoutOrNull(2_000L) {
@@ -207,7 +209,9 @@ class HomeViewModel @Inject constructor(
                     .heroItems.firstOrNull()?.backdropUrl?.takeIf { it.isNotBlank() }
             }
             if (url == null) {
+                if (warmupGeneration == homeWarmupGeneration) {
                 _heroBackdropWarm.value = true
+            }
                 return@launch
             }
             val w = backdropPreloadWidthPx
@@ -236,7 +240,9 @@ class HomeViewModel @Inject constructor(
                     )
                 }
             }
-            _heroBackdropWarm.value = true
+            if (warmupGeneration == homeWarmupGeneration) {
+                _heroBackdropWarm.value = true
+            }
         }
     }
     // Platform catalog tracking — keys identified at skeleton-seed time, decremented
@@ -617,7 +623,12 @@ class HomeViewModel @Inject constructor(
     internal val isActiveInstance get() = instanceId == homeViewModelActiveInstanceId
     internal val catalogPipelineMutex = kotlinx.coroutines.sync.Mutex()
     internal var catalogPipelineDebounceJob: Job? = null
-    internal val catalogReloadTrigger = kotlinx.coroutines.flow.MutableSharedFlow<Pair<List<com.nuvio.tv.domain.model.Addon>, Boolean>>(extraBufferCapacity = 1, onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+    internal val catalogReloadTrigger =
+        kotlinx.coroutines.flow.MutableSharedFlow<HomeCatalogReloadRequest>(
+            extraBufferCapacity = 1,
+            onBufferOverflow =
+                kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST
+        )
     internal var diskCacheRestored: Boolean = false
     internal val cwMetaCache = Collections.synchronizedMap(mutableMapOf<String, CwMetaSummary?>())
     internal val cwMetaNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
@@ -744,8 +755,12 @@ class HomeViewModel @Inject constructor(
             launch {
                 catalogReloadTrigger
                     .debounce(300)
-                    .collect { (addons, force) ->
-                        loadAllCatalogsPipeline(addons, force)
+                    .collect { request ->
+                        loadAllCatalogsPipeline(
+                            addons = request.addons,
+                            forceReload = request.forceReload,
+                            profileId = request.profileId
+                        )
                     }
             }
 
@@ -755,6 +770,7 @@ class HomeViewModel @Inject constructor(
                     previousProfileId = newId
                     val activeProf = profileManager.activeProfile
                     android.util.Log.d("NuvioProfile", "Switched to profile $newId name=${activeProf?.name} usesPrimaryPlugins=${activeProf?.usesPrimaryPlugins} isPrimary=${activeProf?.isPrimary}")
+                    resetHomeWarmupForProfileSwitch()
                     cwMetaCache.clear()
                     cwMetaNegativeCacheTimestamps.clear()
                     cwBadgeEpisodeCache.clear()
@@ -767,8 +783,25 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
+                    _fullCatalogRows.value = emptyList()
                     _uiState.update {
-                        it.copy(continueWatchingItems = emptyList(), layoutPreferencesReady = false)
+                        it.copy(
+                            catalogRows = emptyList(),
+                            continueWatchingItems = emptyList(),
+                            heroItems = emptyList(),
+                            heroCatalogKeys = emptyList(),
+                            gridItems = emptyList(),
+                            stableVisiblePlatformIds = emptySet(),
+                            enrichmentReadyRowKeys = emptySet(),
+                            continueWatchingEnrichmentReady = false,
+                            catalogsReady = false,
+                            skeletonReady = false,
+                            layoutPreferencesReady = false,
+                            isLoading = true,
+                            error = null,
+                            homeLoadSessionId =
+                                it.homeLoadSessionId + 1L
+                        )
                     }
                     loadContinueWatching()
                     watchedSeriesStateHolder.update(emptySet())
@@ -1517,11 +1550,25 @@ class HomeViewModel @Inject constructor(
 
     private fun observeInstalledAddons() = observeInstalledAddonsPipeline()
 
-    private suspend fun loadAllCatalogs(addons: List<Addon>, forceReload: Boolean = false) =
-        loadAllCatalogsPipeline(addons, forceReload)
+    private suspend fun loadAllCatalogs(
+        addons: List<Addon>,
+        forceReload: Boolean = false
+    ) = loadAllCatalogsPipeline(
+        addons = addons,
+        forceReload = forceReload,
+        profileId = profileManager.activeProfileId.value
+    )
 
-    private fun loadCatalog(addon: Addon, catalog: CatalogDescriptor, generation: Long) =
-        loadCatalogPipeline(addon, catalog, generation)
+    private fun loadCatalog(
+        addon: Addon,
+        catalog: CatalogDescriptor,
+        generation: Long
+    ) = loadCatalogPipeline(
+        addon = addon,
+        catalog = catalog,
+        generation = generation,
+        profileId = profileManager.activeProfileId.value
+    )
 
 
     private fun loadMoreCatalogItems(catalogId: String, addonId: String, type: String) =
@@ -1621,7 +1668,16 @@ class HomeViewModel @Inject constructor(
         )
     }
 
-    fun getCachedVisiblePlatformIds() = layoutPreferenceDataStore.cachedVisiblePlatformIds
+    private fun resetHomeWarmupForProfileSwitch() {
+        homeWarmupGeneration += 1L
+        heroWarmStarted = false
+        platformPreloadInProgress = false
+        _heroBackdropWarm.value = false
+        _platformBackdropsPreloaded.value = false
+    }
+
+    fun getCachedVisiblePlatformIds() =
+        layoutPreferenceDataStore.cachedVisiblePlatformIds
 
     fun releasePlatformBackdropsGate() {
         // Don't release if a real preload is in progress — it will release when done.
@@ -1636,6 +1692,7 @@ class HomeViewModel @Inject constructor(
             return
         }
         platformPreloadInProgress = true
+        val warmupGeneration = homeWarmupGeneration
         viewModelScope.launch {
             val loader = coil.Coil.imageLoader(appContext)
             val widthPx = backdropPreloadWidthPx
@@ -1664,9 +1721,11 @@ class HomeViewModel @Inject constructor(
             kotlinx.coroutines.withTimeoutOrNull(3_000L) {
                 jobs.forEach { it.join() }
             }
-            platformPreloadInProgress = false
-            _platformBackdropsPreloaded.value = true
-            scheduleUpdateCatalogRows()
+            if (warmupGeneration == homeWarmupGeneration) {
+                platformPreloadInProgress = false
+                _platformBackdropsPreloaded.value = true
+                scheduleUpdateCatalogRows()
+            }
         }
     }
 

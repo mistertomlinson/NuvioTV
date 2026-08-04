@@ -35,6 +35,12 @@ private data class CatalogUpdateResult(
     val fullRows: List<CatalogRow>
 )
 
+internal data class HomeCatalogReloadRequest(
+    val addons: List<Addon>,
+    val forceReload: Boolean,
+    val profileId: Int
+)
+
 internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     viewModelScope.launch {
         layoutPreferenceDataStore.homeCatalogOrderKeys.collectLatest { keys ->
@@ -45,8 +51,18 @@ internal fun HomeViewModel.loadHomeCatalogOrderPreferencePipeline() {
     }
 }
 
-internal fun HomeViewModel.scheduleCatalogPipeline(addons: List<Addon>, forceReload: Boolean = false) {
-    catalogReloadTrigger.tryEmit(addons to forceReload)
+internal fun HomeViewModel.scheduleCatalogPipeline(
+    addons: List<Addon>,
+    forceReload: Boolean = false,
+    profileId: Int = profileManager.activeProfileId.value
+) {
+    catalogReloadTrigger.tryEmit(
+        HomeCatalogReloadRequest(
+            addons = addons,
+            forceReload = forceReload,
+            profileId = profileId
+        )
+    )
 }
 
 /*
@@ -199,16 +215,26 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
 
 internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     addons: List<Addon>,
-    forceReload: Boolean = false
+    forceReload: Boolean = false,
+    profileId: Int
 ) {
-    if (!isActiveInstance) {
+    if (
+        !isActiveInstance ||
+        profileId != profileManager.activeProfileId.value
+    ) {
         return
     }
-    if (!forceReload && catalogsLoadInProgress) {
-        return
-    }
+
     catalogPipelineMutex.withLock {
-    val signature = buildHomeCatalogLoadSignature(addons)
+    if (profileId != profileManager.activeProfileId.value) {
+        return@withLock
+    }
+
+    val signature =
+        buildHomeCatalogLoadSignature(
+            addons = addons,
+            profileId = profileId
+        )
     if (!forceReload &&
         signature == activeCatalogLoadSignature &&
         (catalogsLoadInProgress || catalogsMap.isNotEmpty())
@@ -230,7 +256,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     catalogsMap.clear()
     catalogSourceRows.clear()
     // Re-inject ML row from disk cache immediately so it survives pipeline restart
-    val mlProfileId = profileManager.activeProfileId.value
+    val mlProfileId = profileId
     val mlSourceMode = libraryRepository.sourceMode.first()
     val mlCached = myListDiskCache.load(
         profileId = mlProfileId,
@@ -375,8 +401,8 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         }
 
         // Load persisted catalog rows from disk and show immediately while network fetches run
-        val profileId = profileManager.activeProfileId.value
-        val diskCached = catalogRepository.loadCatalogsFromDisk(profileId)
+        val diskCached =
+            catalogRepository.loadCatalogsFromDisk(profileId)
         if (diskCached.isNotEmpty()) {
             diskCached.forEach { (key, row) ->
                 catalogSourceRows[key] = row
@@ -445,7 +471,12 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         }
         pendingCatalogLoads = catalogsToLoad.size
         catalogsToLoad.forEach { (addon, catalog) ->
-            loadCatalogPipeline(addon, catalog, generation)
+            loadCatalogPipeline(
+                addon = addon,
+                catalog = catalog,
+                generation = generation,
+                profileId = profileId
+            )
         }
     } catch (e: Exception) {
         catalogsLoadInProgress = false
@@ -457,12 +488,18 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
 internal fun HomeViewModel.loadCatalogPipeline(
     addon: Addon,
     catalog: CatalogDescriptor,
-    generation: Long
+    generation: Long,
+    profileId: Int
 ) {
     val loadJob = viewModelScope.launch {
         var hasCountedCompletion = false
         catalogLoadSemaphore.withPermit {
-            if (generation != catalogLoadGeneration) return@withPermit
+            if (
+                generation != catalogLoadGeneration ||
+                profileId != profileManager.activeProfileId.value
+            ) {
+                return@withPermit
+            }
             val supportsSkip = catalog.supportsExtra("skip")
             val skipStep = catalog.skipStep()
             Log.d(
@@ -480,7 +517,12 @@ internal fun HomeViewModel.loadCatalogPipeline(
                 skipStep = skipStep,
                 supportsSkip = supportsSkip
             ).collect { result ->
-                if (generation != catalogLoadGeneration) return@collect
+                if (
+                    generation != catalogLoadGeneration ||
+                    profileId != profileManager.activeProfileId.value
+                ) {
+                    return@collect
+                }
                 when (result) {
                     is NetworkResult.Success -> {
                         val key = catalogKey(
@@ -570,12 +612,18 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         )
                         if (pendingCatalogLoads == 0) {
                             catalogsLoadInProgress = false
-                            val saveProfileId = profileManager.activeProfileId.value
+                            val saveProfileId = profileId
                             viewModelScope.launch {
                                 // Small delay to let the final scheduleUpdateCatalogRows settle
                                 kotlinx.coroutines.delay(500)
-                                if (pendingCatalogLoads == 0) {
-                                    catalogRepository.saveCatalogsToDisk(saveProfileId)
+                                if (
+                                    generation == catalogLoadGeneration &&
+                                    saveProfileId == profileManager.activeProfileId.value &&
+                                    pendingCatalogLoads == 0
+                                ) {
+                                    catalogRepository.saveCatalogsToDisk(
+                                        saveProfileId
+                                    )
                                 }
                             }
                         }
@@ -597,7 +645,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         if (pendingCatalogLoads == 0) {
                             catalogsLoadInProgress = false
                             val saveProfileId =
-                                profileManager.activeProfileId.value
+                                profileId
 
                             /*
                              * Successful catalogs must still be persisted when
@@ -608,7 +656,11 @@ internal fun HomeViewModel.loadCatalogPipeline(
                              */
                             viewModelScope.launch {
                                 kotlinx.coroutines.delay(500)
-                                if (pendingCatalogLoads == 0) {
+                                if (
+                                    generation == catalogLoadGeneration &&
+                                    saveProfileId == profileManager.activeProfileId.value &&
+                                    pendingCatalogLoads == 0
+                                ) {
                                     catalogRepository.saveCatalogsToDisk(
                                         saveProfileId
                                     )
@@ -1480,9 +1532,24 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val enrichmentPlanChanged =
             homeEnrichmentPlanSignature != proactivePlanSignature
 
+        /*
+         * A matching signature proves only that this plan was scheduled
+         * previously. It does not prove that its worker is still alive.
+         *
+         * If the coroutine is cancelled or terminates before every pending
+         * title reaches a terminal result, later row updates must restart the
+         * same plan. Otherwise those rows remain gated until focus enrichment
+         * happens to process them individually.
+         */
+        val enrichmentWorkerMissing =
+            proactiveEnrichJob?.isActive != true
+
         if (
             allItems.isNotEmpty() &&
-            enrichmentPlanChanged
+            (
+                enrichmentPlanChanged ||
+                    enrichmentWorkerMissing
+            )
         ) {
             homeEnrichmentPlanSignature =
                 proactivePlanSignature

@@ -137,7 +137,11 @@ fun HomeScreen(
      * backdrop preload that previously could not run before this screen
      * composed.
      */
-    LaunchedEffect(uiState.layoutPreferencesReady, uiState.modernLandscapePostersEnabled) {
+    LaunchedEffect(
+        uiState.homeLoadSessionId,
+        uiState.layoutPreferencesReady,
+        uiState.modernLandscapePostersEnabled
+    ) {
         if (uiState.layoutPreferencesReady) {
             viewModel.warmFirstHeroBackdrop(uiState.modernLandscapePostersEnabled)
         }
@@ -148,13 +152,23 @@ fun HomeScreen(
     // Safety net for the initial-rows-enrichment gate: some items may never receive an
     // ageRating or status (TMDB has no data for them), which would otherwise block the
     // gate forever. Force-release after 6s regardless.
-    var initialRowsEnrichmentGateReleased by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
+    var initialRowsEnrichmentGateReleased by rememberSaveable(
+        uiState.homeLoadSessionId
+    ) {
+        mutableStateOf(false)
+    }
+    LaunchedEffect(uiState.homeLoadSessionId) {
         kotlinx.coroutines.delay(10_000L)
         initialRowsEnrichmentGateReleased = true
     }
-    var showHomeContentWithAnimation by rememberSaveable { mutableStateOf(false) }
-    var posterOptionsTarget by remember { mutableStateOf<HomePosterOptionsTarget?>(null) }
+    var showHomeContentWithAnimation by rememberSaveable(
+        uiState.homeLoadSessionId
+    ) {
+        mutableStateOf(false)
+    }
+    var posterOptionsTarget by remember(uiState.homeLoadSessionId) {
+        mutableStateOf<HomePosterOptionsTarget?>(null)
+    }
 
     val posterCardStyle = remember(
         uiState.posterCardWidthDp,
@@ -227,8 +241,12 @@ fun HomeScreen(
                  * set only after ModernHomeContent reports its render size,
                  * which cannot happen until this gate releases (deadlock).
                  */
-                var heroGateTimedOut by remember { mutableStateOf(false) }
-                LaunchedEffect(Unit) {
+                var heroGateTimedOut by remember(
+                    uiState.homeLoadSessionId
+                ) {
+                    mutableStateOf(false)
+                }
+                LaunchedEffect(uiState.homeLoadSessionId) {
                     kotlinx.coroutines.delay(2_500L)
                     heroGateTimedOut = true
                 }
@@ -245,8 +263,12 @@ fun HomeScreen(
                  * preloadPlatformBackdrops. Local 6s backstop below covers the
                  * case where neither ever fires.
                  */
-                var gateBackstopElapsed by remember { mutableStateOf(false) }
-                LaunchedEffect(Unit) {
+                var gateBackstopElapsed by remember(
+                    uiState.homeLoadSessionId
+                ) {
+                    mutableStateOf(false)
+                }
+                LaunchedEffect(uiState.homeLoadSessionId) {
                     kotlinx.coroutines.delay(6_000L)
                     gateBackstopElapsed = true
                 }
@@ -266,22 +288,37 @@ fun HomeScreen(
                 // alive), skip straight to REVEAL so the loader doesn't replay. The
                 // loader only runs when we genuinely start not-ready (cold start /
                 // profile switch). remember{} captures the value at first composition.
-                val initiallyReady = remember { uiState.skeletonReady && uiState.layoutPreferencesReady }
-                val useColdLaunchReveal = remember {
+                val initiallyReady = remember(
+                    uiState.homeLoadSessionId
+                ) {
+                    uiState.skeletonReady &&
+                        uiState.layoutPreferencesReady
+                }
+                val useColdLaunchReveal = remember(
+                    uiState.homeLoadSessionId
+                ) {
                     !initiallyReady && claimColdHomeReveal(context)
                 }
                 val homeRevealDurationMs = if (useColdLaunchReveal) 900 else 450
-                var loaderPhase by remember { mutableStateOf(if (initiallyReady) 2 else 0) }
+                var loaderPhase by remember(
+                    uiState.homeLoadSessionId
+                ) {
+                    mutableStateOf(if (initiallyReady) 2 else 0)
+                }
                 val dataReady = !shouldShowLoadingGate
 
-                var cachedViewportPredecodeStarted by remember {
+                var cachedViewportPredecodeStarted by remember(
+                    uiState.homeLoadSessionId
+                ) {
                     mutableStateOf(false)
                 }
 
                 // Overlay visibility as a transition state so we can detect when the
                 // fade-out has fully completed before revealing content. Seeded hidden
                 // when already ready (no loader on back-nav).
-                val overlayState = remember {
+                val overlayState = remember(
+                    uiState.homeLoadSessionId
+                ) {
                     androidx.compose.animation.core.MutableTransitionState(!initiallyReady)
                 }
 
@@ -291,8 +328,12 @@ fun HomeScreen(
                 // before the live, already-loaded state propagates), preventing a
                 // dots flash. A sustained cold start / profile switch stays not-ready
                 // through the grace and shows the loader as intended.
-                var graceElapsed by remember { mutableStateOf(initiallyReady) }
-                LaunchedEffect(Unit) {
+                var graceElapsed by remember(
+                    uiState.homeLoadSessionId
+                ) {
+                    mutableStateOf(initiallyReady)
+                }
+                LaunchedEffect(uiState.homeLoadSessionId) {
                     if (!initiallyReady) {
                         kotlinx.coroutines.delay(120)
                         graceElapsed = true
@@ -324,7 +365,10 @@ fun HomeScreen(
 
                 // If data becomes ready during the grace, skip the loader entirely:
                 // hide the overlay (so dots never render) and jump to REVEAL.
-                LaunchedEffect(dataReady) {
+                LaunchedEffect(
+                    uiState.homeLoadSessionId,
+                    dataReady
+                ) {
                     if (dataReady && !graceElapsed && loaderPhase == 0) {
                         overlayState.targetState = false
                         loaderPhase = 2
@@ -332,11 +376,18 @@ fun HomeScreen(
                 }
 
                 // Begin fade-out when we enter FADING.
-                LaunchedEffect(loaderPhase) {
+                LaunchedEffect(
+                    uiState.homeLoadSessionId,
+                    loaderPhase
+                ) {
                     if (loaderPhase >= 1) overlayState.targetState = false
                 }
                 // When the fade-out animation is fully idle and hidden, reveal content.
-                LaunchedEffect(overlayState.isIdle, overlayState.currentState) {
+                LaunchedEffect(
+                    uiState.homeLoadSessionId,
+                    overlayState.isIdle,
+                    overlayState.currentState
+                ) {
                     if (loaderPhase == 1 && overlayState.isIdle && !overlayState.currentState) {
                         loaderPhase = 2
                     }
@@ -344,7 +395,11 @@ fun HomeScreen(
                 // Backstop only: the indicator's atomic loop drives dismissal via
                 // onDismissReady at a cycle boundary. This long fallback exists solely
                 // in case the indicator never composes, so we can't hang forever.
-                LaunchedEffect(dataReady, loaderPhase) {
+                LaunchedEffect(
+                    uiState.homeLoadSessionId,
+                    dataReady,
+                    loaderPhase
+                ) {
                     if (dataReady && loaderPhase == 0) {
                         kotlinx.coroutines.delay(12000)
                         if (loaderPhase == 0) loaderPhase = 1
@@ -680,8 +735,16 @@ private fun ModernHomeRoute(
             viewModel.preloadAdjacentItem(item)
         }
     }
-    var selectedPlatformId by remember { mutableStateOf(focusState.selectedPlatformId) }
-    var platformNavDirection by remember { mutableStateOf(0) }
+    var selectedPlatformId by remember(
+        uiState.homeLoadSessionId
+    ) {
+        mutableStateOf(focusState.selectedPlatformId)
+    }
+    var platformNavDirection by remember(
+        uiState.homeLoadSessionId
+    ) {
+        mutableStateOf(0)
+    }
     // Physical dpad state on the platform carousel: blocks the transition's
     // quiet gate while a key is held. Timestamp refreshes on every hold move;
     // 800ms staleness fallback means a swallowed KeyUp can never wedge it.
@@ -722,8 +785,16 @@ private fun ModernHomeRoute(
     // Seed true when platform ids are already resolved at first composition
     // (now typical, since the loading gate waits on platformBackdropsPreloaded)
     // so the icon row doesn't fade in a beat after the rest of Home.
-    var carouselReady by rememberSaveable { mutableStateOf(stablePlatformIds.isNotEmpty()) }
-    var isHeroTrailerPlaying by remember { mutableStateOf(false) }
+    var carouselReady by rememberSaveable(
+        uiState.homeLoadSessionId
+    ) {
+        mutableStateOf(stablePlatformIds.isNotEmpty())
+    }
+    var isHeroTrailerPlaying by remember(
+        uiState.homeLoadSessionId
+    ) {
+        mutableStateOf(false)
+    }
 
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {

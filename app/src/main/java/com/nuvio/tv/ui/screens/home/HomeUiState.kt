@@ -15,6 +15,11 @@ data class HomeUiState(
     val catalogRows: List<CatalogRow> = emptyList(),
     val continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     val isLoading: Boolean = true,
+    /*
+     * Changes whenever Home begins loading another profile. Compose keys its
+     * loading curtain and profile-local remembered state to this value.
+     */
+    val homeLoadSessionId: Long = 0L,
     val error: String? = null,
     val selectedItemId: String? = null,
     val installedAddonsCount: Int = 0,

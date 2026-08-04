@@ -9,7 +9,10 @@ internal fun HomeViewModel.catalogKey(addonId: String, type: String, catalogId: 
     return "${addonId}_${type}_${catalogId}"
 }
 
-internal fun HomeViewModel.buildHomeCatalogLoadSignature(addons: List<Addon>): String {
+internal fun HomeViewModel.buildHomeCatalogLoadSignature(
+    addons: List<Addon>,
+    profileId: Int
+): String {
     /*
      * Catalog names are display metadata, not catalog identity.
      *
@@ -34,7 +37,7 @@ internal fun HomeViewModel.buildHomeCatalogLoadSignature(addons: List<Addon>): S
         .asSequence()
         .sorted()
         .joinToString(separator = ",")
-    return "$addonCatalogSignature::$disabledSignature"
+    return "$profileId::$addonCatalogSignature::$disabledSignature"
 }
 
 internal fun HomeViewModel.registerCatalogLoadJob(job: Job) {
