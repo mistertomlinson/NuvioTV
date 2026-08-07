@@ -164,8 +164,14 @@ internal fun HomeViewModel.loadShuffleHomeCatalogPreferencePipeline() {
                 val twelveHoursMs = 12L * 60 * 60 * 1000
                 val now = System.currentTimeMillis()
                 if (now - ts >= twelveHoursMs) {
+                    // Let the new timestamp emission perform the row update so we
+                    // never briefly rebuild using the expired shuffle seed.
                     layoutPreferenceDataStore.setLastShuffleTimestampMs(now)
+                    return@collectLatest
                 }
+            }
+            if (shuffledCatalogKeys.isNotEmpty()) {
+                scheduleUpdateCatalogRows()
             }
         }
     }
@@ -1077,7 +1083,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         } else {
             filteredRows.map { row ->
                 val key = row.addonId + "_" + row.apiType + "_" + row.catalogId
-                if (key !in shuffleKeys) return@map row
+                if (key !in shuffleKeys || key.contains("com.bimal.watchly")) return@map row
                 /*
                  * Deterministic shuffle.
                  *

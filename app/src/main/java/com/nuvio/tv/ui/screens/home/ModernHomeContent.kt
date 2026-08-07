@@ -786,7 +786,7 @@ fun ModernHomeContent(
         }
     }
 
-    val uiCaches = remember { ModernHomeUiCaches() }
+    val uiCaches = remember(uiState.homeLoadSessionId) { ModernHomeUiCaches() }
     val focusedItemByRow = uiCaches.focusedItemByRow
     val itemFocusRequesters = uiCaches.itemFocusRequesters
     val rowListStates = uiCaches.rowListStates
@@ -1275,7 +1275,39 @@ fun ModernHomeContent(
                 focusedItemByRow[row.key] = 0
             }
 
+            val currentItemKeys = row.items.map { it.key }
+            val previousItemKeys = uiCaches.previousItemKeysByRow.put(
+                row.key,
+                currentItemKeys
+            )
+            val sameItemsReordered =
+                previousItemKeys != null &&
+                    previousItemKeys.size == currentItemKeys.size &&
+                    previousItemKeys != currentItemKeys &&
+                    previousItemKeys.toSet() == currentItemKeys.toSet()
+
+            if (
+                sameItemsReordered &&
+                focusHolder.activeRowKey == row.key &&
+                isCarouselFocused &&
+                row.items.isNotEmpty()
+            ) {
+                val keepIndex = (
+                    focusedItemByRow[row.key]
+                        ?: focusHolder.activeItemIndex
+                ).coerceIn(0, row.items.lastIndex)
+
+                focusHolder.activeItemIndex = keepIndex
+                activeItemIndex = keepIndex
+                focusedItemByRow[row.key] = keepIndex
+
+                pendingRowFocus.key = row.key
+                pendingRowFocus.index = keepIndex
+                pendingRowFocus.suppressBringIntoView = true
+                pendingRowFocus.nonce++
+            }
         }
+        uiCaches.previousItemKeysByRow.keys.retainAll(activeRowKeys)
 
         if (!restoredFromSavedState && focusState.hasSavedFocus) {
             val savedRowKey = when {

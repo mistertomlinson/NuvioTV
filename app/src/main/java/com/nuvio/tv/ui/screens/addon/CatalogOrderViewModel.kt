@@ -84,6 +84,7 @@ class CatalogOrderViewModel @Inject constructor(
     }
 
     fun toggleCatalogShuffle(key: String) {
+        if (watchlyGroup(key) != null) return
         val updatedShuffle = shuffleKeysCache.toMutableSet().apply {
             if (key in this) remove(key) else add(key)
         }
@@ -476,7 +477,7 @@ Triple(
                     else -> com.nuvio.tv.ui.screens.home.NumberStyle.OFF
                 },
                 isLandscape = entry.key in landscapeKeys,
-                isShuffled = entry.key in shuffleKeysCache,
+                isShuffled = group == null && entry.key in shuffleKeysCache,
                 canMoveUp = index > 0,
                 canMoveDown = index < collapsedOrder.lastIndex,
                 isGroup = isGroup,

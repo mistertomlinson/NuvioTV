@@ -2057,6 +2057,7 @@ private fun ModernCarouselCard(
     val expandedCardWidth = remember(cardHeight) { cardHeight * (16f / 9f) }
     val isSidebarExpanded = LocalSidebarExpanded.current
     val noBackdropImage = LocalNoBackdropImage.current
+    var isFocused by remember { mutableStateOf(false) }
 
     // In noBackdropImage mode: card expansion is gated on trailer first frame.
     // When off: simple boolean, no extra state.
@@ -2084,7 +2085,10 @@ private fun ModernCarouselCard(
     // Only pay the animation cost on the card that is actually focused/expanding.
     // Unfocused, unexpanded cards snap directly to cardWidth — no animation state,
     // no per-frame Choreographer callback, no row remeasure.
-    val animatedCardWidthBase by if (focusedPosterBackdropExpandEnabled && (isBackdropExpanded || effectiveIsExpanded)) {
+    val animatedCardWidthBase by if (
+        focusedPosterBackdropExpandEnabled &&
+        (isFocused || isBackdropExpanded || effectiveIsExpanded)
+    ) {
         animateDpAsState(
             targetValue = targetCardWidth,
             label = "modernCardWidth"
@@ -2103,13 +2107,24 @@ private fun ModernCarouselCard(
     val anchoredWidth = remember { androidx.compose.animation.core.Animatable(cardWidthPxForAnim) }
     androidx.compose.runtime.LaunchedEffect(isAnchored, effectiveIsExpanded, cardWidth, targetCardWidth) {
         val collapsedPx = with(density) { cardWidth.toPx() }
-        // Not actively anchored-expanded: hard-reset to the collapsed width so
-        // every fresh expansion starts from true rest. Without this, the
-        // Animatable retains its prior end value across a collapse+re-expand in
-        // the same row visit, and the next expansion snaps right before
-        // settling (the fast-right glitch).
-        if (!isAnchored || !effectiveIsExpanded) {
+        // Once focus leaves the card, collapse immediately so D-pad navigation
+        // never carries width animation work into scrolling. If the trailer ends
+        // naturally while this card is still focused, animate the collapse.
+        if (!isAnchored) {
             anchoredWidth.snapTo(collapsedPx)
+            return@LaunchedEffect
+        }
+        if (!effectiveIsExpanded) {
+            if (!isFocused) {
+                anchoredWidth.snapTo(collapsedPx)
+            } else {
+                anchoredWidth.animateTo(collapsedPx) {
+                    val sink = anchoredSink ?: return@animateTo
+                    androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                        sink(value)
+                    }
+                }
+            }
             return@LaunchedEffect
         }
         // Guarantee we begin from collapsed even if a prior value lingered, then
@@ -2222,7 +2237,6 @@ private fun ModernCarouselCard(
         frozenHasLandscapeLogo.value = true
     }
     val hasLandscapeLogo = frozenHasLandscapeLogo.value && !landscapeLogoLoadFailed
-    var isFocused by remember { mutableStateOf(false) }
     var longPressTriggered by remember { mutableStateOf(false) }
 
     val backgroundCardColor = NuvioColors.BackgroundCard

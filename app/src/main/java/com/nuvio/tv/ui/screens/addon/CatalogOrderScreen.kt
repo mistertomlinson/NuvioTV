@@ -413,7 +413,7 @@ private fun CatalogOrderCard(
                     )
                 }
 
-                Button(
+                if (!item.isGroup) Button(
                     onClick = onToggleShuffle,
                     colors = ButtonDefaults.colors(
                         containerColor = if (item.isShuffled) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,

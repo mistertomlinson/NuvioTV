@@ -178,6 +178,7 @@ internal class ModernHomeUiCaches {
     val loadMoreRequestedTotals = mutableMapOf<String, Int>()
     val previousRowItemCounts = mutableMapOf<String, Int>()
     val previousFirstItemKeyByRow = mutableMapOf<String, String?>()
+    val previousItemKeysByRow = mutableMapOf<String, List<String>>()
     val previousEnrichmentReadyByRow = mutableMapOf<String, Boolean>()
 
     fun requesterFor(rowKey: String, itemKey: String): FocusRequester {
