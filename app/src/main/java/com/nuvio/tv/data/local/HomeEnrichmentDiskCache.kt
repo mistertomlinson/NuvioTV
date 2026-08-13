@@ -16,7 +16,14 @@ import javax.inject.Singleton
 
 private data class HomeEnrichmentEntry(
     val enrichment: TmdbEnrichment,
-    val cachedAtMs: Long
+    val cachedAtMs: Long,
+    val externalMetaSettled: Boolean = false,
+    val externalImdbRating: Float? = null
+)
+
+data class HomeExternalMetaState(
+    val settled: Boolean,
+    val imdbRating: Float?
 )
 
 @Singleton
@@ -53,7 +60,52 @@ class HomeEnrichmentDiskCache @Inject constructor(
         }
     }
 
-    suspend fun saveAll(cache: Map<String, TmdbEnrichment>) = withContext(Dispatchers.IO) {
+    suspend fun loadExternalMetaStates(): Map<String, HomeExternalMetaState> =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                try {
+                    val file = cacheFile
+                    if (!file.exists()) return@withLock emptyMap()
+
+                    val type =
+                        object :
+                            TypeToken<
+                                Map<String, HomeEnrichmentEntry>
+                            >() { }.type
+
+                    val entries:
+                        Map<String, HomeEnrichmentEntry> =
+                        gson.fromJson(
+                            file.readText(),
+                            type
+                        ) ?: emptyMap()
+
+                    entries.mapValues { (_, entry) ->
+                        HomeExternalMetaState(
+                            settled =
+                                entry.externalMetaSettled,
+                            imdbRating =
+                                entry.externalImdbRating
+                        )
+                    }
+                } catch (error: Exception) {
+                    Log.w(
+                        TAG,
+                        "Failed to load external Home " +
+                            "metadata state: " +
+                            error.message
+                    )
+                    emptyMap()
+                }
+            }
+        }
+
+    suspend fun saveAll(
+        cache: Map<String, TmdbEnrichment>,
+        externalMetaStates:
+            Map<String, HomeExternalMetaState> =
+                emptyMap()
+    ) = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
                 val now = System.currentTimeMillis()
@@ -67,11 +119,58 @@ class HomeEnrichmentDiskCache @Inject constructor(
 
                 val merged = cache.entries
                     .map { (k, v) ->
-                        val existingEntry = existing[k]
-                        val ts = if (existingEntry?.enrichment == v) existingEntry.cachedAtMs else now
-                        k to HomeEnrichmentEntry(enrichment = v, cachedAtMs = ts)
+                        val existingEntry =
+                            existing[k]
+
+                        val incomingExternal =
+                            externalMetaStates[k]
+
+                        val settled =
+                            incomingExternal?.settled
+                                ?: existingEntry
+                                    ?.externalMetaSettled
+                                ?: false
+
+                        val imdbRating =
+                            if (
+                                incomingExternal?.settled ==
+                                    true
+                            ) {
+                                incomingExternal.imdbRating
+                            } else {
+                                existingEntry
+                                    ?.externalImdbRating
+                            }
+
+                        val unchanged =
+                            existingEntry?.enrichment == v &&
+                                existingEntry
+                                    .externalMetaSettled ==
+                                    settled &&
+                                existingEntry
+                                    .externalImdbRating ==
+                                    imdbRating
+
+                        val ts =
+                            if (unchanged) {
+                                existingEntry.cachedAtMs
+                            } else {
+                                now
+                            }
+
+                        k to
+                            HomeEnrichmentEntry(
+                                enrichment = v,
+                                cachedAtMs = ts,
+                                externalMetaSettled =
+                                    settled,
+                                externalImdbRating =
+                                    imdbRating
+                            )
                     }
-                    .sortedByDescending { it.second.cachedAtMs }
+                    .sortedByDescending {
+                        it.second.cachedAtMs
+                    }
                     .take(MAX_ENTRIES)
                     .toMap()
 
@@ -129,12 +228,22 @@ class HomeEnrichmentDiskCache @Inject constructor(
                 val updated =
                     existing.toMutableMap()
 
+                val previousEntry =
+                    updated[key]
+
                 updated[key] =
                     HomeEnrichmentEntry(
                         enrichment =
                             enrichment,
                         cachedAtMs =
-                            now
+                            now,
+                        externalMetaSettled =
+                            previousEntry
+                                ?.externalMetaSettled
+                                ?: false,
+                        externalImdbRating =
+                            previousEntry
+                                ?.externalImdbRating
                     )
 
                 val trimmed =

@@ -660,6 +660,10 @@ class HomeViewModel @Inject constructor(
     internal var lastHeroEnrichmentSignature: String? = null
     internal var lastHeroEnrichedItems: List<MetaPreview> = emptyList()
     internal val prefetchedExternalMetaIds = Collections.synchronizedSet(mutableSetOf<String>())
+    internal val externalImdbRatingCache =
+        Collections.synchronizedMap(
+            mutableMapOf<String, Float>()
+        )
     internal val externalMetaPrefetchInFlightIds = Collections.synchronizedSet(mutableSetOf<String>())
     internal var externalMetaPrefetchJob: Job? = null
     internal var pendingExternalMetaPrefetchItemId: String? = null
@@ -1261,9 +1265,7 @@ class HomeViewModel @Inject constructor(
                                         } else {
                                             item.genres
                                         },
-                                    imdbRating =
-                                        enrichment.rating?.toFloat()
-                                            ?: item.imdbRating,
+                                    imdbRating = item.imdbRating,
                                     ageRating =
                                         enrichment.ageRating
                                             ?: item.ageRating,

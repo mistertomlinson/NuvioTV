@@ -315,6 +315,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     activeTrailerPreviewItemId = null
     trailerPreviewRequestVersion = 0L
     prefetchedExternalMetaIds.clear()
+    externalImdbRatingCache.clear()
     externalMetaPrefetchInFlightIds.clear()
     externalMetaPrefetchJob?.cancel()
     pendingExternalMetaPrefetchItemId = null
@@ -322,18 +323,16 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     homeEnrichmentAttemptedIds.clear()
 
     /*
-     * In-memory enrichment survived this catalog reload. Accept it in bulk as
-     * completed Home work instead of routing every cached title through the
-     * proactive coroutine and scheduling one completion update per item.
+     * In-memory TMDB enrichment survives a catalog reload and remains a
+     * zero-TMDB-network fast path. Do not mark these titles terminal yet:
+     * any configured external/IMDb completion channel must settle before
+     * the row is allowed to leave its skeleton state.
      */
     if (enrichmentCache.isNotEmpty()) {
         val cachedIds =
             enrichmentCache.keys.toList()
 
         prefetchedTmdbIds.addAll(
-            cachedIds
-        )
-        homeEnrichmentAttemptedIds.addAll(
             cachedIds
         )
     }
@@ -357,17 +356,23 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     // re-run the recompute so gated rows open against the full cache.
     viewModelScope.launch {
         try {
-            val restored = homeEnrichmentDiskCache.loadAll()
+            val restored =
+                homeEnrichmentDiskCache.loadAll()
+
+            val restoredExternalStates =
+                homeEnrichmentDiskCache
+                    .loadExternalMetaStates()
+
             if (restored.isNotEmpty()) {
                 enrichmentCache.putAll(
                     restored
                 )
 
                 /*
-                 * Disk-restored enrichment is already the completed result of
-                 * an earlier Home pass. Restore its readiness in one operation.
-                 * Missing optional fields remain legitimate missing data and
-                 * can be repaired later by the settled focus path.
+                 * Restored TMDB data remains reusable without another TMDB
+                 * request. External/IMDb completion is restored separately:
+                 * older cache entries simply report unsettled and pass through
+                 * the bounded proactive completion path once.
                  */
                 val restoredIds =
                     restored.keys.toList()
@@ -375,9 +380,21 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 prefetchedTmdbIds.addAll(
                     restoredIds
                 )
-                homeEnrichmentAttemptedIds.addAll(
-                    restoredIds
-                )
+            }
+
+            restoredExternalStates.forEach {
+                    (id, state) ->
+                if (state.settled) {
+                    prefetchedExternalMetaIds.add(
+                        id
+                    )
+
+                    state.imdbRating?.let {
+                            rating ->
+                        externalImdbRatingCache[id] =
+                            rating
+                    }
+                }
             }
         } finally {
             enrichmentRestoreComplete = true
@@ -882,9 +899,21 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
         enrichment:
             com.nuvio.tv.core.tmdb.TmdbEnrichment
     ) {
+        if (item.imdbRating != null) {
+            return
+        }
+
+        externalImdbRatingCache[item.id]
+            ?.let { cachedRating ->
+                updateCatalogItemImdbRating(
+                    item.id,
+                    cachedRating
+                )
+                return
+            }
+
         if (
-            item.imdbRating != null ||
-            enrichment.rating != null
+            item.id in prefetchedExternalMetaIds
         ) {
             return
         }
@@ -905,11 +934,57 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
         }
     }
 
+    /*
+     * Status is part of the settled Home metadata contract. The normal TMDB
+     * enrichment occasionally returns without it, so perform the same direct
+     * details repair that previously happened after focus, but do it here
+     * before this title can become terminal and release its row.
+     *
+     * This runs only on the existing proactive IO worker, only when details
+     * are enabled and status is actually missing, and is strictly bounded.
+     */
+    suspend fun completeMissingStatus(
+        enrichment:
+            com.nuvio.tv.core.tmdb.TmdbEnrichment
+    ): com.nuvio.tv.core.tmdb.TmdbEnrichment {
+        if (
+            !currentTmdbSettings.useDetails ||
+            !enrichment.status.isNullOrBlank()
+        ) {
+            return enrichment
+        }
+
+        val repairedStatus =
+            kotlinx.coroutines.withTimeoutOrNull(
+                4_000L
+            ) {
+                val tmdbId =
+                    tmdbService.ensureTmdbId(
+                        item.id,
+                        item.apiType
+                    ) ?: return@withTimeoutOrNull null
+
+                tmdbMetadataService.fetchFreshStatus(
+                    tmdbId = tmdbId,
+                    contentType = item.type,
+                    language = language
+                )
+            }
+
+        return if (repairedStatus.isNullOrBlank()) {
+            enrichment
+        } else {
+            enrichment.copy(
+                status = repairedStatus
+            )
+        }
+    }
+
     try {
         /*
-         * Cached Home enrichment must be a zero-network fast path. Cache
-         * restoration normally marks these IDs terminal in bulk; this branch
-         * safely handles a cache entry that arrived during an active plan.
+         * Cached Home TMDB enrichment is a zero-TMDB-network fast path, but
+         * cache presence alone is not Home readiness. Finish any configured
+         * external/IMDb channel before recording the title as terminal.
          */
         val cachedEnrichment =
             enrichmentCache[item.id]
@@ -917,6 +992,22 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
         if (cachedEnrichment != null) {
             prefetchedTmdbIds.add(
                 item.id
+            )
+
+            val settledEnrichment =
+                completeMissingStatus(
+                    cachedEnrichment
+                )
+
+            if (settledEnrichment != cachedEnrichment) {
+                updateCatalogItemWithTmdb(
+                    item.id,
+                    settledEnrichment
+                )
+            }
+
+            completeExternalFallback(
+                settledEnrichment
             )
 
             reachedTerminalResult = true
@@ -1014,13 +1105,18 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
 
         prefetchedTmdbIds.add(item.id)
 
+        val settledEnrichment =
+            completeMissingStatus(
+                enrichment
+            )
+
         updateCatalogItemWithTmdb(
             item.id,
-            enrichment
+            settledEnrichment
         )
 
         completeExternalFallback(
-            enrichment
+            settledEnrichment
         )
 
         reachedTerminalResult = true
@@ -1345,7 +1441,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     }
                     if (currentTmdbSettings.useBasicInfo) {
                         merged = merged.copy(
-                            imdbRating = cached.rating?.toFloat() ?: merged.imdbRating
+                            imdbRating = merged.imdbRating
                         )
                     }
                     merged
@@ -1487,13 +1583,13 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
         val allItems = (displayRows.flatMap { it.items } + myListItems)
             .distinctBy { it.id }
             /*
-             * Restored enrichment is accepted in bulk and must never enter the
-             * launch-time proactive queue again. Only genuinely uncached,
-             * unterminated titles require background enrichment.
+             * Every unterminated title must pass through the completion path.
+             * Cached TMDB enrichment takes the zero-network fast path there,
+             * while any required external/IMDb channel is allowed to settle
+             * before readiness is recorded.
              */
             .filter {
-                it.id !in homeEnrichmentAttemptedIds &&
-                    it.id !in enrichmentCache
+                it.id !in homeEnrichmentAttemptedIds
             }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
         val myListItemIds = myListItems.map { it.id }.toSet()
@@ -1602,6 +1698,65 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             proactiveEnrichJob?.cancel()
             proactiveEnrichJob = viewModelScope.launch(Dispatchers.IO) {
                 /*
+                 * Persist long-running proactive progress without touching the
+                 * focus/scroll path. This worker already runs on Dispatchers.IO.
+                 *
+                 * A fixed 30-second throttle (not a per-item debounce) guarantees
+                 * that a continuously running queue eventually reaches disk while
+                 * avoiding frequent serialization or file writes. Intermediate
+                 * writes are skipped during hero playback.
+                 */
+                var lastProgressPersistMs =
+                    android.os.SystemClock.elapsedRealtime()
+
+                fun externalMetaStateSnapshot():
+                    Map<
+                        String,
+                        com.nuvio.tv.data.local.HomeExternalMetaState
+                    > {
+                    val settledIds =
+                        synchronized(
+                            prefetchedExternalMetaIds
+                        ) {
+                            prefetchedExternalMetaIds
+                                .toList()
+                        }
+
+                    return settledIds.associateWith {
+                            id ->
+                        com.nuvio.tv.data.local
+                            .HomeExternalMetaState(
+                                settled = true,
+                                imdbRating =
+                                    externalImdbRatingCache[id]
+                            )
+                    }
+                }
+
+                suspend fun persistProgressIfDue() {
+                    val now =
+                        android.os.SystemClock.elapsedRealtime()
+
+                    if (
+                        homeHeroTrailerPlaying ||
+                        now - lastProgressPersistMs < 30_000L
+                    ) {
+                        return
+                    }
+
+                    val snapshot =
+                        synchronized(enrichmentCache) {
+                            enrichmentCache.toMap()
+                        }
+
+                    homeEnrichmentDiskCache.saveAll(
+                        snapshot,
+                        externalMetaStateSnapshot()
+                    )
+                    lastProgressPersistMs = now
+                }
+
+                /*
                  * Visible and adjacent rows retain full priority and continue
                  * during hero playback.
                  */
@@ -1626,6 +1781,8 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 }
                             }.awaitAll()
                         }
+
+                        persistProgressIfDue()
                     }
                 /*
                  * Never completely suspend lower-row enrichment behind trailer
@@ -1671,11 +1828,19 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                         }.awaitAll()
                     }
 
+                    persistProgressIfDue()
                     remainingIndex = batchEnd
                 }
-                // Save entire enrichment cache to disk once after all items processed
+                // Final safety-net save after the complete proactive pass.
                 viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    homeEnrichmentDiskCache.saveAll(enrichmentCache.toMap())
+                    val snapshot =
+                        synchronized(enrichmentCache) {
+                            enrichmentCache.toMap()
+                        }
+                    homeEnrichmentDiskCache.saveAll(
+                        snapshot,
+                        externalMetaStateSnapshot()
+                    )
                 }
             }
         } else if (allItems.isEmpty()) {

@@ -376,6 +376,13 @@ private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
 internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
     if (startupGracePeriodActive) return
 
+    /*
+     * Terminal Home enrichment is the display-stability boundary.
+     * Once a title is eligible to appear in a released row, focus must not
+     * repair or replace metadata underneath the user.
+     */
+    if (item.id in homeEnrichmentAttemptedIds) return
+
     fun needsStatusRepair(): Boolean {
         val cached =
             enrichmentCache[item.id]
@@ -606,10 +613,7 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
                     prefetchedTmdbIds.add(item.id)
                     updateCatalogItemWithTmdb(item.id, enrichment)
 
-                    if (
-                        item.imdbRating == null &&
-                        enrichment.rating == null
-                    ) {
+                    if (item.imdbRating == null) {
                         enrichMissingImdbFromExternalMeta(item)
                     }
                     tmdbEnriched = true
@@ -639,7 +643,12 @@ internal fun HomeViewModel.onItemFocusPipeline(item: MetaPreview) {
 
 internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
     if (startupGracePeriodActive) return
-    if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds || item.id in enrichmentCache) return
+    if (
+        item.id in homeEnrichmentAttemptedIds ||
+        item.id in prefetchedTmdbIds ||
+        item.id in prefetchedExternalMetaIds ||
+        item.id in enrichmentCache
+    ) return
     if (pendingTmdbEnrichItemId == item.id || pendingAdjacentPrefetchItemId == item.id) return
 
     pendingAdjacentPrefetchItemId = item.id
@@ -647,7 +656,11 @@ internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
     adjacentItemPrefetchJob = viewModelScope.launch(Dispatchers.IO) {
         delay(HomeViewModel.EXTERNAL_META_PREFETCH_ADJACENT_DEBOUNCE_MS)
         if (pendingAdjacentPrefetchItemId != item.id) return@launch
-        if (item.id in prefetchedTmdbIds || item.id in prefetchedExternalMetaIds) return@launch
+        if (
+            item.id in homeEnrichmentAttemptedIds ||
+            item.id in prefetchedTmdbIds ||
+            item.id in prefetchedExternalMetaIds
+        ) return@launch
 
         try {
             var tmdbEnriched = false
@@ -664,10 +677,7 @@ internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
                     prefetchedTmdbIds.add(item.id)
                     updateCatalogItemWithTmdb(item.id, enrichment)
 
-                    if (
-                        item.imdbRating == null &&
-                        enrichment.rating == null
-                    ) {
+                    if (item.imdbRating == null) {
                         enrichMissingImdbFromExternalMeta(item)
                     }
                     tmdbEnriched = true
@@ -698,6 +708,8 @@ internal fun HomeViewModel.preloadAdjacentItemPipeline(item: MetaPreview) {
 }
 
 internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment: TmdbEnrichment) {
+    if (itemId in homeEnrichmentAttemptedIds) return
+
     fun mergeItem(currentItem: MetaPreview): MetaPreview {
         var merged = currentItem
         if (currentTmdbSettings.useBasicInfo) {
@@ -710,9 +722,7 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                     } else {
                         merged.genres
                     },
-                imdbRating =
-                    enrichment.rating?.toFloat()
-                        ?: merged.imdbRating
+                imdbRating = merged.imdbRating
             )
         }
         if (currentTmdbSettings.useArtwork) {
@@ -834,18 +844,77 @@ internal suspend fun HomeViewModel.enrichMissingImdbFromExternalMeta(
                 }
 
         if (result is NetworkResult.Success) {
-            prefetchedExternalMetaIds.add(item.id)
+            result.data.imdbRating?.let {
+                    rating ->
+                externalImdbRatingCache[item.id] =
+                    rating
+            } ?: externalImdbRatingCache.remove(
+                item.id
+            )
+
             updateCatalogItemWithMeta(
                 item.id,
                 result.data
             )
         }
+
+        /*
+         * Reaching either Success or Error settles this bounded
+         * completion channel. Cancellation never reaches here and
+         * therefore remains retryable.
+         */
+        prefetchedExternalMetaIds.add(
+            item.id
+        )
     } finally {
         externalMetaPrefetchInFlightIds.remove(item.id)
     }
 }
 
+internal fun HomeViewModel.updateCatalogItemImdbRating(
+    itemId: String,
+    imdbRating: Float
+) {
+    if (itemId in homeEnrichmentAttemptedIds) return
+
+    /*
+     * Pre-release cache restoration must not publish per-title UI state.
+     * Update only the backing catalog; the existing terminal row recompute
+     * will publish the fully settled row once, after every item is ready.
+     */
+    synchronized(catalogsMap) {
+        catalogsMap.forEach { (key, row) ->
+            val itemIndex =
+                row.items.indexOfFirst {
+                    it.id == itemId
+                }
+
+            if (itemIndex >= 0) {
+                val current =
+                    row.items[itemIndex]
+
+                if (current.imdbRating != imdbRating) {
+                    val mutableItems =
+                        row.items.toMutableList()
+
+                    mutableItems[itemIndex] =
+                        current.copy(
+                            imdbRating = imdbRating
+                        )
+
+                    catalogsMap[key] =
+                        row.copy(
+                            items = mutableItems
+                        )
+                }
+            }
+        }
+    }
+}
+
 private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) {
+    if (itemId in homeEnrichmentAttemptedIds) return
+
     val incomingTrailerYtIds = meta.trailerYtIds
 
     fun mergeItem(currentItem: MetaPreview): MetaPreview = currentItem.copy(
@@ -946,7 +1015,7 @@ internal suspend fun HomeViewModel.enrichHeroItemsPipeline(
                             name = enrichment.localizedTitle ?: enriched.name,
                             description = enrichment.description ?: enriched.description,
                             genres = if (enrichment.genres.isNotEmpty()) enrichment.genres else enriched.genres,
-                            imdbRating = enrichment.rating?.toFloat() ?: enriched.imdbRating
+                            imdbRating = enriched.imdbRating
                         )
                     }
 
