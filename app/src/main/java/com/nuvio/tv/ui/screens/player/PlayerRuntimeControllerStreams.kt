@@ -13,10 +13,12 @@ import com.nuvio.tv.ui.components.SourceChipItem
 import com.nuvio.tv.ui.components.SourceChipStatus
 import com.nuvio.tv.core.debrid.DebridProviders
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 
 private suspend fun PlayerRuntimeController.preferredDebridProviderId(): String? {
@@ -332,7 +334,20 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
 internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
     val url = stream.getStreamUrl()
     if (url.isNullOrBlank()) {
-        _uiState.update { it.copy(sourceStreamsError = "Invalid stream URL") }
+        scope.launch(Dispatchers.Default) {
+            val resolvedStream = resolveDirectDebridStreamIfNeeded(
+                stream = stream,
+                season = currentSeason,
+                episode = currentEpisode
+            )
+            withContext(Dispatchers.Main) {
+                if (resolvedStream == null || resolvedStream.getStreamUrl().isNullOrBlank()) {
+                    _uiState.update { it.copy(sourceStreamsError = "Invalid stream URL") }
+                } else {
+                    switchToSourceStream(resolvedStream)
+                }
+            }
+        }
         return
     }
     nextEpisodeAutoPlayJob?.cancel()
