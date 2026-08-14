@@ -260,7 +260,7 @@ interface TraktApi {
 
     @GET("movies/{id}/comments/{sort}")
     suspend fun getMovieComments(
-        @Header("Authorization") authorization: String,
+        @Header("Authorization") authorization: String? = null,
         @Path("id") id: String,
         @Path("sort") sort: String,
         @Query("page") page: Int,
@@ -269,7 +269,7 @@ interface TraktApi {
 
     @GET("shows/{id}/comments/{sort}")
     suspend fun getShowComments(
-        @Header("Authorization") authorization: String,
+        @Header("Authorization") authorization: String? = null,
         @Path("id") id: String,
         @Path("sort") sort: String,
         @Query("page") page: Int,
@@ -278,7 +278,7 @@ interface TraktApi {
 
     @GET("search/{id_type}/{id}")
     suspend fun searchById(
-        @Header("Authorization") authorization: String,
+        @Header("Authorization") authorization: String? = null,
         @Path("id_type") idType: String,
         @Path("id") id: String,
         @Query("type") type: String

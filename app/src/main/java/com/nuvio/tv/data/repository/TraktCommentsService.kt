@@ -90,7 +90,7 @@ class TraktCommentsService @Inject constructor(
             }
         }
 
-        val response = traktAuthService.executeAuthorizedRequest { authHeader ->
+        val response = traktAuthService.executeOptionalAuthorizedRead { authHeader ->
             when (target.type) {
                 TraktCommentsType.MOVIE -> traktApi.getMovieComments(
                     authorization = authHeader,
@@ -149,7 +149,7 @@ class TraktCommentsService @Inject constructor(
         }
 
         val tmdbId = resolveTmdbCandidate(meta = meta, fallbackItemId = fallbackItemId) ?: return null
-        val searchResponse = traktAuthService.executeAuthorizedRequest { authHeader ->
+        val searchResponse = traktAuthService.executeOptionalAuthorizedRead { authHeader ->
             traktApi.searchById(
                 authorization = authHeader,
                 idType = "tmdb",

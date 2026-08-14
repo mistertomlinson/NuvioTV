@@ -286,6 +286,33 @@ class TraktAuthService @Inject constructor(
         return username
     }
 
+    suspend fun <T> executeOptionalAuthorizedRead(
+        call: suspend (authorizationHeader: String?) -> Response<T>
+    ): Response<T>? {
+        val token = getValidAccessToken()
+
+        if (!token.isNullOrBlank()) {
+            acquireGetRateSlot()
+            val authorized = try {
+                call("Bearer $token")
+            } catch (e: IOException) {
+                null
+            }
+
+            if (authorized != null && authorized.code() != 401) {
+                return authorized
+            }
+        }
+
+        acquireGetRateSlot()
+        return try {
+            call(null)
+        } catch (e: IOException) {
+            Log.w("TraktAuthService", "Network error during public Trakt read", e)
+            null
+        }
+    }
+
     suspend fun <T> executeAuthorizedRequest(
         call: suspend (authorizationHeader: String) -> Response<T>
     ): Response<T>? {
