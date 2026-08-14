@@ -1095,15 +1095,21 @@ private fun MetaDetailsContent(
     val backdropHeightPx = remember(screenHeightDp, localDensity) {
         with(localDensity) { screenHeightDp.roundToPx() }
     }
+    val resolvedBackdropUrl =
+        meta.detailBackdrop ?: meta.originalBackground ?: meta.backdropUrl ?: meta.poster
+    val backdropUsesPosterFallback =
+        !resolvedBackdropUrl.isNullOrBlank() &&
+            !meta.poster.isNullOrBlank() &&
+            resolvedBackdropUrl == meta.poster
+
     val backdropRequest = remember(
         localContext,
-        meta.detailBackdrop ?: meta.originalBackground ?: meta.backdropUrl,
-        meta.poster,
+        resolvedBackdropUrl,
         backdropWidthPx,
         backdropHeightPx
     ) {
         ImageRequest.Builder(localContext)
-            .data(meta.detailBackdrop ?: meta.originalBackground ?: meta.backdropUrl ?: meta.poster)
+            .data(resolvedBackdropUrl)
             .crossfade(true)
             .size(width = backdropWidthPx, height = backdropHeightPx)
             .build()
@@ -1173,6 +1179,7 @@ private fun MetaDetailsContent(
         // Sticky background — backdrop or trailer
         BackdropLayer(
             backdropRequest = backdropRequest,
+            backdropUsesPosterFallback = backdropUsesPosterFallback,
             trailerUrl = trailerUrl,
             trailerAudioUrl = trailerAudioUrl,
             isTrailerPlaying = isTrailerPlaying,
@@ -1540,6 +1547,7 @@ private fun PlayManualOverrideDialog(
 @Composable
 private fun BackdropLayer(
     backdropRequest: ImageRequest,
+    backdropUsesPosterFallback: Boolean,
     trailerUrl: String?,
     trailerAudioUrl: String?,
     isTrailerPlaying: Boolean,
@@ -1577,7 +1585,13 @@ private fun BackdropLayer(
             } else {
                 Modifier.fillMaxSize()
             },
-            contentScale = ContentScale.Crop
+            contentScale = ContentScale.Crop,
+            alignment =
+                if (backdropUsesPosterFallback) {
+                    Alignment.TopCenter
+                } else {
+                    Alignment.Center
+                }
         )
         TrailerPlayer(
             trailerUrl = trailerUrl,

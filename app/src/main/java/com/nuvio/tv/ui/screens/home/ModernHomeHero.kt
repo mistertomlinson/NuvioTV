@@ -91,6 +91,7 @@ private data class ModernHeroSecondaryMeta(
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
+    heroBackdropIsPosterFallback: Boolean = false,
     heroBackdropAlpha: Float,
     shouldPlayHeroTrailer: Boolean,
     externalPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
@@ -115,27 +116,39 @@ internal fun ModernHeroMediaLayer(
     val latestOnBackdropFrameReady =
         androidx.compose.runtime.rememberUpdatedState(onBackdropFrameReady)
 
-    // Pair the URL with the scale so Crossfade captures both atomically.
-    // The outgoing image keeps its original scale for the full crossfade duration;
-    // the incoming image starts at the correct scale from frame 1.
-    data class BackdropFrame(val url: String?, val scale: Float)
-    var displayedFrame by remember { mutableStateOf(BackdropFrame(heroBackdrop, cinematicScale)) }
+    // Pair URL, scale, and crop alignment so Crossfade captures them atomically.
+    // The outgoing image keeps its original presentation for the full crossfade.
+    data class BackdropFrame(
+        val url: String?,
+        val scale: Float,
+        val isPosterFallback: Boolean
+    )
+    var displayedFrame by remember {
+        mutableStateOf(
+            BackdropFrame(
+                heroBackdrop,
+                cinematicScale,
+                heroBackdropIsPosterFallback
+            )
+        )
+    }
 
-    // URL loading: only re-run when the backdrop URL changes.
-    // Scale is captured at the moment the URL is ready — incoming image
-    // gets the correct scale from frame 1, outgoing image keeps its scale.
-    LaunchedEffect(heroBackdrop) {
+    // URL loading: re-run when either URL or its fallback identity changes.
+    // Scale/alignment are captured when the URL is ready.
+    LaunchedEffect(heroBackdrop, heroBackdropIsPosterFallback) {
         val target = heroBackdrop
         val scale = cinematicScale
+        val isPosterFallback = heroBackdropIsPosterFallback
         if (target == null) {
-            displayedFrame = BackdropFrame(null, scale)
+            displayedFrame = BackdropFrame(null, scale, isPosterFallback)
             latestOnBackdropFrameReady.value(null)
             return@LaunchedEffect
         }
         // If already memory-cached, flip immediately — no visible delay.
         val cacheKey = coil.memory.MemoryCache.Key(target)
         if (imageLoader.memoryCache?.get(cacheKey) != null) {
-            displayedFrame = BackdropFrame(target, scale)
+            displayedFrame =
+                BackdropFrame(target, scale, isPosterFallback)
             latestOnBackdropFrameReady.value(target)
             return@LaunchedEffect
         }
@@ -151,7 +164,8 @@ internal fun ModernHeroMediaLayer(
         }
         // Whether it succeeded or timed out, show it now — at worst we get
         // the old snap behaviour on a very slow connection, never a hang.
-        displayedFrame = BackdropFrame(target, scale)
+        displayedFrame =
+            BackdropFrame(target, scale, isPosterFallback)
         latestOnBackdropFrameReady.value(target)
     }
 
@@ -179,7 +193,12 @@ internal fun ModernHeroMediaLayer(
                         .fillMaxSize()
                         .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
                     contentScale = ContentScale.Crop,
-                    alignment = Alignment.Center
+                    alignment =
+                        if (frame.isPosterFallback) {
+                            Alignment.TopCenter
+                        } else {
+                            Alignment.Center
+                        }
                 )
             } else {
                 AsyncImage(
@@ -187,7 +206,12 @@ internal fun ModernHeroMediaLayer(
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
-                    alignment = Alignment.TopEnd
+                    alignment =
+                        if (frame.isPosterFallback) {
+                            Alignment.TopCenter
+                        } else {
+                            Alignment.TopEnd
+                        }
                 )
             }
         }

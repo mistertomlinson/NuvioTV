@@ -777,6 +777,12 @@ private fun ModernLightweightPosterStrip(
                         }
                     }
 
+                    val imageUsesPortraitFallback =
+                        useLandscapePosters &&
+                            !imageUrl.isNullOrBlank() &&
+                            !item.heroPreview.poster.isNullOrBlank() &&
+                            imageUrl == item.heroPreview.poster
+
                     val imageModel = remember(
                         context,
                         imageUrl,
@@ -816,6 +822,12 @@ private fun ModernLightweightPosterStrip(
                                     androidx.compose.ui
                                         .layout
                                         .ContentScale.Crop,
+                                alignment =
+                                    if (imageUsesPortraitFallback) {
+                                        Alignment.TopCenter
+                                    } else {
+                                        Alignment.Center
+                                    },
                                 modifier =
                                     Modifier.fillMaxSize()
                             )
@@ -2153,6 +2165,12 @@ private fun ModernCarouselCard(
             item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
         }
     }
+    val imageUsesPortraitFallback =
+        useLandscapePosters &&
+            !imageUrl.isNullOrBlank() &&
+            !item.heroPreview.poster.isNullOrBlank() &&
+            imageUrl == item.heroPreview.poster
+
     val maxRequestCardWidth = if (focusedPosterBackdropExpandEnabled) {
         maxOf(cardWidth, expandedCardWidth)
     } else {
@@ -2408,6 +2426,12 @@ private fun ModernCarouselCard(
                             contentDescription = item.title,
                             modifier = Modifier.fillMaxSize(),
                             contentScale = ContentScale.Crop,
+                            alignment =
+                                if (imageUsesPortraitFallback) {
+                                    Alignment.TopCenter
+                                } else {
+                                    Alignment.Center
+                                },
                             onLoading = {
                                 posterImageLoaded.value = false
                             },

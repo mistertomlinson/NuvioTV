@@ -1749,38 +1749,90 @@ fun ModernHomeContent(
         // back to the first row's item, which caused a stale-looking flash of the
         // wrong backdrop before real focus restored.
         val lastGoodBackdrop = androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf<String?>(null) }
+        val lastGoodBackdropIsPosterFallback =
+            androidx.compose.runtime.saveable.rememberSaveable {
+                androidx.compose.runtime.mutableStateOf(false)
+            }
 
-        val heroBackdrop = remember(
+        /*
+         * Keep portrait-fallback identity beside the URL. This is deliberately
+         * source-based rather than image-dimension based: no decode, network,
+         * row scan, or other work is added to the focus/scroll path.
+         */
+        val heroBackdropSelection = remember(
             trailerExitBackdropOverride,
             resolvedHero,
             activeRowFallbackBackdrop,
             heroItem,
             carouselRows,
-            lastGoodBackdrop.value
+            lastGoodBackdrop.value,
+            lastGoodBackdropIsPosterFallback.value
         ) {
-            firstNonBlank(
-                trailerExitBackdropOverride,
-                resolvedHero?.backdrop,
-                resolvedHero?.imageUrl,
-                if (heroItem == null) activeRowFallbackBackdrop else null,
-                // Focus gap: chain above is all-null but we've shown a backdrop
-                // before -> hold the last good one instead of flashing first-item.
-                if (resolvedHero == null && heroItem == null) lastGoodBackdrop.value else null,
-                // True cold-start fallback: only when we've NEVER resolved a backdrop
-                // (lastGoodBackdrop still null). First row's first item is where
-                // focus will land, so re-derivation matches with no visible change.
-                if (resolvedHero == null && heroItem == null && lastGoodBackdrop.value == null) {
-                    carouselRows.firstOrNull { it.items.isNotEmpty() }
-                        ?.items?.firstOrNull()?.heroPreview
-                        ?.let { firstNonBlank(it.backdrop, it.imageUrl) }
-                } else null
-            )
+            when {
+                !trailerExitBackdropOverride.isNullOrBlank() -> {
+                    val poster = firstNonBlank(resolvedHero?.poster, heroItem?.poster)
+                    trailerExitBackdropOverride to
+                        (poster != null && trailerExitBackdropOverride == poster)
+                }
+
+                !resolvedHero?.backdrop.isNullOrBlank() -> {
+                    val url = resolvedHero?.backdrop
+                    url to
+                        (!resolvedHero?.poster.isNullOrBlank() &&
+                            url == resolvedHero?.poster)
+                }
+
+                !resolvedHero?.imageUrl.isNullOrBlank() -> {
+                    val url = resolvedHero?.imageUrl
+                    url to
+                        (!resolvedHero?.poster.isNullOrBlank() &&
+                            url == resolvedHero?.poster)
+                }
+
+                heroItem == null && !activeRowFallbackBackdrop.isNullOrBlank() ->
+                    activeRowFallbackBackdrop to false
+
+                resolvedHero == null &&
+                    heroItem == null &&
+                    !lastGoodBackdrop.value.isNullOrBlank() ->
+                    lastGoodBackdrop.value to lastGoodBackdropIsPosterFallback.value
+
+                resolvedHero == null &&
+                    heroItem == null &&
+                    lastGoodBackdrop.value == null -> {
+                    val firstPreview =
+                        carouselRows.firstOrNull { it.items.isNotEmpty() }
+                            ?.items?.firstOrNull()?.heroPreview
+                    val url = firstPreview?.let {
+                        firstNonBlank(it.backdrop, it.imageUrl)
+                    }
+                    url to
+                        (url != null &&
+                            !firstPreview?.poster.isNullOrBlank() &&
+                            url == firstPreview?.poster)
+                }
+
+                else -> null to false
+            }
         }
+
+        val heroBackdrop = heroBackdropSelection.first
+        val heroBackdropIsPosterFallback = heroBackdropSelection.second
+
         // Record the last non-blank resolved backdrop (only from a REAL focused
         // item, not the fallback itself, to avoid latching the first-item value).
-        LaunchedEffect(resolvedHero?.backdrop, resolvedHero?.imageUrl) {
+        LaunchedEffect(
+            resolvedHero?.backdrop,
+            resolvedHero?.imageUrl,
+            resolvedHero?.poster
+        ) {
             val real = firstNonBlank(resolvedHero?.backdrop, resolvedHero?.imageUrl)
-            if (real != null) lastGoodBackdrop.value = real
+            if (real != null) {
+                lastGoodBackdrop.value = real
+                lastGoodBackdropIsPosterFallback.value =
+                    !resolvedHero?.poster.isNullOrBlank() &&
+                        real == resolvedHero?.poster
+            }
         }
 
         /*
@@ -2232,6 +2284,7 @@ fun ModernHomeContent(
 
         ModernHeroMediaLayer(
             heroBackdrop = heroBackdrop,
+            heroBackdropIsPosterFallback = heroBackdropIsPosterFallback,
             backdropCrossfadeDuration =
                 if (
                     isPlatformTransitioning ||
