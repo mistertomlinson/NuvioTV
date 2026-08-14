@@ -1139,11 +1139,8 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
 
         reachedTerminalResult = true
     } finally {
-        if (
-            reachedTerminalResult &&
+        if (reachedTerminalResult) {
             homeEnrichmentAttemptedIds.add(item.id)
-        ) {
-            scheduleUpdateCatalogRows()
         }
     }
 }
@@ -1782,6 +1779,12 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                             }.awaitAll()
                         }
 
+                        /*
+                         * Terminal readiness is still recorded per title, but
+                         * publish it once per completed batch. Rebuilding Home
+                         * once for every title creates avoidable startup churn.
+                         */
+                        scheduleUpdateCatalogRows()
                         persistProgressIfDue()
                     }
                 /*
@@ -1828,6 +1831,7 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                         }.awaitAll()
                     }
 
+                    scheduleUpdateCatalogRows()
                     persistProgressIfDue()
                     remainingIndex = batchEnd
                 }
