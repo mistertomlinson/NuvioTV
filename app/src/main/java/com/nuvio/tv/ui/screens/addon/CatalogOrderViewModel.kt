@@ -33,6 +33,13 @@ class CatalogOrderViewModel @Inject constructor(
     private var landscapeKeysCache: Set<String> = emptySet()
     private var shuffleKeysCache: Set<String> = emptySet()
 
+    private data class CatalogPreferenceSnapshot(
+        val disabledKeys: Set<String>,
+        val numberedKeys: Set<String>,
+        val outlineNumberedKeys: Set<String>,
+        val landscapeKeys: Set<String>
+    )
+
     init {
         viewModelScope.launch {
             traktAuthDataStore.isEffectivelyAuthenticated.collect { isAuth ->
@@ -75,16 +82,31 @@ class CatalogOrderViewModel @Inject constructor(
     }
 
     fun toggleCatalogLandscape(key: String) {
+        val item = _uiState.value.items.find { it.key == key }
+        val targetKeys =
+            if (item?.isGroup == true && seasonalSpotlightGroup(key) != null) {
+                seasonalSpotlightPreferenceKeys()
+            } else {
+                setOf(key)
+            }
+
+        val enableLandscape = targetKeys.any { it !in landscapeKeysCache }
+
         val updatedLandscape = landscapeKeysCache.toMutableSet().apply {
-            if (key in this) remove(key) else add(key)
+            if (enableLandscape) {
+                addAll(targetKeys)
+            } else {
+                removeAll(targetKeys)
+            }
         }
+
         viewModelScope.launch {
             layoutPreferenceDataStore.setLandscapeHomeCatalogKeys(updatedLandscape.toList())
         }
     }
 
     fun toggleCatalogShuffle(key: String) {
-        if (watchlyGroup(key) != null) return
+        if (catalogGroup(key) != null) return
         val updatedShuffle = shuffleKeysCache.toMutableSet().apply {
             if (key in this) remove(key) else add(key)
         }
@@ -96,15 +118,30 @@ class CatalogOrderViewModel @Inject constructor(
     }
 
         fun toggleCatalogNumbered(key: String) {
-        val isSolid = key in numberedKeysCache
-        val isOutline = key in outlineNumberedKeysCache
-        val updatedSolid = numberedKeysCache.toMutableSet()
-        val updatedOutline = outlineNumberedKeysCache.toMutableSet()
-        when {
-            isOutline -> { updatedOutline.remove(key) }
-            isSolid -> { updatedSolid.remove(key); updatedOutline.add(key) }
-            else -> { updatedSolid.add(key) }
+        val item = _uiState.value.items.find { it.key == key }
+        val targetKeys =
+            if (item?.isGroup == true && seasonalSpotlightGroup(key) != null) {
+                seasonalSpotlightPreferenceKeys()
+            } else {
+                setOf(key)
+            }
+
+        val allSolid = targetKeys.all { it in numberedKeysCache }
+        val allOutline = targetKeys.all { it in outlineNumberedKeysCache }
+
+        val updatedSolid = numberedKeysCache.toMutableSet().apply {
+            removeAll(targetKeys)
         }
+        val updatedOutline = outlineNumberedKeysCache.toMutableSet().apply {
+            removeAll(targetKeys)
+        }
+
+        when {
+            allOutline -> Unit
+            allSolid -> updatedOutline.addAll(targetKeys)
+            else -> updatedSolid.addAll(targetKeys)
+        }
+
         viewModelScope.launch {
             layoutPreferenceDataStore.setNumberedHomeCatalogKeys(updatedSolid.toList())
             layoutPreferenceDataStore.setOutlineNumberedHomeCatalogKeys(updatedOutline.toList())
@@ -244,6 +281,10 @@ class CatalogOrderViewModel @Inject constructor(
                 val numberedKeys = args[3] as List<*>
                 val outlineNumberedKeys = args[4] as List<*>
                 val landscapeKeys = args[5] as List<*>
+                val disabledKeySet = (disabledKeys as List<String>).toSet()
+                val numberedKeySet = (numberedKeys as List<String>).toSet()
+                val outlineNumberedKeySet = (outlineNumberedKeys as List<String>).toSet()
+                val landscapeKeySet = (landscapeKeys as List<String>).toSet()
                 val useThemeColor = args[6] as Boolean
                 val aggregatePlatforms = args[7] as Boolean
                 val showAllOnHome = args[8] as Boolean
@@ -255,13 +296,18 @@ Triple(
                         buildOrderedCatalogItems(
                             addons = addons as List<com.nuvio.tv.domain.model.Addon>,
                             savedOrderKeys = savedOrderKeys as List<String>,
-                            disabledKeys = (disabledKeys as List<String>).toSet(),
-                            numberedKeys = (numberedKeys as List<String>).toSet(),
-                            outlineNumberedKeys = (outlineNumberedKeys as List<String>).toSet(),
-                            landscapeKeys = (landscapeKeys as List<String>).toSet()
+                            disabledKeys = disabledKeySet,
+                            numberedKeys = numberedKeySet,
+                            outlineNumberedKeys = outlineNumberedKeySet,
+                            landscapeKeys = landscapeKeySet
                         ),
                         useThemeColor,
-                        Unit
+                        CatalogPreferenceSnapshot(
+                            disabledKeys = disabledKeySet,
+                            numberedKeys = numberedKeySet,
+                            outlineNumberedKeys = outlineNumberedKeySet,
+                            landscapeKeys = landscapeKeySet
+                        )
                     ),
                     aggregatePlatforms to showAllOnHome,
                     Triple(fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit)
@@ -275,11 +321,12 @@ Triple(
             val (triple, aggregatePair, fullWidthIconRowTriple) = innerResult
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
                 val (fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit) = fullWidthIconRowTriple
-                val (orderedItems, useThemeColor, _) = triple
-                disabledKeysCache = orderedItems.filter { it.isDisabled }.map { it.disableKey }.toSet()
-                numberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.SOLID }.map { it.key }.toSet()
-                outlineNumberedKeysCache = orderedItems.filter { it.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE }.map { it.key }.toSet()
-                landscapeKeysCache = orderedItems.filter { it.isLandscape }.map { it.key }.toSet()
+                val (orderedItems, useThemeColor, preferenceSnapshot) = triple
+                disabledKeysCache = preferenceSnapshot.disabledKeys
+                numberedKeysCache = preferenceSnapshot.numberedKeys
+                outlineNumberedKeysCache = preferenceSnapshot.outlineNumberedKeys
+                landscapeKeysCache = preferenceSnapshot.landscapeKeys
+
                 _uiState.update {
                     it.copy(
                         isLoading = false,
@@ -321,6 +368,36 @@ Triple(
             key.contains("watchly.liked") -> "watchly.liked.$typeSuffix"
             else -> "watchly.other"
         }
+    }
+
+    private fun seasonalSpotlightPreferenceKeys(): Set<String> {
+        return buildSet {
+            for (type in listOf("movie", "series")) {
+                for (slot in 1..5) {
+                    add(
+                        "community.seasonalspotlight_${type}_seasonalspotlight.slot" +
+                            slot.toString().padStart(2, '0')
+                    )
+                }
+            }
+        }
+    }
+
+    private fun seasonalSpotlightGroup(key: String): String? {
+        return if (key.startsWith("community.seasonalspotlight_")) {
+            "seasonalspotlight"
+        } else {
+            null
+        }
+    }
+
+    private fun catalogGroup(key: String): String? {
+        return seasonalSpotlightGroup(key) ?: watchlyGroup(key)
+    }
+
+    private fun catalogGroupLabel(groupKey: String): String {
+        if (groupKey == "seasonalspotlight") return "Seasonal Spotlight"
+        return watchlyGroupLabel(groupKey)
     }
 
     private fun watchlyGroupLabel(groupKey: String): String {
@@ -386,6 +463,12 @@ Triple(
             .mapNotNull { savedKey ->
                 when {
                     savedKey in availableMap -> savedKey // exact match
+                    savedKey == "__nuvio_internal_seasonal_spotlight_order_anchor__" -> {
+                        defaultOrderKeys.firstOrNull {
+                            seasonalSpotlightGroup(it) != null &&
+                                it !in claimedAvailableKeys
+                        }
+                    }
                     else -> {
                         // Try group prefix match for dynamic catalogs
                         val prefix = watchlyGroupPrefix(savedKey)
@@ -409,17 +492,21 @@ Triple(
         // or after the last saved Watchly key of any group, or at the end.
         val effectiveOrder = savedValid.toMutableList()
         missing.forEach { missingKey ->
-            val group = watchlyGroup(missingKey)
+            val group = catalogGroup(missingKey)
             android.util.Log.d("WatchlyOrder", "missing key=$missingKey group=$group")
             if (group == null) {
                 effectiveOrder.add(missingKey)
             } else {
-                var insertAt = effectiveOrder.indexOfLast { watchlyGroup(it) == group }
+                var insertAt = effectiveOrder.indexOfLast { catalogGroup(it) == group }
                 android.util.Log.d("WatchlyOrder", "  sameGroupInsertAt=$insertAt")
                 if (insertAt >= 0) {
                     effectiveOrder.add(insertAt + 1, missingKey)
                 } else {
-                    insertAt = effectiveOrder.indexOfLast { watchlyGroup(it) != null }
+                    insertAt = if (group == "seasonalspotlight") {
+                        effectiveOrder.indexOfLast { seasonalSpotlightGroup(it) != null }
+                    } else {
+                        effectiveOrder.indexOfLast { watchlyGroup(it) != null }
+                    }
                     android.util.Log.d("WatchlyOrder", "  anyWatchlyInsertAt=$insertAt")
                     if (insertAt >= 0) {
                         effectiveOrder.add(insertAt + 1, missingKey)
@@ -430,13 +517,13 @@ Triple(
             }
         }
 
-        // Collapse Watchly group members into single group rows
+        // Collapse grouped catalog members into single Catalog Management rows.
         val collapsedOrder = mutableListOf<String>() // representative key per row
         val groupRepresentatives = mutableMapOf<String, String>() // groupKey -> first key seen
         val groupMembers = mutableMapOf<String, MutableList<String>>() // groupKey -> all keys
 
         effectiveOrder.forEach { key ->
-            val group = watchlyGroup(key)
+            val group = catalogGroup(key)
             if (group != null) {
                 if (!groupRepresentatives.containsKey(group)) {
                     groupRepresentatives[group] = key
@@ -461,13 +548,13 @@ Triple(
 
         return collapsedOrder.mapIndexedNotNull { index, key ->
             val entry = availableMap[key] ?: return@mapIndexedNotNull null
-            val group = watchlyGroup(key)
+            val group = catalogGroup(key)
             val members = if (group != null) groupMembers[group] ?: listOf(key) else listOf(key)
             val isGroup = group != null && members.size >= 1
             CatalogOrderItem(
                 key = entry.key,
                 disableKey = entry.disableKey,
-                catalogName = if (isGroup) watchlyGroupLabel(group!!) else entry.catalogName,
+                catalogName = if (isGroup) catalogGroupLabel(group!!) else entry.catalogName,
                 addonName = entry.addonName,
                 typeLabel = entry.typeLabel,
                 isDisabled = entry.disableKey in disabledKeys,
