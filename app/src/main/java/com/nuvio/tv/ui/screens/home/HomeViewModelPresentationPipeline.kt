@@ -820,10 +820,14 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
  * instead of falsely treating that lookup as already complete.
  */
 internal suspend fun HomeViewModel.enrichMissingImdbFromExternalMeta(
-    item: MetaPreview
+    item: MetaPreview,
+    allowWhenPrefetchDisabledForImdbRating: Boolean = false
 ) {
     if (
-        !externalMetaPrefetchEnabled ||
+        (
+            !externalMetaPrefetchEnabled &&
+                !allowWhenPrefetchDisabledForImdbRating
+            ) ||
         item.imdbRating != null ||
         item.id in prefetchedExternalMetaIds ||
         !externalMetaPrefetchInFlightIds.add(item.id)
@@ -852,10 +856,24 @@ internal suspend fun HomeViewModel.enrichMissingImdbFromExternalMeta(
                 item.id
             )
 
-            updateCatalogItemWithMeta(
-                item.id,
-                result.data
-            )
+            if (externalMetaPrefetchEnabled) {
+                updateCatalogItemWithMeta(
+                    item.id,
+                    result.data
+                )
+            } else {
+                /*
+                 * A forced My List lookup is rating-only. Do not let it
+                 * bypass the users external-detail preference for artwork
+                 * or other metadata.
+                 */
+                result.data.imdbRating?.let { rating ->
+                    updateCatalogItemImdbRating(
+                        item.id,
+                        rating
+                    )
+                }
+            }
         }
 
         /*

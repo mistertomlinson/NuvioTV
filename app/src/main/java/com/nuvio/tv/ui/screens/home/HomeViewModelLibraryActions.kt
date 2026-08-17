@@ -88,7 +88,7 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
             name = cachedForPersist.localizedTitle ?: item.name,
             description = cachedForPersist.description ?: item.description,
             genres = if (cachedForPersist.genres.isNotEmpty()) cachedForPersist.genres else item.genres,
-            imdbRating = cachedForPersist.rating?.toFloat() ?: item.imdbRating,
+            imdbRating = externalImdbRatingCache[item.id] ?: item.imdbRating,
             ageRating = cachedForPersist.ageRating ?: item.ageRating,
             status = cachedForPersist.status ?: item.status,
             runtime = cachedForPersist.runtimeMinutes?.toString() ?: item.runtime

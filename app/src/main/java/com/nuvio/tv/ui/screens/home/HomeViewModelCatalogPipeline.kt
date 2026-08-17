@@ -891,6 +891,18 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
     var reachedTerminalResult = false
 
     /*
+     * My List needs a genuine IMDb rating independently of the optional
+     * external-detail preference. Detect membership here on the existing
+     * proactive background path so no lookup is added to focus or scrolling.
+     */
+    val forceImdbRatingLookup =
+        synchronized(catalogsMap) {
+            catalogsMap[HomeViewModel.MY_LIST_CATALOG_KEY]
+                ?.items
+                ?.any { candidate -> candidate.id == item.id } == true
+        }
+
+    /*
      * External metadata is supplementary, but it must not remain unbounded.
      * This includes both a lookup started here and one already owned by a
      * focus/prefetch job.
@@ -922,7 +934,9 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
             10_000L
         ) {
             enrichMissingImdbFromExternalMeta(
-                item
+                item = item,
+                allowWhenPrefetchDisabledForImdbRating =
+                    forceImdbRatingLookup
             )
 
             while (
