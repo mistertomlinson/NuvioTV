@@ -857,6 +857,19 @@ _uiState.update { state ->
                     state
                 }
             }
+
+            val hydratedRecommendations =
+                tmdbMetadataService.hydrateGenuineImdbRatings(recommendations)
+
+            if (hydratedRecommendations != recommendations) {
+                _uiState.update { state ->
+                    if (state.meta == null || state.meta.id == meta.id) {
+                        state.copy(moreLikeThis = hydratedRecommendations)
+                    } else {
+                        state
+                    }
+                }
+            }
         }
     }
 
@@ -891,6 +904,18 @@ _uiState.update { state ->
 
             _uiState.update { state ->
                 state.copy(collection = filteredItems, collectionName = collectionName)
+            }
+
+            val hydratedItems =
+                tmdbMetadataService.hydrateGenuineImdbRatings(filteredItems)
+
+            if (hydratedItems != filteredItems) {
+                _uiState.update { state ->
+                    state.copy(
+                        collection = hydratedItems,
+                        collectionName = collectionName
+                    )
+                }
             }
         }
     }

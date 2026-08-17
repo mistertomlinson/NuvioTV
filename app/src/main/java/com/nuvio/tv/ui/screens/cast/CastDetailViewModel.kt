@@ -44,6 +44,20 @@ class CastDetailViewModel @Inject constructor(
                 )
                 if (detail != null) {
                     _uiState.value = CastDetailUiState.Success(detail)
+
+                    val movieCount = detail.movieCredits.size
+                    val allCredits = detail.movieCredits + detail.tvCredits
+                    val hydratedCredits =
+                        tmdbMetadataService.hydrateGenuineImdbRatings(allCredits)
+
+                    if (hydratedCredits != allCredits) {
+                        _uiState.value = CastDetailUiState.Success(
+                            detail.copy(
+                                movieCredits = hydratedCredits.take(movieCount),
+                                tvCredits = hydratedCredits.drop(movieCount)
+                            )
+                        )
+                    }
                 } else {
                     _uiState.value = CastDetailUiState.Error("Could not load details for $personName")
                 }

@@ -17,12 +17,15 @@ import com.nuvio.tv.domain.model.PosterShape
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
@@ -82,6 +85,14 @@ class TmdbMetadataService @Inject constructor(
     private val episodeInFlight = ConcurrentHashMap<String, CompletableDeferred<Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>>()
     private val personCache = ConcurrentHashMap<String, PersonDetail>()
     private val moreLikeThisCache = ConcurrentHashMap<String, List<MetaPreview>>()
+
+    /*
+     * Genuine IMDb hydration is used only by secondary Details/Cast rows.
+     * Keep it globally bounded so opening those screens cannot create an
+     * unbounded burst of TMDB-ID conversion and meta-addon requests.
+     */
+    private val imdbRatingHydrationSemaphore = Semaphore(4)
+    private val genuineImdbRatingCache = ConcurrentHashMap<String, Float>()
 
     suspend fun fetchEnrichment(
         tmdbId: String,
@@ -627,7 +638,7 @@ class TmdbMetadataService @Inject constructor(
                             logo = null,
                             description = rec.overview?.takeIf { it.isNotBlank() },
                             releaseInfo = releaseInfo,
-                            imdbRating = rec.voteAverage?.toFloat(),
+                            imdbRating = null,
                             genres = emptyList()
                         )
                     }
@@ -639,6 +650,68 @@ class TmdbMetadataService @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Failed to fetch recommendations for $tmdbId: ${e.message}")
             emptyList()
+        }
+    }
+
+    /**
+     * Fill only genuine addon-supplied IMDb ratings for TMDB-created previews.
+     *
+     * The caller may publish the original previews immediately, then replace
+     * the row once this bounded background batch completes. TMDB vote_average
+     * is deliberately never used here.
+     */
+    suspend fun hydrateGenuineImdbRatings(
+        items: List<MetaPreview>
+    ): List<MetaPreview> = withContext(Dispatchers.IO) {
+        if (items.isEmpty()) return@withContext items
+
+        coroutineScope {
+            items.map { item ->
+                async {
+                    if (item.imdbRating != null) return@async item
+
+                    imdbRatingHydrationSemaphore.withPermit {
+                        val tmdbNumericId = item.id
+                            .removePrefix("tmdb:")
+                            .substringBefore(":")
+                            .toIntOrNull()
+                            ?: return@withPermit item
+
+                        val ratingCacheKey = "${item.apiType}:$tmdbNumericId"
+                        genuineImdbRatingCache[ratingCacheKey]?.let { cached ->
+                            return@withPermit item.copy(imdbRating = cached)
+                        }
+
+                        val rating = withTimeoutOrNull(6_000L) {
+                            val imdbId = tmdbService.tmdbToImdb(
+                                tmdbId = tmdbNumericId,
+                                mediaType = item.apiType
+                            ) ?: return@withTimeoutOrNull null
+
+                            val result = metaRepository
+                                .getMetaFromAllAddons(
+                                    type = item.apiType,
+                                    id = imdbId
+                                )
+                                .first {
+                                    it is com.nuvio.tv.core.network.NetworkResult.Success ||
+                                        it is com.nuvio.tv.core.network.NetworkResult.Error
+                                }
+
+                            (result as? com.nuvio.tv.core.network.NetworkResult.Success)
+                                ?.data
+                                ?.imdbRating
+                        }
+
+                        if (rating != null) {
+                            genuineImdbRatingCache[ratingCacheKey] = rating
+                            item.copy(imdbRating = rating)
+                        } else {
+                            item
+                        }
+                    }
+                }
+            }.awaitAll()
         }
     }
 
@@ -694,7 +767,7 @@ class TmdbMetadataService @Inject constructor(
                             logo = null,
                             description = part.overview?.takeIf { it.isNotBlank() },
                             releaseInfo = releaseInfo,
-                            imdbRating = part.voteAverage?.toFloat(),
+                            imdbRating = null,
                             genres = emptyList()
                         )
                     }
@@ -833,7 +906,7 @@ class TmdbMetadataService @Inject constructor(
                     logo = null,
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
-                    imdbRating = credit.voteAverage?.toFloat(),
+                    imdbRating = null,
                     genres = emptyList()
                 )
             }
@@ -858,7 +931,7 @@ class TmdbMetadataService @Inject constructor(
                     logo = null,
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
-                    imdbRating = credit.voteAverage?.toFloat(),
+                    imdbRating = null,
                     genres = emptyList()
                 )
             }
@@ -883,7 +956,7 @@ class TmdbMetadataService @Inject constructor(
                     logo = null,
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
-                    imdbRating = credit.voteAverage?.toFloat(),
+                    imdbRating = null,
                     genres = emptyList()
                 )
             }
@@ -908,7 +981,7 @@ class TmdbMetadataService @Inject constructor(
                     logo = null,
                     description = credit.overview?.takeIf { it.isNotBlank() },
                     releaseInfo = year,
-                    imdbRating = credit.voteAverage?.toFloat(),
+                    imdbRating = null,
                     genres = emptyList()
                 )
             }

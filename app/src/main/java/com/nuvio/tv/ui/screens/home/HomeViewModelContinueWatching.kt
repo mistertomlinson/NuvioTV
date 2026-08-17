@@ -1694,7 +1694,7 @@ private suspend fun HomeViewModel.enrichInProgressItem(
             debug = debug
         )
     } else null
-    val imdbRating = tmdbData?.rating?.toFloat() ?: meta.imdbRating
+    val imdbRating = meta.imdbRating ?: item.episodeImdbRating
     val settings = currentTmdbSettings
     item.copy(
         progress = item.progress.copy(
@@ -1712,7 +1712,7 @@ private suspend fun HomeViewModel.enrichInProgressItem(
             ?: item.episodeDescription
         else video?.overview?.takeIf { it.isNotBlank() } ?: item.episodeDescription,
         episodeThumbnail = if (settings.useEpisodes) tmdbData?.thumbnail ?: video?.thumbnail.normalizeImageUrl() ?: item.episodeThumbnail else video?.thumbnail.normalizeImageUrl() ?: item.episodeThumbnail,
-        episodeImdbRating = if (settings.useBasicInfo) imdbRating else meta.imdbRating,
+        episodeImdbRating = imdbRating,
         genres = genres,
         releaseInfo = releaseInfo,
         contentLanguage = tmdbData?.contentLanguage
@@ -1812,7 +1812,7 @@ private suspend fun HomeViewModel.enrichNextUpItem(
         released = released,
         hasAired = hasAired,
         airDateLabel = if (hasAired || releaseDate == null) null else formatEpisodeAirDateLabel(releaseDate),
-        imdbRating = if (settings.useBasicInfo) tmdbData?.rating?.toFloat() ?: meta.imdbRating ?: item.info.imdbRating else meta.imdbRating ?: item.info.imdbRating,
+        imdbRating = meta.imdbRating ?: item.info.imdbRating,
         genres = meta.genres.take(3).ifEmpty { item.info.genres },
         releaseInfo = meta.releaseInfo?.takeIf { it.isNotBlank() } ?: item.info.releaseInfo,
         sortTimestamp = item.info.sortTimestamp,
