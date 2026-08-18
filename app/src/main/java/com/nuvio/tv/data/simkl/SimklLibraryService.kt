@@ -52,14 +52,18 @@ class SimklLibraryService @Inject constructor(
 
     override fun toggledDefaultMembership(
         currentMembership: Map<String, Boolean>
-    ): Map<String, Boolean> =
-        currentMembership.mapValues { false }.toMutableMap().apply {
-            if (currentMembership.values.none { selected -> selected }) {
-                this[simklLibraryStatusDefinitions.single {
-                    it.status == SimklListStatus.PLAN_TO_WATCH
-                }.key] = true
+    ): Map<String, Boolean> {
+        val planToWatchKey = simklLibraryStatusDefinitions.single {
+            it.status == SimklListStatus.PLAN_TO_WATCH
+        }.key
+        val isCurrentlyInMyList = currentMembership[planToWatchKey] == true
+
+        return currentMembership.mapValues { false }.toMutableMap().apply {
+            if (!isCurrentlyInMyList) {
+                this[planToWatchKey] = true
             }
         }
+    }
 
     override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {
         syncRepository.ensureLoaded()

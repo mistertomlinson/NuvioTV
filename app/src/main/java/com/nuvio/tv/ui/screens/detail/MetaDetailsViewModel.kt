@@ -298,11 +298,15 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            libraryRepository.isInLibrary(itemId = itemId, itemType = itemType)
+            libraryRepository.isInWatchlist(itemId = itemId, itemType = itemType)
                 .distinctUntilChanged()
-                .collectLatest { inLibrary ->
-_uiState.update { state ->
-                        if (state.isInLibrary == inLibrary) state else state.copy(isInLibrary = inLibrary)
+                .collectLatest { inWatchlist ->
+                    _uiState.update { state ->
+                        if (state.isInLibrary == inWatchlist) {
+                            state
+                        } else {
+                            state.copy(isInLibrary = inWatchlist)
+                        }
                     }
                 }
         }
@@ -1426,10 +1430,9 @@ _uiState.update { state ->
         viewModelScope.launch {
             val input = meta.toLibraryEntryInput()
             val wasInWatchlist = _uiState.value.isInWatchlist
-            val wasInLibrary = _uiState.value.isInLibrary
             runCatching {
                 libraryRepository.toggleDefaultWithSignal(input)
-                val message = if (wasInLibrary) {
+                val message = if (wasInWatchlist) {
                     context.getString(R.string.detail_removed_from_library)
                 } else {
                     context.getString(R.string.detail_added_to_library)
