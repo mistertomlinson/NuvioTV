@@ -257,16 +257,22 @@ fun HeroContentSection(
                 enter = fadeIn(tween(400)),
                 exit = fadeOut(tween(400))
             ) {
+                val genericPlayText = stringResource(R.string.hero_play)
+                val episodePlayText = stringResource(
+                    R.string.hero_play_episode,
+                    nextEpisode?.season ?: 0,
+                    nextEpisode?.episode ?: 0
+                )
+                val playButtonText = nextToWatch?.displayText
+                    ?: if (nextEpisode != null) episodePlayText else genericPlayText
+
                 Column {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         PlayButton(
-                            text = nextToWatch?.displayText ?: when {
-                                nextEpisode != null -> stringResource(R.string.hero_play_episode, nextEpisode.season ?: 0, nextEpisode.episode ?: 0)
-                                else -> stringResource(R.string.hero_play)
-                            },
+                            text = playButtonText,
                             onClick = onPlayClick,
                             onLongPress = onPlayLongPress,
                             focusRequester = playButtonFocusRequester,
