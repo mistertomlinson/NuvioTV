@@ -284,7 +284,7 @@ internal fun PlayerRuntimeController.emitScrobbleStop(
 internal fun PlayerRuntimeController.emitPauseScrobbleStop(
     progressPercent: Float
 ) {
-    if (progressPercent < 1f || progressPercent >= 80f) return
+    if (progressPercent >= 80f) return
 
     val item = currentScrobbleItem ?: return
     if (!hasRequestedScrobbleStartForCurrentItem) return
