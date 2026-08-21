@@ -855,17 +855,6 @@ fun PlayerScreen(
             AspectRatioIndicator(text = uiState.aspectRatioIndicatorText)
         }
 
-        AnimatedVisibility(
-            visible = uiState.showStreamSourceIndicator,
-            enter = fadeIn(animationSpec = tween(180)),
-            exit = fadeOut(animationSpec = tween(180)),
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .padding(top = 128.dp)
-        ) {
-            StreamSourceIndicator(text = uiState.streamSourceIndicatorText)
-        }
-
         // Seek-only overlay (progress bar + time) when controls are hidden
         AnimatedVisibility(
             visible = uiState.showSubtitleDelayOverlay &&
