@@ -43,9 +43,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
@@ -95,6 +97,7 @@ fun HeroContentSection(
     trailerAvailable: Boolean = false,
     onTrailerClick: () -> Unit = {},
     hideLogoDuringTrailer: Boolean = false,
+    mdbListEnabled: Boolean = false,
     mdbListRatings: MDBListRatings? = null,
     hideMetaInfoImdb: Boolean = false,
     isTrailerPlaying: Boolean = false,
@@ -117,10 +120,58 @@ fun HeroContentSection(
         }
     }
     var logoLoadFailed by remember(meta.logo) { mutableStateOf(false) }
+
+    val manualTrailerMode =
+        isTrailerPlaying && hideLogoDuringTrailer
+
+    // Stage 1: fade the logo/title in place without changing layout.
+    // Stage 2 begins only after that fade finishes.
+    val manualTrailerLogoAlpha =
+        remember { androidx.compose.animation.core.Animatable(1f) }
+
+    var manualTrailerExitStarted by remember {
+        mutableStateOf(false)
+    }
+
+    // Actual measured logo/title slot height. At the Stage-2 handoff this
+    // offsets the lower hero by exactly the amount it would otherwise jump.
+    var manualTrailerLogoHeightPx by remember {
+        mutableStateOf(0)
+    }
+
+    LaunchedEffect(manualTrailerMode) {
+        if (manualTrailerMode) {
+            manualTrailerExitStarted = false
+            manualTrailerLogoAlpha.snapTo(1f)
+            manualTrailerLogoAlpha.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(400)
+            )
+            if (isTrailerPlaying && hideLogoDuringTrailer) {
+                manualTrailerExitStarted = true
+            }
+        } else {
+            manualTrailerLogoAlpha.snapTo(1f)
+            manualTrailerExitStarted = false
+        }
+    }
+
+    // Keep the lower hero completely unchanged during the logo fade.
+    // Once Stage 2 starts, its ORIGINAL fadeOut(400) runs.
+    val showNormalHeroInfo =
+        !isTrailerPlaying ||
+            (manualTrailerMode && !manualTrailerExitStarted)
+
+    // Autoplay still adopts compact trailer geometry immediately.
+    // Manual trailer does so only after the logo has faded away.
+    val useTrailerLogoGeometry =
+        isTrailerPlaying &&
+            (!hideLogoDuringTrailer || manualTrailerExitStarted)
+
     val shouldShowLogo =
         !meta.logo.isNullOrBlank() &&
             !logoLoadFailed &&
-            !(isTrailerPlaying && hideLogoDuringTrailer)
+            !(manualTrailerMode && manualTrailerExitStarted)
     val libraryAddPainter = rememberRawSvgPainter(
         context = context,
         rawRes = com.nuvio.tv.R.raw.library_add_plus
@@ -146,17 +197,17 @@ fun HeroContentSection(
 
     // Animate logo properties for trailer mode
     val logoHeight by animateDpAsState(
-        targetValue = if (isTrailerPlaying) 60.dp else 100.dp,
+        targetValue = if (useTrailerLogoGeometry) 60.dp else 100.dp,
         animationSpec = tween(600),
         label = "logoHeight"
     )
     val logoBottomPadding by animateDpAsState(
-        targetValue = if (isTrailerPlaying) 24.dp else 16.dp,
+        targetValue = if (useTrailerLogoGeometry) 24.dp else 16.dp,
         animationSpec = tween(600),
         label = "logoPadding"
     )
     val logoMaxWidth by animateFloatAsState(
-        targetValue = if (isTrailerPlaying) 0.25f else 0.4f,
+        targetValue = if (useTrailerLogoGeometry) 0.25f else 0.4f,
         animationSpec = tween(600),
         label = "logoWidth"
     )
@@ -183,6 +234,15 @@ fun HeroContentSection(
                     modifier = Modifier
                         .height(logoHeight)
                         .fillMaxWidth(logoMaxWidth)
+                        .onSizeChanged { manualTrailerLogoHeightPx = it.height }
+                        .graphicsLayer {
+                            alpha =
+                                if (manualTrailerMode) {
+                                    manualTrailerLogoAlpha.value
+                                } else {
+                                    1f
+                                }
+                        }
                         .padding(bottom = logoBottomPadding),
                     contentScale = ContentScale.Fit,
                     alignment = Alignment.CenterStart
@@ -190,7 +250,9 @@ fun HeroContentSection(
             } else {
                 // Text title hides entirely during trailer
                 AnimatedVisibility(
-                    visible = !isTrailerPlaying,
+                    visible =
+                        !isTrailerPlaying ||
+                            (manualTrailerMode && !manualTrailerExitStarted),
                     enter = fadeIn(tween(400)),
                     exit = fadeOut(tween(400))
                 ) {
@@ -207,6 +269,15 @@ fun HeroContentSection(
                         modifier = Modifier
                             .fillMaxWidth(logoMaxWidth * 0.72f)
                             .height(logoHeight)
+                            .onSizeChanged { manualTrailerLogoHeightPx = it.height }
+                            .graphicsLayer {
+                                alpha =
+                                    if (manualTrailerMode) {
+                                        manualTrailerLogoAlpha.value
+                                    } else {
+                                        1f
+                                    }
+                            }
                             .padding(bottom = 8.dp),
                         factory = { ctx ->
                             android.widget.TextView(ctx).apply {
@@ -253,7 +324,15 @@ fun HeroContentSection(
 
             // Everything below the logo fades out during trailer
             AnimatedVisibility(
-                visible = !isTrailerPlaying,
+                visible = showNormalHeroInfo,
+                modifier = Modifier.graphicsLayer {
+                    translationY =
+                        if (manualTrailerMode && manualTrailerExitStarted) {
+                            manualTrailerLogoHeightPx.toFloat()
+                        } else {
+                            0f
+                        }
+                },
                 enter = fadeIn(tween(400)),
                 exit = fadeOut(tween(400))
             ) {
@@ -342,8 +421,18 @@ fun HeroContentSection(
                         Spacer(modifier = Modifier.height(12.dp))
                     }
 
-                    if (mdbListRatings?.isEmpty() == false) {
-                        MDBListRatingsRow(ratings = mdbListRatings)
+                    if (mdbListEnabled) {
+                        // The real ratings row is 24dp tall. Reserve that
+                        // geometry immediately so asynchronous MDBList arrival
+                        // cannot change the hero's measured height.
+                        Box(
+                            modifier = Modifier.height(24.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            if (mdbListRatings?.isEmpty() == false) {
+                                MDBListRatingsRow(ratings = mdbListRatings)
+                            }
+                        }
                         Spacer(modifier = Modifier.height(14.dp))
                     }
 

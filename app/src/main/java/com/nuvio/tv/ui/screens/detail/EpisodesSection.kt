@@ -89,7 +89,8 @@ fun SeasonTabs(
     onSeasonSelected: (Int) -> Unit,
     onSeasonLongPress: (Int) -> Unit = {},
     selectedTabFocusRequester: FocusRequester,
-    downFocusRequester: FocusRequester? = null
+    downFocusRequester: FocusRequester? = null,
+    suppressFocusRestore: Boolean = false
 ) {
     // Move season 0 (specials) to the end
     val sortedSeasons = remember(seasons) {
@@ -124,7 +125,13 @@ fun SeasonTabs(
     LazyRow(
         modifier = Modifier
             .fillMaxWidth()
-            .focusRestorer(selectedTabFocusRequester),
+            .then(
+                if (suppressFocusRestore) {
+                    Modifier
+                } else {
+                    Modifier.focusRestorer(selectedTabFocusRequester)
+                }
+            ),
         state = lazyListState,
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 24.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -145,6 +152,9 @@ fun SeasonTabs(
                 modifier = Modifier
                     .then(if (isSelected) Modifier.focusRequester(selectedTabFocusRequester) else Modifier)
                     .focusProperties {
+                        // Do not allow a season pill to transiently take focus
+                        // while focus is being restored to an episode.
+                        canFocus = !suppressFocusRestore
                         if (isSelected && downFocusRequester != null) {
                             down = downFocusRequester
                         }
@@ -224,6 +234,7 @@ fun EpisodesRow(
     upFocusRequester: FocusRequester,
     downFocusRequester: FocusRequester? = null,
     episodeFocusRequesters: MutableMap<String, FocusRequester> = mutableMapOf(),
+    initialEpisodeId: String? = null,
     restoreEpisodeId: String? = null,
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
@@ -236,7 +247,46 @@ fun EpisodesRow(
     val cardMetrics = rememberEpisodeCardMetrics()
     val density = LocalDensity.current
     val rowPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
-    val lazyListState = rememberLazyListState(prefetchStrategy = rowPrefetchStrategy)
+
+    val initialEpisodeIndex = remember(dedupedEpisodes, initialEpisodeId) {
+        if (initialEpisodeId.isNullOrBlank()) {
+            -1
+        } else {
+            dedupedEpisodes.indexOfFirst { it.id == initialEpisodeId }
+        }
+    }
+
+    // Match the existing scrollToItem(index, -offsetPx) landing geometry
+    // without visibly scrolling there after the row has appeared.
+    //
+    // For index > 0:
+    // previous-item scroll offset =
+    // cardWidth + spacing - (2/3 cardWidth - spacing)
+    // = 1/3 cardWidth + 2 * spacing.
+    val initialHorizontalScrollOffsetPx = remember(
+        initialEpisodeIndex,
+        density,
+        cardMetrics
+    ) {
+        if (initialEpisodeIndex <= 0) {
+            0
+        } else {
+            with(density) {
+                (
+                    cardMetrics.cardWidth / 3f +
+                        cardMetrics.itemSpacing * 2f
+                ).roundToPx()
+            }
+        }
+    }
+
+    val lazyListState = rememberLazyListState(
+        initialFirstVisibleItemIndex =
+            if (initialEpisodeIndex > 0) initialEpisodeIndex - 1 else 0,
+        initialFirstVisibleItemScrollOffset = initialHorizontalScrollOffsetPx,
+        prefetchStrategy = rowPrefetchStrategy
+    )
+
     var lastHorizontalKeyRepeatTime by remember { mutableStateOf(0L) }
     val episodeIds = remember(dedupedEpisodes) { dedupedEpisodes.mapTo(mutableSetOf()) { it.id } }
     val context = LocalContext.current
@@ -254,11 +304,20 @@ fun EpisodesRow(
     LaunchedEffect(restoreFocusToken, restoreEpisodeId, restoreTargetRequester, dedupedEpisodes) {
         if (restoreFocusToken <= 0 || restoreEpisodeId.isNullOrBlank()) return@LaunchedEffect
         if (dedupedEpisodes.none { it.id == restoreEpisodeId }) return@LaunchedEffect
+
         val index = dedupedEpisodes.indexOfFirst { it.id == restoreEpisodeId }
         if (index >= 0) {
-            val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
-            lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
+            val targetAlreadyVisible =
+                lazyListState.layoutInfo.visibleItemsInfo.any { it.index == index }
+
+            if (!targetAlreadyVisible) {
+                val offsetPx = with(density) {
+                    (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx()
+                }
+                lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
+            }
         }
+
         restoreTargetRequester?.requestFocusAfterFrames()
     }
 
@@ -327,6 +386,10 @@ fun EpisodesRow(
                 downFocusRequester = downFocusRequester,
                 imdbLogoRequest = imdbLogoRequest,
                 focusRequester = episodeFocusRequester,
+                canFocus =
+                    restoreFocusToken <= 0 ||
+                        restoreEpisodeId.isNullOrBlank() ||
+                        isRestoreTarget,
                 onFocused = episodeOnFocused,
                 onFocusRestored = episodeOnFocusRestored
             )
@@ -397,6 +460,7 @@ private fun EpisodeCard(
     upFocusRequester: FocusRequester,
     downFocusRequester: FocusRequester? = null,
     focusRequester: FocusRequester,
+    canFocus: Boolean = true,
     onFocused: (() -> Unit)? = null,
     onFocusRestored: (() -> Unit)? = null
 ) {
@@ -558,6 +622,10 @@ private fun EpisodeCard(
                 false
             }
             .focusProperties {
+                // During player return, only the episode being restored may
+                // accept focus. This prevents a neighboring card from taking
+                // transient focus and nudging the LazyRow horizontally.
+                this.canFocus = canFocus
                 up = upFocusRequester
                 if (downFocusRequester != null) {
                     down = downFocusRequester
@@ -937,7 +1005,7 @@ fun SeasonOptionsDialog(
     }
 }
 
-private data class EpisodeCardMetrics(
+internal data class EpisodeCardMetrics(
     val rowHorizontalPadding: Dp,
     val rowVerticalPadding: Dp,
     val itemSpacing: Dp,
@@ -963,7 +1031,7 @@ private data class EpisodeCardMetrics(
 )
 
 @Composable
-private fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
+internal fun rememberEpisodeCardMetrics(): EpisodeCardMetrics {
     val screenWidthDp = LocalConfiguration.current.screenWidthDp
     return remember(screenWidthDp) {
         when {

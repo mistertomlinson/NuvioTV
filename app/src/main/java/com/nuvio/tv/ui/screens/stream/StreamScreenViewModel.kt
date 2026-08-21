@@ -131,7 +131,12 @@ class StreamScreenViewModel @Inject constructor(
             episodeName = episodeName,
             runtime = runtime,
             genres = genres,
-            year = year
+            year = year,
+            // A normal Play request may resolve directly to playback. Cover the
+            // Stream destination from its very first composition so its manual
+            // selection shell cannot flash before autoplay state initializes.
+            // Explicit manual-selection requests remain unchanged.
+            showDirectAutoPlayOverlay = !manualSelection
         )
     )
     val uiState: StateFlow<StreamScreenUiState> = _uiState.asStateFlow()

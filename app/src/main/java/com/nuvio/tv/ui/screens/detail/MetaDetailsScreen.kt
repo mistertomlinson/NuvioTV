@@ -84,6 +84,7 @@ import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.LibraryListTab
@@ -386,6 +387,7 @@ fun MetaDetailsScreen(
                     episodeImdbRatings = uiState.episodeImdbRatings,
                     isEpisodeRatingsLoading = uiState.isEpisodeRatingsLoading,
                     episodeRatingsError = uiState.episodeRatingsError,
+                    mdbListEnabled = uiState.mdbListEnabled,
                     mdbListRatings = uiState.mdbListRatings,
                     showMdbListImdb = uiState.showMdbListImdb,
                     comments = uiState.comments,
@@ -634,6 +636,7 @@ private fun MetaDetailsContent(
     episodeImdbRatings: Map<Pair<Int, Int>, Double>,
     isEpisodeRatingsLoading: Boolean,
     episodeRatingsError: String?,
+    mdbListEnabled: Boolean,
     mdbListRatings: MDBListRatings?,
     showMdbListImdb: Boolean,
     comments: List<TraktCommentReview> = emptyList(),
@@ -707,7 +710,103 @@ private fun MetaDetailsContent(
         byId ?: bySeasonEpisode ?: defaultSeriesVideo ?: nextEpisode
     }
     val nestedPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
-    val listState = rememberLazyListState(prefetchStrategy = nestedPrefetchStrategy)
+
+    // A newly-created Detail destination reached from Player has no saved
+    // vertical viewport. Start it where normal episode focus would place it,
+    // instead of first rendering at 0/0 and correcting visibly afterward.
+    //
+    // This is fully runtime/device dependent. It uses the current viewport,
+    // density/font scale, responsive episode-card metrics, and the same 42%
+    // focus pivot used by NuvioScrollDefaults.smoothScrollSpec.
+    val initialEpisodeReturnConfiguration = LocalConfiguration.current
+    val initialEpisodeReturnDensity = LocalDensity.current
+    val initialEpisodeReturnCardMetrics = rememberEpisodeCardMetrics()
+    val initialEpisodeReturnSeasonTextStyle =
+        MaterialTheme.typography.titleMedium
+    val initialEpisodeReturnSeasonText =
+        if (selectedSeason == 0) {
+            stringResource(R.string.episodes_specials)
+        } else {
+            stringResource(R.string.episodes_season, selectedSeason)
+        }
+    val initialEpisodeReturnTextMeasurer = rememberTextMeasurer()
+    val initialEpisodeReturnSeasonTextHeightPx = remember(
+        initialEpisodeReturnSeasonText,
+        initialEpisodeReturnSeasonTextStyle,
+        initialEpisodeReturnTextMeasurer
+    ) {
+        initialEpisodeReturnTextMeasurer.measure(
+            text = initialEpisodeReturnSeasonText,
+            style = initialEpisodeReturnSeasonTextStyle,
+            maxLines = 1
+        ).size.height
+    }
+
+    val hasFreshNavigationEpisodeReturn =
+        isSeries &&
+            seasons.isNotEmpty() &&
+            detailReturnEpisodeFocusRequest?.season != null &&
+            detailReturnEpisodeFocusRequest.episode != null
+
+    val initialFreshReturnEpisodeId = remember(
+        hasFreshNavigationEpisodeReturn,
+        detailReturnEpisodeFocusRequest,
+        episodesForSeason
+    ) {
+        if (!hasFreshNavigationEpisodeReturn) {
+            null
+        } else {
+            val requestedSeason = detailReturnEpisodeFocusRequest?.season
+            val requestedEpisode = detailReturnEpisodeFocusRequest?.episode
+            episodesForSeason.firstOrNull { video ->
+                video.season == requestedSeason &&
+                    video.episode == requestedEpisode
+            }?.id
+        }
+    }
+
+    val initialEpisodeReturnScrollOffsetPx = remember(
+        hasFreshNavigationEpisodeReturn,
+        initialEpisodeReturnConfiguration.screenHeightDp,
+        initialEpisodeReturnDensity,
+        initialEpisodeReturnCardMetrics,
+        initialEpisodeReturnSeasonTextHeightPx
+    ) {
+        if (!hasFreshNavigationEpisodeReturn) {
+            0
+        } else {
+            with(initialEpisodeReturnDensity) {
+                val heroHeightPx = 540.dp.toPx()
+
+                // SeasonTabs:
+                // 24dp row top + 24dp row bottom +
+                // 10dp card top + 10dp card bottom +
+                // runtime titleMedium line height.
+                val seasonTabsHeightPx =
+                    68.dp.toPx() + initialEpisodeReturnSeasonTextHeightPx
+
+                // Center of the episode card in the unscrolled Detail column.
+                val episodeCenterPx =
+                    heroHeightPx +
+                        seasonTabsHeightPx +
+                        initialEpisodeReturnCardMetrics.rowVerticalPadding.toPx() +
+                        initialEpisodeReturnCardMetrics.cardHeight.toPx() / 2f
+
+                val viewportHeightPx =
+                    initialEpisodeReturnConfiguration.screenHeightDp.dp.toPx()
+
+                kotlin.math.round(
+                    episodeCenterPx - viewportHeightPx * 0.42f
+                ).toInt().coerceAtLeast(0)
+            }
+        }
+    }
+
+    val listState = rememberLazyListState(
+        initialFirstVisibleItemIndex = 0,
+        initialFirstVisibleItemScrollOffset = initialEpisodeReturnScrollOffsetPx,
+        prefetchStrategy = nestedPrefetchStrategy
+    )
     // Suppress auto-scroll when hero buttons get focus
     val heroNoScrollResponder = remember {
         object : BringIntoViewResponder {
@@ -768,6 +867,13 @@ private fun MetaDetailsContent(
         pendingRestoreMoreLikeItemId = null
     }
 
+    fun markEpisodePlaybackRestore(episodeId: String) {
+        // A completed restore leaves a non-zero token behind. Re-arm it so
+        // selecting another episode cannot restore focus before playback returns.
+        restoreFocusToken = 0
+        markEpisodeRestore(episodeId)
+    }
+
     fun markCastMemberRestore(personId: Int) {
         pendingRestoreType = RestoreTarget.CAST_MEMBER
         pendingRestoreEpisodeId = null
@@ -800,10 +906,22 @@ private fun MetaDetailsContent(
         pendingRestoreCollectionItemId
     ) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME && pendingRestoreType != null) {
+            if (
+                event == Lifecycle.Event.ON_START &&
+                pendingRestoreType == RestoreTarget.EPISODE
+            ) {
+                restoreFocusToken += 1
+            }
+
+            if (
+                event == Lifecycle.Event.ON_RESUME &&
+                pendingRestoreType != null &&
+                pendingRestoreType != RestoreTarget.EPISODE
+            ) {
                 restoreFocusToken += 1
             }
         }
+
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
@@ -828,6 +946,17 @@ private fun MetaDetailsContent(
             initialDetailReturnFocusHandled = true
             return@LaunchedEffect
         }
+        // Preserve the focus target recorded by the existing Detail screen.
+        // Navigation-provided episode focus is only a fallback when no playback
+        // launch origin survived on this Detail destination.
+        if (
+            pendingRestoreType == RestoreTarget.HERO ||
+            pendingRestoreType == RestoreTarget.EPISODE
+        ) {
+            initialDetailReturnFocusHandled = true
+            return@LaunchedEffect
+        }
+
         if (nextToWatch == null) return@LaunchedEffect
 
         val targetEpisode = resolveDetailReturnEpisodeFocusTarget(
@@ -846,11 +975,9 @@ private fun MetaDetailsContent(
         // Prevent the default hero autofocus from stealing focus after the episode restore completes.
         initialHeroFocusRequested = true
         markEpisodeRestore(targetEpisode.id)
-        if (seasons.isNotEmpty()) {
-            // Ensure the episodes row is composed before requesting focus on a card.
-            listState.scrollToItem(2)
-            delay(32)
-        }
+        // Fresh Player -> Detail returns are already pre-positioned by the
+        // initial LazyListState. Existing Detail destinations retain their
+        // previously saved viewport.
         restoreFocusToken += 1
     }
 
@@ -1052,13 +1179,13 @@ private fun MetaDetailsContent(
 
     val episodeClick = remember(onEpisodeClick) {
         { video: Video ->
-            markEpisodeRestore(video.id)
+            markEpisodePlaybackRestore(video.id)
             onEpisodeClick(video)
         }
     }
     val episodeManualClick = remember(onEpisodeManualPlayClick) {
         { video: Video ->
-            markEpisodeRestore(video.id)
+            markEpisodePlaybackRestore(video.id)
             onEpisodeManualPlayClick(video)
         }
     }
@@ -1222,6 +1349,7 @@ private fun MetaDetailsContent(
                         isMovieWatched = isMovieWatched,
                         isMovieWatchedPending = isMovieWatchedPending,
                         onToggleMovieWatched = onToggleMovieWatched,
+                        mdbListEnabled = mdbListEnabled,
                         mdbListRatings = mdbListRatings,
                         hideMetaInfoImdb = true,
                         trailerAvailable = trailerButtonEnabled && !trailerUrl.isNullOrBlank(),
@@ -1259,12 +1387,28 @@ private fun MetaDetailsContent(
                             onSeasonSelected = onSeasonSelected,
                             onSeasonLongPress = { seasonOptionsDialogSeason = it },
                             selectedTabFocusRequester = selectedSeasonFocusRequester,
-                            downFocusRequester = seasonDownFocusRequester
+                            downFocusRequester = seasonDownFocusRequester,
+                            suppressFocusRestore = pendingRestoreType == RestoreTarget.EPISODE
                         )
                     }
                 }
                 item(key = "episodes_$selectedSeason", contentType = "episodes") {
-                    Box(modifier = Modifier.bringIntoViewResponder(noVerticalScrollResponder)) {
+                    val episodeReturnFocusRestoreActive =
+                        pendingRestoreType == RestoreTarget.EPISODE &&
+                            restoreFocusToken > 0
+
+                    Box(
+                        modifier = Modifier.bringIntoViewResponder(
+                            if (episodeReturnFocusRestoreActive) {
+                                // The episode is already visible when returning
+                                // from playback. Restoring its focus must not
+                                // reposition the parent Detail LazyColumn.
+                                heroNoScrollResponder
+                            } else {
+                                noVerticalScrollResponder
+                            }
+                        )
+                    ) {
                         EpisodesRow(
                             episodes = episodesForSeason,
                             episodeProgressMap = episodeProgressMap,
@@ -1284,6 +1428,7 @@ private fun MetaDetailsContent(
                             upFocusRequester = selectedSeasonFocusRequester,
                             downFocusRequester = episodesDownFocusRequester,
                             episodeFocusRequesters = seasonEpisodeFocusRequesters,
+                            initialEpisodeId = initialFreshReturnEpisodeId,
                             restoreEpisodeId = if (pendingRestoreType == RestoreTarget.EPISODE) pendingRestoreEpisodeId else null,
                             restoreFocusToken = if (pendingRestoreType == RestoreTarget.EPISODE) restoreFocusToken else 0,
                             onRestoreFocusHandled = {
@@ -1292,7 +1437,11 @@ private fun MetaDetailsContent(
                             onEpisodeFocused = { episodeId ->
                                 lastFocusedEpisodeIdBySeason[selectedSeason] = episodeId
                             },
-                            scrollToEpisodeId = if (lastFocusedEpisodeIdBySeason[selectedSeason] == null && pendingRestoreType != RestoreTarget.EPISODE) {
+                            scrollToEpisodeId = if (
+                                !hasFreshNavigationEpisodeReturn &&
+                                lastFocusedEpisodeIdBySeason[selectedSeason] == null &&
+                                pendingRestoreType != RestoreTarget.EPISODE
+                            ) {
                                 nextToWatch?.nextVideoId
                                     ?: nextToWatch?.let { ntw -> episodesForSeason.firstOrNull { it.season == ntw.nextSeason && it.episode == ntw.nextEpisode }?.id }
                                     ?: defaultSeriesVideo?.id?.takeIf { defaultId -> episodesForSeason.any { it.id == defaultId } }

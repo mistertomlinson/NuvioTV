@@ -470,6 +470,7 @@ class MetaDetailsViewModel @Inject constructor(
                     episodeImdbRatings = emptyMap(),
                     isEpisodeRatingsLoading = false,
                     episodeRatingsError = null,
+                    mdbListEnabled = false,
                     mdbListRatings = null,
                     showMdbListImdb = false,
                     moreLikeThis = emptyList(),
@@ -613,10 +614,33 @@ class MetaDetailsViewModel @Inject constructor(
         loadMoreLikeThisAsync(metaWithOriginal)
         val enriched = enrichMeta(metaWithOriginal)
         android.util.Log.d("BackdropDebug", "after enrichment: background=${enriched.background} detailBackdrop=${enriched.detailBackdrop} originalBackground=${enriched.originalBackground}")
+        // Resolve MDBList state before Details becomes visible.
+        // MDBList-specific layout exists only when the integration is enabled,
+        // configured with an API key, and has at least one provider enabled.
+        val mdbListSettings = mdbListRepository.settingsFlow().first()
+        val mdbListEnabled =
+            mdbListSettings.enabled &&
+                mdbListSettings.apiKey.isNotBlank() &&
+                (
+                    mdbListSettings.showTrakt ||
+                        mdbListSettings.showImdb ||
+                        mdbListSettings.showTmdb ||
+                        mdbListSettings.showLetterboxd ||
+                        mdbListSettings.showTomatoes ||
+                        mdbListSettings.showAudience ||
+                        mdbListSettings.showMetacritic
+                )
+
+        _uiState.update { state ->
+            state.copy(mdbListEnabled = mdbListEnabled)
+        }
+
         applyMeta(enriched)
         // Episode ratings and MDBList are independent — launch both without waiting.
         loadEpisodeRatingsAsync(enriched)
-        viewModelScope.launch { loadMDBListRatings(enriched) }
+        if (mdbListEnabled) {
+            viewModelScope.launch { loadMDBListRatings(enriched) }
+        }
     }
 
 
