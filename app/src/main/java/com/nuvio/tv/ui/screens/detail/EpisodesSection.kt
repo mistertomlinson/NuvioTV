@@ -246,7 +246,34 @@ fun EpisodesRow(
     var optionsEpisode by remember { mutableStateOf<Video?>(null) }
     val cardMetrics = rememberEpisodeCardMetrics()
     val density = LocalDensity.current
+    val screenWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
     val rowPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
+
+    val viewportWidthPx = remember(screenWidthDp, density) {
+        with(density) { screenWidthDp.dp.roundToPx() }
+    }
+    val episodeCardWidthPx = remember(cardMetrics.cardWidth, density) {
+        with(density) { cardMetrics.cardWidth.roundToPx() }
+    }
+    val episodeItemSpacingPx = remember(cardMetrics.itemSpacing, density) {
+        with(density) { cardMetrics.itemSpacing.roundToPx() }
+    }
+    val rowHorizontalPaddingPx = remember(cardMetrics.rowHorizontalPadding, density) {
+        with(density) { cardMetrics.rowHorizontalPadding.roundToPx() }
+    }
+
+    // Match the global NuvioScrollDefaults 42% focus pivot exactly.
+    val episodeFocusOffsetPx = remember(
+        viewportWidthPx,
+        episodeCardWidthPx,
+        rowHorizontalPaddingPx
+    ) {
+        kotlin.math.round(
+            viewportWidthPx * 0.42f -
+                episodeCardWidthPx / 2f -
+                rowHorizontalPaddingPx
+        ).toInt()
+    }
 
     val initialEpisodeIndex = remember(dedupedEpisodes, initialEpisodeId) {
         if (initialEpisodeId.isNullOrBlank()) {
@@ -256,27 +283,22 @@ fun EpisodesRow(
         }
     }
 
-    // Match the existing scrollToItem(index, -offsetPx) landing geometry
-    // without visibly scrolling there after the row has appeared.
-    //
-    // For index > 0:
-    // previous-item scroll offset =
-    // cardWidth + spacing - (2/3 cardWidth - spacing)
-    // = 1/3 cardWidth + 2 * spacing.
+    // Pre-position the previous item so the restored episode is already
+    // centered on the same 42% pivot before focus is restored.
     val initialHorizontalScrollOffsetPx = remember(
         initialEpisodeIndex,
-        density,
-        cardMetrics
+        episodeCardWidthPx,
+        episodeItemSpacingPx,
+        episodeFocusOffsetPx
     ) {
         if (initialEpisodeIndex <= 0) {
             0
         } else {
-            with(density) {
-                (
-                    cardMetrics.cardWidth / 3f +
-                        cardMetrics.itemSpacing * 2f
-                ).roundToPx()
-            }
+            (
+                episodeCardWidthPx +
+                    episodeItemSpacingPx -
+                    episodeFocusOffsetPx
+            ).coerceAtLeast(0)
         }
     }
 
@@ -311,10 +333,10 @@ fun EpisodesRow(
                 lazyListState.layoutInfo.visibleItemsInfo.any { it.index == index }
 
             if (!targetAlreadyVisible) {
-                val offsetPx = with(density) {
-                    (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx()
-                }
-                lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
+                lazyListState.scrollToItem(
+                    index,
+                    scrollOffset = -episodeFocusOffsetPx
+                )
             }
         }
 
@@ -325,8 +347,10 @@ fun EpisodesRow(
         if (scrollToEpisodeId.isNullOrBlank()) return@LaunchedEffect
         val index = dedupedEpisodes.indexOfFirst { it.id == scrollToEpisodeId }
         if (index < 0) return@LaunchedEffect
-        val offsetPx = with(density) { (cardMetrics.cardWidth * 2f / 3f - cardMetrics.itemSpacing).roundToPx() }
-        lazyListState.scrollToItem(index, scrollOffset = -offsetPx)
+        lazyListState.scrollToItem(
+            index,
+            scrollOffset = -episodeFocusOffsetPx
+        )
     }
 
     LazyRow(
