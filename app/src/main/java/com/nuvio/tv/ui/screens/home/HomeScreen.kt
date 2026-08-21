@@ -815,6 +815,23 @@ private fun ModernHomeRoute(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
+    val homeReturnCurtainAlpha = remember {
+        androidx.compose.animation.core.Animatable(1f)
+    }
+    var showHomeReturnCurtain by remember {
+        mutableStateOf(true)
+    }
+
+    LaunchedEffect(Unit) {
+        homeReturnCurtainAlpha.animateTo(
+            targetValue = 0f,
+            animationSpec = androidx.compose.animation.core.tween(
+                durationMillis = 350
+            )
+        )
+        showHomeReturnCurtain = false
+    }
+
     val carouselAlpha by androidx.compose.animation.core.animateFloatAsState(
         targetValue = if (carouselReady && aggregatePlatformsEnabled && !isHeroTrailerPlaying) 1f else 0f,
         animationSpec = androidx.compose.animation.core.tween(400),
@@ -902,6 +919,17 @@ private fun ModernHomeRoute(
             .padding(top = 8.dp, end = if (fullWidthIconRowEnabled) 0.dp else 20.dp, start = if (fullWidthIconRowEnabled) 20.dp else 0.dp)
             .graphicsLayer { alpha = carouselAlpha }
     )
+    if (showHomeReturnCurtain) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = homeReturnCurtainAlpha.value
+                }
+                .background(NuvioColors.Background)
+        )
+    }
+
     } // end Box
 }
 

@@ -1963,18 +1963,8 @@ fun ModernHomeContent(
                 },
             label = "heroBackdropTrailerCrossfadeProgress"
         )
-        // Entrance fade: on (re)composition of the home content (e.g. returning
-        // from a detail screen), fade the hero backdrop in from transparent so the
-        // home screen fades in on top of whatever is behind it, rather than popping.
-        // Runs once per mount; multiplied into the trailer-driven alpha so it does
-        // not disturb the trailer crossfade.
-        val heroEntranceAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
-        LaunchedEffect(Unit) {
-            heroEntranceAlpha.animateTo(1f, animationSpec = tween(durationMillis = 400))
-        }
         val heroBackdropAlpha =
-            (1f - heroTransitionProgress) *
-                heroEntranceAlpha.value
+            1f - heroTransitionProgress
         val heroTrailerAlpha =
             heroTransitionProgress
 
@@ -3303,22 +3293,28 @@ fun ModernHomeContent(
                             ?: 0
 
                     /*
-                     * Keep the active row and one row on either side fully
-                     * interactive. Distant loaded rows become static poster
-                     * strips while retaining identical outer dimensions.
+                     * Keep one row above, the active row, and two rows below
+                     * fully interactive. The extra forward row ensures that
+                     * when focus moves down, the newly exposed row beneath it
+                     * is already using the full renderer.
                      *
+                     * Distant loaded rows remain static poster strips.
                      * Skeleton/enrichment-gated rows remain on the existing
                      * renderer so launch gating and skeleton focus behavior
                      * are unchanged.
                      */
+                    val rendererDistance =
+                        rowIndex - fullRendererAnchorIndex
+
                     val renderLightweight =
                         row.key != "continue_watching" &&
                             row.items.isNotEmpty() &&
                             row.enrichmentReady &&
                             pendingRowFocus.key != row.key &&
-                            kotlin.math.abs(
-                                rowIndex - fullRendererAnchorIndex
-                            ) > 1
+                            (
+                                rendererDistance < -1 ||
+                                    rendererDistance > 2
+                            )
 
                     val stableOnContinueWatchingOptions = remember(Unit) {
                         { item: ContinueWatchingItem -> optionsItem = item }
