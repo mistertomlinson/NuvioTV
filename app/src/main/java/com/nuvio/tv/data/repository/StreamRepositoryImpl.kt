@@ -9,6 +9,7 @@ import com.nuvio.tv.core.debrid.DebridStreamPresentation
 import com.nuvio.tv.core.debrid.LocalDebridAvailabilityService
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.streams.StreamBadgePresentation
+import com.nuvio.tv.core.tmdb.TmdbMetadataService
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.api.AddonApi
@@ -22,10 +23,12 @@ import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.StreamBehaviorHints
 import com.nuvio.tv.domain.model.enabledAddons
 import com.nuvio.tv.domain.repository.AddonRepository
+import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.StreamRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -43,6 +46,8 @@ class StreamRepositoryImpl @Inject constructor(
     private val addonRepository: AddonRepository,
     private val pluginManager: PluginManager,
     private val tmdbService: TmdbService,
+    private val tmdbMetadataService: TmdbMetadataService,
+    private val metaRepository: MetaRepository,
     private val debridStreamPresentation: DebridStreamPresentation,
     private val streamBadgePresentation: StreamBadgePresentation,
     private val localDebridAvailabilityService: LocalDebridAvailabilityService
@@ -58,25 +63,49 @@ class StreamRepositoryImpl @Inject constructor(
         val detail: String
     )
 
+    private val seasonZeroCandidateCache =
+        java.util.concurrent.ConcurrentHashMap<String, List<String>>()
+
     override fun getStreamsFromAllAddons(
         type: String,
         videoId: String,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        seriesTitle: String?,
+        episodeTitle: String?
     ): Flow<NetworkResult<List<AddonStreams>>> = flow {
         emit(NetworkResult.Loading)
 
         try {
             val addons = addonRepository.getInstalledAddons().first().enabledAddons()
-            
-            // Filter addons that support streams for this type and id
-            val streamAddons = addons.filter { addon ->
-                addon.supportsStreamResource(type, videoId)
-            }
 
-            // Convert IMDB ID to TMDB ID if needed for plugins
+            // Convert once for local plugins and Season-0 metadata resolution.
             val tmdbId = tmdbService.ensureTmdbId(videoId, type)
             Log.d(TAG, "Video ID: $videoId -> TMDB ID: $tmdbId (type: $type)")
+
+            // Season 1+ keeps the exact existing single-ID behavior.
+            // Season 0 resolves title-matched alternate numbering first.
+            val candidateVideoIds = if (
+                season == 0 &&
+                !episodeTitle.isNullOrBlank()
+            ) {
+                resolveSeasonZeroVideoIds(
+                    type = type,
+                    videoId = videoId,
+                    tmdbId = tmdbId,
+                    seriesTitle = seriesTitle,
+                    episodeTitle = episodeTitle
+                )
+            } else {
+                listOf(videoId)
+            }
+
+            val streamAddons = addons.filter { addon ->
+                candidateVideoIds.any { candidateId ->
+                    addon.supportsStreamResource(type, candidateId)
+                }
+            }
+
             val pluginRequest = buildPluginRequest(tmdbId, type, videoId)
             val attemptedAddonNames = streamAddons.map { it.displayName }
             val attemptedFailures = java.util.Collections.synchronizedList(
@@ -99,7 +128,20 @@ class StreamRepositoryImpl @Inject constructor(
                 streamAddons.forEach { addon ->
                     launch {
                         try {
-                            val streamsResult = getStreamsFromAddon(addon.baseUrl, type, videoId)
+                            val streamsResult = if (
+                                season == 0 &&
+                                !episodeTitle.isNullOrBlank()
+                            ) {
+                                getSeasonZeroStreamsFromAddon(
+                                    addon = addon,
+                                    type = type,
+                                    candidateVideoIds = candidateVideoIds,
+                                    originalVideoId = videoId,
+                                    episodeTitle = episodeTitle
+                                )
+                            } else {
+                                getStreamsFromAddon(addon.baseUrl, type, videoId)
+                            }
                             when (streamsResult) {
                                 is NetworkResult.Success -> {
                                     if (streamsResult.data.isNotEmpty()) {
@@ -187,11 +229,46 @@ class StreamRepositoryImpl @Inject constructor(
 
                 // Emit results as they arrive
                 for (result in resultChannel) {
-                    val checkingResult = localDebridAvailabilityService.markChecking(listOf(result)).firstOrNull() ?: result
-                    val checkedResult = localDebridAvailabilityService.annotateCachedAvailability(listOf(checkingResult)).firstOrNull() ?: checkingResult
+                    val validatedResult = if (season == 0) {
+                        val credibleStreams = result.streams.filter { stream ->
+                            stream.isCredibleSeasonZeroResult(episodeTitle)
+                        }
+
+                        if (credibleStreams.size != result.streams.size) {
+                            Log.d(
+                                TAG,
+                                "Season0 rejected ${result.streams.size - credibleStreams.size} " +
+                                    "wrong-season stream(s) from ${result.addonName}"
+                            )
+                        }
+
+                        if (credibleStreams.isEmpty()) {
+                            continue
+                        }
+
+                        result.copy(streams = credibleStreams)
+                    } else {
+                        result
+                    }
+
+                    // Existing Connected Services/debrid availability path remains
+                    // downstream and optional. Discovery above does not depend on it.
+                    val checkingResult =
+                        localDebridAvailabilityService.markChecking(listOf(validatedResult))
+                            .firstOrNull() ?: validatedResult
+
+                    val checkedResult =
+                        localDebridAvailabilityService.annotateCachedAvailability(listOf(checkingResult))
+                            .firstOrNull() ?: checkingResult
+
                     mergePresentedResult(accumulatedResults, checkedResult)
                     emit(NetworkResult.Success(accumulatedResults.toList()))
-                    Log.d(TAG, "Emitted ${accumulatedResults.size} addon(s), latest: ${checkedResult.addonName} with ${checkedResult.streams.size} streams")
+
+                    Log.d(
+                        TAG,
+                        "Emitted ${accumulatedResults.size} addon(s), latest: " +
+                            "${checkedResult.addonName} with ${checkedResult.streams.size} streams"
+                    )
                 }
             }
 
@@ -419,6 +496,483 @@ private fun LocalScraperResult.toPluginStream(addonName: String): Stream {
             lower.contains("360") -> 360
             else -> -1
         }
+    }
+
+    private suspend fun resolveSeasonZeroVideoIds(
+        type: String,
+        videoId: String,
+        tmdbId: String?,
+        seriesTitle: String?,
+        episodeTitle: String
+    ): List<String> {
+        val normalizedTitle = normalizeSpecialTitle(episodeTitle)
+        if (normalizedTitle.isBlank()) return listOf(videoId)
+
+        val baseId = seasonZeroBaseId(videoId)
+        val cacheKey = "$baseId|$normalizedTitle"
+
+        seasonZeroCandidateCache[cacheKey]?.let { cached ->
+            Log.d(
+                TAG,
+                "Season0 candidate cache hit show=${seriesTitle.orEmpty()} " +
+                    "title=$episodeTitle ids=${cached.joinToString()}"
+            )
+            return cached
+        }
+
+        val discoveredIds = kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+            coroutineScope {
+                val addonVideosDeferred = async {
+                    try {
+                        metaRepository.getSeasonZeroVideosFromAllAddons(
+                            type = type,
+                            id = baseId
+                        )
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        Log.d(TAG, "Season0 metadata-addon lookup failed: ${e.message}")
+                        emptyList()
+                    }
+                }
+
+                val tmdbEpisodesDeferred = async {
+                    if (tmdbId.isNullOrBlank()) {
+                        emptyMap()
+                    } else {
+                        try {
+                            tmdbMetadataService.fetchEpisodeEnrichment(
+                                tmdbId = tmdbId,
+                                seasonNumbers = listOf(0)
+                            )
+                        } catch (e: Exception) {
+                            if (e is CancellationException) throw e
+                            Log.d(TAG, "Season0 TMDB lookup failed: ${e.message}")
+                            emptyMap()
+                        }
+                    }
+                }
+
+                buildList {
+                    addonVideosDeferred.await()
+                        .filter { specialTitlesMatch(episodeTitle, it.title) }
+                        .forEach { video ->
+                            if (video.id.isNotBlank()) add(video.id)
+
+                            video.episode?.let { alternateEpisode ->
+                                add("$baseId:0:$alternateEpisode")
+                            }
+                        }
+
+                    tmdbEpisodesDeferred.await().forEach { (key, enrichment) ->
+                        if (
+                            key.first == 0 &&
+                            !enrichment.title.isNullOrBlank() &&
+                            specialTitlesMatch(episodeTitle, enrichment.title)
+                        ) {
+                            add("$baseId:0:${key.second}")
+                        }
+                    }
+                }
+            }
+        }.orEmpty()
+
+        // Original ID remains a concurrent safety candidate; there is no
+        // sequential "try original, then fallback" delay.
+        val candidates = (discoveredIds + videoId)
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        seasonZeroCandidateCache[cacheKey] = candidates
+
+        Log.d(
+            TAG,
+            "Season0 resolved show=${seriesTitle.orEmpty()} title=$episodeTitle " +
+                "original=$videoId candidates=${candidates.joinToString()}"
+        )
+
+        return candidates
+    }
+
+    private suspend fun getSeasonZeroStreamsFromAddon(
+        addon: Addon,
+        type: String,
+        candidateVideoIds: List<String>,
+        originalVideoId: String,
+        episodeTitle: String
+    ): NetworkResult<List<Stream>> = coroutineScope {
+        val supportedIds = candidateVideoIds.filter { candidateId ->
+            addon.supportsStreamResource(type, candidateId)
+        }
+
+        if (supportedIds.isEmpty()) {
+            return@coroutineScope NetworkResult.Success(emptyList())
+        }
+
+        /*
+         * When title resolution found an alternate Season-0 ID, the original
+         * ID becomes a compatibility fallback rather than unquestioned truth.
+         *
+         * Example:
+         *   Nuvio metadata:    Taskmaster NY Treat 2023 -> S00E03
+         *   alternate source:  Taskmaster NY Treat 2023 -> S00E85
+         *
+         * Torrentio's S00E03 endpoint can legitimately describe a completely
+         * different special. Alternate IDs were discovered by matching the
+         * requested special title, so they are trusted candidates. Streams
+         * from the original fallback are retained only when their release
+         * text also identifies the requested special.
+         *
+         * This intentionally does NOT require an S00E## token. A release such
+         * as "Sherlock.The.Abominable.Bride.1080p" remains valid.
+         */
+        val hasAlternateCandidate = supportedIds.any { it != originalVideoId }
+
+        val streams = supportedIds.map { candidateId ->
+            async {
+                val fetched = when (
+                    val result = getStreamsFromAddon(
+                        baseUrl = addon.baseUrl,
+                        type = type,
+                        videoId = candidateId
+                    )
+                ) {
+                    is NetworkResult.Success -> {
+                        if (result.data.isNotEmpty()) {
+                            result.data
+                        } else {
+                            fetchInlineStreamsFromMeta(
+                                addon = addon,
+                                type = type,
+                                videoId = candidateId
+                            )
+                        }
+                    }
+
+                    is NetworkResult.Error -> emptyList()
+                    NetworkResult.Loading -> emptyList()
+                }
+
+                if (
+                    candidateId == originalVideoId &&
+                    hasAlternateCandidate
+                ) {
+                    val filtered = fetched.filter { stream ->
+                        stream.matchesRequestedSeasonZeroTitle(episodeTitle)
+                    }
+
+                    if (filtered.size != fetched.size) {
+                        Log.d(
+                            TAG,
+                            "Season0 original-fallback rejected " +
+                                "${fetched.size - filtered.size} stream(s) " +
+                                "addon=${addon.displayName} id=$candidateId " +
+                                "title=$episodeTitle"
+                        )
+                    }
+
+                    filtered
+                } else {
+                    fetched
+                }
+            }
+        }.awaitAll()
+            .flatten()
+            .distinctBy { it.dedupKey() }
+
+        NetworkResult.Success(streams)
+    }
+
+    private fun Stream.matchesRequestedSeasonZeroTitle(
+        requestedTitle: String
+    ): Boolean {
+        val requested = normalizeSpecialTitle(requestedTitle)
+        if (requested.isBlank()) return true
+
+        val resolve = clientResolve
+        val parsed = resolve?.stream?.raw?.parsed
+
+        val fields = listOfNotNull(
+            behaviorHints?.filename,
+            resolve?.filename,
+            resolve?.torrentName,
+            resolve?.title,
+            resolve?.stream?.raw?.filename,
+            resolve?.stream?.raw?.torrentName,
+            parsed?.rawTitle,
+            parsed?.parsedTitle,
+            title,
+            description
+        )
+
+        return fields.any { field ->
+            val normalizedField = normalizeSpecialTitle(field)
+
+            // Strongest signal: requested special title appears intact in
+            // the release text. Check this before fuzzy identity logic so a
+            // parent pack name containing unrelated numbering cannot poison
+            // an otherwise exact title match.
+            (
+                requested.length >= 8 &&
+                normalizedField.contains(requested)
+            ) ||
+                specialTitlesMatch(requestedTitle, field)
+        }
+    }
+
+    private fun Stream.isCredibleSeasonZeroResult(
+        requestedTitle: String?
+    ): Boolean {
+        val resolve = clientResolve
+        val parsed = resolve?.stream?.raw?.parsed
+
+        val structuredSeasons = buildList {
+            resolve?.season?.let(::add)
+            parsed?.seasons?.let(::addAll)
+        }.distinct()
+
+        val structuredEpisodes = buildList {
+            resolve?.episode?.let(::add)
+            parsed?.episodes?.let(::addAll)
+        }.distinct()
+
+        /*
+         * Scene/P2P releases often represent specials as SxxE00 rather than
+         * Season 0. Examples we have verified:
+         *
+         *   Beast Games special -> S01E00
+         *   Taskmaster special  -> S14E00
+         *
+         * E00 is therefore strong "special" evidence even when the season
+         * component is non-zero. A normal S01E02/S14E03 etc. remains wrong.
+         */
+        val structuredLooksLikeSpecial =
+            structuredSeasons.any { it == 0 } ||
+                structuredEpisodes.any { it == 0 }
+
+        if (
+            structuredSeasons.isNotEmpty() &&
+            structuredSeasons.none { it == 0 } &&
+            !structuredLooksLikeSpecial
+        ) {
+            return false
+        }
+
+        val searchable = listOfNotNull(
+            name,
+            title,
+            description,
+            behaviorHints?.filename,
+            resolve?.title,
+            resolve?.torrentName,
+            resolve?.filename,
+            resolve?.stream?.raw?.torrentName,
+            resolve?.stream?.raw?.filename,
+            parsed?.rawTitle,
+            parsed?.parsedTitle
+        ).joinToString(" ")
+
+        /*
+         * Accept:
+         *   S00E85  -> canonical Season-0 notation
+         *   S01E00  -> season-associated special
+         *   S14E00  -> season-associated special
+         *
+         * Reject:
+         *   S01E02
+         *   S14E03
+         *
+         * Releases with no S/E token remain allowed.
+         */
+        val explicitEpisodes = Regex(
+            """(?i)(?:^|[^a-z0-9])s0*(\d{1,2})e0*(\d{1,3})(?:[^a-z0-9]|$)"""
+        ).findAll(searchable)
+            .mapNotNull { match ->
+                val seasonNumber =
+                    match.groupValues.getOrNull(1)?.toIntOrNull()
+                        ?: return@mapNotNull null
+                val episodeNumber =
+                    match.groupValues.getOrNull(2)?.toIntOrNull()
+                        ?: return@mapNotNull null
+
+                seasonNumber to episodeNumber
+            }
+            .toList()
+
+        if (
+            explicitEpisodes.isNotEmpty() &&
+            explicitEpisodes.none { (seasonNumber, episodeNumber) ->
+                seasonNumber == 0 || episodeNumber == 0
+            }
+        ) {
+            return false
+        }
+
+        /*
+         * Scene releases sometimes encode specials as S01E00, S14E00, etc.
+         * E00 tells us that it is special-like, but not WHICH special it is.
+         *
+         * When acceptance depends on a non-zero-season E00, require the
+         * release text to identify the requested special. Canonical S00
+         * releases and title-only releases keep their existing behavior.
+         */
+        val hasCanonicalSeasonZero =
+            structuredSeasons.any { it == 0 } ||
+                explicitEpisodes.any { (seasonNumber, _) ->
+                    seasonNumber == 0
+                }
+
+        val hasSceneStyleSpecial =
+            (
+                structuredSeasons.any { it != 0 } &&
+                    structuredEpisodes.any { it == 0 }
+            ) ||
+                explicitEpisodes.any { (seasonNumber, episodeNumber) ->
+                    seasonNumber != 0 && episodeNumber == 0
+                }
+
+        if (
+            !hasCanonicalSeasonZero &&
+            hasSceneStyleSpecial &&
+            !requestedTitle.isNullOrBlank() &&
+            !matchesRequestedSeasonZeroTitle(requestedTitle)
+        ) {
+            return false
+        }
+
+        /*
+         * Some valid special releases carry no SxxExx token at all and are
+         * identified only by their release/title text. Preserve those, but
+         * require that text to identify the requested special. This also
+         * rejects addon utility/action streams and temporary placeholders
+         * that contain neither episode identity nor the requested title.
+         */
+        val hasNoEpisodeIdentity =
+            structuredSeasons.isEmpty() &&
+                structuredEpisodes.isEmpty() &&
+                explicitEpisodes.isEmpty()
+
+        if (
+            hasNoEpisodeIdentity &&
+            !requestedTitle.isNullOrBlank() &&
+            !matchesRequestedSeasonZeroTitle(requestedTitle)
+        ) {
+            return false
+        }
+
+        return true
+    }
+
+    private fun seasonZeroBaseId(videoId: String): String {
+        val clean = videoId.substringBefore('/')
+        val parts = clean.split(":")
+
+        return if (
+            parts.size >= 3 &&
+            parts[parts.lastIndex].toIntOrNull() != null &&
+            parts[parts.lastIndex - 1].toIntOrNull() != null
+        ) {
+            parts.dropLast(2).joinToString(":")
+        } else {
+            clean
+        }
+    }
+
+    private fun normalizeSpecialTitle(value: String): String =
+        value.lowercase()
+        .replace(Regex("""(?<=\d),(?=\d)"""), "")
+            .replace("&", " and ")
+            .replace(Regex("""[^a-z0-9]+"""), " ")
+            .trim()
+            .replace(Regex("""\s+"""), " ")
+
+    /**
+     * Numbers that materially identify a special.
+     *
+     * Examples:
+     * - "New Year Treat 2023" must not match 2021/2024.
+     * - "Episode 4" must not fuzzy-match "Episode 5".
+     * - "Episodes 1-3" must preserve both endpoint numbers.
+     *
+     * Ordinary incidental numbers are deliberately not harvested unless they
+     * are a four-digit year or follow an episode/part/series-style label.
+     */
+    private fun specialIdentityNumbers(value: String): Set<String> {
+        val identities = linkedSetOf<String>()
+        val normalized = normalizeSpecialTitle(value)
+
+        Regex("""\b(?:19|20)\d{2}\b""")
+            .findAll(normalized)
+            .forEach { match ->
+                identities += "year:${match.value}"
+            }
+
+        Regex(
+            """(?i)\b(?:episode|episodes|ep|part|pt|chapter|chapters|volume|vol|season|series)\s*#?\s*(\d{1,3})(?:\s*(?:-|–|—|&|and|to)\s*(\d{1,3}))?"""
+        ).findAll(value).forEach { match ->
+            match.groupValues
+                .drop(1)
+                .filter { it.isNotBlank() }
+                .mapNotNull { it.toIntOrNull() }
+                .forEach { number ->
+                    identities += "seq:$number"
+                }
+        }
+
+        return identities
+    }
+
+    private fun specialTitlesMatch(
+        requested: String,
+        candidate: String
+    ): Boolean {
+        val left = normalizeSpecialTitle(requested)
+        val right = normalizeSpecialTitle(candidate)
+
+        if (left.isBlank() || right.isBlank()) return false
+
+        // Explicit identity numbers are decisive. This check comes before
+        // containment/fuzzy matching so 2023 cannot match 2021/2024/yearless,
+        // and Episode 4 cannot match Episode 5.
+        val leftIdentity = specialIdentityNumbers(requested)
+        val rightIdentity = specialIdentityNumbers(candidate)
+
+        if (
+            (leftIdentity.isNotEmpty() || rightIdentity.isNotEmpty()) &&
+            leftIdentity != rightIdentity
+        ) {
+            return false
+        }
+
+        if (left == right) return true
+
+        if (
+            left.length >= 8 &&
+            right.length >= 8 &&
+            (left.contains(right) || right.contains(left))
+        ) {
+            return true
+        }
+
+        val ignored = setOf(
+            "a", "an", "the", "of", "and",
+            "special", "episode", "episodes"
+        )
+
+        val leftTokens = left.split(" ")
+            .filter { it.length > 1 && it !in ignored }
+            .toSet()
+
+        val rightTokens = right.split(" ")
+            .filter { it.length > 1 && it !in ignored }
+            .toSet()
+
+        if (leftTokens.isEmpty() || rightTokens.isEmpty()) return false
+
+        val overlap = leftTokens.intersect(rightTokens).size.toDouble()
+        val dice = (2.0 * overlap) /
+            (leftTokens.size + rightTokens.size).toDouble()
+
+        return dice >= 0.72
     }
 
     override suspend fun getStreamsFromAddon(

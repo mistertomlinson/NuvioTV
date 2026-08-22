@@ -556,7 +556,9 @@ class StreamScreenViewModel @Inject constructor(
                     type = contentType,
                     videoId = videoId,
                     season = season,
-                    episode = episode
+                    episode = episode,
+                    seriesTitle = contentName ?: title,
+                    episodeTitle = episodeName
                 ).collect { result ->
                     when (result) {
                         is NetworkResult.Success -> {

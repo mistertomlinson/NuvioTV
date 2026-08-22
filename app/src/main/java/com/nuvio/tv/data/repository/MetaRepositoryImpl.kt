@@ -8,6 +8,7 @@ import com.nuvio.tv.data.mapper.toDomain
 import com.nuvio.tv.data.remote.api.AddonApi
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.AddonResource
 import com.nuvio.tv.domain.repository.AddonRepository
 import com.nuvio.tv.domain.repository.MetaRepository
@@ -16,6 +17,9 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import java.net.URLEncoder
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -222,6 +226,89 @@ class MetaRepositoryImpl @Inject constructor(
                 )
             )
         )
+    }
+
+    override suspend fun getSeasonZeroVideosFromAllAddons(
+        type: String,
+        id: String
+    ): List<Video> = coroutineScope {
+        val requestedType = type.trim()
+        val idParts = id.substringBefore('/').split(":")
+        val baseId = if (
+            idParts.size >= 3 &&
+            idParts[idParts.lastIndex].toIntOrNull() != null &&
+            idParts[idParts.lastIndex - 1].toIntOrNull() != null
+        ) {
+            idParts.dropLast(2).joinToString(":").trim()
+        } else {
+            id.substringBefore('/').trim()
+        }
+        if (baseId.isBlank()) return@coroutineScope emptyList()
+
+        val inferredType = inferCanonicalType(requestedType, baseId)
+        val addons = addonRepository.getInstalledAddons().first()
+
+        val candidates = addons.mapNotNull { addon ->
+            val candidateType = when {
+                addon.supportsMetaType(requestedType) -> requestedType
+                !inferredType.equals(requestedType, ignoreCase = true) &&
+                    addon.supportsMetaType(inferredType) -> inferredType
+                else -> null
+            } ?: return@mapNotNull null
+
+            addon to candidateType
+        }
+
+        if (candidates.isEmpty()) return@coroutineScope emptyList()
+
+        candidates.map { (addon, candidateType) ->
+            async {
+                val url = buildMetaUrl(addon.baseUrl, candidateType, baseId)
+                try {
+                    when (val result = safeApiCall { api.getMeta(url) }) {
+                        is NetworkResult.Success -> {
+                            val dto = result.data.meta ?: return@async emptyList()
+                            val episodeLabel = context.getString(R.string.episodes_episode)
+                            val meta = dto.toDomain(episodeLabel)
+                            val specials = meta.videos.filter { it.season == 0 }
+
+                            Log.d(
+                                TAG,
+                                "Season0 metadata addon=${addon.displayName} " +
+                                    "type=$candidateType id=$baseId specials=${specials.size}"
+                            )
+                            specials
+                        }
+
+                        is NetworkResult.Error -> {
+                            Log.d(
+                                TAG,
+                                "Season0 metadata addon=${addon.displayName} " +
+                                    "failed code=${result.code} message=${result.message}"
+                            )
+                            emptyList()
+                        }
+
+                        NetworkResult.Loading -> emptyList()
+                    }
+                } catch (e: Exception) {
+                    Log.d(
+                        TAG,
+                        "Season0 metadata addon=${addon.displayName} failed: ${e.message}"
+                    )
+                    emptyList()
+                }
+            }
+        }.awaitAll()
+            .flatten()
+            .distinctBy { video ->
+                listOf(
+                    video.id.trim().lowercase(),
+                    video.title.trim().lowercase(),
+                    video.released.orEmpty().trim(),
+                    video.runtime?.toString().orEmpty()
+                ).joinToString("|")
+            }
     }
 
     override fun getMetaFromPrimaryAddon(
