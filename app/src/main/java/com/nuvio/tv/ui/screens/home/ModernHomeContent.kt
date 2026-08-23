@@ -3293,9 +3293,9 @@ fun ModernHomeContent(
                             ?: 0
 
                     /*
-                     * Keep one row above, the active row, and two rows below
-                     * fully interactive. The extra forward row ensures that
-                     * when focus moves down, the newly exposed row beneath it
+                     * Keep two rows above, the active row, and two rows below
+                     * fully interactive. The symmetric neighborhood ensures that
+                     * when focus moves either up or down, the newly exposed row
                      * is already using the full renderer.
                      *
                      * Distant loaded rows remain static poster strips.
@@ -3312,7 +3312,7 @@ fun ModernHomeContent(
                             row.enrichmentReady &&
                             pendingRowFocus.key != row.key &&
                             (
-                                rendererDistance < -1 ||
+                                rendererDistance < -2 ||
                                     rendererDistance > 2
                             )
 
