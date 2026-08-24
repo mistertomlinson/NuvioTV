@@ -6,6 +6,9 @@ import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
+import com.nuvio.tv.ui.catalog.collapseWatchlyOrderKeys
+import com.nuvio.tv.ui.catalog.watchlyCatalogGroup
+import com.nuvio.tv.ui.catalog.watchlySavedGroup
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -68,7 +71,7 @@ class CatalogOrderViewModel @Inject constructor(
             addAll(0, memberKeys)
         }
         viewModelScope.launch {
-            layoutPreferenceDataStore.setHomeCatalogOrderKeys(reordered)
+            layoutPreferenceDataStore.setHomeCatalogOrderKeys(collapseWatchlyOrderKeys(reordered))
         }
     }
 
@@ -234,7 +237,7 @@ class CatalogOrderViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            layoutPreferenceDataStore.setHomeCatalogOrderKeys(reordered)
+            layoutPreferenceDataStore.setHomeCatalogOrderKeys(collapseWatchlyOrderKeys(reordered))
         }
     }
 
@@ -346,29 +349,8 @@ Triple(
         }
     }
 
-    // Maps a catalog key to its Watchly group identifier.
-    // Key format: com.bimal.watchly_<type>_<catalogId>
-    // type is "movie" or "series", catalogId is the Watchly catalog ID.
-    private fun watchlyGroup(key: String): String? {
-        if (!key.contains("com.bimal.watchly")) return null
-        val isMovie = key.contains("_movie_")
-        val isSeries = key.contains("_series_")
-        val typeSuffix = when {
-            isMovie -> "movie"
-            isSeries -> "series"
-            else -> "movie"
-        }
-        return when {
-            key.contains("watchly.watched") -> "watchly.watched.$typeSuffix"
-            key.contains("watchly.theme") -> "watchly.theme.$typeSuffix"
-            key.contains("watchly.rec") -> "watchly.rec.$typeSuffix"
-            key.contains("watchly.creators") -> "watchly.creators.$typeSuffix"
-            key.contains("watchly.all.loved") -> "watchly.all.loved.$typeSuffix"
-            key.contains("watchly.loved") -> "watchly.loved.$typeSuffix"
-            key.contains("watchly.liked") -> "watchly.liked.$typeSuffix"
-            else -> "watchly.other"
-        }
-    }
+    // Maps a concrete Watchly catalog key to its stable logical group.
+    private fun watchlyGroup(key: String): String? = watchlyCatalogGroup(key)
 
     private fun seasonalSpotlightPreferenceKeys(): Set<String> {
         return buildSet {
@@ -432,57 +414,46 @@ Triple(
         val availableMap = defaultEntries.associateBy { it.key }
         val defaultOrderKeys = defaultEntries.map { it.key }
 
-        // For dynamic Watchly catalogs (e.g. watchly.loved.ttXXX, watchly.watched.ttXXX,
-        // watchly.theme.*), the catalog ID changes each session based on the user's
-        // recently loved/watched item. We match saved keys by their Watchly group prefix
-        // so that a saved key like "watchly.loved.tt0111161" is treated as a valid
-        // placeholder for the current session's "watchly.loved.tt0468569" key.
-        fun watchlyGroupPrefix(key: String): String? {
-            return when {
-                key.contains("watchly.loved.") -> "watchly.loved."
-                key.contains("watchly.watched.") -> "watchly.watched."
-                key.contains("watchly.theme.") -> "watchly.theme."
-                else -> null
-            }
-        }
-
-        // Build a map from group prefix -> current available keys in that group
-        val groupPrefixToAvailableKeys = mutableMapOf<String, MutableList<String>>()
+        /*
+         * Resolve saved Watchly order by stable logical group, not by transient
+         * catalog ID. Movie and series are distinct groups. Every current
+         * member of the group is expanded at the saved group position while
+         * preserving Watchly's current manifest order within that group.
+         *
+         * Legacy transient keys are accepted by watchlySavedGroup() and are
+         * migrated to stable anchors below.
+         */
+        val watchlyMembersByGroup = linkedMapOf<String, MutableList<String>>()
         defaultOrderKeys.forEach { key ->
-            val prefix = watchlyGroupPrefix(key)
-            if (prefix != null) {
-                groupPrefixToAvailableKeys.getOrPut(prefix) { mutableListOf() }.add(key)
+            watchlyGroup(key)?.let { group ->
+                watchlyMembersByGroup.getOrPut(group) { mutableListOf() }.add(key)
             }
         }
 
-        // Track which available keys have already been claimed by a saved key
-        val claimedAvailableKeys = mutableSetOf<String>()
+        val consumedWatchlyGroups = mutableSetOf<String>()
+        val savedValidMutable = mutableListOf<String>()
 
-        val savedValid = savedOrderKeys
-            .asSequence()
-            .mapNotNull { savedKey ->
-                when {
-                    savedKey in availableMap -> savedKey // exact match
-                    savedKey == "__nuvio_internal_seasonal_spotlight_order_anchor__" -> {
-                        defaultOrderKeys.firstOrNull {
-                            seasonalSpotlightGroup(it) != null &&
-                                it !in claimedAvailableKeys
-                        }
-                    }
-                    else -> {
-                        // Try group prefix match for dynamic catalogs
-                        val prefix = watchlyGroupPrefix(savedKey)
-                        if (prefix != null) {
-                            val available = groupPrefixToAvailableKeys[prefix]
-                                ?.firstOrNull { it !in claimedAvailableKeys }
-                            available
-                        } else null
+        savedOrderKeys.forEach { savedKey ->
+            val watchlyGroup = watchlySavedGroup(savedKey)
+            when {
+                watchlyGroup != null -> {
+                    if (consumedWatchlyGroups.add(watchlyGroup)) {
+                        savedValidMutable.addAll(watchlyMembersByGroup[watchlyGroup].orEmpty())
                     }
                 }
+
+                savedKey == "__nuvio_internal_seasonal_spotlight_order_anchor__" -> {
+                    defaultOrderKeys.firstOrNull {
+                        seasonalSpotlightGroup(it) != null &&
+                            it !in savedValidMutable
+                    }?.let(savedValidMutable::add)
+                }
+
+                savedKey in availableMap -> savedValidMutable.add(savedKey)
             }
-            .onEach { claimedAvailableKeys.add(it) }
-            .distinct()
-            .toList()
+        }
+
+        val savedValid = savedValidMutable.distinct()
 
         val savedKeySet = savedValid.toSet()
         val missing = defaultOrderKeys.filterNot { it in savedKeySet }
@@ -537,12 +508,12 @@ Triple(
             }
         }
 
-        // Persist the effective order back to datastore so the home screen
-        // picks up new Watchly catalog IDs at their correct group positions
-        val flatEffectiveOrder = effectiveOrder.toList()
-        if (flatEffectiveOrder != savedOrderKeys) {
+        // Persist stable Watchly group anchors rather than today's transient IDs.
+        // This also performs a one-time migration of legacy saved Watchly keys.
+        val persistentEffectiveOrder = collapseWatchlyOrderKeys(effectiveOrder)
+        if (persistentEffectiveOrder != savedOrderKeys) {
             viewModelScope.launch {
-                layoutPreferenceDataStore.setHomeCatalogOrderKeys(flatEffectiveOrder)
+                layoutPreferenceDataStore.setHomeCatalogOrderKeys(persistentEffectiveOrder)
             }
         }
 

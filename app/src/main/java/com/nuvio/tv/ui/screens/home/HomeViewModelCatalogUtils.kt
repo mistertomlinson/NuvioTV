@@ -3,6 +3,8 @@ package com.nuvio.tv.ui.screens.home
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.ui.catalog.watchlyCatalogGroup
+import com.nuvio.tv.ui.catalog.watchlySavedGroup
 import kotlinx.coroutines.Job
 
 internal fun HomeViewModel.catalogKey(addonId: String, type: String, catalogId: String): String {
@@ -62,105 +64,91 @@ internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
     val defaultOrder = buildDefaultCatalogOrder(addons)
     val availableSet = defaultOrder.toSet()
 
-    // For dynamic Watchly catalogs (e.g. watchly.loved.ttXXX, watchly.watched.ttXXX,
-    // watchly.theme.*), the catalog ID changes each session. Match saved keys by
-    // group prefix so ordering is preserved across sessions.
-    fun watchlyGroupPrefix(key: String): String? {
-        return when {
-            key.contains("watchly.loved.") -> "watchly.loved."
-            key.contains("watchly.watched.") -> "watchly.watched."
-            key.contains("watchly.theme.") -> "watchly.theme."
-            else -> null
-        }
-    }
-
-    val groupPrefixToAvailableKeys = mutableMapOf<String, MutableList<String>>()
+    /*
+     * Watchly publishes several logical row groups whose concrete catalog IDs
+     * legitimately change over time. Saved order therefore tracks the stable
+     * logical group (including movie/series type), then expands that group to
+     * the current manifest members in their current manifest order.
+     *
+     * watchlySavedGroup() also understands the old transient-ID preference
+     * format so existing installs migrate without losing their chosen slot.
+     */
+    val watchlyMembersByGroup = linkedMapOf<String, MutableList<String>>()
     defaultOrder.forEach { key ->
-        val prefix = watchlyGroupPrefix(key)
-        if (prefix != null) {
-            groupPrefixToAvailableKeys.getOrPut(prefix) { mutableListOf() }.add(key)
+        watchlyGroup(key)?.let { group ->
+            watchlyMembersByGroup.getOrPut(group) { mutableListOf() }.add(key)
         }
     }
 
-    val claimedAvailableKeys = mutableSetOf<String>()
+    val consumedWatchlyGroups = mutableSetOf<String>()
+    val savedValid = mutableListOf<String>()
 
-    val savedValid = homeCatalogOrderKeys
-        .asSequence()
-        .mapNotNull { savedKey ->
-            when {
-                savedKey in availableSet -> savedKey
-                else -> {
-                    val prefix = watchlyGroupPrefix(savedKey)
-                    if (prefix != null) {
-                        groupPrefixToAvailableKeys[prefix]
-                            ?.firstOrNull { it !in claimedAvailableKeys }
-                    } else null
+    homeCatalogOrderKeys.forEach { savedKey ->
+        val watchlyGroup = watchlySavedGroup(savedKey)
+        when {
+            watchlyGroup != null -> {
+                if (consumedWatchlyGroups.add(watchlyGroup)) {
+                    savedValid.addAll(watchlyMembersByGroup[watchlyGroup].orEmpty())
                 }
             }
+
+            savedKey in availableSet -> savedValid.add(savedKey)
         }
-        .onEach { claimedAvailableKeys.add(it) }
-        .distinct()
-        .toList()
+    }
 
     val savedSet = savedValid.toSet()
     val missing = defaultOrder.filterNot { it in savedSet }
-
-    // For missing Watchly catalogs, insert at group position rather than bottom
     val mergedOrder = savedValid.toMutableList()
+    val insertedMissingWatchlyGroups = mutableSetOf<String>()
+
     missing.forEach { missingKey ->
         if (missingKey == HomeViewModel.MY_LIST_CATALOG_KEY) {
             mergedOrder.add(0, missingKey)
             return@forEach
         }
+
         val group = watchlyGroup(missingKey)
         if (group == null) {
             mergedOrder.add(missingKey)
+            return@forEach
+        }
+
+        if (!insertedMissingWatchlyGroups.add(group)) {
+            return@forEach
+        }
+
+        val members = watchlyMembersByGroup[group].orEmpty()
+            .filterNot { it in mergedOrder }
+
+        if (members.isEmpty()) {
+            return@forEach
+        }
+
+        val sameGroupInsertAt = mergedOrder.indexOfLast { watchlyGroup(it) == group }
+        if (sameGroupInsertAt >= 0) {
+            mergedOrder.addAll(sameGroupInsertAt + 1, members)
         } else {
-            var insertAt = mergedOrder.indexOfLast { watchlyGroup(it) == group }
-            if (insertAt >= 0) {
-                mergedOrder.add(insertAt + 1, missingKey)
+            val lastWatchlyInsertAt = mergedOrder.indexOfLast { watchlyGroup(it) != null }
+            if (lastWatchlyInsertAt >= 0) {
+                mergedOrder.addAll(lastWatchlyInsertAt + 1, members)
             } else {
-                insertAt = mergedOrder.indexOfLast { watchlyGroup(it) != null }
-                if (insertAt >= 0) {
-                    mergedOrder.add(insertAt + 1, missingKey)
-                } else {
-                    mergedOrder.add(missingKey)
-                }
+                mergedOrder.addAll(members)
             }
         }
     }
 
-    // CATALOG_ORDER_PROBE — log reconcile input vs output.
     com.nuvio.tv.data.local.CatalogOrderProbe.log(
         appContext,
         "RECONCILE",
         "savedInput=$homeCatalogOrderKeys output=$mergedOrder " +
             "droppedFromSaved=${com.nuvio.tv.data.local.CatalogOrderProbe.dropped(homeCatalogOrderKeys, mergedOrder)}"
     )
+
     catalogOrder.clear()
     catalogOrder.addAll(mergedOrder)
 }
 
-private fun watchlyGroup(key: String): String? {
-    if (!key.contains("com.bimal.watchly")) return null
-    val isMovie = key.contains("_movie_")
-    val isSeries = key.contains("_series_")
-    val typeSuffix = when {
-        isMovie -> "movie"
-        isSeries -> "series"
-        else -> "movie"
-    }
-    return when {
-        key.contains("watchly.watched") -> "watchly.watched.$typeSuffix"
-        key.contains("watchly.theme") -> "watchly.theme.$typeSuffix"
-        key.contains("watchly.rec") -> "watchly.rec.$typeSuffix"
-        key.contains("watchly.creators") -> "watchly.creators.$typeSuffix"
-        key.contains("watchly.all.loved") -> "watchly.all.loved.$typeSuffix"
-        key.contains("watchly.loved") -> "watchly.loved.$typeSuffix"
-        key.contains("watchly.liked") -> "watchly.liked.$typeSuffix"
-        else -> "watchly.other"
-    }
-}
+private fun watchlyGroup(key: String): String? = watchlyCatalogGroup(key)
 
 private fun HomeViewModel.buildDefaultCatalogOrder(addons: List<Addon>): List<String> {
     val orderedKeys = mutableListOf<String>()

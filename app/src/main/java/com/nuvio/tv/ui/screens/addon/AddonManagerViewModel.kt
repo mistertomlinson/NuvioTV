@@ -12,6 +12,9 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
+import com.nuvio.tv.ui.catalog.collapseWatchlyOrderKeys
+import com.nuvio.tv.ui.catalog.watchlyCatalogGroup
+import com.nuvio.tv.ui.catalog.watchlySavedGroup
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -431,7 +434,7 @@ class AddonManagerViewModel @Inject constructor(
             .distinct()
             .toList()
 
-        layoutPreferenceDataStore.setHomeCatalogOrderKeys(validCatalogOrder)
+        layoutPreferenceDataStore.setHomeCatalogOrderKeys(collapseWatchlyOrderKeys(validCatalogOrder))
         layoutPreferenceDataStore.setDisabledHomeCatalogKeys(validDisabledCatalogs)
     }
 
@@ -482,13 +485,64 @@ class AddonManagerViewModel @Inject constructor(
         val defaultEntries = buildDefaultCatalogEntries(addons)
         val entryByKey = defaultEntries.associateBy { it.key }
         val defaultOrderKeys = defaultEntries.map { it.key }
-        val savedValid = savedOrderKeys
-            .asSequence()
-            .filter { it in entryByKey }
-            .distinct()
-            .toList()
+
+        val watchlyMembersByGroup = linkedMapOf<String, MutableList<String>>()
+        defaultOrderKeys.forEach { key ->
+            watchlyCatalogGroup(key)?.let { group ->
+                watchlyMembersByGroup.getOrPut(group) { mutableListOf() }.add(key)
+            }
+        }
+
+        val consumedWatchlyGroups = mutableSetOf<String>()
+        val savedValid = mutableListOf<String>()
+
+        savedOrderKeys.forEach { savedKey ->
+            val watchlyGroup = watchlySavedGroup(savedKey)
+            when {
+                watchlyGroup != null -> {
+                    if (consumedWatchlyGroups.add(watchlyGroup)) {
+                        savedValid.addAll(watchlyMembersByGroup[watchlyGroup].orEmpty())
+                    }
+                }
+
+                savedKey in entryByKey -> savedValid.add(savedKey)
+            }
+        }
+
         val savedSet = savedValid.toSet()
-        val effectiveOrder = savedValid + defaultOrderKeys.filterNot { it in savedSet }
+        val effectiveOrder = savedValid.toMutableList()
+        val insertedMissingWatchlyGroups = mutableSetOf<String>()
+
+        defaultOrderKeys.filterNot { it in savedSet }.forEach { missingKey ->
+            val group = watchlyCatalogGroup(missingKey)
+            if (group == null) {
+                effectiveOrder.add(missingKey)
+                return@forEach
+            }
+
+            if (!insertedMissingWatchlyGroups.add(group)) {
+                return@forEach
+            }
+
+            val members = watchlyMembersByGroup[group].orEmpty()
+                .filterNot { it in effectiveOrder }
+
+            val sameGroupInsertAt =
+                effectiveOrder.indexOfLast { watchlyCatalogGroup(it) == group }
+
+            if (sameGroupInsertAt >= 0) {
+                effectiveOrder.addAll(sameGroupInsertAt + 1, members)
+            } else {
+                val lastWatchlyInsertAt =
+                    effectiveOrder.indexOfLast { watchlyCatalogGroup(it) != null }
+
+                if (lastWatchlyInsertAt >= 0) {
+                    effectiveOrder.addAll(lastWatchlyInsertAt + 1, members)
+                } else {
+                    effectiveOrder.addAll(members)
+                }
+            }
+        }
 
         return effectiveOrder.mapNotNull { key ->
             val entry = entryByKey[key] ?: return@mapNotNull null
