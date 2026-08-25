@@ -2087,6 +2087,13 @@ fun ModernHomeContent(
         val rowTitleBottom = 14.dp
         val rowsViewportHeightFraction = if (useLandscapePosters) 0.49f else 0.52f
         val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
+
+        // The configurable centered hero belongs only to the aggregate +
+        // full-width icon-row mode. Aggregate-off and half-width retain the
+        // original 0.4.20 bottom-anchored, full-size hero.
+        val effectiveFullWidthIconRowEnabled =
+            aggregatePlatformsEnabled && fullWidthIconRowEnabled
+
         // Empty space runs from below the platform icon row to the top of the
         // catalog. Icons are rendered in a separate scope, so their bottom edge
         // is a tunable inset here — adjust heroRegionTopInset to move the hero
@@ -3007,22 +3014,36 @@ fun ModernHomeContent(
                 selectedPlatformId = catalogDisplayedPlatformId,
                 platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive && !isPlatformTransitioning) platformNavDirection else 0,
                 platformTransitionSnap = isPlatformTransitioning,
-                fullWidthIconRowEnabled = fullWidthIconRowEnabled,
-                heroMetadataLarge = heroMetadataLarge,
-                modifier = Modifier
-                    // Occupy the region above the catalog (top of screen -> catalog top,
-                    // minus the hero/catalog gap) and center the hero vertically within it,
-                    // so shrinking the hero keeps it centered between the platform icons
-                    // and the top catalog title instead of hugging the catalog.
-                    .align(Alignment.TopStart)
-                    .padding(
-                        start = rowHorizontalPadding,
-                        end = 48.dp,
-                        top = heroRegionTopInset
-                    )
-                    .height(heroRegionHeight)
-                    .wrapContentHeight(align = Alignment.CenterVertically)
-                    .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                fullWidthIconRowEnabled = effectiveFullWidthIconRowEnabled,
+                heroMetadataLarge =
+                    if (effectiveFullWidthIconRowEnabled) heroMetadataLarge else true,
+                modifier = if (effectiveFullWidthIconRowEnabled) {
+                    Modifier
+                        // Full-width icon mode owns the newer centered hero region
+                        // and its configurable Small/Large metadata scale.
+                        .align(Alignment.TopStart)
+                        .padding(
+                            start = rowHorizontalPadding,
+                            end = 48.dp,
+                            top = heroRegionTopInset
+                        )
+                        .height(heroRegionHeight)
+                        .wrapContentHeight(align = Alignment.CenterVertically)
+                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                } else {
+                    Modifier
+                        // Exact 0.4.20 placement: bottom-anchor the unscaled hero
+                        // 16dp above the catalog viewport.
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = rowHorizontalPadding,
+                            end = 48.dp,
+                            bottom = catalogBottomPadding +
+                                rowsViewportHeight +
+                                heroToCatalogGap
+                        )
+                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                }
             )
             /*
              * DIAGNOSTIC_DEFER_NORMAL_RENDERER_ANCHOR

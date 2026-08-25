@@ -131,10 +131,6 @@ fun CatalogOrderScreen(
                         checked = uiState.aggregateStreamingPlatformsEnabled,
                         onToggle = { viewModel.toggleAggregatePlatforms() }
                     )
-                    HeroMetadataSizeToggleRow(
-                        checked = uiState.heroMetadataLarge,
-                        onToggle = { viewModel.toggleHeroMetadataLarge() }
-                    )
                     if (uiState.aggregateStreamingPlatformsEnabled) {
                         ShowAllCatalogsOnHomeToggleRow(
                             checked = uiState.showAllCatalogsOnHome,
@@ -148,6 +144,12 @@ fun CatalogOrderScreen(
                             checked = uiState.fullWidthIconRowEnabled,
                             onToggle = { viewModel.toggleFullWidthIconRow() }
                         )
+                        if (uiState.fullWidthIconRowEnabled) {
+                            HeroMetadataSizeToggleRow(
+                                checked = uiState.heroMetadataLarge,
+                                onToggle = { viewModel.toggleHeroMetadataLarge() }
+                            )
+                        }
                         DimIconsOnRowExitToggleRow(
                             checked = uiState.dimIconsOnRowExitEnabled,
                             onToggle = { viewModel.toggleDimIconsOnRowExit() }
