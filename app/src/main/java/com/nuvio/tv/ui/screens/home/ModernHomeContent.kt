@@ -1583,7 +1583,12 @@ fun ModernHomeContent(
         heroFrozenForRapidNav = false
     }
 
-    // Save focus state immediately before navigating away so it's available on back
+    // Save focus state immediately before navigating away so it's available on back.
+    // Once this explicit snapshot is taken, do not let the later disposal fallback
+    // overwrite it with focus/scroll state mutated during the outgoing nav fade.
+    val focusSnapshotSavedForNavigation = remember {
+        java.util.concurrent.atomic.AtomicBoolean(false)
+    }
     val latestSelectedPlatformId by rememberUpdatedState(selectedPlatformId)
     val wrappedOnNavigateToDetail: (String, String, String) -> Unit = remember(onNavigateToDetail, onSaveFocusState) {
         { itemId, itemType, addonBaseUrl ->
@@ -1619,12 +1624,19 @@ fun ModernHomeContent(
                 focusedRowKey,
                 latestSelectedPlatformId
             )
+            focusSnapshotSavedForNavigation.set(true)
             onNavigateToDetail(itemId, itemType, addonBaseUrl)
         }
     }
 
     DisposableEffect(Unit) {
         onDispose {
+            // Details navigation already captured the authoritative focus state
+            // before NavHost began its fade. Do not overwrite it at disposal time.
+            if (focusSnapshotSavedForNavigation.get()) {
+                return@onDispose
+            }
+
             val row = latestActiveRow
             val focusedRowIndex = row?.globalRowIndex ?: 0
             val focusedRowKey = row?.key

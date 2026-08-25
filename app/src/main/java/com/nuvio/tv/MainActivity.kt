@@ -876,13 +876,21 @@ private fun LegacySidebarScaffold(
                                 selected = selectedDrawerRoute == item.route,
                                 expanded = isExpanded,
                                 onClick = {
+                                    val stayingOnCurrentRoute = currentRoute == item.route
                                     navigateToDrawerRoute(
                                         navController = navController,
                                         currentRoute = currentRoute,
                                         targetRoute = item.route
                                     )
                                     drawerState.setValue(DrawerValue.Closed)
-                                    pendingContentFocusTransfer = true
+
+                                    // Only hand focus back to content when the drawer
+                                    // closes without leaving this screen. During root
+                                    // navigation the outgoing destination remains
+                                    // composed for the 350 ms fade; requesting content
+                                    // focus there can move its rows before it disappears
+                                    // and corrupt the focus position we return to later.
+                                    pendingContentFocusTransfer = stayingOnCurrentRoute
                                 },
                                 modifier = Modifier.focusRequester(
                                     drawerItemFocusRequesters.getValue(item.route)
