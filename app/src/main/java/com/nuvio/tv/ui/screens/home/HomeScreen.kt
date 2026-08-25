@@ -90,6 +90,7 @@ private fun claimColdHomeReveal(context: android.content.Context): Boolean {
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
+    skipReturnCurtain: Boolean = false,
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit = { item ->
         onNavigateToDetail(
@@ -473,6 +474,7 @@ fun HomeScreen(
                             HomeLayout.MODERN -> ModernHomeRoute(
                                 viewModel = viewModel,
                                 uiState = uiState,
+                                skipReturnCurtain = skipReturnCurtain,
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
@@ -697,6 +699,7 @@ private fun GridHomeRoute(
 private fun ModernHomeRoute(
     viewModel: HomeViewModel,
     uiState: HomeUiState,
+    skipReturnCurtain: Boolean,
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit,
@@ -814,12 +817,35 @@ private fun ModernHomeRoute(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    val homeReturnContentAlpha = remember(skipReturnCurtain) {
+        androidx.compose.animation.core.Animatable(
+            if (skipReturnCurtain) 0f else 1f
+        )
+    }
+
+    LaunchedEffect(skipReturnCurtain) {
+        if (skipReturnCurtain) {
+            homeReturnContentAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 350
+                )
+            )
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = homeReturnContentAlpha.value
+            }
+    ) {
     val homeReturnCurtainAlpha = remember {
         androidx.compose.animation.core.Animatable(1f)
     }
     var showHomeReturnCurtain by remember {
-        mutableStateOf(true)
+        mutableStateOf(!skipReturnCurtain)
     }
 
     LaunchedEffect(Unit) {

@@ -124,7 +124,19 @@ fun NuvioNavHost(
             )
         }
 
-        composable(Screen.Home.route) {
+        composable(Screen.Home.route) { backStackEntry ->
+            val skipHomeReturnCurtain =
+                androidx.compose.runtime.remember(backStackEntry) {
+                    backStackEntry.savedStateHandle
+                        .get<Boolean>("skipHomeReturnCurtainOnce") == true
+                }
+
+            androidx.compose.runtime.LaunchedEffect(skipHomeReturnCurtain) {
+                if (skipHomeReturnCurtain) {
+                    backStackEntry.savedStateHandle["skipHomeReturnCurtainOnce"] = false
+                }
+            }
+
             fun createContinueWatchingRoute(
                 item: ContinueWatchingItem,
                 manualSelection: Boolean = false,
@@ -175,6 +187,7 @@ fun NuvioNavHost(
             }
 
             HomeScreen(
+                skipReturnCurtain = skipHomeReturnCurtain,
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 },
@@ -229,6 +242,14 @@ fun NuvioNavHost(
             val returnToHomeOnBack = detailArgs
                 ?.getString("returnToHomeOnBack")
                 ?.toBooleanStrictOrNull() == true
+
+            fun markHomeReturnCurtainBypass() {
+                runCatching {
+                    navController.getBackStackEntry(Screen.Home.route)
+                }.getOrNull()
+                    ?.savedStateHandle
+                    ?.set("skipHomeReturnCurtainOnce", true)
+            }
             val returnFocusSeason by savedState.getStateFlow(
                 "returnFocusSeason", detailArgs?.getString("returnFocusSeason")?.toIntOrNull()
             ).collectAsState()
@@ -240,13 +261,27 @@ fun NuvioNavHost(
                 returnFocusEpisode = returnFocusEpisode,
                 onBackPress = {
                     if (returnToHomeOnBack) {
-                        val popped = navController.popBackStack(Screen.Home.route, inclusive = false)
+                        markHomeReturnCurtainBypass()
+
+                        val popped = navController.popBackStack(
+                            Screen.Home.route,
+                            inclusive = false
+                        )
                         if (!popped) {
                             navController.navigate(Screen.Home.route) {
                                 launchSingleTop = true
                             }
                         }
                     } else {
+                        val returningDirectlyToHome =
+                            navController.previousBackStackEntry
+                                ?.destination
+                                ?.route == Screen.Home.route
+
+                        if (returningDirectlyToHome) {
+                            markHomeReturnCurtainBypass()
+                        }
+
                         navController.popBackStack()
                     }
                 },
