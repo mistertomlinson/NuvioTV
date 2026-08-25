@@ -5,6 +5,20 @@ import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 
+internal const val MIN_SEARCH_QUERY_LENGTH = 2
+
+internal fun submittedSearchQuery(rawQuery: String): String =
+    rawQuery.trim().takeIf { it.length >= MIN_SEARCH_QUERY_LENGTH }.orEmpty()
+
+internal fun shouldShowDiscoverInSearch(
+    discoverEnabled: Boolean,
+    query: String,
+    submittedQuery: String
+): Boolean =
+    discoverEnabled &&
+        query.trim().length < MIN_SEARCH_QUERY_LENGTH &&
+        submittedQuery.isBlank()
+
 @Immutable
 data class SearchUiState(
     val query: String = "",
@@ -31,6 +45,7 @@ data class SearchUiState(
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
+    val recentSearches: List<String> = emptyList(),
     val suggestions: List<String> = emptyList()
 )
 
