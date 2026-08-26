@@ -3042,6 +3042,7 @@ fun ModernHomeContent(
                                 rowsViewportHeight +
                                 heroToCatalogGap
                         )
+                        .offset(y = 6.dp)
                         .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
                 }
             )

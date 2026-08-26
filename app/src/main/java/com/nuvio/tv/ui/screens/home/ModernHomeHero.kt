@@ -558,6 +558,23 @@ private fun HeroTitleContent(
         )
     }
 
+    // HeroTitleContent is vertically centered as one cluster. Without a
+    // fixed description slot, a 1-2 line synopsis makes the whole cluster
+    // shorter and shifts the logo/metadata downward. Reserve the existing
+    // maximum description height so unused line space stays BELOW the text.
+    val descriptionReservedHeight = remember(
+        density,
+        scaledDescriptionStyle,
+        descriptionMaxLines
+    ) {
+        with(density) {
+            (
+                scaledDescriptionStyle.lineHeight.toPx() *
+                    descriptionMaxLines
+                ).toDp()
+        }
+    }
+
     // Key on selectedPlatformId so the slide transition only fires when switching
     // platforms. Focusing different titles within a platform uses plain fade (key unchanged).
 
@@ -901,14 +918,25 @@ private fun HeroTitleContent(
             }
         }
 
-        if (!fullWidthIconRowEnabled) preview.description?.takeIf { it.isNotBlank() }?.let { description ->
-            Text(
-                text = description,
-                style = scaledDescriptionStyle,
-                color = NuvioColors.TextPrimary,
-                maxLines = descriptionMaxLines,
-                overflow = TextOverflow.Ellipsis
-            )
+        if (!fullWidthIconRowEnabled) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(descriptionReservedHeight),
+                contentAlignment = Alignment.TopStart
+            ) {
+                preview.description
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { description ->
+                        Text(
+                            text = description,
+                            style = scaledDescriptionStyle,
+                            color = NuvioColors.TextPrimary,
+                            maxLines = descriptionMaxLines,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+            }
         }
     }
 }
