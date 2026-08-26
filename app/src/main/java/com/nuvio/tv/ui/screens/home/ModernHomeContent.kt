@@ -1555,16 +1555,18 @@ fun ModernHomeContent(
                     !fastScrollLandingVisualPendingRef.get()
                 ) {
                     /*
-                     * PATCH_DEFER_HERO_UNTIL_RENDERER_PROMOTION_V1
+                     * Keep backdrop, logo and metadata frozen only through the
+                     * current renderer-promotion/focus-handoff sequence:
                      *
-                     * Keep backdrop, logo and metadata frozen until the
-                     * separately delayed 120 ms renderer promotion and direct
-                     * proxy-to-card focus transfer have completed.
+                     * 1 frame: advance the full-renderer anchor
+                     * 1 frame: promoted row measures before real-card focus
+                     * 2 frames: preserve BringIntoView suppression through handoff
                      *
-                     * collectLatest cancels this immediately if another row
-                     * movement begins.
+                     * The old 10-frame hold protected a former 120 ms promotion
+                     * delay that no longer exists. collectLatest still cancels
+                     * this immediately if another row movement begins.
                      */
-                    repeat(10) {
+                    repeat(4) {
                         withFrameNanos { }
                     }
                 }
