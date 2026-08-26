@@ -10,6 +10,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -173,13 +174,15 @@ fun SimklScreen(
             val remaining = uiState.expiresAtEpochMs
                 ?.let { (it - nowMillis).coerceAtLeast(0L) }
                 ?: 0L
+            val contentScrollState = rememberScrollState()
 
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            Box(modifier = Modifier.weight(1f)) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(contentScrollState),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -389,6 +392,8 @@ fun SimklScreen(
                             color = Color(0xFFFF6E6E)
                         )
                     }
+                }
+                SettingsVerticalScrollIndicators(state = contentScrollState)
             }
 
             Spacer(modifier = Modifier.height(16.dp))

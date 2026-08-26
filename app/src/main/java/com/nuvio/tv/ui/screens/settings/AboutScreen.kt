@@ -8,6 +8,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -79,10 +80,12 @@ fun AboutSettingsContent(
                 .weight(1f),
             title = null
         ) {
+            val aboutScrollState = rememberScrollState()
+            Box(modifier = Modifier.fillMaxSize()) {
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
+                    .fillMaxSize()
+                    .verticalScroll(aboutScrollState),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
@@ -144,6 +147,8 @@ fun AboutSettingsContent(
                     trailingIcon = Icons.Default.ChevronRight,
                     onClick = onNavigateToSupportersContributors
                 )
+            }
+            SettingsVerticalScrollIndicators(state = aboutScrollState)
             }
         }
     }

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Build
@@ -32,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
@@ -203,10 +205,13 @@ fun SettingsScreen(
         }
     }
 
-    var selectedCategory by remember(visibleSections) {
+    var selectedCategory by rememberSaveable {
         mutableStateOf(
             visibleSections.firstOrNull()?.category ?: SettingsCategory.APPEARANCE
         )
+    }
+    var railReturnFocusCategory by rememberSaveable {
+        mutableStateOf(selectedCategory)
     }
     val railFocusRequesters = remember(visibleSections) {
         visibleSections.associate { it.category to FocusRequester() }
@@ -237,6 +242,9 @@ fun SettingsScreen(
     LaunchedEffect(visibleSections) {
         if (visibleSections.none { it.category == selectedCategory }) {
             selectedCategory = visibleSections.firstOrNull()?.category ?: SettingsCategory.APPEARANCE
+        }
+        if (visibleSections.none { it.category == railReturnFocusCategory }) {
+            railReturnFocusCategory = selectedCategory
         }
     }
 
@@ -279,17 +287,23 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 var railHadFocus by remember { mutableStateOf(false) }
+                val railListState = rememberLazyListState()
 
-                LazyColumn(
+                Box(
                     modifier = Modifier
-                        .focusRequester(railContainerFocusRequester)
                         .width(220.dp)
                         .fillMaxHeight()
+                ) {
+                    LazyColumn(
+                        state = railListState,
+                        modifier = Modifier
+                            .focusRequester(railContainerFocusRequester)
+                            .fillMaxSize()
                         .onFocusChanged { state ->
                             val justGainedFocus = !railHadFocus && state.hasFocus
                             railHadFocus = state.hasFocus
                             if (justGainedFocus) {
-                                val requester = railFocusRequesters[selectedCategory]
+                                val requester = railFocusRequesters[railReturnFocusCategory]
                                 val requested = if (requester != null) {
                                     runCatching { requester.requestFocus() }.isSuccess
                                 } else {
@@ -321,6 +335,7 @@ fun SettingsScreen(
                             isSelected = selectedCategory == section.category,
                             focusRequester = railFocusRequesters[section.category],
                             onClick = {
+                                railReturnFocusCategory = section.category
                                 if (section.destination == SettingsSectionDestination.External) {
                                     when (section.category) {
                                         SettingsCategory.ACCOUNT -> onNavigateToAuthQrSignIn()
@@ -340,8 +355,10 @@ fun SettingsScreen(
                         )
                     }
                 }
+                SettingsVerticalScrollIndicators(state = railListState)
+            }
 
-                Box(
+            Box(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxHeight()
@@ -538,38 +555,44 @@ private fun IntegrationSettingsContent(
                         .fillMaxWidth()
                         .weight(1f)
                 ) {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        item(key = "integration_hub_debrid") {
-                            SettingsActionRow(
-                                title = stringResource(R.string.debrid_title),
-                                subtitle = stringResource(R.string.debrid_subtitle),
-                                onClick = { onSelectSection(IntegrationSettingsSection.Debrid) },
-                                modifier = Modifier.focusRequester(hubEntryFocusRequester)
-                            )
+                    val integrationHubState = rememberLazyListState()
+                    Box(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = integrationHubState,
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            item(key = "integration_hub_debrid") {
+                                SettingsActionRow(
+                                    title = stringResource(R.string.debrid_title),
+                                    subtitle = stringResource(R.string.debrid_subtitle),
+                                    onClick = { onSelectSection(IntegrationSettingsSection.Debrid) },
+                                    modifier = Modifier.focusRequester(hubEntryFocusRequester)
+                                )
+                            }
+                            item(key = "integration_hub_tmdb") {
+                                SettingsActionRow(
+                                    title = "TMDB",
+                                    subtitle = stringResource(R.string.settings_tmdb_subtitle),
+                                    onClick = { onSelectSection(IntegrationSettingsSection.Tmdb) }
+                                )
+                            }
+                            item(key = "integration_hub_mdblist") {
+                                SettingsActionRow(
+                                    title = "MDBList",
+                                    subtitle = stringResource(R.string.settings_mdblist_subtitle),
+                                    onClick = { onSelectSection(IntegrationSettingsSection.MdbList) }
+                                )
+                            }
+                            item(key = "integration_hub_animeskip") {
+                                SettingsActionRow(
+                                    title = "Anime-Skip",
+                                    subtitle = stringResource(R.string.settings_animeskip_subtitle),
+                                    onClick = { onSelectSection(IntegrationSettingsSection.AnimeSkip) }
+                                )
+                            }
                         }
-                        item(key = "integration_hub_tmdb") {
-                            SettingsActionRow(
-                                title = "TMDB",
-                                subtitle = stringResource(R.string.settings_tmdb_subtitle),
-                                onClick = { onSelectSection(IntegrationSettingsSection.Tmdb) }
-                            )
-                        }
-                        item(key = "integration_hub_mdblist") {
-                            SettingsActionRow(
-                                title = "MDBList",
-                                subtitle = stringResource(R.string.settings_mdblist_subtitle),
-                                onClick = { onSelectSection(IntegrationSettingsSection.MdbList) }
-                            )
-                        }
-                        item(key = "integration_hub_animeskip") {
-                            SettingsActionRow(
-                                title = "Anime-Skip",
-                                subtitle = stringResource(R.string.settings_animeskip_subtitle),
-                                onClick = { onSelectSection(IntegrationSettingsSection.AnimeSkip) }
-                            )
-                        }
+                        SettingsVerticalScrollIndicators(state = integrationHubState)
                     }
                 }
             }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.runtime.LaunchedEffect
@@ -135,28 +136,33 @@ fun ThemeSettingsContent(
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                itemsIndexed(
-                    items = uiState.availableThemes,
-                    key = { _, theme -> theme.name }
-                ) { index, theme ->
-                    ThemeCard(
-                        theme = theme,
-                        isSelected = theme == uiState.selectedTheme,
-                        onClick = { viewModel.onEvent(ThemeSettingsEvent.SelectTheme(theme)) },
-                        modifier = if (index == 0 && initialFocusRequester != null) {
-                            Modifier.focusRequester(initialFocusRequester)
-                        } else {
-                            Modifier
-                        }
-                    )
+            val themeGridState = rememberLazyGridState()
+            Box(modifier = Modifier.fillMaxSize()) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(3),
+                    state = themeGridState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    itemsIndexed(
+                        items = uiState.availableThemes,
+                        key = { _, theme -> theme.name }
+                    ) { index, theme ->
+                        ThemeCard(
+                            theme = theme,
+                            isSelected = theme == uiState.selectedTheme,
+                            onClick = { viewModel.onEvent(ThemeSettingsEvent.SelectTheme(theme)) },
+                            modifier = if (index == 0 && initialFocusRequester != null) {
+                                Modifier.focusRequester(initialFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                    }
                 }
+                SettingsVerticalScrollIndicators(state = themeGridState)
             }
         }
 
