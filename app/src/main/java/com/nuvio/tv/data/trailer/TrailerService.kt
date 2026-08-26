@@ -96,6 +96,8 @@ class TrailerService @Inject constructor(
             Log.w(TAG, "YouTube search fallback also exhausted for '$title'")
             cache[cacheKey] = NEGATIVE_CACHE
             null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error fetching trailer for $title: ${e.message}", e)
             null
@@ -142,7 +144,7 @@ class TrailerService @Inject constructor(
             else -> fetchTmdbMovieVideos(numericTmdbId, tmdbLanguage) + fetchTmdbTvVideos(numericTmdbId, tmdbLanguage)
         }
 
-        val candidates = rankTmdbVideoCandidates(tmdbResults)
+        val candidates = rankTmdbVideoCandidates(tmdbResults, preferredLanguageCode = tmdbLanguage)
         Log.d(TAG, "TMDB candidate count: ${candidates.size}")
 
         for (candidate in candidates) {
@@ -227,6 +229,8 @@ class TrailerService @Inject constructor(
             }
             Log.d(TAG, "Using backend fallback source for ${summarizeUrl(youtubeUrl)}")
             TrailerPlaybackSource(videoUrl = fallbackUrl)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.e(TAG, "Error getting trailer from YouTube: ${e.message}", e)
             null
@@ -403,7 +407,22 @@ internal fun normalizeTmdbMediaType(type: String?): String? {
     }
 }
 
-internal fun rankTmdbVideoCandidates(results: List<TmdbVideoResult>): List<TmdbVideoResult> {
+internal fun rankTmdbVideoCandidates(
+    results: List<TmdbVideoResult>,
+    preferredLanguageCode: String = TMDB_TRAILER_FALLBACK_LANGUAGE
+): List<TmdbVideoResult> {
+    val preferredLanguage =
+        preferredLanguageCode.substringBefore('-').lowercase()
+
+    fun languageRank(iso6391: String?): Int {
+        val language = iso6391?.trim()?.lowercase()
+        return when {
+            language == preferredLanguage -> 0
+            language == "en" -> 1
+            else -> 2
+        }
+    }
+
     return results
         .asSequence()
         .filter { (it.site ?: "").equals("YouTube", ignoreCase = true) }
@@ -413,7 +432,8 @@ internal fun rankTmdbVideoCandidates(results: List<TmdbVideoResult>): List<TmdbV
             normalizedType == "trailer" || normalizedType == "teaser"
         }
         .sortedWith(
-            compareBy<TmdbVideoResult> { videoTypePriority(it.type) }
+            compareBy<TmdbVideoResult> { languageRank(it.iso6391) }
+                .thenBy { videoTypePriority(it.type) }
                 .thenBy { if (it.official == true) 0 else 1 }
                 .thenByDescending { it.size ?: 0 }
                 .thenByDescending { parsePublishedAtEpoch(it.publishedAt) }

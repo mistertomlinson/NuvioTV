@@ -1196,7 +1196,6 @@ fun ModernHomeContent(
         focusedCatalogSelection?.focusKey,
         effectiveAutoplayEnabled,
         isVerticalRowsScrolling,
-        uiState.focusedPosterBackdropExpandDelaySeconds,
         isSidebarExpanded
     ) {
         /*
@@ -1222,13 +1221,13 @@ fun ModernHomeContent(
             return@LaunchedEffect
         }
         /*
-         * Do NOT resolve the trailer on focus. Resolution is network I/O
-         * (YouTube extraction) and firing it while the user is scrolling
-         * poster-to-poster is the source of scroll lag. Wait out the same
-         * user-configured delay that gates playback; cancellation of this
-         * LaunchedEffect on focus change kills the pending request for free.
+         * Resolve independently of the user's autoplay/expansion delay.
+         *
+         * A short stable-focus guard prevents transient navigation from
+         * starting trailer work, while the separate playback effect above
+         * continues to honor the user's configured 1/2/3/... second delay.
          */
-        delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0) * 1000L)
+        delay(150L)
         if (focusedCatalogSelection?.focusKey != selection.focusKey) {
             return@LaunchedEffect
         }

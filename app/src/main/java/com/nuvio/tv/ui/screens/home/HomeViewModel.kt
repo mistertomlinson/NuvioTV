@@ -690,7 +690,7 @@ class HomeViewModel @Inject constructor(
 
     internal val enrichmentCache: MutableMap<String, TmdbEnrichment> = Collections.synchronizedMap(LinkedHashMap())
     internal var tmdbEnrichFocusJob: Job? = null
-    internal var trailerPreviewDebounceJob: Job? = null
+    internal var trailerPreviewJob: Job? = null
     internal var proactiveEnrichJob: Job? = null
 
     /*

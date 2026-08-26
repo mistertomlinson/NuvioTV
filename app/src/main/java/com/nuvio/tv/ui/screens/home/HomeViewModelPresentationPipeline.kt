@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class CoreLayoutPrefs(
     val layout: HomeLayout,
@@ -269,104 +270,135 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
 ) {
     if (startupGracePeriodActive) return
 
-    // Debounce: cancel any pending trailer request and wait before firing
-    trailerPreviewDebounceJob?.cancel()
-    trailerPreviewDebounceJob = viewModelScope.launch {
-        delay(500L)
-        requestTrailerPreviewPipelineImmediate(
-            itemId = itemId,
-            title = title,
-            releaseInfo = releaseInfo,
-            apiType = apiType,
-            fallbackYtId = fallbackYtId
-        )
+    /*
+     * Modern Home's compact callback does not carry trailerYtIds, so recover
+     * an existing addon/catalog trailer ID here when one is already known.
+     * This remains a fallback after the normal TMDB path.
+     */
+    val resolvedFallbackYtId = fallbackYtId ?: synchronized(catalogsMap) {
+        catalogsMap.values.firstNotNullOfOrNull { row ->
+            row.items.firstOrNull { it.id == itemId }
+                ?.trailerYtIds
+                ?.firstOrNull()
+        }
     }
-}
 
-private fun HomeViewModel.requestTrailerPreviewPipelineImmediate(
-    itemId: String,
-    title: String,
-    releaseInfo: String?,
-    apiType: String,
-    fallbackYtId: String? = null
-) {
-    if (activeTrailerPreviewItemId != itemId) {
-        activeTrailerPreviewItemId = itemId
-        trailerPreviewRequestVersion++
+    val previousActiveItemId = activeTrailerPreviewItemId
+    activeTrailerPreviewItemId = itemId
+
+    // Version immediately: only the latest settled focus is allowed to win.
+    trailerPreviewRequestVersion++
+    val requestVersion = trailerPreviewRequestVersion
+
+    // Moving to another title should stop its abandoned extraction immediately.
+    if (previousActiveItemId != itemId) {
+        trailerPreviewJob?.cancel()
     }
 
     if (trailerPreviewNegativeCache.contains(itemId)) return
+
     trailerPreviewUrlsState[itemId]?.let { cachedVideoUrl ->
         val expireParam = Regex("[?&]expire=(\\d+)").find(cachedVideoUrl)
             ?.groupValues?.get(1)?.toLongOrNull()
         val isExpired = expireParam != null &&
             expireParam < java.time.Instant.now().epochSecond
         if (!isExpired) return
-        // URL expired — evict and re-resolve
+
+        // URL expired — evict and re-resolve.
         trailerPreviewUrlsState.remove(itemId)
         trailerPreviewAudioUrlsState.remove(itemId)
     }
+
     if (!trailerPreviewLoadingIds.add(itemId)) return
 
-    val requestVersion = trailerPreviewRequestVersion
-
-    viewModelScope.launch {
+    trailerPreviewJob?.cancel()
+    trailerPreviewJob = viewModelScope.launch {
         try {
-        val tmdbId = try {
-            tmdbService.ensureTmdbId(itemId, apiType)
-        } catch (_: Exception) {
-            null
-        }
+            /*
+             * Upstream-style settled-focus debounce. Combined with the
+             * Modern Home 150 ms guard, cold resolution begins at roughly
+             * 330 ms instead of after the user's autoplay delay.
+             */
+            delay(180L)
 
-        val trailerSource = trailerService.getTrailerPlaybackSource(
-            title = title,
-            year = extractYear(releaseInfo),
-            tmdbId = tmdbId,
-            type = apiType
-        )
+            if (
+                activeTrailerPreviewItemId != itemId ||
+                trailerPreviewRequestVersion != requestVersion
+            ) {
+                return@launch
+            }
 
-        val isLatestFocusedItem =
-            activeTrailerPreviewItemId == itemId && trailerPreviewRequestVersion == requestVersion
-        if (!isLatestFocusedItem) {
-            return@launch
-        }
+            val tmdbId = withContext(Dispatchers.IO) {
+                try {
+                    tmdbService.ensureTmdbId(itemId, apiType)
+                } catch (_: Exception) {
+                    null
+                }
+            }
 
-        if (trailerSource?.videoUrl.isNullOrBlank()) {
-            val fallbackSource = fallbackYtId?.let { ytId ->
-                trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
-                    youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
+            val trailerSource = withContext(Dispatchers.IO) {
+                trailerService.getTrailerPlaybackSource(
                     title = title,
-                    year = extractYear(releaseInfo)
+                    year = extractYear(releaseInfo),
+                    tmdbId = tmdbId,
+                    type = apiType
                 )
             }
-            if (fallbackSource?.videoUrl != null) {
-                if (trailerPreviewUrlsState[itemId] != fallbackSource.videoUrl) {
-                    trailerPreviewUrlsState[itemId] = fallbackSource.videoUrl
+
+            if (
+                activeTrailerPreviewItemId != itemId ||
+                trailerPreviewRequestVersion != requestVersion
+            ) {
+                return@launch
+            }
+
+            if (trailerSource?.videoUrl.isNullOrBlank()) {
+                val fallbackSource = resolvedFallbackYtId?.let { ytId ->
+                    withContext(Dispatchers.IO) {
+                        trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
+                            youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
+                            title = title,
+                            year = extractYear(releaseInfo)
+                        )
+                    }
                 }
-                val fallbackAudio = fallbackSource.audioUrl
-                if (fallbackAudio.isNullOrBlank()) {
+
+                if (
+                    activeTrailerPreviewItemId != itemId ||
+                    trailerPreviewRequestVersion != requestVersion
+                ) {
+                    return@launch
+                }
+
+                if (fallbackSource?.videoUrl != null) {
+                    if (trailerPreviewUrlsState[itemId] != fallbackSource.videoUrl) {
+                        trailerPreviewUrlsState[itemId] = fallbackSource.videoUrl
+                    }
+
+                    val fallbackAudio = fallbackSource.audioUrl
+                    if (fallbackAudio.isNullOrBlank()) {
+                        trailerPreviewAudioUrlsState.remove(itemId)
+                    } else if (trailerPreviewAudioUrlsState[itemId] != fallbackAudio) {
+                        trailerPreviewAudioUrlsState[itemId] = fallbackAudio
+                    }
+                } else {
+                    trailerPreviewNegativeCache.add(itemId)
+                    trailerPreviewUrlsState.remove(itemId)
                     trailerPreviewAudioUrlsState.remove(itemId)
-                } else if (trailerPreviewAudioUrlsState[itemId] != fallbackAudio) {
-                    trailerPreviewAudioUrlsState[itemId] = fallbackAudio
                 }
             } else {
-                trailerPreviewNegativeCache.add(itemId)
-                trailerPreviewUrlsState.remove(itemId)
-                trailerPreviewAudioUrlsState.remove(itemId)
-            }
-        } else {
-            val videoUrl = trailerSource.videoUrl
-            if (trailerPreviewUrlsState[itemId] != videoUrl) {
-                trailerPreviewUrlsState[itemId] = videoUrl
-            }
-            val audioUrl = trailerSource.audioUrl
-            if (audioUrl.isNullOrBlank()) {
-                trailerPreviewAudioUrlsState.remove(itemId)
-            } else if (trailerPreviewAudioUrlsState[itemId] != audioUrl) {
-                trailerPreviewAudioUrlsState[itemId] = audioUrl
-            }
-        }
+                val videoUrl = trailerSource.videoUrl
+                if (trailerPreviewUrlsState[itemId] != videoUrl) {
+                    trailerPreviewUrlsState[itemId] = videoUrl
+                }
 
+                val audioUrl = trailerSource.audioUrl
+                if (audioUrl.isNullOrBlank()) {
+                    trailerPreviewAudioUrlsState.remove(itemId)
+                } else if (trailerPreviewAudioUrlsState[itemId] != audioUrl) {
+                    trailerPreviewAudioUrlsState[itemId] = audioUrl
+                }
+            }
         } finally {
             trailerPreviewLoadingIds.remove(itemId)
         }
