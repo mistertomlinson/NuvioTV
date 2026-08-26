@@ -77,6 +77,9 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.TimeZone
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
+import com.nuvio.tv.domain.model.CardDepthSurface
+import com.nuvio.tv.ui.components.LocalCardDepthStyle
+import com.nuvio.tv.ui.components.nuvioCardDepth
 
 private const val EPISODE_CARD_CONTENT_TYPE = "episode_card"
 private const val EPISODE_SCROLL_REPEAT_THROTTLE_MS = 80L
@@ -515,6 +518,17 @@ private fun EpisodeCard(
     var isFocused by isFocusedState
     var longPressTriggered by remember { mutableStateOf(false) }
     val shape = remember(cardMetrics.cornerRadius) { RoundedCornerShape(cardMetrics.cornerRadius) }
+    val cardDepthStyle = LocalCardDepthStyle.current
+    val episodeDepthModifier = remember(
+        shape,
+        cardDepthStyle
+    ) {
+        Modifier.nuvioCardDepth(
+            shape = shape,
+            surface = CardDepthSurface.EPISODE_CARDS,
+            style = cardDepthStyle
+        )
+    }
     val thumbnailWidthPx = remember(cardMetrics.cardWidth, density) {
         with(density) { cardMetrics.cardWidth.roundToPx() }
     }
@@ -671,6 +685,7 @@ private fun EpisodeCard(
                         drawRoundRect(color = cardBgColor, cornerRadius = cr)
                     }
                 }
+                .then(episodeDepthModifier)
         ) {
             AsyncImage(
                 model = thumbnailRequest,

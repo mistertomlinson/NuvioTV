@@ -115,6 +115,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
+import com.nuvio.tv.domain.model.CardDepthSurface
+import com.nuvio.tv.ui.components.LocalCardDepthStyle
+import com.nuvio.tv.ui.components.nuvioCardDepth
 
 // Single-clock anchored expansion channel: for end-of-row (right-edge
 // anchored) expansion the row drives the expanded card's width per animation
@@ -2073,6 +2076,25 @@ private fun ModernCarouselCard(
     onUpPressed: (() -> Unit)? = null
 ) {
     val cardShape = remember(cardCornerRadius) { RoundedCornerShape(cardCornerRadius) }
+    val cardDepthStyle = LocalCardDepthStyle.current
+
+    /*
+     * Card Depth is deliberately cached and attached only to the
+     * complete renderer's poster/backdrop media layer.
+     *
+     * It does not participate in focus, expansion, trailer playback,
+     * renderer promotion, or lightweight fast-scroll rows.
+     */
+    val posterDepthModifier = remember(
+        cardShape,
+        cardDepthStyle
+    ) {
+        Modifier.nuvioCardDepth(
+            shape = cardShape,
+            surface = CardDepthSurface.POSTERS,
+            style = cardDepthStyle
+        )
+    }
     val context = LocalContext.current
     val density = LocalDensity.current
     val expandedCardWidth = remember(cardHeight) { cardHeight * (16f / 9f) }
@@ -2422,7 +2444,13 @@ private fun ModernCarouselCard(
                 // Layer 1 (bottom): Poster image — hidden when collapse overlay is fully opaque
                 val posterAlpha = if (noBackdropImage && topOverlayAlpha == 1f) 0f else 1f
 
-                Box(modifier = mediaLayerModifier.graphicsLayer { alpha = posterAlpha }) {
+                Box(
+                    modifier = mediaLayerModifier
+                        .graphicsLayer {
+                            alpha = posterAlpha
+                        }
+                        .then(posterDepthModifier)
+                ) {
                     if (!hasImage || !posterImageLoaded.value) {
                         MonochromePosterPlaceholder(
                             shimmerTranslateState = shimmerTranslateState

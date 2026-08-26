@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import com.nuvio.tv.domain.model.CardDepthStyle
+import com.nuvio.tv.domain.model.CardDepthSurface
 
 data class LayoutSettingsUiState(
     val selectedLayout: HomeLayout = HomeLayout.MODERN,
@@ -41,6 +43,7 @@ data class LayoutSettingsUiState(
     val posterCardWidthDp: Int = 126,
     val posterCardHeightDp: Int = 189,
     val posterCardCornerRadiusDp: Int = 12,
+    val cardDepthStyle: CardDepthStyle = CardDepthStyle(),
     val blurUnwatchedEpisodes: Boolean = false,
     val detailPageTrailerButtonEnabled: Boolean = false,
     val preferExternalMetaAddonDetail: Boolean = false,
@@ -74,6 +77,30 @@ sealed class LayoutSettingsEvent {
     ) : LayoutSettingsEvent()
     data class SetPosterCardWidth(val widthDp: Int) : LayoutSettingsEvent()
     data class SetPosterCardCornerRadius(val cornerRadiusDp: Int) : LayoutSettingsEvent()
+
+    data class SetCardDepthEnabled(
+        val enabled: Boolean
+    ) : LayoutSettingsEvent()
+
+    data class SetCardDepthEdgeStrength(
+        val strength: Int
+    ) : LayoutSettingsEvent()
+
+    data class SetCardDepthSheenStrength(
+        val strength: Int
+    ) : LayoutSettingsEvent()
+
+    data class SetCardDepthEdgeCoverage(
+        val coverage: Int
+    ) : LayoutSettingsEvent()
+
+    data class SetCardDepthSurfaceEnabled(
+        val surface: CardDepthSurface,
+        val enabled: Boolean
+    ) : LayoutSettingsEvent()
+
+    data object ResetCardDepthStyle : LayoutSettingsEvent()
+
     data class SetBlurUnwatchedEpisodes(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetDetailPageTrailerButtonEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetPreferExternalMetaAddonDetail(val enabled: Boolean) : LayoutSettingsEvent()
@@ -214,6 +241,15 @@ class LayoutSettingsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
+            layoutPreferenceDataStore.cardDepthStyle
+                .distinctUntilChanged()
+                .collectLatest { style ->
+                    updateUiStateIfChanged {
+                        it.copy(cardDepthStyle = style)
+                    }
+                }
+        }
+        viewModelScope.launch {
             layoutPreferenceDataStore.blurUnwatchedEpisodes.distinctUntilChanged().collectLatest { enabled ->
                 updateUiStateIfChanged { it.copy(blurUnwatchedEpisodes = enabled) }
             }
@@ -257,6 +293,21 @@ class LayoutSettingsViewModel @Inject constructor(
                 setFocusedPosterBackdropTrailerPlaybackTarget(event.target)
             is LayoutSettingsEvent.SetPosterCardWidth -> setPosterCardWidth(event.widthDp)
             is LayoutSettingsEvent.SetPosterCardCornerRadius -> setPosterCardCornerRadius(event.cornerRadiusDp)
+            is LayoutSettingsEvent.SetCardDepthEnabled ->
+                setCardDepthEnabled(event.enabled)
+            is LayoutSettingsEvent.SetCardDepthEdgeStrength ->
+                setCardDepthEdgeStrength(event.strength)
+            is LayoutSettingsEvent.SetCardDepthSheenStrength ->
+                setCardDepthSheenStrength(event.strength)
+            is LayoutSettingsEvent.SetCardDepthEdgeCoverage ->
+                setCardDepthEdgeCoverage(event.coverage)
+            is LayoutSettingsEvent.SetCardDepthSurfaceEnabled ->
+                setCardDepthSurfaceEnabled(
+                    event.surface,
+                    event.enabled
+                )
+            LayoutSettingsEvent.ResetCardDepthStyle ->
+                resetCardDepthStyle()
             is LayoutSettingsEvent.SetBlurUnwatchedEpisodes -> setBlurUnwatchedEpisodes(event.enabled)
             is LayoutSettingsEvent.SetDetailPageTrailerButtonEnabled -> setDetailPageTrailerButtonEnabled(event.enabled)
             is LayoutSettingsEvent.SetPreferExternalMetaAddonDetail -> setPreferExternalMetaAddonDetail(event.enabled)
@@ -396,6 +447,72 @@ class LayoutSettingsViewModel @Inject constructor(
         if (_uiState.value.posterCardCornerRadiusDp == cornerRadiusDp) return
         viewModelScope.launch {
             layoutPreferenceDataStore.setPosterCardCornerRadiusDp(cornerRadiusDp)
+        }
+    }
+
+    private fun setCardDepthEnabled(enabled: Boolean) {
+        if (_uiState.value.cardDepthStyle.enabled == enabled) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .setCardDepthEnabled(enabled)
+        }
+    }
+
+    private fun setCardDepthEdgeStrength(strength: Int) {
+        val value = strength.coerceIn(0, 100)
+        if (_uiState.value.cardDepthStyle.edgeStrength == value) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .setCardDepthEdgeStrength(value)
+        }
+    }
+
+    private fun setCardDepthSheenStrength(strength: Int) {
+        val value = strength.coerceIn(0, 100)
+        if (_uiState.value.cardDepthStyle.sheenStrength == value) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .setCardDepthSheenStrength(value)
+        }
+    }
+
+    private fun setCardDepthEdgeCoverage(coverage: Int) {
+        val value = coverage.coerceIn(0, 100)
+        if (_uiState.value.cardDepthStyle.edgeCoverage == value) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .setCardDepthEdgeCoverage(value)
+        }
+    }
+
+    private fun setCardDepthSurfaceEnabled(
+        surface: CardDepthSurface,
+        enabled: Boolean
+    ) {
+        if (
+            _uiState.value.cardDepthStyle
+                .isSurfaceEnabled(surface) == enabled
+        ) {
+            return
+        }
+
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .setCardDepthSurfaceEnabled(
+                    surface,
+                    enabled
+                )
+        }
+    }
+
+    private fun resetCardDepthStyle() {
+        if (_uiState.value.cardDepthStyle == CardDepthStyle()) {
+            return
+        }
+
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .resetCardDepthStyle()
         }
     }
 

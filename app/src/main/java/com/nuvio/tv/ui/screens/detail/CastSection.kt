@@ -49,6 +49,9 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.domain.model.CardDepthSurface
+import com.nuvio.tv.ui.components.LocalCardDepthStyle
+import com.nuvio.tv.ui.components.nuvioCardDepth
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class, ExperimentalFoundationApi::class)
 @Composable
@@ -238,6 +241,14 @@ private fun CastMemberItem(
     val nameStyle = remember(typography) { typography.labelMedium }
     val characterStyle = remember(typography) { typography.labelSmall }
     val initialsStyle = remember(typography) { typography.titleLarge }
+    val cardDepthStyle = LocalCardDepthStyle.current
+    val castDepthModifier = remember(cardDepthStyle) {
+        Modifier.nuvioCardDepth(
+            shape = CircleShape,
+            surface = CardDepthSurface.CAST,
+            style = cardDepthStyle
+        )
+    }
     val photo = member.photo
     val photoModel = remember(context, photo, cardSizePx) {
         photo?.takeIf { it.isNotBlank() }?.let { url ->
@@ -276,7 +287,9 @@ private fun CastMemberItem(
             )
         ) {
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(castDepthModifier),
                 contentAlignment = Alignment.Center
             ) {
                 if (photoModel != null) {

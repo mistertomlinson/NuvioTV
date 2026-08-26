@@ -140,6 +140,8 @@ import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.CardDepthStyle
+import com.nuvio.tv.ui.components.LocalCardDepthStyle
 
 val LocalIsScrolling = compositionLocalOf { false }
 val LocalBackgroundedAtMs = compositionLocalOf { 0L }
@@ -164,7 +166,8 @@ private data class MainUiPrefs(
     val hasChosenLayout: Boolean? = null,
     val sidebarCollapsed: Boolean = false,
     val modernSidebarEnabled: Boolean = false,
-    val modernSidebarBlurPref: Boolean = false
+    val modernSidebarBlurPref: Boolean = false,
+    val cardDepthStyle: CardDepthStyle = CardDepthStyle()
 )
 
 @AndroidEntryPoint
@@ -335,12 +338,16 @@ class MainActivity : ComponentActivity() {
                 }.combine(layoutPreferenceDataStore.modernSidebarBlurEnabled) { prefs, modernSidebarBlurPref ->
                     prefs.copy(modernSidebarBlurPref = modernSidebarBlurPref)
                 }
+                  .combine(layoutPreferenceDataStore.cardDepthStyle) { prefs, cardDepthStyle ->
+                      prefs.copy(cardDepthStyle = cardDepthStyle)
+                  }
             }
             val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
 
             NuvioTheme(appTheme = mainUiPrefs.theme, appFont = mainUiPrefs.font) {
                 CompositionLocalProvider(
-                    LocalBringIntoViewSpec provides NuvioScrollDefaults.smoothScrollSpec
+                    LocalBringIntoViewSpec provides NuvioScrollDefaults.smoothScrollSpec,
+                      LocalCardDepthStyle provides mainUiPrefs.cardDepthStyle
                 ) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),

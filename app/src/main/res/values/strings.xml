@@ -1371,5 +1371,35 @@
     <string name="cd_open_discover">Open discover</string>
     <string name="cd_voice_search">Voice search</string>
     <string name="cd_clear_search">Clear search</string>
+
+    <!-- Card Depth Effect -->
+    <string name="settings_card_depth_title">Card Depth Effect</string>
+    <string name="settings_card_depth_enabled">Enable depth effect</string>
+    <string name="settings_card_depth_description">Adds a soft sheen and lighter edges to cards</string>
+    <string name="settings_card_depth_edge">Edge glow</string>
+    <string name="settings_card_depth_edge_subtle">Subtle</string>
+    <string name="settings_card_depth_edge_balanced">Balanced</string>
+    <string name="settings_card_depth_edge_bold">Bold</string>
+    <string name="settings_card_depth_sheen">Top sheen</string>
+    <string name="settings_card_depth_sheen_off">Off</string>
+    <string name="settings_card_depth_sheen_soft">Soft</string>
+    <string name="settings_card_depth_sheen_bright">Bright</string>
+    <string name="settings_card_depth_edge_coverage">Edge coverage</string>
+    <string name="settings_card_depth_coverage_top">Top only</string>
+    <string name="settings_card_depth_coverage_half">Half</string>
+    <string name="settings_card_depth_coverage_full">Full outline</string>
+    <string name="settings_card_depth_fine_tune">Fine-tune</string>
+    <string name="settings_card_depth_fine_tune_hint_tv">Use left/right to fine-tune the effect</string>
+    <string name="settings_card_depth_apply_to">Apply to</string>
+    <string name="settings_card_depth_surface_posters">Posters</string>
+    <string name="settings_card_depth_surface_continue_watching">Continue Watching</string>
+    <string name="settings_card_depth_surface_episodes">Episode cards</string>
+    <string name="settings_card_depth_surface_cast">Cast</string>
+    <string name="settings_card_depth_surface_trailers">Trailers</string>
+    <string name="settings_card_depth_fine_tune_title">Fine-tune Card Depth</string>
+    <string name="settings_card_depth_edge_value">Edge glow</string>
+    <string name="settings_card_depth_sheen_value">Top sheen</string>
+    <string name="settings_card_depth_coverage_value">Edge coverage</string>
+
 </resources>
 

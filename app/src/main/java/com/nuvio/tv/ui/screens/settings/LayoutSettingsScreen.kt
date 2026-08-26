@@ -59,6 +59,19 @@ import com.nuvio.tv.ui.components.ClassicLayoutPreview
 import com.nuvio.tv.ui.components.GridLayoutPreview
 import com.nuvio.tv.ui.components.ModernLayoutPreview
 import com.nuvio.tv.ui.theme.NuvioColors
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import com.nuvio.tv.domain.model.CardDepthStyle
+import com.nuvio.tv.domain.model.CardDepthSurface
+import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_COVERAGE
+import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
+import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
+import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.cardDepthVisual
 
 @Composable
 fun LayoutSettingsScreen(
@@ -95,6 +108,9 @@ fun LayoutSettingsContent(
     var detailPageExpanded by rememberSaveable { mutableStateOf(false) }
     var focusedPosterExpanded by rememberSaveable { mutableStateOf(false) }
     var posterCardStyleExpanded by rememberSaveable { mutableStateOf(false) }
+    var showCardDepthFineTuneDialog by remember {
+        mutableStateOf(false)
+    }
 
     val defaultHomeLayoutHeaderFocus = remember { FocusRequester() }
     val homeContentHeaderFocus = remember { FocusRequester() }
@@ -609,6 +625,129 @@ fun LayoutSettingsContent(
                         },
                         onFocused = { focusedSection = LayoutSettingsSection.POSTER_CARD_STYLE }
                     )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = stringResource(
+                            R.string.settings_card_depth_title
+                        ),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = NuvioColors.TextPrimary
+                    )
+
+                    CardDepthStyleControls(
+                        style = uiState.cardDepthStyle,
+                        onEnabledChange = { enabled ->
+                            viewModel.onEvent(
+                                LayoutSettingsEvent
+                                    .SetCardDepthEnabled(enabled)
+                            )
+                        },
+                        onEdgeStrengthChange = { strength ->
+                            viewModel.onEvent(
+                                LayoutSettingsEvent
+                                    .SetCardDepthEdgeStrength(
+                                        strength
+                                    )
+                            )
+                        },
+                        onSheenStrengthChange = { strength ->
+                            viewModel.onEvent(
+                                LayoutSettingsEvent
+                                    .SetCardDepthSheenStrength(
+                                        strength
+                                    )
+                            )
+                        },
+                        onEdgeCoverageChange = { coverage ->
+                            viewModel.onEvent(
+                                LayoutSettingsEvent
+                                    .SetCardDepthEdgeCoverage(
+                                        coverage
+                                    )
+                            )
+                        },
+                        onSurfaceEnabledChange = {
+                            surface,
+                            enabled ->
+                            viewModel.onEvent(
+                                LayoutSettingsEvent
+                                    .SetCardDepthSurfaceEnabled(
+                                        surface,
+                                        enabled
+                                    )
+                            )
+                        },
+                        onFineTune = {
+                            showCardDepthFineTuneDialog = true
+                        },
+                        onReset = {
+                            viewModel.onEvent(
+                                LayoutSettingsEvent
+                                    .ResetCardDepthStyle
+                            )
+                        },
+                        onFocused = {
+                            focusedSection =
+                                LayoutSettingsSection
+                                    .POSTER_CARD_STYLE
+                        }
+                    )
+
+                    if (showCardDepthFineTuneDialog) {
+                        CardDepthFineTuneDialog(
+                            style = uiState.cardDepthStyle,
+                            onEdgeStrengthChange = { strength ->
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent
+                                        .SetCardDepthEdgeStrength(
+                                            strength
+                                        )
+                                )
+                            },
+                            onSheenStrengthChange = { strength ->
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent
+                                        .SetCardDepthSheenStrength(
+                                            strength
+                                        )
+                                )
+                            },
+                            onEdgeCoverageChange = { coverage ->
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent
+                                        .SetCardDepthEdgeCoverage(
+                                            coverage
+                                        )
+                                )
+                            },
+                            onReset = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent
+                                        .SetCardDepthEdgeStrength(
+                                            DEFAULT_CARD_DEPTH_EDGE_STRENGTH
+                                        )
+                                )
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent
+                                        .SetCardDepthSheenStrength(
+                                            DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
+                                        )
+                                )
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent
+                                        .SetCardDepthEdgeCoverage(
+                                            DEFAULT_CARD_DEPTH_EDGE_COVERAGE
+                                        )
+                                )
+                            },
+                            onDismiss = {
+                                showCardDepthFineTuneDialog = false
+                            }
+                        )
+                    }
+
                 }
             }
         }
@@ -847,6 +986,378 @@ private fun CatalogChip(
         selected = isSelected,
         onClick = onClick,
         onFocused = onFocused
+    )
+}
+
+@Composable
+private fun CardDepthStyleControls(
+    style: CardDepthStyle,
+    onEnabledChange: (Boolean) -> Unit,
+    onEdgeStrengthChange: (Int) -> Unit,
+    onSheenStrengthChange: (Int) -> Unit,
+    onEdgeCoverageChange: (Int) -> Unit,
+    onSurfaceEnabledChange:
+        (CardDepthSurface, Boolean) -> Unit,
+    onFineTune: () -> Unit,
+    onReset: () -> Unit,
+    onFocused: () -> Unit
+) {
+    val edgeOptions = listOf(
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_edge_subtle
+            ),
+            28
+        ),
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_edge_balanced
+            ),
+            42
+        ),
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_edge_bold
+            ),
+            56
+        )
+    )
+
+    val sheenOptions = listOf(
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_sheen_off
+            ),
+            0
+        ),
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_sheen_soft
+            ),
+            10
+        ),
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_sheen_bright
+            ),
+            16
+        )
+    )
+
+    val coverageOptions = listOf(
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_coverage_top
+            ),
+            0
+        ),
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_coverage_half
+            ),
+            50
+        ),
+        PresetOption(
+            stringResource(
+                R.string.settings_card_depth_coverage_full
+            ),
+            100
+        )
+    )
+
+    val surfaces = listOf(
+        stringResource(
+            R.string.settings_card_depth_surface_posters
+        ) to CardDepthSurface.POSTERS,
+        stringResource(
+            R.string.settings_card_depth_surface_continue_watching
+        ) to CardDepthSurface.CONTINUE_WATCHING,
+        stringResource(
+            R.string.settings_card_depth_surface_episodes
+        ) to CardDepthSurface.EPISODE_CARDS,
+        stringResource(
+            R.string.settings_card_depth_surface_cast
+        ) to CardDepthSurface.CAST,)
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement =
+            Arrangement.spacedBy(8.dp)
+    ) {
+        CompactToggleRow(
+            title = stringResource(
+                R.string.settings_card_depth_enabled
+            ),
+            subtitle = stringResource(
+                R.string.settings_card_depth_description
+            ),
+            checked = style.enabled,
+            onToggle = {
+                onEnabledChange(!style.enabled)
+            },
+            onFocused = onFocused
+        )
+
+        if (style.enabled) {
+            OptionRow(
+                title = stringResource(
+                    R.string.settings_card_depth_edge
+                ),
+                selectedValue = style.edgeStrength,
+                options = edgeOptions,
+                onSelected = onEdgeStrengthChange,
+                onFocused = onFocused
+            )
+
+            OptionRow(
+                title = stringResource(
+                    R.string.settings_card_depth_sheen
+                ),
+                selectedValue = style.sheenStrength,
+                options = sheenOptions,
+                onSelected = onSheenStrengthChange,
+                onFocused = onFocused
+            )
+
+            OptionRow(
+                title = stringResource(
+                    R.string.settings_card_depth_edge_coverage
+                ),
+                selectedValue = style.edgeCoverage,
+                options = coverageOptions,
+                onSelected = onEdgeCoverageChange,
+                onFocused = onFocused
+            )
+
+            SettingsActionRow(
+                title = stringResource(
+                    R.string.settings_card_depth_fine_tune
+                ),
+                subtitle = stringResource(
+                    R.string.settings_card_depth_fine_tune_hint_tv
+                ),
+                onClick = onFineTune,
+                trailingIcon = Icons.Default.Tune,
+                onFocused = onFocused
+            )
+
+            Text(
+                text = stringResource(
+                    R.string.settings_card_depth_apply_to
+                ),
+                style =
+                    MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextSecondary
+            )
+
+            surfaces.forEach { (title, surface) ->
+                CompactToggleRow(
+                    title = title,
+                    subtitle = null,
+                    checked =
+                        style.isSurfaceEnabled(surface),
+                    onToggle = {
+                        onSurfaceEnabledChange(
+                            surface,
+                            !style.isSurfaceEnabled(
+                                surface
+                            )
+                        )
+                    },
+                    onFocused = onFocused
+                )
+            }
+        }
+
+        Button(
+            onClick = onReset,
+            modifier =
+                Modifier.onFocusChanged {
+                    if (it.isFocused) {
+                        onFocused()
+                    }
+                },
+            shape =
+                ButtonDefaults.shape(
+                    shape =
+                        RoundedCornerShape(
+                            SettingsPillRadius
+                        )
+                ),
+            colors =
+                ButtonDefaults.colors(
+                    containerColor =
+                        NuvioColors.Background,
+                    focusedContainerColor =
+                        NuvioColors.Background
+                ),
+            border =
+                ButtonDefaults.border(
+                    focusedBorder =
+                        Border(
+                            border =
+                                BorderStroke(
+                                    2.dp,
+                                    NuvioColors.FocusRing
+                                ),
+                            shape =
+                                RoundedCornerShape(
+                                    SettingsPillRadius
+                                )
+                        )
+                )
+        ) {
+            Text(
+                text = stringResource(
+                    R.string.layout_reset_default
+                ),
+                style =
+                    MaterialTheme.typography.labelLarge,
+                color = NuvioColors.TextPrimary
+            )
+        }
+    }
+}
+
+@Composable
+private fun CardDepthFineTuneDialog(
+    style: CardDepthStyle,
+    onEdgeStrengthChange: (Int) -> Unit,
+    onSheenStrengthChange: (Int) -> Unit,
+    onEdgeCoverageChange: (Int) -> Unit,
+    onReset: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    NuvioDialog(
+        onDismiss = onDismiss,
+        title = stringResource(
+            R.string.settings_card_depth_fine_tune_title
+        ),
+        subtitle = stringResource(
+            R.string.settings_card_depth_fine_tune_hint_tv
+        ),
+        width = 680.dp
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement =
+                Arrangement.spacedBy(16.dp)
+        ) {
+            CardDepthPreview(
+                style = style,
+                modifier =
+                    Modifier
+                        .width(260.dp)
+                        .aspectRatio(2f / 3f)
+            )
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement =
+                    Arrangement.spacedBy(8.dp)
+            ) {
+                SliderSettingsItem(
+                    icon = Icons.Default.Tune,
+                    title = stringResource(
+                        R.string.settings_card_depth_edge_value
+                    ),
+                    value =
+                        style.edgeStrength
+                            .coerceAtMost(70),
+                    valueText =
+                        "${style.edgeStrength}%",
+                    minValue = 0,
+                    maxValue = 70,
+                    step = 1,
+                    onValueChange =
+                        onEdgeStrengthChange
+                )
+
+                SliderSettingsItem(
+                    icon = Icons.Default.Tune,
+                    title = stringResource(
+                        R.string.settings_card_depth_sheen_value
+                    ),
+                    value =
+                        style.sheenStrength
+                            .coerceAtMost(25),
+                    valueText =
+                        "${style.sheenStrength}%",
+                    minValue = 0,
+                    maxValue = 25,
+                    step = 1,
+                    onValueChange =
+                        onSheenStrengthChange
+                )
+
+                SliderSettingsItem(
+                    icon = Icons.Default.Tune,
+                    title = stringResource(
+                        R.string.settings_card_depth_coverage_value
+                    ),
+                    value = style.edgeCoverage,
+                    valueText =
+                        "${style.edgeCoverage}%",
+                    minValue = 0,
+                    maxValue = 100,
+                    step = 1,
+                    onValueChange =
+                        onEdgeCoverageChange
+                )
+
+                Button(
+                    onClick = onReset,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors =
+                        ButtonDefaults.colors(
+                            containerColor =
+                                NuvioColors.Background,
+                            focusedContainerColor =
+                                NuvioColors.Background
+                        )
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.layout_reset_default
+                        )
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CardDepthPreview(
+    style: CardDepthStyle,
+    modifier: Modifier = Modifier
+) {
+    val shape =
+        RoundedCornerShape(12.dp)
+
+    Box(
+        modifier =
+            modifier
+                .clip(shape)
+                .background(
+                    Brush.linearGradient(
+                        colors =
+                            listOf(
+                                Color(0xFF33415C),
+                                Color(0xFF232D42),
+                                Color(0xFF141A28)
+                            )
+                    )
+                )
+                .cardDepthVisual(
+                    shape = shape,
+                    edgeStrength =
+                        style.edgeStrength.toFloat(),
+                    sheenStrength =
+                        style.sheenStrength.toFloat(),
+                    edgeCoverage =
+                        style.edgeCoverage.toFloat()
+                )
     )
 }
 

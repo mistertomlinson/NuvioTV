@@ -64,6 +64,7 @@ import kotlin.math.roundToInt
 import java.util.concurrent.TimeUnit
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import com.nuvio.tv.ui.util.computeAirDateBadgeText
+import com.nuvio.tv.domain.model.CardDepthSurface
 
 internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -234,6 +235,17 @@ fun ContinueWatchingCard(
 ) {
     var longPressTriggered by remember { mutableStateOf(false) }
 
+    val cardDepthStyle = LocalCardDepthStyle.current
+    val continueWatchingDepthModifier = remember(
+        cardDepthStyle
+    ) {
+        Modifier.nuvioCardDepth(
+            shape = CwCardShape,
+            surface = CardDepthSurface.CONTINUE_WATCHING,
+            style = cardDepthStyle
+        )
+    }
+
     val progress = remember(item) { (item as? ContinueWatchingItem.InProgress)?.progress }
     val episodeThumbnail = remember(item) { (item as? ContinueWatchingItem.InProgress)?.episodeThumbnail }
     val nextUp = remember(item) { (item as? ContinueWatchingItem.NextUp)?.info }
@@ -374,7 +386,9 @@ fun ContinueWatchingCard(
         ),
         scale = CardDefaults.scale(focusedScale = 1f)
     ) {
-        Column {
+        Column(
+            modifier = continueWatchingDepthModifier
+        ) {
             // Thumbnail with progress overlay
             Box(
                 modifier = Modifier
