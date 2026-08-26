@@ -244,7 +244,8 @@ internal fun ModernHeroGradientLayer(
     modifier: Modifier,
     cinematicMode: Boolean = false,
     shouldPlayHeroTrailer: Boolean = false,
-    compactContentStartOffset: androidx.compose.ui.unit.Dp = 0.dp
+    compactContentStartOffset: androidx.compose.ui.unit.Dp = 0.dp,
+    drawVerticalBottomGradient: Boolean = true
 ) {
     val compactContentStartOffsetPx =
         with(LocalDensity.current) {
@@ -426,7 +427,14 @@ internal fun ModernHeroGradientLayer(
             }
         }
 
-        verticalGradient?.let { drawRect(brush = it, size = size) }
+        if (drawVerticalBottomGradient) {
+            verticalGradient?.let {
+                drawRect(
+                    brush = it,
+                    size = size
+                )
+            }
+        }
     }
 }
 

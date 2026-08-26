@@ -799,10 +799,17 @@ private fun ModernHomeRoute(
     ) {
         mutableStateOf(stablePlatformIds.isNotEmpty())
     }
-    var isHeroTrailerPlaying by remember(
+    /*
+     * Shared hero-backdrop alpha for the platform chrome.
+     *
+     * ModernHomeContent owns the authoritative backdrop/trailer crossfade.
+     * The icon row reads this state only from its graphics layer, so trailer
+     * fades do not require a second independently-timed Compose animation.
+     */
+    val heroChromeBackdropAlpha = remember(
         uiState.homeLoadSessionId
     ) {
-        mutableStateOf(false)
+        androidx.compose.runtime.mutableFloatStateOf(1f)
     }
 
     androidx.compose.runtime.DisposableEffect(Unit) {
@@ -879,7 +886,7 @@ private fun ModernHomeRoute(
     }
 
     val carouselAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (carouselReady && aggregatePlatformsEnabled && !isHeroTrailerPlaying) 1f else 0f,
+        targetValue = if (carouselReady && aggregatePlatformsEnabled) 1f else 0f,
         animationSpec = androidx.compose.animation.core.tween(400),
         label = "carouselFade"
     )
@@ -923,8 +930,10 @@ private fun ModernHomeRoute(
         heroMetadataLarge = heroMetadataLarge,
         carouselGradientAlpha = carouselAlpha,
         onHeroTrailerPlayingChanged = { playing ->
-            isHeroTrailerPlaying = playing
             viewModel.setHomeHeroTrailerPlaying(playing)
+        },
+        onHeroBackdropAlphaChanged = { alpha ->
+            heroChromeBackdropAlpha.floatValue = alpha
         },
         platformNavDirection = platformNavDirection,
         isPlatformDpadHeld = {
@@ -963,7 +972,11 @@ private fun ModernHomeRoute(
             .align(Alignment.TopEnd)
             .fillMaxWidth(if (fullWidthIconRowEnabled) 1f else 0.55f)
             .padding(top = 8.dp, end = if (fullWidthIconRowEnabled) 0.dp else 20.dp, start = if (fullWidthIconRowEnabled) 20.dp else 0.dp)
-            .graphicsLayer { alpha = carouselAlpha }
+            .graphicsLayer {
+                alpha =
+                    carouselAlpha *
+                        heroChromeBackdropAlpha.floatValue
+            }
     )
     if (showHomeReturnCurtain) {
         Box(

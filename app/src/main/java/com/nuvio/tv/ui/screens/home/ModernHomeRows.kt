@@ -265,6 +265,7 @@ private fun ModernCatalogRowItem(
         },
         onLongPress = onLongPress,
         onBackdropInteraction = onBackdropInteraction,
+        suppressSelectBackdropTimerReset = suppressCardExpansionForHeroTrailer,
         onTrailerEnded = remember(onExpandedCatalogFocusKeyChange) { { onExpandedCatalogFocusKeyChange(null) } },
         isNearRowEnd = isNearRowEnd,
         onUpPressed = onUpPressed
@@ -2071,6 +2072,7 @@ private fun ModernCarouselCard(
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onBackdropInteraction: () -> Unit,
+    suppressSelectBackdropTimerReset: Boolean = false,
     onTrailerEnded: () -> Unit,
     isNearRowEnd: Boolean = false,
     onUpPressed: (() -> Unit)? = null
@@ -2372,7 +2374,12 @@ private fun ModernCarouselCard(
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
                     if (native.action == AndroidKeyEvent.ACTION_DOWN) {
-                        if (focusedPosterBackdropExpandEnabled && shouldResetBackdropTimer(event.key)) {
+                        val selectKey = isSelectKey(native.keyCode)
+                        if (
+                            focusedPosterBackdropExpandEnabled &&
+                            shouldResetBackdropTimer(event.key) &&
+                            !(suppressSelectBackdropTimerReset && selectKey)
+                        ) {
                             onBackdropInteraction()
                         }
                         if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
@@ -2381,7 +2388,13 @@ private fun ModernCarouselCard(
                             return@onPreviewKeyEvent true
                         }
                         val isLongPress = native.isLongPress || native.repeatCount > 0
-                        if (isLongPress && isSelectKey(native.keyCode)) {
+                        if (isLongPress && selectKey) {
+                            if (
+                                focusedPosterBackdropExpandEnabled &&
+                                suppressSelectBackdropTimerReset
+                            ) {
+                                onBackdropInteraction()
+                            }
                             longPressTriggered = true
                             onLongPress()
                             return@onPreviewKeyEvent true

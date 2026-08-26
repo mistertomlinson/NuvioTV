@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -146,6 +147,12 @@ private fun PauseMetadataView(
     cast: List<MetaCastMember>,
     onCastSelected: (MetaCastMember) -> Unit
 ) {
+    val pauseLogoMaxWidth =
+        androidx.compose.ui.platform.LocalConfiguration
+            .current
+            .screenWidthDp
+            .dp / 3f
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.Bottom
@@ -172,7 +179,11 @@ private fun PauseMetadataView(
                         contentDescription = title,
                         contentScale = ContentScale.Fit,
                         alignment = Alignment.BottomStart,
-                        modifier = Modifier.height(96.dp),
+                        modifier = Modifier
+                            .height(96.dp)
+                            .widthIn(
+                                max = pauseLogoMaxWidth
+                            ),
                         onError = { logoFailed = true }
                     )
                 } else {

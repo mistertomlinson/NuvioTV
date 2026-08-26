@@ -184,6 +184,7 @@ fun ModernHomeContent(
     onCarouselOpenRequested: () -> Unit = {},
     isCarouselFocused: Boolean = false,
     onHeroTrailerPlayingChanged: (Boolean) -> Unit = {},
+    onHeroBackdropAlphaChanged: (Float) -> Unit = {},
     platformNavDirection: Int = 0,
     isPlatformDpadHeld: () -> Boolean = { false },
     onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> }
@@ -1990,6 +1991,14 @@ fun ModernHomeContent(
             heroTransitionProgress
 
         /*
+         * Export the exact backdrop crossfade value to the platform icon row.
+         * The gradient below consumes this value locally in the same frame.
+         */
+        androidx.compose.runtime.SideEffect {
+            onHeroBackdropAlphaChanged(heroBackdropAlpha)
+        }
+
+        /*
          * Deferred trailer release: wait two frames after B is decoded so the
          * backdrop Crossfade has committed B before A's trailer is torn down.
          * Two frames is imperceptible and costs nothing when idle.
@@ -2524,6 +2533,7 @@ fun ModernHomeContent(
                     },
                 cinematicMode = cinematicHeroMode,
                 shouldPlayHeroTrailer = false,
+                drawVerticalBottomGradient = false,
                 compactContentStartOffset =
                     if (cinematicHeroMode) {
                         0.dp
@@ -2681,7 +2691,11 @@ fun ModernHomeContent(
                     .align(Alignment.TopStart)
                     .fillMaxWidth()
                     .height(80.dp)
-                    .graphicsLayer { alpha = carouselGradientAlpha }
+                    .graphicsLayer {
+                        alpha =
+                            carouselGradientAlpha *
+                                heroBackdropAlpha
+                    }
                     .background(
                         androidx.compose.ui.graphics.Brush.verticalGradient(
                             colorStops = arrayOf(
