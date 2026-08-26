@@ -187,6 +187,7 @@ private class TrailerSeekOverlayState {
 @Composable
 fun MetaDetailsScreen(
     viewModel: MetaDetailsViewModel = hiltViewModel(),
+    modifier: Modifier = Modifier,
     returnFocusSeason: Int? = null,
     returnFocusEpisode: Int? = null,
     onBackPress: () -> Unit,
@@ -273,7 +274,7 @@ fun MetaDetailsScreen(
     }
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxSize()
             .onPreviewKeyEvent { keyEvent ->
                 if (currentIsTrailerPlaying) {

@@ -45,12 +45,118 @@ import com.nuvio.tv.ui.screens.cast.CastDetailScreen
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionMode
 import com.nuvio.tv.ui.screens.profile.ProfileSelectionScreen
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import kotlinx.coroutines.launch
 @Composable
 fun NuvioNavHost(
     navController: NavHostController,
     startDestination: String = Screen.Home.route,
     hideBuiltInHeaders: Boolean = false
 ) {
+    // DETAIL_RETURN_FROZEN_LAYER
+    //
+    // The Details destination continuously records its current Compose
+    // drawing into this NavHost-owned GraphicsLayer. The recorded display
+    // list therefore survives the navigation pop.
+    val detailReturnLayer = rememberGraphicsLayer()
+
+    val detailReturnOverlayAlpha =
+        androidx.compose.runtime.remember {
+            androidx.compose.animation.core.Animatable(1f)
+        }
+
+    val showDetailReturnOverlay =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    val detailReturnRunning =
+        androidx.compose.runtime.remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val detailReturnScope =
+        androidx.compose.runtime.rememberCoroutineScope()
+
+    // One-shot signal used only during Details -> Home return.
+    //
+    // Home sends this only after its outer content has actually
+    // completed a draw. The draw hook is then removed immediately,
+    // so it does not remain on the normal Home scrolling path.
+    val detailReturnHomeDrawSignal =
+        androidx.compose.runtime.remember {
+            kotlinx.coroutines.channels.Channel<Unit>(
+                capacity = kotlinx.coroutines.channels.Channel.CONFLATED
+            )
+        }
+
+    val detailReturnAwaitingHomeDraw =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    fun runFrozenDetailReturn(
+        navigateHome: () -> Unit
+    ) {
+        if (!detailReturnRunning.compareAndSet(false, true)) return
+
+        detailReturnScope.launch {
+            try {
+                detailReturnOverlayAlpha.snapTo(1f)
+                showDetailReturnOverlay.value = true
+
+                // Live Details is still on screen here.
+                androidx.compose.runtime.withFrameNanos { }
+
+                // Clear any stale one-shot signal from a previous return.
+                while (detailReturnHomeDrawSignal.tryReceive().isSuccess) {
+                    // Drain only.
+                }
+
+                // Arm the Home draw handshake before navigation so the first
+                // returning Home draw cannot race past us.
+                detailReturnAwaitingHomeDraw.value = true
+
+                // Pop Details. The recorded Details frame remains fully
+                // visible above Home while Home restores underneath.
+                navigateHome()
+
+                // Wait until Home has actually completed an outer draw.
+                //
+                // The 250ms timeout is ONLY a failsafe. Normally the signal
+                // should arrive much sooner, allowing the same 350ms dissolve
+                // to begin immediately instead of waiting a fixed ~100ms.
+                kotlinx.coroutines.withTimeoutOrNull(250L) {
+                    detailReturnHomeDrawSignal.receive()
+                }
+
+                // Remove the temporary draw hook BEFORE the dissolve.
+                detailReturnAwaitingHomeDraw.value = false
+
+                // Keep the approved crossfade duration unchanged.
+                detailReturnOverlayAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = 350
+                        )
+                )
+            } finally {
+                detailReturnAwaitingHomeDraw.value = false
+                showDetailReturnOverlay.value = false
+                detailReturnOverlayAlpha.snapTo(1f)
+                detailReturnRunning.set(false)
+            }
+        }
+    }
+
     fun isStreamToPlayer(from: String, to: String): Boolean {
         return from.startsWith("stream/") && to.startsWith("player/")
     }
@@ -59,7 +165,10 @@ fun NuvioNavHost(
         return from.startsWith("player/") && to.startsWith("stream/")
     }
 
-    NavHost(
+    Box(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        NavHost(
         navController = navController,
         startDestination = startDestination,
         enterTransition = {
@@ -92,7 +201,10 @@ fun NuvioNavHost(
             val isAutoPlayNav = initialState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
-            if (isPlayerToStream(from, to) && isAutoPlayNav) {
+            if (
+                (isPlayerToStream(from, to) && isAutoPlayNav) ||
+                (from.startsWith("detail/") && to == Screen.Home.route)
+            ) {
                 EnterTransition.None
             } else {
                 fadeIn(animationSpec = tween(350))
@@ -110,6 +222,11 @@ fun NuvioNavHost(
                 isPlayerToStream(from, to) && isAutoPlayNav -> ExitTransition.None
                 // Screen already black from rating animation — skip nav fade
                 from.startsWith("player/") && isRatingExit -> ExitTransition.None
+
+                // Frozen Details layer owns this visual transition.
+                from.startsWith("detail/") &&
+                    to == Screen.Home.route -> ExitTransition.None
+
                 else -> fadeOut(animationSpec = tween(350))
             }
         }
@@ -188,6 +305,11 @@ fun NuvioNavHost(
 
             HomeScreen(
                 skipReturnCurtain = skipHomeReturnCurtain,
+                returnFrameSignalActive =
+                    detailReturnAwaitingHomeDraw.value,
+                onReturnFrameDrawn = {
+                    detailReturnHomeDrawSignal.trySend(Unit)
+                },
                 onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 },
@@ -257,19 +379,30 @@ fun NuvioNavHost(
                 "returnFocusEpisode", detailArgs?.getString("returnFocusEpisode")?.toIntOrNull()
             ).collectAsState()
             MetaDetailsScreen(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithContent {
+                        detailReturnLayer.record {
+                            this@drawWithContent.drawContent()
+                        }
+                        drawLayer(detailReturnLayer)
+                    },
                 returnFocusSeason = returnFocusSeason,
                 returnFocusEpisode = returnFocusEpisode,
                 onBackPress = {
                     if (returnToHomeOnBack) {
                         markHomeReturnCurtainBypass()
 
-                        val popped = navController.popBackStack(
-                            Screen.Home.route,
-                            inclusive = false
-                        )
-                        if (!popped) {
-                            navController.navigate(Screen.Home.route) {
-                                launchSingleTop = true
+                        runFrozenDetailReturn {
+                            val popped = navController.popBackStack(
+                                Screen.Home.route,
+                                inclusive = false
+                            )
+
+                            if (!popped) {
+                                navController.navigate(Screen.Home.route) {
+                                    launchSingleTop = true
+                                }
                             }
                         }
                     } else {
@@ -280,9 +413,13 @@ fun NuvioNavHost(
 
                         if (returningDirectlyToHome) {
                             markHomeReturnCurtainBypass()
-                        }
 
-                        navController.popBackStack()
+                            runFrozenDetailReturn {
+                                navController.popBackStack()
+                            }
+                        } else {
+                            navController.popBackStack()
+                        }
                     }
                 },
                 onNavigateToCastDetail = { personId, personName, preferCrew ->
@@ -1082,6 +1219,19 @@ fun NuvioNavHost(
                     navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
                 }
             )
+        }
+    }
+
+        if (showDetailReturnOverlay.value) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = detailReturnOverlayAlpha.value
+                    }
+            ) {
+                drawLayer(detailReturnLayer)
+            }
         }
     }
 }

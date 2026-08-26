@@ -91,6 +91,8 @@ private fun claimColdHomeReveal(context: android.content.Context): Boolean {
 fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
     skipReturnCurtain: Boolean = false,
+    returnFrameSignalActive: Boolean = false,
+    onReturnFrameDrawn: () -> Unit = {},
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit = { item ->
         onNavigateToDetail(
@@ -475,6 +477,8 @@ fun HomeScreen(
                                 viewModel = viewModel,
                                 uiState = uiState,
                                 skipReturnCurtain = skipReturnCurtain,
+                                returnFrameSignalActive = returnFrameSignalActive,
+                                onReturnFrameDrawn = onReturnFrameDrawn,
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
@@ -700,6 +704,8 @@ private fun ModernHomeRoute(
     viewModel: HomeViewModel,
     uiState: HomeUiState,
     skipReturnCurtain: Boolean,
+    returnFrameSignalActive: Boolean,
+    onReturnFrameDrawn: () -> Unit,
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit,
@@ -819,7 +825,7 @@ private fun ModernHomeRoute(
 
     val homeReturnContentAlpha = remember(skipReturnCurtain) {
         androidx.compose.animation.core.Animatable(
-            if (skipReturnCurtain) 0f else 1f
+            1f // frozen Details overlay owns return dissolve
         )
     }
 
@@ -840,6 +846,20 @@ private fun ModernHomeRoute(
             .graphicsLayer {
                 alpha = homeReturnContentAlpha.value
             }
+            .then(
+                if (returnFrameSignalActive) {
+                    Modifier.drawWithContent {
+                        // Draw the entire live Home first.
+                        drawContent()
+
+                        // Only then tell the frozen Details overlay that
+                        // it is safe to begin its 350ms dissolve.
+                        onReturnFrameDrawn()
+                    }
+                } else {
+                    Modifier
+                }
+            )
     ) {
     val homeReturnCurtainAlpha = remember {
         androidx.compose.animation.core.Animatable(1f)
