@@ -3356,8 +3356,8 @@ fun ModernHomeContent(
                             row.enrichmentReady &&
                             pendingRowFocus.key != row.key &&
                             (
-                                rendererDistance < -2 ||
-                                    rendererDistance > 2
+                                rendererDistance < -3 ||
+                                    rendererDistance > 3
                             )
 
                     val stableOnContinueWatchingOptions = remember(Unit) {
