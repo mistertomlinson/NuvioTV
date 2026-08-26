@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 
 private const val TAG = "TrailerService"
 private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
+private const val YOUTUBE_SOURCE_CACHE_TTL_MS = 3L * 60L * 60L * 1000L
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
 @Singleton
@@ -29,9 +30,12 @@ class TrailerService @Inject constructor(
 ) {
     // Cache: "title|year|tmdbId|type" -> trailer playback source (NEGATIVE_CACHE sentinel for misses)
     private val cache = ConcurrentHashMap<String, TrailerPlaybackSource>()
+    private val cacheStoredAtMs = ConcurrentHashMap<String, Long>()
     private val NEGATIVE_CACHE = TrailerPlaybackSource(videoUrl = "")
-    // Session cache: youtubeVideoId -> resolved playback source (success-only)
-    private val youtubeSourceCache = ConcurrentHashMap<String, TrailerPlaybackSource>()
+
+    // Time-bound cache: youtubeVideoId -> resolved playback source (success-only)
+    private val youtubeSourceCache =
+        ConcurrentHashMap<String, CachedTrailerPlaybackSource>()
 
     /**
      * Search for a trailer by title, year, tmdbId, and type.
@@ -50,14 +54,12 @@ class TrailerService @Inject constructor(
                 Log.d(TAG, "Cache hit for $cacheKey: false")
                 return@withContext null
             }
-            // Check if the cached googlevideo URL has expired
-            val expireParam = Regex("[?&]expire=(\\d+)").find(cached.videoUrl)
-                ?.groupValues?.get(1)?.toLongOrNull()
-            val isExpired = expireParam != null &&
-                expireParam < java.time.Instant.now().epochSecond
-            if (isExpired) {
-                Log.d(TAG, "Cache hit for $cacheKey: expired (expire=$expireParam) — re-resolving")
+
+            val cachedAtMs = cacheStoredAtMs[cacheKey] ?: 0L
+            if (isPlaybackSourceExpired(cached, cachedAtMs)) {
+                Log.d(TAG, "Cache hit for $cacheKey: expired — re-resolving")
                 cache.remove(cacheKey)
+                cacheStoredAtMs.remove(cacheKey)
             } else {
                 Log.d(TAG, "Cache hit for $cacheKey: true")
                 return@withContext cached
@@ -76,6 +78,7 @@ class TrailerService @Inject constructor(
             )
             if (tmdbSource != null) {
                 cache[cacheKey] = tmdbSource
+                cacheStoredAtMs[cacheKey] = System.currentTimeMillis()
                 return@withContext tmdbSource
             }
             Log.w(TAG, "TMDB path exhausted; trying YouTube search fallback for '$title'")
@@ -90,11 +93,13 @@ class TrailerService @Inject constructor(
                 if (searchSource != null) {
                     Log.d(TAG, "YouTube search fallback succeeded for '$title'")
                     cache[cacheKey] = searchSource
+                    cacheStoredAtMs[cacheKey] = System.currentTimeMillis()
                     return@withContext searchSource
                 }
             }
             Log.w(TAG, "YouTube search fallback also exhausted for '$title'")
             cache[cacheKey] = NEGATIVE_CACHE
+            cacheStoredAtMs.remove(cacheKey)
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -186,16 +191,9 @@ class TrailerService @Inject constructor(
         try {
             val youtubeKey = extractYouTubeVideoId(youtubeUrl)
             if (!youtubeKey.isNullOrBlank()) {
-                youtubeSourceCache[youtubeKey]?.let { cached ->
-                    val expireParam = Regex("[?&]expire=(\\d+)").find(cached.videoUrl)?.groupValues?.get(1)?.toLongOrNull()
-                    val isExpired = expireParam != null && expireParam < Instant.now().epochSecond
-                    if (isExpired) {
-                        Log.d(TAG, "YouTube cache expired for key=${obfuscateYoutubeKey(youtubeKey)}, expire=$expireParam — evicting")
-                        youtubeSourceCache.remove(youtubeKey)
-                    } else {
-                        Log.d(TAG, "YouTube session cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
-                        return@withContext cached
-                    }
+                getValidCachedYoutubeSource(youtubeKey)?.let { cached ->
+                    Log.d(TAG, "YouTube cache hit for key=${obfuscateYoutubeKey(youtubeKey)}")
+                    return@withContext cached
                 }
             }
 
@@ -203,7 +201,11 @@ class TrailerService @Inject constructor(
             val localSource = inAppYouTubeExtractor.extractPlaybackSource(youtubeUrl)
             if (localSource != null) {
                 if (!youtubeKey.isNullOrBlank()) {
-                    youtubeSourceCache[youtubeKey] = localSource
+                    youtubeSourceCache[youtubeKey] = CachedTrailerPlaybackSource(
+                        playbackSource = localSource,
+                        cachedAtMs = System.currentTimeMillis(),
+                        expiresAt = extractPlaybackSourceExpireInstant(localSource)
+                    )
                 }
                 Log.d(
                     TAG,
@@ -225,7 +227,12 @@ class TrailerService @Inject constructor(
             if (!isValidUrl(fallbackUrl)) return@withContext null
 
             if (!youtubeKey.isNullOrBlank()) {
-                youtubeSourceCache[youtubeKey] = TrailerPlaybackSource(videoUrl = fallbackUrl)
+                val fallbackSource = TrailerPlaybackSource(videoUrl = fallbackUrl)
+                youtubeSourceCache[youtubeKey] = CachedTrailerPlaybackSource(
+                    playbackSource = fallbackSource,
+                    cachedAtMs = System.currentTimeMillis(),
+                    expiresAt = extractPlaybackSourceExpireInstant(fallbackSource)
+                )
             }
             Log.d(TAG, "Using backend fallback source for ${summarizeUrl(youtubeUrl)}")
             TrailerPlaybackSource(videoUrl = fallbackUrl)
@@ -332,10 +339,81 @@ class TrailerService @Inject constructor(
         return "***${key.takeLast(4)}"
     }
 
+    private fun getValidCachedYoutubeSource(
+        youtubeKey: String
+    ): TrailerPlaybackSource? {
+        val cached = youtubeSourceCache[youtubeKey] ?: return null
+
+        val expired = cached.expiresAt?.let { expiresAt ->
+            !Instant.now().isBefore(expiresAt)
+        } ?: (
+            System.currentTimeMillis() - cached.cachedAtMs >
+                YOUTUBE_SOURCE_CACHE_TTL_MS
+        )
+
+        if (!expired) {
+            return cached.playbackSource
+        }
+
+        youtubeSourceCache.remove(youtubeKey, cached)
+        return null
+    }
+
+    private fun isPlaybackSourceExpired(
+        source: TrailerPlaybackSource,
+        cachedAtMs: Long
+    ): Boolean {
+        val explicitExpiry = extractPlaybackSourceExpireInstant(source)
+        if (explicitExpiry != null) {
+            return !Instant.now().isBefore(explicitExpiry)
+        }
+
+        return System.currentTimeMillis() - cachedAtMs >
+            YOUTUBE_SOURCE_CACHE_TTL_MS
+    }
+
+    /*
+     * Googlevideo URLs have used both query and path expiration forms.
+     * For separate adaptive video/audio, expire at the earlier timestamp.
+     */
+    private fun extractPlaybackSourceExpireInstant(
+        source: TrailerPlaybackSource
+    ): Instant? {
+        return listOfNotNull(
+            extractUrlExpireInstant(source.videoUrl),
+            extractUrlExpireInstant(source.audioUrl)
+        ).minOrNull()
+    }
+
+    private fun extractUrlExpireInstant(url: String?): Instant? {
+        if (url.isNullOrBlank()) return null
+
+        val epoch = sequenceOf(
+            Regex("[?&]expire=(\\d+)").find(url),
+            Regex("/expire/(\\d+)(?:/|$)").find(url)
+        )
+            .mapNotNull { match ->
+                match?.groupValues?.getOrNull(1)?.toLongOrNull()
+            }
+            .firstOrNull()
+            ?: return null
+
+        return runCatching {
+            Instant.ofEpochSecond(epoch)
+        }.getOrNull()
+    }
+
     fun clearCache() {
         cache.clear()
+        cacheStoredAtMs.clear()
         youtubeSourceCache.clear()
     }
+
+    private data class CachedTrailerPlaybackSource(
+        val playbackSource: TrailerPlaybackSource,
+        val cachedAtMs: Long,
+        val expiresAt: Instant?
+    )
 
     private fun extractYouTubeVideoId(input: String): String? {
         val trimmed = input.trim()
@@ -431,9 +509,10 @@ internal fun rankTmdbVideoCandidates(
             val normalizedType = it.type?.trim()?.lowercase()
             normalizedType == "trailer" || normalizedType == "teaser"
         }
+        .distinctBy { it.key }
         .sortedWith(
-            compareBy<TmdbVideoResult> { languageRank(it.iso6391) }
-                .thenBy { videoTypePriority(it.type) }
+            compareBy<TmdbVideoResult> { videoTypePriority(it.type) }
+                .thenBy { languageRank(it.iso6391) }
                 .thenBy { if (it.official == true) 0 else 1 }
                 .thenByDescending { it.size ?: 0 }
                 .thenByDescending { parsePublishedAtEpoch(it.publishedAt) }
