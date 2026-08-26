@@ -1243,9 +1243,17 @@ fun ModernHomeContent(
 
     LaunchedEffect(carouselRows, focusState.hasSavedFocus, focusState.focusedRowIndex, focusState.focusedItemIndex, focusState.focusedRowKey) {
         focusedItemByRow.keys.retainAll(activeRowKeys)
-        uiCaches.lastActuallyFocusedIndexByRow
-            .keys
-            .retainAll(activeRowKeys)
+
+        // A platform switch can temporarily remove a row such as My List.
+        // Keep only its tiny authoritative real-focus index when the user has
+        // actually moved within that row. This prevents an older Details
+        // navigation snapshot from becoming authoritative again when the row
+        // returns, while still pruning all heavier row state below.
+        uiCaches.lastActuallyFocusedIndexByRow.keys.removeAll { rowKey ->
+            rowKey !in activeRowKeys &&
+                rowKey !in uiCaches.userInteractedRows
+        }
+
         itemFocusRequesters.keys.retainAll(activeRowKeys)
         rowListStates.keys.retainAll(activeRowKeys)
         loadMoreRequestedTotals.keys.retainAll(activeRowKeys)

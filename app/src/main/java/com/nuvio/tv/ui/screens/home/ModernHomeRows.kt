@@ -1348,14 +1348,23 @@ internal fun ModernRowSection(
         // One shimmer clock shared by all loaded cards in this row.
         val rowShimmerTranslateState = rememberPosterShimmerTranslateState()
 
+        val retainedRealFocusIndex =
+            uiCaches.lastActuallyFocusedIndexByRow[row.key]
+
         val rowListState = rowListStates.getOrPut(row.key) {
             LazyListState(
                 firstVisibleItemIndex =
-                    focusStateCatalogRowScrollStates[row.key] ?: 0,
+                    retainedRealFocusIndex
+                        ?: focusStateCatalogRowScrollStates[row.key]
+                        ?: 0,
                 firstVisibleItemScrollOffset =
-                    focusStateCatalogRowScrollStates[
-                        "${row.key}::offset"
-                    ] ?: 0
+                    if (retainedRealFocusIndex != null) {
+                        0
+                    } else {
+                        focusStateCatalogRowScrollStates[
+                            "${row.key}::offset"
+                        ] ?: 0
+                    }
             )
         }
 
