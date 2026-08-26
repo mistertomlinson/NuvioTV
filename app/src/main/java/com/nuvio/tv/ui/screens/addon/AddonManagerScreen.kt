@@ -51,6 +51,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -108,6 +109,19 @@ fun AddonManagerScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     val coroutineScope = rememberCoroutineScope()
     val surfaceFocusRequester = remember { FocusRequester() }
+    val manageFromPhoneFocusRequester = remember { FocusRequester() }
+    val catalogOrderFocusRequester = remember { FocusRequester() }
+
+    /*
+     * The Addons destination is removed from composition while one of its child
+     * routes is on top. Save only the identity of the control that launched that
+     * child; Navigation's saveable-state holder restores it when we come back.
+     *
+     * QR mode stays inside this destination, but uses the same restoration path.
+     */
+    var rememberedFocusTarget by rememberSaveable {
+        mutableStateOf("input")
+    }
 
     val defaultRefreshCatalogsSubtitle = "Re-fetch content from all installed addons"
     var refreshCatalogsSubtitle by remember { mutableStateOf(defaultRefreshCatalogsSubtitle) }
@@ -134,16 +148,40 @@ fun AddonManagerScreen(
         }
     }
 
-    val requestInputBarFocus = {
+    val requestRememberedFocus = {
         coroutineScope.launch {
-            repeat(2) { withFrameNanos { } }
-            runCatching { surfaceFocusRequester.requestFocus() }
+            val targetRequester = when (rememberedFocusTarget) {
+                "manage_from_phone" -> manageFromPhoneFocusRequester
+                "catalog_order" -> catalogOrderFocusRequester
+                else -> surfaceFocusRequester
+            }
+
+            var restored = false
+
+            for (attempt in 0 until 6) {
+                withFrameNanos { }
+
+                if (
+                    runCatching {
+                        targetRequester.requestFocus()
+                    }.getOrDefault(false)
+                ) {
+                    restored = true
+                    break
+                }
+            }
+
+            // Preserve the existing safety behavior: if the remembered card is
+            // unexpectedly unavailable, focus the always-present input surface.
+            if (!restored) {
+                runCatching { surfaceFocusRequester.requestFocus() }
+            }
         }
     }
 
     LaunchedEffect(uiState.isQrModeActive, uiState.pendingChange, isEditing) {
         if (!uiState.isQrModeActive && uiState.pendingChange == null && !isEditing) {
-            requestInputBarFocus()
+            requestRememberedFocus()
         }
     }
 
@@ -161,7 +199,7 @@ fun AddonManagerScreen(
                 uiState.pendingChange == null &&
                 !isEditing
             ) {
-                requestInputBarFocus()
+                requestRememberedFocus()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -332,12 +370,28 @@ fun AddonManagerScreen(
 
                 // Manage from phone card
                 item {
-                    ManageFromPhoneCard(onClick = viewModel::startQrMode)
+                    ManageFromPhoneCard(
+                        onClick = {
+                            rememberedFocusTarget = "manage_from_phone"
+                            viewModel.startQrMode()
+                        },
+                        modifier = Modifier.focusRequester(
+                            manageFromPhoneFocusRequester
+                        )
+                    )
                 }
 
                 if (hasHomeVisibleCatalogs) {
                     item {
-                        CatalogOrderEntryCard(onClick = onNavigateToCatalogOrder)
+                        CatalogOrderEntryCard(
+                            onClick = {
+                                rememberedFocusTarget = "catalog_order"
+                                onNavigateToCatalogOrder()
+                            },
+                            modifier = Modifier.focusRequester(
+                                catalogOrderFocusRequester
+                            )
+                        )
                     }
                     item {
                         RefreshCatalogsEntryCard(
@@ -478,12 +532,15 @@ private fun AddonMessageOverlay(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun ManageFromPhoneCard(onClick: () -> Unit) {
+private fun ManageFromPhoneCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var isFocused by remember { mutableStateOf(false) }
 
     Surface(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
@@ -539,12 +596,15 @@ private fun ManageFromPhoneCard(onClick: () -> Unit) {
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun CatalogOrderEntryCard(onClick: () -> Unit) {
+private fun CatalogOrderEntryCard(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
     var isFocused by remember { mutableStateOf(false) }
 
     Surface(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
