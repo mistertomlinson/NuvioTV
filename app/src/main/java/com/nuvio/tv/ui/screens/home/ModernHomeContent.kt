@@ -1083,12 +1083,36 @@ fun ModernHomeContent(
                 outgoingTrailerSelection.focusKey !=
                     incomingSelection.focusKey
 
+        /*
+         * The same title may legitimately appear in adjacent catalogs (for
+         * example Top 10 and New Movies). Its row-scoped focusKey changes even
+         * though the underlying item does not.
+         *
+         * Do not start an A -> B backdrop handoff for A -> A. The incoming
+         * backdrop can be the exact URL already displayed, so there is no new
+         * backdrop-load event to satisfy trailerExitAwaitingBackdrop. Transfer
+         * trailer ownership to the newly focused card and keep playback intact.
+         */
+        val navigationReachedSameItem =
+            navigationReachedNewSelection &&
+                outgoingTrailerSelection?.payload?.itemId ==
+                    incomingSelection?.payload?.itemId
+
         when {
             verticalMoveHasNotLanded -> {
                 /*
                  * Trailer A remains visible and continues playing. Do not
                  * expose Backdrop A while waiting for focus to land on B.
                  */
+                heroTrailerHoldMuted = false
+            }
+
+            navigationReachedSameItem -> {
+                retainedHeroTrailerSelection = incomingSelection
+                trailerExitBackdropOverride = null
+                trailerExitAwaitingBackdrop = false
+                trailerExitAudioMuted = false
+                trailerExitFadeInProgress = false
                 heroTrailerHoldMuted = false
             }
 
