@@ -407,9 +407,9 @@ internal fun buildCatalogItem(
 internal fun continueWatchingItemKey(item: ContinueWatchingItem): String {
     return when (item) {
         is ContinueWatchingItem.InProgress ->
-            "cw_inprogress_${item.progress.contentId}_${item.progress.videoId}_${item.progress.season ?: -1}_${item.progress.episode ?: -1}"
+            "cw_${item.progress.contentType}_${item.progress.contentId}"
         is ContinueWatchingItem.NextUp ->
-            "cw_nextup_${item.info.contentId}_${item.info.videoId}_${item.info.season}_${item.info.episode}"
+            "cw_${item.info.contentType}_${item.info.contentId}"
     }
 }
 
