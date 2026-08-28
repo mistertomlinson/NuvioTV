@@ -994,6 +994,32 @@ class HomeViewModel @Inject constructor(
             entry.matchesMyListIdentity(itemId, itemType)
         }
 
+    fun consumeMyListHeadReset() {
+        val currentFocusState = _focusState.value
+        val resetRowScrollStates =
+            currentFocusState.catalogRowScrollStates.toMutableMap().apply {
+                this[MY_LIST_CATALOG_KEY] = 0
+            }
+
+        _focusState.value = currentFocusState.copy(
+            focusedItemIndex =
+                if (currentFocusState.focusedRowKey == MY_LIST_CATALOG_KEY) {
+                    0
+                } else {
+                    currentFocusState.focusedItemIndex
+                },
+            catalogRowScrollStates = resetRowScrollStates
+        )
+
+        _uiState.update { state ->
+            if (state.myListHeadResetPending) {
+                state.copy(myListHeadResetPending = false)
+            } else {
+                state
+            }
+        }
+    }
+
     private fun com.nuvio.tv.domain.model.LibraryEntry.matchesMyListIdentity(
         itemId: String,
         itemType: String
@@ -1156,7 +1182,25 @@ class HomeViewModel @Inject constructor(
                         .collectLatest items@{ liveEntries ->
                             val entries = liveEntries
                                 .sortedByDescending { it.listedAt }
+                            val previousEntries = currentMyListEntries
+                            val newHeadInserted =
+                                previousEntries.isNotEmpty() &&
+                                    entries.firstOrNull()?.let { newHead ->
+                                        previousEntries.none { previous ->
+                                            previous.matchesMyListIdentity(
+                                                newHead.id,
+                                                newHead.type
+                                            )
+                                        }
+                                    } == true
+
                             currentMyListEntries = entries
+
+                            if (newHeadInserted) {
+                                _uiState.update { state ->
+                                    state.copy(myListHeadResetPending = true)
+                                }
+                            }
 
                             if (entries.isEmpty()) {
                                 if (

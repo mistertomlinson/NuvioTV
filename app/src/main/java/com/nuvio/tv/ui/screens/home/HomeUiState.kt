@@ -79,6 +79,7 @@ data class HomeUiState(
     val skeletonReady: Boolean = false,
     val enrichmentReadyRowKeys: Set<String> = emptySet(),
     val continueWatchingEnrichmentReady: Boolean = false,
+    val myListHeadResetPending: Boolean = false,
     val userMessage: HomeUserMessage? = null
 )
 

@@ -898,6 +898,10 @@ private fun ModernHomeRoute(
     ModernHomeContent(
         uiState = uiState,
         focusState = focusState,
+        myListHeadResetPending = uiState.myListHeadResetPending,
+        onMyListHeadResetConsumed = {
+            viewModel.consumeMyListHeadReset()
+        },
         enrichingItemId = enrichingItemId,
         trailerPreviewUrls = viewModel.trailerPreviewUrls,
         trailerPreviewAudioUrls = viewModel.trailerPreviewAudioUrls,

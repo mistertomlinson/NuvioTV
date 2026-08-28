@@ -158,6 +158,8 @@ fun ModernHomeContent(
     fullWidthIconRowEnabled: Boolean = false,
     heroMetadataLarge: Boolean = false,
     focusState: HomeScreenFocusState,
+    myListHeadResetPending: Boolean = false,
+    onMyListHeadResetConsumed: () -> Unit = {},
     enrichingItemId: String? = null,
     trailerPreviewUrls: Map<String, String>,
     trailerPreviewAudioUrls: Map<String, String>,
@@ -822,6 +824,32 @@ fun ModernHomeContent(
     var activeItemIndex by remember { mutableIntStateOf(0) }
     val pendingRowFocus = remember { PendingRowFocusHolder() }
 
+    LaunchedEffect(
+        myListHeadResetPending,
+        activeRowKey,
+        isCarouselFocused,
+        carouselRows
+    ) {
+        if (!myListHeadResetPending) return@LaunchedEffect
+
+        val myListRow =
+            carouselRows.firstOrNull {
+                it.key == HomeViewModel.MY_LIST_CATALOG_KEY
+            } ?: return@LaunchedEffect
+
+        val myListOwnsFocus =
+            activeRowKey == myListRow.key &&
+                !isCarouselFocused
+
+        if (myListOwnsFocus) return@LaunchedEffect
+
+        uiCaches.lastActuallyFocusedIndexByRow.remove(myListRow.key)
+        uiCaches.focusedItemByRow[myListRow.key] = 0
+        uiCaches.rowListStates[myListRow.key]?.scrollToItem(0, 0)
+
+        onMyListHeadResetConsumed()
+    }
+
     // When a skeleton row transitions to real content (items arrive or enrichment
     // completes), restore focus to where it was rather than letting Compose move
     // it to another row.
@@ -1286,6 +1314,7 @@ fun ModernHomeContent(
             val allowedKeys = activeItemKeysByRow[row.key] ?: emptySet()
             rowRequesters.keys.retainAll(allowedKeys)
         }
+
         // Only clear focused selection if the entire row is gone, not just because
         // the item isn't in activeCatalogItemIds yet (e.g. paginated items beyond #25
         // aren't in the truncated row until loadMore fires).
@@ -1312,6 +1341,43 @@ fun ModernHomeContent(
                 row.key,
                 currentItemKeys
             )
+            val isDynamicNewestFirstRow =
+                row.key == HomeViewModel.MY_LIST_CATALOG_KEY
+            val rowOwnsFocus =
+                focusHolder.activeRowKey == row.key &&
+                    !isCarouselFocused
+            if (
+                isDynamicNewestFirstRow &&
+                rowOwnsFocus &&
+                previousItemKeys != null &&
+                previousItemKeys.isNotEmpty() &&
+                currentItemKeys.isNotEmpty()
+            ) {
+                val previousFocusedIndex = (
+                    focusedItemByRow[row.key]
+                        ?: focusHolder.activeItemIndex
+                ).coerceIn(0, previousItemKeys.lastIndex)
+                val previousFocusedKey =
+                    previousItemKeys.getOrNull(previousFocusedIndex)
+                val focusedItemWasRemoved =
+                    previousFocusedKey != null &&
+                        previousFocusedKey !in currentItemKeys
+
+                if (focusedItemWasRemoved) {
+                    val replacementIndex =
+                        previousFocusedIndex.coerceAtMost(row.items.lastIndex)
+
+                    focusHolder.activeItemIndex = replacementIndex
+                    activeItemIndex = replacementIndex
+                    focusedItemByRow[row.key] = replacementIndex
+
+                    pendingRowFocus.key = row.key
+                    pendingRowFocus.index = replacementIndex
+                    pendingRowFocus.suppressBringIntoView = false
+                    pendingRowFocus.nonce++
+                }
+            }
+
             val sameItemsReordered =
                 previousItemKeys != null &&
                     previousItemKeys.size == currentItemKeys.size &&
@@ -1320,8 +1386,7 @@ fun ModernHomeContent(
 
             if (
                 sameItemsReordered &&
-                focusHolder.activeRowKey == row.key &&
-                isCarouselFocused &&
+                rowOwnsFocus &&
                 row.items.isNotEmpty()
             ) {
                 val keepIndex = (
@@ -1339,6 +1404,7 @@ fun ModernHomeContent(
                 pendingRowFocus.nonce++
             }
         }
+
         uiCaches.previousItemKeysByRow.keys.retainAll(activeRowKeys)
 
         if (!restoredFromSavedState && focusState.hasSavedFocus) {
