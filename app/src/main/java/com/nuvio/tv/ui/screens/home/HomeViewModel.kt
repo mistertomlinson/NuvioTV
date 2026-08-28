@@ -1222,34 +1222,30 @@ class HomeViewModel @Inject constructor(
 
                             hasPublishedLiveItems = true
 
-                            val priorImages =
+                            val priorItems =
                                 catalogsMap[MY_LIST_CATALOG_KEY]
                                     ?.items
                                     .orEmpty()
-                                    .associate { item ->
-                                        item.id to Triple(
-                                            item.poster,
-                                            item.background,
-                                            item.logo
-                                        )
-                                    }
+                                    .associateBy { item -> item.id }
 
                             val items = entries.map { entry ->
                                 val preview = entry.toMetaPreview()
-                                val cachedImages =
-                                    priorImages[preview.id]
-                                        ?: Triple(null, null, null)
+                                val priorItem = priorItems[preview.id]
 
                                 preview.copy(
                                     poster =
                                         preview.poster
-                                            ?: cachedImages.first,
+                                            ?: priorItem?.poster,
                                     background =
                                         preview.background
-                                            ?: cachedImages.second,
+                                            ?: priorItem?.background,
                                     logo =
                                         preview.logo
-                                            ?: cachedImages.third
+                                            ?: priorItem?.logo,
+                                    imdbRating =
+                                        preview.imdbRating
+                                            ?: externalImdbRatingCache[preview.id]
+                                            ?: priorItem?.imdbRating
                                 )
                             }
 
