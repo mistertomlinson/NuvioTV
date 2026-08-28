@@ -125,6 +125,67 @@ class SimklSnapshotProjectionTest {
         assertFalse("tt0000003" in projection.watchedMovieIds)
     }
 
+    @Test
+    fun `scrobble start creates retained playback session`() {
+        val movieMedia = media(30, "tt0000030")
+        val snapshot = SimklSyncSnapshot(
+            entries = listOf(
+                entry(
+                    type = SimklMediaType.MOVIES,
+                    status = SimklListStatus.PLAN_TO_WATCH,
+                    media = movieMedia
+                )
+            )
+        )
+
+        val updated = snapshot.applyScrobbleResult(
+            result = SimklScrobbleResult(
+                outcome = SimklScrobbleOutcome.START,
+                playbackId = 300,
+                progress = 2.5,
+                mediaType = SimklMediaType.MOVIES,
+                media = movieMedia,
+                episode = null,
+                watchedAt = null
+            ),
+            committedAtEpochMs = 1_704_067_200_000L
+        )
+
+        assertEquals(1, updated.playback.size)
+        assertEquals(300L, updated.playback.single().id)
+        assertEquals(2.5, updated.playback.single().progress, 0.0)
+        assertTrue(updated.playback.single().media?.matchesTarget(movieMedia) == true)
+    }
+
+    @Test
+    fun `plan to watch movie with active playback is excluded from library watchlist projection`() {
+        val movieMedia = media(31, "tt0000031")
+        val snapshot = SimklSyncSnapshot(
+            entries = listOf(
+                entry(
+                    type = SimklMediaType.MOVIES,
+                    status = SimklListStatus.PLAN_TO_WATCH,
+                    media = movieMedia
+                )
+            ),
+            playback = listOf(
+                SimklPlaybackSession(
+                    id = 310,
+                    progress = 3.0,
+                    pausedAt = WATCHED_AT,
+                    type = "movie",
+                    movie = movieMedia
+                )
+            )
+        )
+
+        val library = snapshot.toSimklLibraryProjection()
+        val planToWatch = library.itemsByStatus.getValue("simkl:status:plantowatch")
+
+        assertTrue(planToWatch.isEmpty())
+        assertTrue(library.items.none { it.id == movieMedia.canonicalContentId() })
+    }
+
     @Test(timeout = 20_000)
     fun `large account is projected once and queried through indexes`() {
         val seriesCount = 386

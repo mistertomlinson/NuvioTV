@@ -646,7 +646,7 @@ class MainActivity : ComponentActivity() {
         startupSyncService.requestSyncNow()
         lifecycleScope.launch {
             trackingProgressRefreshCoordinator.refreshSelected(
-                TrackingRefreshIntent.AUTOMATIC
+                TrackingRefreshIntent.FOREGROUND
             )
         }
         // If resumed without a deep link intent, reset the skip-picker flag

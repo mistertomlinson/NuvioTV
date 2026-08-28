@@ -9,7 +9,7 @@ internal fun SimklSyncSnapshot.applyScrobbleResult(
     val localCommittedAt = committedAtEpochMs.epochMsToUtcIso()
         ?: return this
     return when (result.outcome) {
-        SimklScrobbleOutcome.START -> this
+        SimklScrobbleOutcome.START -> withPausedScrobble(result, localCommittedAt)
         SimklScrobbleOutcome.PAUSE -> withPausedScrobble(result, localCommittedAt)
         SimklScrobbleOutcome.SCROBBLE -> withCompletedScrobble(
             result = result,

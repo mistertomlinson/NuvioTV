@@ -3,6 +3,7 @@ package com.nuvio.tv.data.simkl
 import android.util.Log
 import com.nuvio.tv.core.tracking.TRACKING_SCROBBLE_DIAGNOSTIC_TAG
 import com.nuvio.tv.core.tracking.TrackingCapability
+import com.nuvio.tv.core.tracking.TrackingListStatus
 import com.nuvio.tv.core.tracking.TrackingProvider
 import com.nuvio.tv.core.tracking.TrackingProviderDescriptor
 import com.nuvio.tv.core.tracking.TrackingProviderId
@@ -58,8 +59,37 @@ class SimklTrackingScrobbler @Inject constructor(
             action = action,
             event = enrichedEvent
         )
-        if (action != TrackingScrobbleAction.START) {
-            syncRepository.commitScrobble(result)
+        syncRepository.commitScrobble(result)
+
+        if (action == TrackingScrobbleAction.START) {
+            val startedPlanToWatchEntry = syncRepository.state.value.snapshot.entries
+                .firstOrNull { entry ->
+                    entry.status == SimklListStatus.PLAN_TO_WATCH &&
+                        entry.media?.matchesTarget(result.media) == true
+                }
+
+            when {
+                startedPlanToWatchEntry?.mediaType == SimklMediaType.MOVIES &&
+                    startedPlanToWatchEntry.destructiveRemovalImpacts().isEmpty() -> {
+                    val removeResult = mutationService.removeFromList(
+                        items = listOf(enrichedEvent.media)
+                    )
+                    check(removeResult.isComplete) {
+                        "Simkl could not remove the started movie from Plan to Watch"
+                    }
+                }
+
+                startedPlanToWatchEntry != null &&
+                    startedPlanToWatchEntry.mediaType != SimklMediaType.MOVIES -> {
+                    val moveResult = mutationService.moveToList(
+                        items = listOf(enrichedEvent.media),
+                        destination = TrackingListStatus.WATCHING
+                    )
+                    check(moveResult.isComplete) {
+                        "Simkl could not move the started title from Plan to Watch to Watching"
+                    }
+                }
+            }
         }
         Log.d(
             TRACKING_SCROBBLE_DIAGNOSTIC_TAG,

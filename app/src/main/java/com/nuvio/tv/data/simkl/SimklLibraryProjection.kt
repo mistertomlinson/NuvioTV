@@ -66,6 +66,15 @@ fun SimklSyncSnapshot.toSimklLibraryProjection(): SimklLibraryProjection {
     val itemsByStatus = simklLibraryStatusDefinitions.associate { definition ->
         definition.key to entries.asSequence()
             .filter { entry -> entry.status == definition.status }
+            .filterNot { entry ->
+                definition.status == SimklListStatus.PLAN_TO_WATCH &&
+                    entry.mediaType == SimklMediaType.MOVIES &&
+                    entry.media?.let { media ->
+                        playback.any { session ->
+                            session.media?.matchesTarget(media) == true
+                        }
+                    } == true
+            }
             .mapNotNull { entry -> entry.toLibraryEntry(definition.key, lastSyncedAtEpochMs) }
             .distinctBy { item -> "${item.type}:${item.id}" }
             .sortedByDescending(LibraryEntry::listedAt)
