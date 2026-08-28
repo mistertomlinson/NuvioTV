@@ -207,6 +207,19 @@ internal data class CachedCarouselItem(
 )
 
 
+internal fun stableContinueWatchingOrderKeys(
+    items: List<ContinueWatchingItem>
+): List<String> =
+    items.map { item ->
+        when (item) {
+            is ContinueWatchingItem.InProgress ->
+                "${item.progress.contentType}:${item.progress.contentId}"
+
+            is ContinueWatchingItem.NextUp ->
+                "${item.info.contentType}:${item.info.contentId}"
+        }
+    }
+
 internal fun buildContinueWatchingItem(
     item: ContinueWatchingItem,
     useLandscapePosters: Boolean,

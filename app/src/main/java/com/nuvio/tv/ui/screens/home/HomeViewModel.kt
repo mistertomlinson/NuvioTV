@@ -1678,6 +1678,10 @@ class HomeViewModel @Inject constructor(
             catalogRowScrollStates = catalogRowScrollStates,
             focusedRowKey = focusedRowKey,
             selectedPlatformId = selectedPlatformId,
+            continueWatchingOrderKeys =
+                stableContinueWatchingOrderKeys(
+                    _uiState.value.continueWatchingItems
+                ),
             hasSavedFocus = true
         )
         if (_focusState.value == nextState) return

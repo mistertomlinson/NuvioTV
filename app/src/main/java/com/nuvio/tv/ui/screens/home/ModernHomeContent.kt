@@ -259,6 +259,13 @@ fun ModernHomeContent(
     val context = LocalContext.current
     val enrichmentReadyRowKeys: Set<String> = uiState.enrichmentReadyRowKeys
     val continueWatchingEnrichmentReady: Boolean = uiState.continueWatchingEnrichmentReady
+    val currentContinueWatchingOrderKeys =
+        remember(uiState.continueWatchingItems) {
+            stableContinueWatchingOrderKeys(
+                uiState.continueWatchingItems
+            )
+        }
+
     val carouselRows = remember(
         uiState.continueWatchingItems,
         visibleCatalogRows,
@@ -895,6 +902,20 @@ fun ModernHomeContent(
     }
     var heroItem by remember { mutableStateOf<HeroPreview?>(null) }
     var heroItemRowKey by remember { mutableStateOf<String?>(null) }
+
+    var lastHandledContinueWatchingOrderKeys by remember(
+        uiState.homeLoadSessionId
+    ) {
+        mutableStateOf(
+            focusState.continueWatchingOrderKeys
+                .takeIf {
+                    focusState.hasSavedFocus &&
+                        it.isNotEmpty()
+                }
+                ?: currentContinueWatchingOrderKeys
+        )
+    }
+
     var frozenHeroItem by remember { mutableStateOf<HeroPreview?>(null) }
     var frozenHeroItemRowKey by remember { mutableStateOf<String?>(null) }
     var isFastScrolling by remember { mutableStateOf(false) }
@@ -906,20 +927,6 @@ fun ModernHomeContent(
         restoredFromSavedState = false
     }
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
-    var pendingRemovalFocusIndex by remember { mutableStateOf<Int?>(null) }
-    var lastContinueWatchingSize by remember { mutableIntStateOf(uiState.continueWatchingItems.size) }
-
-    LaunchedEffect(uiState.continueWatchingItems.size) {
-        val currentSize = uiState.continueWatchingItems.size
-        if (currentSize < lastContinueWatchingSize && pendingRemovalFocusIndex != null) {
-            withFrameNanos { }
-            pendingRowFocus.key = "continue_watching"
-            pendingRowFocus.index = pendingRemovalFocusIndex
-            pendingRowFocus.nonce++
-            pendingRemovalFocusIndex = null
-        }
-        lastContinueWatchingSize = currentSize
-    }
     val lastFocusedContinueWatchingIndexRef = remember { java.util.concurrent.atomic.AtomicInteger(-1) }
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
@@ -1374,6 +1381,7 @@ fun ModernHomeContent(
 
             if (
                 sameItemsReordered &&
+                row.key != "continue_watching" &&
                 rowOwnsFocus &&
                 row.items.isNotEmpty()
             ) {
@@ -1403,19 +1411,61 @@ fun ModernHomeContent(
                 else -> null
             }
 
-            val resolvedRow = carouselRows.firstOrNull { it.key == savedRowKey } ?: carouselRows.first()
-            val resolvedIndex = focusState.focusedItemIndex
-                .coerceAtLeast(0)
-                .coerceAtMost((resolvedRow.items.size - 1).coerceAtLeast(0))
+            val resolvedRow =
+                carouselRows.firstOrNull {
+                    it.key == savedRowKey
+                } ?: carouselRows.first()
+
+            val continueWatchingChangedSinceSave =
+                resolvedRow.key == "continue_watching" &&
+                    focusState.continueWatchingOrderKeys.isNotEmpty() &&
+                    currentContinueWatchingOrderKeys.isNotEmpty() &&
+                    focusState.continueWatchingOrderKeys !=
+                        currentContinueWatchingOrderKeys
+
+            val resolvedIndex =
+                if (continueWatchingChangedSinceSave) {
+                    0
+                } else {
+                    focusState.focusedItemIndex
+                        .coerceAtLeast(0)
+                        .coerceAtMost(
+                            (resolvedRow.items.size - 1)
+                                .coerceAtLeast(0)
+                        )
+                }
+
+            if (continueWatchingChangedSinceSave) {
+                /*
+                 * The row-level focusRestorer gives the last real focused
+                 * index higher priority than the general focus cache.
+                 * A CW reorder is explicitly position-semantic, so discard
+                 * that pre-navigation slot before restoring index 0.
+                 */
+                uiCaches.lastActuallyFocusedIndexByRow.remove(
+                    resolvedRow.key
+                )
+
+                rowListStates[resolvedRow.key]
+                    ?.scrollToItem(0, 0)
+                lastHandledContinueWatchingOrderKeys =
+                    currentContinueWatchingOrderKeys
+            }
 
             focusHolder.activeRowKey = resolvedRow.key
             focusHolder.activeItemIndex = resolvedIndex
             activeRowKey = resolvedRow.key
             activeItemIndex = resolvedIndex
             focusedItemByRow[resolvedRow.key] = resolvedIndex
-            heroItem = resolvedRow.items.getOrNull(resolvedIndex)?.heroPreview
-                ?: resolvedRow.items.firstOrNull()?.heroPreview
+            heroItem =
+                resolvedRow.items
+                    .getOrNull(resolvedIndex)
+                    ?.heroPreview
+                    ?: resolvedRow.items
+                        .firstOrNull()
+                        ?.heroPreview
             heroItemRowKey = resolvedRow.key
+
             pendingRowFocus.key = resolvedRow.key
             pendingRowFocus.index = resolvedIndex
             pendingRowFocus.suppressBringIntoView =
@@ -1441,6 +1491,7 @@ fun ModernHomeContent(
             ?: resolvedActive.items.firstOrNull()?.heroPreview
         heroItem = resolvedHeroPreview
         heroItemRowKey = resolvedActive.key
+
         // If the resolved hero item has no badge data yet, trigger enrichment immediately
         val resolvedMetaPreview = resolvedActive.items.getOrNull(resolvedIndex)?.metaPreview
         if (resolvedMetaPreview != null && resolvedHeroPreview?.ageRatingText == null) {
@@ -1449,6 +1500,88 @@ fun ModernHomeContent(
         if (!focusState.hasSavedFocus && (!hadActiveRow || existingActive == null) && !isCarouselFocused) {
             pendingRowFocus.key = resolvedActive.key
             pendingRowFocus.index = resolvedIndex
+            pendingRowFocus.nonce++
+        }
+    }
+
+    /*
+     * Continue Watching resets to its first item after a structural change.
+     * Index 0 is the newest / most recently watched item.
+     *
+     * This effect is keyed only by CW's stable title sequence. Metadata,
+     * progress, hero enrichment, and unrelated Home emissions do not run it.
+     */
+    LaunchedEffect(currentContinueWatchingOrderKeys) {
+        val previousKeys =
+            lastHandledContinueWatchingOrderKeys
+
+        if (
+            previousKeys.isEmpty() ||
+            currentContinueWatchingOrderKeys.isEmpty()
+        ) {
+            lastHandledContinueWatchingOrderKeys =
+                currentContinueWatchingOrderKeys
+            return@LaunchedEffect
+        }
+
+        if (
+            previousKeys ==
+                currentContinueWatchingOrderKeys
+        ) {
+            return@LaunchedEffect
+        }
+
+        lastHandledContinueWatchingOrderKeys =
+            currentContinueWatchingOrderKeys
+
+        val continueWatchingRow =
+            carouselRows.firstOrNull {
+                it.key == "continue_watching"
+            } ?: return@LaunchedEffect
+
+        if (continueWatchingRow.items.isEmpty()) {
+            return@LaunchedEffect
+        }
+
+        val targetIndex = 0
+
+        uiCaches.lastActuallyFocusedIndexByRow.remove(
+            continueWatchingRow.key
+        )
+        focusedItemByRow[
+            continueWatchingRow.key
+        ] = targetIndex
+
+        rowListStates[
+            continueWatchingRow.key
+        ]?.scrollToItem(0, 0)
+
+        val continueWatchingOwnsFocus =
+            focusHolder.activeRowKey ==
+                continueWatchingRow.key &&
+                !isCarouselFocused
+
+        if (continueWatchingOwnsFocus) {
+            focusHolder.activeItemIndex =
+                targetIndex
+            activeItemIndex =
+                targetIndex
+
+            val landingPreview =
+                continueWatchingRow.items[
+                    targetIndex
+                ].heroPreview
+
+            heroItem = landingPreview
+            heroItemRowKey =
+                continueWatchingRow.key
+
+            pendingRowFocus.key =
+                continueWatchingRow.key
+            pendingRowFocus.index =
+                targetIndex
+            pendingRowFocus.suppressBringIntoView =
+                false
             pendingRowFocus.nonce++
         }
     }
@@ -3664,15 +3797,6 @@ fun ModernHomeContent(
             item = selectedOptionsItem,
             onDismiss = { optionsItem = null },
             onRemove = {
-                val targetIndex = if (uiState.continueWatchingItems.size <= 1) {
-                    null
-                } else {
-                    minOf(lastFocusedContinueWatchingIndexRef.get(), uiState.continueWatchingItems.size - 2)
-                        .coerceAtLeast(0)
-                }
-                pendingRemovalFocusIndex = targetIndex
-
-
                 onRemoveContinueWatching(
                     selectedOptionsItem.contentId(),
                     selectedOptionsItem.season(),

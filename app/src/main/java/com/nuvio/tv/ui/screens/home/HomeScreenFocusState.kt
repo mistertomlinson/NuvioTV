@@ -47,6 +47,13 @@ data class HomeScreenFocusState(
     val selectedPlatformId: String = "home",
 
     /**
+     * Stable Continue Watching title order when Home focus was saved.
+     *
+     * Used only to detect a structural CW change while Home was away.
+     */
+    val continueWatchingOrderKeys: List<String> = emptyList(),
+
+    /**
      * Whether focus state has been explicitly saved (vs still at defaults).
      */
     val hasSavedFocus: Boolean = false
