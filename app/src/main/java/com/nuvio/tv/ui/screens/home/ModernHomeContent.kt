@@ -824,6 +824,20 @@ fun ModernHomeContent(
     var activeItemIndex by remember { mutableIntStateOf(0) }
     val pendingRowFocus = remember { PendingRowFocusHolder() }
 
+    /*
+     * My List uses positional LazyRow slots. A new head must invalidate any
+     * child slot remembered by the parent focusRestorer (for example slot 5),
+     * otherwise that old slot can win when the user re-enters the row.
+     *
+     * Removals do NOT change this generation, so their same-slot behavior
+     * remains untouched.
+     */
+    var myListSlotGeneration by remember(
+        uiState.homeLoadSessionId
+    ) {
+        mutableIntStateOf(0)
+    }
+
     LaunchedEffect(
         myListHeadResetPending,
         activeRowKey,
@@ -846,6 +860,13 @@ fun ModernHomeContent(
         uiCaches.lastActuallyFocusedIndexByRow.remove(myListRow.key)
         uiCaches.focusedItemByRow[myListRow.key] = 0
         uiCaches.rowListStates[myListRow.key]?.scrollToItem(0, 0)
+
+        /*
+         * The viewport is now explicitly at zero. Re-key My List's positional
+         * children so focusRestorer cannot resurrect a previously remembered
+         * slot from before the insertion.
+         */
+        myListSlotGeneration++
 
         onMyListHeadResetConsumed()
     }
@@ -1341,42 +1362,9 @@ fun ModernHomeContent(
                 row.key,
                 currentItemKeys
             )
-            val isDynamicNewestFirstRow =
-                row.key == HomeViewModel.MY_LIST_CATALOG_KEY
             val rowOwnsFocus =
                 focusHolder.activeRowKey == row.key &&
                     !isCarouselFocused
-            if (
-                isDynamicNewestFirstRow &&
-                rowOwnsFocus &&
-                previousItemKeys != null &&
-                previousItemKeys.isNotEmpty() &&
-                currentItemKeys.isNotEmpty()
-            ) {
-                val previousFocusedIndex = (
-                    focusedItemByRow[row.key]
-                        ?: focusHolder.activeItemIndex
-                ).coerceIn(0, previousItemKeys.lastIndex)
-                val previousFocusedKey =
-                    previousItemKeys.getOrNull(previousFocusedIndex)
-                val focusedItemWasRemoved =
-                    previousFocusedKey != null &&
-                        previousFocusedKey !in currentItemKeys
-
-                if (focusedItemWasRemoved) {
-                    val replacementIndex =
-                        previousFocusedIndex.coerceAtMost(row.items.lastIndex)
-
-                    focusHolder.activeItemIndex = replacementIndex
-                    activeItemIndex = replacementIndex
-                    focusedItemByRow[row.key] = replacementIndex
-
-                    pendingRowFocus.key = row.key
-                    pendingRowFocus.index = replacementIndex
-                    pendingRowFocus.suppressBringIntoView = false
-                    pendingRowFocus.nonce++
-                }
-            }
 
             val sameItemsReordered =
                 previousItemKeys != null &&
@@ -3619,6 +3607,7 @@ fun ModernHomeContent(
                     ModernRowSection(
                         row = row,
                         renderLightweight = renderLightweight,
+                        myListSlotGeneration = myListSlotGeneration,
                         showHeavyOverlays =
                             !suppressHeavyOverlaysForThisRow,
                         heavyOverlayAlpha =

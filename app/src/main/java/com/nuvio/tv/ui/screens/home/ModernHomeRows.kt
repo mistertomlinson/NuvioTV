@@ -965,6 +965,7 @@ private fun ModernLightweightPosterStrip(
 internal fun ModernRowSection(
     row: HeroCarouselRow,
     renderLightweight: Boolean = false,
+    myListSlotGeneration: Int = 0,
     showHeavyOverlays: Boolean = true,
     heavyOverlayAlpha: State<Float>,
     rowTitleBottom: Dp,
@@ -1686,7 +1687,16 @@ internal fun ModernRowSection(
             ) {
                 itemsIndexed(
                     items = row.items,
-                    key = { _, item -> item.key },
+                    key = { index, item ->
+                        if (
+                            row.key ==
+                                HomeViewModel.MY_LIST_CATALOG_KEY
+                        ) {
+                            "${row.key}::slot::$myListSlotGeneration::$index"
+                        } else {
+                            item.key
+                        }
+                    },
                     contentType = { _, item ->
                         when (item.payload) {
                             is ModernPayload.ContinueWatching -> "modern_cw_card"
