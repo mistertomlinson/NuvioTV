@@ -57,16 +57,9 @@ internal fun StreamSourcesSidePanel(
     onStreamSelected: (Stream) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Only request focus when loading finishes (not on addon filter changes)
-    LaunchedEffect(uiState.isLoadingSourceStreams) {
-        if (!uiState.isLoadingSourceStreams && uiState.sourceFilteredStreams.isNotEmpty()) {
-            try {
-                streamsFocusRequester.requestFocus()
-            } catch (_: Exception) {
-                // Focus requester may not be ready yet
-            }
-        }
-    }
+    // Stream-result completion must never request focus. The chip row owns
+    // initial focus; after the user enters the list, stable row identity lets
+    // Compose retain the exact focused stream through progressive re-sorting.
 
     val orderedAddonNames = remember(uiState.sourceAvailableAddons, uiState.sourceChips) {
         buildList {
@@ -74,8 +67,71 @@ internal fun StreamSourcesSidePanel(
             uiState.sourceChips.forEach { if (it.name !in this) add(it.name) }
         }
     }
-    val chipFocusRequesters = remember(orderedAddonNames.size) {
-        List(orderedAddonNames.size + 1) { FocusRequester() }
+    val allChipFocusRequester = remember { FocusRequester() }
+    val addonChipFocusRequesters = remember {
+        mutableMapOf<String, FocusRequester>()
+    }
+    val chipFocusRequesters = remember(orderedAddonNames) {
+        addonChipFocusRequesters.keys.retainAll(orderedAddonNames.toSet())
+        buildList {
+            add(allChipFocusRequester)
+            orderedAddonNames.forEach { addon ->
+                add(
+                    addonChipFocusRequesters.getOrPut(addon) {
+                        FocusRequester()
+                    }
+                )
+            }
+        }
+    }
+
+    val streamKeys = remember(uiState.sourceFilteredStreams) {
+        val seenLogicalKeys = mutableSetOf<String>()
+        val variantOccurrences = mutableMapOf<String, Int>()
+
+        uiState.sourceFilteredStreams.map { stream ->
+            val baseKey = stream.stableKey(0)
+
+            if (seenLogicalKeys.add(baseKey)) {
+                baseKey
+            } else {
+                val variantKey = buildString {
+                    append(baseKey)
+                    append('\u0000')
+                    append("provider-variant")
+                    append('\u0000')
+                    append(stream.debridCacheStatus?.providerId.orEmpty())
+                }
+                val occurrence = variantOccurrences[variantKey] ?: 0
+                variantOccurrences[variantKey] = occurrence + 1
+
+                buildString {
+                    append(variantKey)
+                    append('\u0000')
+                    append(occurrence)
+                }
+            }
+        }
+    }
+
+    val streamFocusRequesters = remember {
+        mutableMapOf<String, FocusRequester>()
+    }
+    streamKeys.forEach { key ->
+        streamFocusRequesters.getOrPut(key) {
+            FocusRequester()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        if (uiState.sourceSelectedAddonFilter != null) {
+            onAddonFilterSelected(null)
+            androidx.compose.runtime.withFrameNanos { }
+        }
+
+        runCatching {
+            allChipFocusRequester.requestFocus()
+        }
     }
 
     Box(
@@ -134,8 +190,7 @@ internal fun StreamSourcesSidePanel(
             Spacer(modifier = Modifier.height(16.dp))
 
             AnimatedVisibility(
-                visible = uiState.sourceChips.isNotEmpty() ||
-                    (!uiState.isLoadingSourceStreams && uiState.sourceAvailableAddons.isNotEmpty()),
+                visible = true,
                 enter = fadeIn(animationSpec = tween(200)),
                 exit = fadeOut(animationSpec = tween(120))
             ) {
@@ -180,16 +235,14 @@ internal fun StreamSourcesSidePanel(
                 }
 
                 else -> {
-                    val currentStreamUrl = uiState.currentStreamUrl
-                    val currentStreamName = uiState.currentStreamName
                     val currentStreamIndex = findCurrentStreamIndex(
                         streams = uiState.sourceFilteredStreams,
-                        currentStreamUrl = currentStreamUrl,
-                        currentStreamName = currentStreamName
+                        currentSourceStreamKey = uiState.currentSourceStreamKey,
+                        currentStreamUrl = uiState.currentStreamUrl,
+                        currentStreamName = uiState.currentStreamName,
+                        currentStreamAddonName = uiState.currentStreamAddonName,
+                        currentStreamDescription = uiState.currentStreamDescription
                     )
-                    val initialFocusStream = uiState.sourceFilteredStreams.getOrNull(currentStreamIndex)
-                        ?: uiState.sourceFilteredStreams.firstOrNull()
-
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(
@@ -217,11 +270,14 @@ internal fun StreamSourcesSidePanel(
                                 }
                             }
                     ) {
-                        itemsIndexed(uiState.sourceFilteredStreams) { index, stream ->
+                        itemsIndexed(
+                            items = uiState.sourceFilteredStreams,
+                            key = { index, _ -> streamKeys[index] }
+                        ) { index, stream ->
                             StreamItem(
                                 stream = stream,
-                                focusRequester = streamsFocusRequester,
-                                requestInitialFocus = stream == initialFocusStream,
+                                focusRequester = streamFocusRequesters.getValue(streamKeys[index]),
+                                requestInitialFocus = true,
                                 isCurrentStream = index == currentStreamIndex,
                                 onClick = { onStreamSelected(stream) },
                                 onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
@@ -242,35 +298,119 @@ internal fun StreamSourcesSidePanel(
 
 private fun findCurrentStreamIndex(
     streams: List<Stream>,
+    currentSourceStreamKey: String?,
     currentStreamUrl: String?,
-    currentStreamName: String?
+    currentStreamName: String?,
+    currentStreamAddonName: String?,
+    currentStreamDescription: String?
 ): Int {
     if (streams.isEmpty()) return -1
 
-    val hasUrl = !currentStreamUrl.isNullOrBlank()
-    val hasName = !currentStreamName.isNullOrBlank()
-
-    if (hasUrl && hasName) {
-        val bothMatch = streams.indexOfFirst { stream ->
-            stream.getStreamUrl() == currentStreamUrl &&
-                stream.getDisplayName().equals(currentStreamName, ignoreCase = true)
+    // Best signal: the exact source row selected by the user. This survives
+    // direct-debrid resolution even when the actual playback URL changes.
+    if (!currentSourceStreamKey.isNullOrBlank()) {
+        val exactKeyMatch = streams.indexOfFirst {
+            it.stableKey() == currentSourceStreamKey
         }
-        if (bothMatch >= 0) return bothMatch
+        if (exactKeyMatch >= 0) return exactKeyMatch
     }
 
-    if (hasUrl) {
-        val urlMatch = streams.indexOfFirst { stream ->
-            stream.getStreamUrl() == currentStreamUrl
+    val indexedStreams = streams.withIndex().toList()
+
+    fun uniqueIndex(matches: List<IndexedValue<Stream>>): Int =
+        if (matches.size == 1) matches.first().index else -1
+
+    fun nameMatches(stream: Stream): Boolean {
+        val expected = currentStreamName?.trim().orEmpty()
+        if (expected.isEmpty()) return false
+
+        return sequenceOf(
+            stream.name,
+            stream.getDisplayName(),
+            stream.addonName
+        ).filterNotNull().any {
+            it.trim().equals(expected, ignoreCase = true)
         }
-        if (urlMatch >= 0) return urlMatch
     }
 
-    if (hasName) {
-        val nameMatch = streams.indexOfFirst { stream ->
-            stream.getDisplayName().equals(currentStreamName, ignoreCase = true)
+    fun descriptionMatches(stream: Stream): Boolean {
+        val expected = currentStreamDescription?.trim().orEmpty()
+        if (expected.isEmpty()) return false
+
+        return sequenceOf(
+            stream.description,
+            stream.getDisplayDescription()
+        ).filterNotNull().any {
+            it.trim().equals(expected, ignoreCase = true)
         }
-        if (nameMatch >= 0) return nameMatch
     }
 
+    fun addonMatches(stream: Stream): Boolean {
+        val expected = currentStreamAddonName?.trim().orEmpty()
+        if (expected.isEmpty()) return false
+
+        return stream.addonName.trim().equals(expected, ignoreCase = true)
+    }
+
+    if (!currentStreamUrl.isNullOrBlank()) {
+        val urlMatches = indexedStreams.filter {
+            it.value.getStreamUrl() == currentStreamUrl
+        }
+
+        uniqueIndex(urlMatches).takeIf { it >= 0 }?.let { return it }
+
+        if (urlMatches.isNotEmpty()) {
+            uniqueIndex(
+                urlMatches.filter {
+                    addonMatches(it.value) &&
+                        (nameMatches(it.value) || descriptionMatches(it.value))
+                }
+            ).takeIf { it >= 0 }?.let { return it }
+        }
+    }
+
+    if (!currentStreamAddonName.isNullOrBlank() &&
+        !currentStreamDescription.isNullOrBlank()
+    ) {
+        uniqueIndex(
+            indexedStreams.filter {
+                addonMatches(it.value) && descriptionMatches(it.value)
+            }
+        ).takeIf { it >= 0 }?.let { return it }
+    }
+
+    if (!currentStreamAddonName.isNullOrBlank() &&
+        !currentStreamName.isNullOrBlank()
+    ) {
+        uniqueIndex(
+            indexedStreams.filter {
+                addonMatches(it.value) && nameMatches(it.value)
+            }
+        ).takeIf { it >= 0 }?.let { return it }
+    }
+
+    if (!currentStreamName.isNullOrBlank() &&
+        !currentStreamDescription.isNullOrBlank()
+    ) {
+        uniqueIndex(
+            indexedStreams.filter {
+                nameMatches(it.value) && descriptionMatches(it.value)
+            }
+        ).takeIf { it >= 0 }?.let { return it }
+    }
+
+    if (!currentStreamName.isNullOrBlank()) {
+        uniqueIndex(
+            indexedStreams.filter { nameMatches(it.value) }
+        ).takeIf { it >= 0 }?.let { return it }
+    }
+
+    if (!currentStreamDescription.isNullOrBlank()) {
+        uniqueIndex(
+            indexedStreams.filter { descriptionMatches(it.value) }
+        ).takeIf { it >= 0 }?.let { return it }
+    }
+
+    // Better to show no Playing badge than mark the wrong source.
     return -1
 }

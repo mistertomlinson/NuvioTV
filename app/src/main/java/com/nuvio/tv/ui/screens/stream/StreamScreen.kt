@@ -735,8 +735,6 @@ private fun RightStreamSection(
 ) {
     val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     var enter by remember { mutableStateOf(false) }
-    var shouldFocusFirstStream by remember { mutableStateOf(false) }
-    var wasLoading by remember { mutableStateOf(true) }
     var listHasFocus by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var focusJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
@@ -746,8 +744,22 @@ private fun RightStreamSection(
             sourceChips.forEach { if (it.name !in this) add(it.name) }
         }
     }
-    val chipFocusRequesters = remember(orderedAddonNames.size) {
-        List(orderedAddonNames.size + 1) { FocusRequester() }
+    val allChipFocusRequester = remember { FocusRequester() }
+    val addonChipFocusRequesters = remember {
+        mutableMapOf<String, FocusRequester>()
+    }
+    val chipFocusRequesters = remember(orderedAddonNames) {
+        addonChipFocusRequesters.keys.retainAll(orderedAddonNames.toSet())
+        buildList {
+            add(allChipFocusRequester)
+            orderedAddonNames.forEach { addon ->
+                add(
+                    addonChipFocusRequesters.getOrPut(addon) {
+                        FocusRequester()
+                    }
+                )
+            }
+        }
     }
     fun onAddonFilterSelectedGuarded(addon: String?) {
         onAddonFilterSelected(addon)
@@ -763,12 +775,17 @@ private fun RightStreamSection(
 
     LaunchedEffect(Unit) {
         enter = true
-    }
-    LaunchedEffect(isLoading, streams.size) {
-        if (wasLoading && !isLoading && streams.isNotEmpty()) {
-            shouldFocusFirstStream = true
+
+        // This selector always opens on All. No later stream/addon result
+        // update is allowed to make another focus request.
+        if (selectedAddonFilter != null) {
+            onAddonFilterSelected(null)
+            withFrameNanos { }
         }
-        wasLoading = isLoading
+
+        runCatching {
+            allChipFocusRequester.requestFocus()
+        }
     }
 
     Column(
@@ -780,7 +797,7 @@ private fun RightStreamSection(
         // Addon filter chips
         Box(modifier = Modifier.height(chipRowHeight)) {
             androidx.compose.animation.AnimatedVisibility(
-                visible = sourceChips.isNotEmpty() || (!isLoading && availableAddons.isNotEmpty()),
+                visible = true,
                 enter = fadeIn(animationSpec = tween(300)),
                 exit = fadeOut(animationSpec = tween(300))
             ) {
@@ -834,8 +851,6 @@ private fun RightStreamSection(
                             focusedStreamIndex = focusedStreamIndex,
                             shouldRestoreFocusedStream = shouldRestoreFocusedStream,
                             onRestoreFocusedStreamHandled = onRestoreFocusedStreamHandled,
-                            requestInitialFocus = shouldFocusFirstStream,
-                            onInitialFocusConsumed = { shouldFocusFirstStream = false },
                             availableAddons = availableAddons,
                             selectedAddonFilter = selectedAddonFilter,
                             showFileSizeBadges = showFileSizeBadges,
@@ -1043,8 +1058,6 @@ private fun StreamsList(
     focusedStreamIndex: Int = 0,
     shouldRestoreFocusedStream: Boolean = false,
     onRestoreFocusedStreamHandled: () -> Unit = {},
-    requestInitialFocus: Boolean = false,
-    onInitialFocusConsumed: () -> Unit = {},
     availableAddons: List<String> = emptyList(),
     selectedAddonFilter: String? = null,
     showFileSizeBadges: Boolean = true,
@@ -1054,21 +1067,51 @@ private fun StreamsList(
     onFocusChanged: (Boolean) -> Unit = {}
 ) {
     val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
-    val firstCardFocusRequester = remember { FocusRequester() }
     val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val restoreFocusRequester = remember { FocusRequester() }
-    val firstStreamKey = streams.firstOrNull()?.let { first ->
-        "${first.addonName}_${first.url ?: first.infoHash ?: first.ytId ?: "unknown"}"
+
+    // Stable UI identity for progressive sorting.
+    //
+    // The first logical copy keeps a provider-independent key so CHECKING ->
+    // final cache annotation cannot replace the focused row. If dual-debrid
+    // expansion creates additional copies, those copies get provider-specific
+    // keys so TorBox/Premiumize/etc. remain distinct rows.
+    val streamKeys = remember(streams) {
+        val seenLogicalKeys = mutableSetOf<String>()
+        val variantOccurrences = mutableMapOf<String, Int>()
+
+        streams.map { stream ->
+            val baseKey = stream.stableKey(0)
+
+            if (seenLogicalKeys.add(baseKey)) {
+                baseKey
+            } else {
+                val variantKey = buildString {
+                    append(baseKey)
+                    append('\u0000')
+                    append("provider-variant")
+                    append('\u0000')
+                    append(stream.debridCacheStatus?.providerId.orEmpty())
+                }
+                val occurrence = variantOccurrences[variantKey] ?: 0
+                variantOccurrences[variantKey] = occurrence + 1
+
+                buildString {
+                    append(variantKey)
+                    append('\u0000')
+                    append(occurrence)
+                }
+            }
+        }
     }
 
-    LaunchedEffect(requestInitialFocus, firstStreamKey) {
-        if (!requestInitialFocus || streams.isEmpty()) return@LaunchedEffect
-        repeat(2) { withFrameNanos { } }
-        try {
-            firstCardFocusRequester.requestFocus()
-        } catch (_: Exception) {
+    val streamFocusRequesters = remember {
+        mutableMapOf<String, FocusRequester>()
+    }
+    streamKeys.forEach { key ->
+        streamFocusRequesters.getOrPut(key) {
+            FocusRequester()
         }
-        onInitialFocusConsumed()
     }
 
     LaunchedEffect(shouldRestoreFocusedStream, focusedStreamIndex, streams.size) {
@@ -1123,18 +1166,22 @@ private fun StreamsList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(start = 8.dp, end = 8.dp, top = 8.dp, bottom = 32.dp)
     ) {
-        itemsIndexed(streams, key = { index, stream ->
-            stream.stableKey(index)
-        }) { index, stream ->
+        itemsIndexed(
+            items = streams,
+            key = { index, _ -> streamKeys[index] }
+        ) { index, stream ->
             Box(modifier = Modifier.padding(vertical = 4.dp)) {
                 StreamCard(
                     stream = stream,
                     showFileSizeBadges = showFileSizeBadges,
                     onClick = { onStreamSelected(stream) },
                     focusRequester = when {
-                        shouldRestoreFocusedStream && index == focusedStreamIndex.coerceIn(0, (streams.lastIndex).coerceAtLeast(0)) -> restoreFocusRequester
-                        index == 0 -> firstCardFocusRequester
-                        else -> null
+                        shouldRestoreFocusedStream &&
+                            index == focusedStreamIndex.coerceIn(
+                                0,
+                                (streams.lastIndex).coerceAtLeast(0)
+                            ) -> restoreFocusRequester
+                        else -> streamFocusRequesters.getValue(streamKeys[index])
                     },
                     onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
                         val idx = if (selectedAddonFilter == null) 0

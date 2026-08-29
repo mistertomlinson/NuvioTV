@@ -331,7 +331,10 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
 }
 
 @androidx.annotation.OptIn(UnstableApi::class)
-internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
+internal fun PlayerRuntimeController.switchToSourceStream(
+    stream: Stream,
+    sourceStreamKey: String = stream.stableKey()
+) {
     val url = stream.getStreamUrl()
     if (url.isNullOrBlank()) {
         scope.launch(Dispatchers.Default) {
@@ -344,7 +347,10 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
                 if (resolvedStream == null || resolvedStream.getStreamUrl().isNullOrBlank()) {
                     _uiState.update { it.copy(sourceStreamsError = "Invalid stream URL") }
                 } else {
-                    switchToSourceStream(resolvedStream)
+                    switchToSourceStream(
+                        stream = resolvedStream,
+                        sourceStreamKey = sourceStreamKey
+                    )
                 }
             }
         }
@@ -377,6 +383,9 @@ internal fun PlayerRuntimeController.switchToSourceStream(stream: Stream) {
             error = null,
             currentStreamName = stream.name ?: stream.addonName,
             currentStreamUrl = url,
+            currentSourceStreamKey = sourceStreamKey,
+            currentStreamAddonName = currentAddonName,
+            currentStreamDescription = currentStreamDescription,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
@@ -658,6 +667,9 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
             currentEpisodeTitle = currentEpisodeTitle,
             currentStreamName = stream.name ?: stream.addonName,
             currentStreamUrl = url,
+            currentSourceStreamKey = null,
+            currentStreamAddonName = currentAddonName,
+            currentStreamDescription = currentStreamDescription,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
