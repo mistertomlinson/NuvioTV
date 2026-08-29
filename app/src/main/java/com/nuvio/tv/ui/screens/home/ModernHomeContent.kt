@@ -926,6 +926,23 @@ fun ModernHomeContent(
     if (focusState.hasSavedFocus && focusState.focusedRowKey != lastRestoredRowKey) {
         restoredFromSavedState = false
     }
+
+    val savedFocusTargetsContinueWatching =
+        focusState.focusedRowKey == "continue_watching" ||
+            (
+                focusState.focusedRowKey == null &&
+                    focusState.focusedRowIndex == -1 &&
+                    uiState.continueWatchingItems.isNotEmpty()
+            )
+
+    val forceContinueWatchingRestoreToStart =
+        !restoredFromSavedState &&
+            focusState.hasSavedFocus &&
+            savedFocusTargetsContinueWatching &&
+            focusState.continueWatchingOrderKeys.isNotEmpty() &&
+            currentContinueWatchingOrderKeys.isNotEmpty() &&
+            focusState.continueWatchingOrderKeys !=
+                currentContinueWatchingOrderKeys
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
     val lastFocusedContinueWatchingIndexRef = remember { java.util.concurrent.atomic.AtomicInteger(-1) }
     val lastHeroNavigationAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
@@ -2348,12 +2365,24 @@ fun ModernHomeContent(
         val contentFocusRequester = LocalContentFocusRequester.current
         val carouselFocusRequester = LocalCarouselFocusRequester.current
         val rowFocusRestorerState = LocalRowFocusRestorer.current
-        val focusRestorerRequester by remember(carouselRows, uiCaches) {
+        val focusRestorerRequester by remember(
+            carouselRows,
+            uiCaches,
+            forceContinueWatchingRestoreToStart
+        ) {
             derivedStateOf {
                 val rowKey = activeRowKey
                 if (rowKey != null) {
                     val row = carouselRows.firstOrNull { it.key == rowKey }
-                    val focusedIndex = uiCaches.focusedItemByRow[rowKey] ?: 0
+                    val focusedIndex =
+                        if (
+                            rowKey == "continue_watching" &&
+                            forceContinueWatchingRestoreToStart
+                        ) {
+                            0
+                        } else {
+                            uiCaches.focusedItemByRow[rowKey] ?: 0
+                        }
                     val safeIndex = focusedIndex.coerceIn(0, ((row?.items?.size ?: 1) - 1).coerceAtLeast(0))
                     val itemKey = row?.items?.getOrNull(safeIndex)?.key
                     if (itemKey != null) {
@@ -3741,6 +3770,8 @@ fun ModernHomeContent(
                         row = row,
                         renderLightweight = renderLightweight,
                         myListSlotGeneration = myListSlotGeneration,
+                        forceContinueWatchingRestoreToStart =
+                            forceContinueWatchingRestoreToStart,
                         showHeavyOverlays =
                             !suppressHeavyOverlaysForThisRow,
                         heavyOverlayAlpha =

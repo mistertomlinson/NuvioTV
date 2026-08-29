@@ -966,6 +966,7 @@ internal fun ModernRowSection(
     row: HeroCarouselRow,
     renderLightweight: Boolean = false,
     myListSlotGeneration: Int = 0,
+    forceContinueWatchingRestoreToStart: Boolean = false,
     showHeavyOverlays: Boolean = true,
     heavyOverlayAlpha: State<Float>,
     rowTitleBottom: Dp,
@@ -1049,26 +1050,33 @@ internal fun ModernRowSection(
      */
     val stableRowRestoreIndex =
         if (row.items.isNotEmpty()) {
-            (
-                uiCaches
-                    .lastActuallyFocusedIndexByRow[
-                        row.key
-                    ]
-                    ?: focusedItemByRow[
-                        row.key
-                    ]
-                    ?: rowListStates[
-                        row.key
-                    ]
-                        ?.firstVisibleItemIndex
-                    ?: focusStateCatalogRowScrollStates[
-                        row.key
-                    ]
-                    ?: 0
-            ).coerceIn(
-                0,
-                row.items.lastIndex
-            )
+            if (
+                row.key == "continue_watching" &&
+                forceContinueWatchingRestoreToStart
+            ) {
+                0
+            } else {
+                (
+                    uiCaches
+                        .lastActuallyFocusedIndexByRow[
+                            row.key
+                        ]
+                        ?: focusedItemByRow[
+                            row.key
+                        ]
+                        ?: rowListStates[
+                            row.key
+                        ]
+                            ?.firstVisibleItemIndex
+                        ?: focusStateCatalogRowScrollStates[
+                            row.key
+                        ]
+                        ?: 0
+                ).coerceIn(
+                    0,
+                    row.items.lastIndex
+                )
+            }
         } else {
             null
         }
@@ -1121,20 +1129,27 @@ internal fun ModernRowSection(
          * 5. Zero only when no real position exists.
          */
         val lightweightStartIndex =
-            focusedLightweightProxyIndex
-                ?: uiCaches
-                    .lastActuallyFocusedIndexByRow[
+            if (
+                isCwRow &&
+                forceContinueWatchingRestoreToStart
+            ) {
+                0
+            } else {
+                focusedLightweightProxyIndex
+                    ?: uiCaches
+                        .lastActuallyFocusedIndexByRow[
+                            row.key
+                        ]
+                    ?: retainedListState
+                        ?.firstVisibleItemIndex
+                    ?: focusStateCatalogRowScrollStates[
                         row.key
                     ]
-                ?: retainedListState
-                    ?.firstVisibleItemIndex
-                ?: focusStateCatalogRowScrollStates[
-                    row.key
-                ]
-                ?: focusedItemByRow[
-                    row.key
-                ]
-                ?: 0
+                    ?: focusedItemByRow[
+                        row.key
+                    ]
+                    ?: 0
+            }
 
         val retainLightweightForHandoff =
             !renderLightweight &&
