@@ -75,6 +75,32 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun setCatalogOrder(orderedItemKeys: List<String>) {
+        val currentItems = _uiState.value.items
+        if (orderedItemKeys.size != currentItems.size) return
+
+        val itemByKey = currentItems.associateBy { it.key }
+        if (orderedItemKeys.toSet() != itemByKey.keys) return
+
+        val reorderedItems = orderedItemKeys.mapNotNull(itemByKey::get)
+            .mapIndexed { index, item ->
+                item.copy(
+                    canMoveUp = index > 0,
+                    canMoveDown = index < orderedItemKeys.lastIndex
+                )
+            }
+
+        val reorderedKeys = reorderedItems.flatMap { item ->
+            if (item.isGroup) item.groupMemberKeys else listOf(item.key)
+        }
+
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setHomeCatalogOrderKeys(
+                collapseWatchlyOrderKeys(reorderedKeys)
+            )
+        }
+    }
+
     fun toggleCatalogEnabled(disableKey: String) {
         val updatedDisabled = disabledKeysCache.toMutableSet().apply {
             if (disableKey in this) remove(disableKey) else add(disableKey)

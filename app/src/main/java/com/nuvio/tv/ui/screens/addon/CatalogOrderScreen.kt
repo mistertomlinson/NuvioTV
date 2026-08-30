@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
@@ -72,6 +73,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -87,7 +93,101 @@ fun CatalogOrderScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
-    BackHandler { onBackPress() }
+    // Pickup/drop reordering is intentionally screen-local while moving.
+    // We only persist the final order when the user presses Enter to drop.
+    var pickedUpKey by remember { mutableStateOf<String?>(null) }
+    var previewItems by remember { mutableStateOf<List<CatalogOrderItem>?>(null) }
+
+    // After Enter drops a row, keep showing the final preview until the
+    // persisted order comes back through the ViewModel. This prevents a
+    // one-frame flash of the old ordering.
+    var pendingDroppedOrderKeys by remember {
+        mutableStateOf<List<String>?>(null)
+    }
+
+    // A held D-pad may request another move before the previous list scroll
+    // animation completes. Keep only the newest animation target.
+    var pickedMoveScrollJob by remember {
+        mutableStateOf<kotlinx.coroutines.Job?>(null)
+    }
+
+    // Capture once when the row is picked up. Reusing this exact anchor during
+    // fast D-pad repeat prevents the carried row from drifting up/down while
+    // an earlier scroll animation is still in progress.
+    var pickedRowAnchorScrollOffset by remember {
+        mutableStateOf<Int?>(null)
+    }
+
+    val displayedItems = previewItems ?: uiState.items
+
+    LaunchedEffect(uiState.items, pendingDroppedOrderKeys) {
+        val pending = pendingDroppedOrderKeys ?: return@LaunchedEffect
+        if (uiState.items.map { it.key } == pending) {
+            previewItems = null
+            pendingDroppedOrderKeys = null
+        }
+    }
+
+    // There are three LazyColumn items before the catalog rows:
+    // title/subtitle, streaming-platform settings, and number-theme toggle.
+    val catalogListStartIndex = 3
+
+    fun movePickedRow(direction: Int) {
+        val key = pickedUpKey ?: return
+        val current = previewItems ?: return
+        val fromIndex = current.indexOfFirst { it.key == key }
+        if (fromIndex == -1) return
+
+        val toIndex = fromIndex + direction
+        if (toIndex !in current.indices) return
+
+        // Never recalculate this while carrying. A fresh measurement taken
+        // during an in-flight animation is what caused fast-scroll drift.
+        val anchorScrollOffset = pickedRowAnchorScrollOffset
+
+        val reordered = current.toMutableList().apply {
+            val moved = removeAt(fromIndex)
+            add(toIndex, moved)
+        }.mapIndexed { index, item ->
+            item.copy(
+                canMoveUp = index > 0,
+                canMoveDown = index < current.lastIndex
+            )
+        }
+
+        previewItems = reordered
+
+        pickedMoveScrollJob?.cancel()
+        pickedMoveScrollJob = scope.launch {
+            val toLazyIndex = catalogListStartIndex + toIndex
+
+            if (anchorScrollOffset != null) {
+                // Animate the list underneath the carried row while preserving
+                // approximately the same focused position in the viewport.
+                listState.animateScrollToItem(
+                    index = toLazyIndex,
+                    scrollOffset = anchorScrollOffset
+                )
+            } else {
+                // Defensive fallback only if the row somehow wasn't visible.
+                listState.animateScrollToItem(toLazyIndex)
+            }
+        }
+    }
+
+    BackHandler {
+        if (pickedUpKey != null) {
+            // Cancel pickup and restore the untouched persisted order.
+            pickedMoveScrollJob?.cancel()
+            pickedMoveScrollJob = null
+            pickedUpKey = null
+            pickedRowAnchorScrollOffset = null
+            previewItems = null
+            pendingDroppedOrderKeys = null
+        } else {
+            onBackPress()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -99,7 +199,16 @@ fun CatalogOrderScreen(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                .dpadRepeatThrottle(horizontalGateMs = 0L, verticalGateMs = 100L),
+                .then(
+                    if (pickedUpKey == null) {
+                        Modifier.dpadRepeatThrottle(
+                            horizontalGateMs = 0L,
+                            verticalGateMs = 100L
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
             contentPadding = PaddingValues(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -191,10 +300,50 @@ fun CatalogOrderScreen(
 
                 else -> {
                     itemsIndexed(
-                        items = uiState.items
+                        items = displayedItems,
+                        key = { _, item -> item.key }
                     ) { index, item ->
                         CatalogOrderCard(
                             item = item,
+                            isPickedUp = pickedUpKey == item.key,
+                            onTogglePickup = {
+                                if (pickedUpKey == item.key) {
+                                    // Enter while carrying = drop and persist.
+                                    // Keep the preview frozen until DataStore's
+                                    // observed order confirms the same result.
+                                    val droppedKeys =
+                                        (previewItems ?: displayedItems).map { it.key }
+
+                                    pickedMoveScrollJob?.cancel()
+                                    pickedMoveScrollJob = null
+                                    pendingDroppedOrderKeys = droppedKeys
+                                    viewModel.setCatalogOrder(droppedKeys)
+                                    pickedUpKey = null
+                                    pickedRowAnchorScrollOffset = null
+                                } else if (pickedUpKey == null) {
+                                    // Enter on handle = pick this row up and
+                                    // permanently anchor it to this viewport Y.
+                                    val lazyIndex = catalogListStartIndex + index
+                                    val layoutInfo = listState.layoutInfo
+                                    val visibleItem =
+                                        layoutInfo.visibleItemsInfo.firstOrNull {
+                                            it.index == lazyIndex
+                                        }
+
+                                    pickedRowAnchorScrollOffset =
+                                        visibleItem?.let { visible ->
+                                            layoutInfo.viewportStartOffset -
+                                                visible.offset
+                                        }
+
+                                    pendingDroppedOrderKeys = null
+                                    previewItems = displayedItems.toList()
+                                    pickedUpKey = item.key
+                                }
+                            },
+                            onMovePicked = { direction ->
+                                movePickedRow(direction)
+                            },
                             onMoveToTop = {
                                 viewModel.moveToTop(item.key)
                             },
@@ -220,6 +369,9 @@ fun CatalogOrderScreen(
 @Composable
 private fun CatalogOrderCard(
     item: CatalogOrderItem,
+    isPickedUp: Boolean,
+    onTogglePickup: () -> Unit,
+    onMovePicked: (Int) -> Unit,
     onMoveToTop: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -229,18 +381,194 @@ private fun CatalogOrderCard(
     onToggleShuffle: () -> Unit,
     globalLandscapeEnabled: Boolean
 ) {
+    val lastPickedMoveTime = remember(item.key) { longArrayOf(0L) }
+
     Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = NuvioColors.BackgroundCard),
+        modifier = Modifier
+            .fillMaxWidth()
+            .zIndex(if (isPickedUp) 1f else 0f)
+            .graphicsLayer {
+                val pickedScale = if (isPickedUp) 1.025f else 1f
+                scaleX = pickedScale
+                scaleY = pickedScale
+            },
+        colors = CardDefaults.cardColors(
+            containerColor = if (isPickedUp) {
+                // Lifted rows should read as raised/lighter, not selected by
+                // another focus ring.
+                NuvioColors.FocusBackground
+            } else {
+                NuvioColors.BackgroundCard
+            }
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (isPickedUp) 12.dp else 0.dp
+        ),
         shape = RoundedCornerShape(12.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(horizontal = 12.dp, vertical = 16.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Button(
+                        onClick = onTogglePickup,
+                        modifier = Modifier.onPreviewKeyEvent { event ->
+                            if (!isPickedUp) {
+                                return@onPreviewKeyEvent false
+                            }
+
+                            val native = event.nativeKeyEvent
+                            if (native.action != android.view.KeyEvent.ACTION_DOWN) {
+                                return@onPreviewKeyEvent false
+                            }
+
+                            val isVerticalMove =
+                                native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+                                    native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+
+                            if (isVerticalMove) {
+                                val now = android.os.SystemClock.uptimeMillis()
+
+                                if (
+                                    native.repeatCount > 0 &&
+                                    now - lastPickedMoveTime[0] < 100L
+                                ) {
+                                    return@onPreviewKeyEvent true
+                                }
+
+                                lastPickedMoveTime[0] = now
+                            }
+
+                            when (native.keyCode) {
+                                android.view.KeyEvent.KEYCODE_DPAD_UP -> {
+                                    onMovePicked(-1)
+                                    true
+                                }
+
+                                android.view.KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                    onMovePicked(1)
+                                    true
+                                }
+
+                                // While carrying, keep focus locked to the
+                                // reorder handle until Enter drops or Back cancels.
+                                android.view.KeyEvent.KEYCODE_DPAD_LEFT,
+                                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> true
+
+                                else -> false
+                            }
+                        },
+                        colors = ButtonDefaults.colors(
+                            containerColor = if (isPickedUp) {
+                                NuvioColors.FocusBackground
+                            } else {
+                                NuvioColors.BackgroundCard
+                            },
+                            contentColor = if (isPickedUp) {
+                                NuvioColors.Primary
+                            } else {
+                                NuvioColors.TextSecondary
+                            },
+                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContentColor = NuvioColors.Primary
+                        ),
+                        border = ButtonDefaults.border(
+                            focusedBorder = Border(
+                                border = BorderStroke(
+                                    if (isPickedUp) 0.dp else 2.dp,
+                                    if (isPickedUp) Color.Transparent
+                                    else NuvioColors.FocusRing
+                                ),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                        ),
+                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                        contentPadding = PaddingValues(
+                            horizontal = 4.dp,
+                            vertical = 4.dp
+                        )
+                    ) {
+                        Canvas(modifier = Modifier.size(22.dp)) {
+                            val stroke = 2.dp.toPx()
+
+                            if (!isPickedUp) {
+                                val lineColor = NuvioColors.TextSecondary
+                                val left = size.width * 0.12f
+                                val right = size.width * 0.88f
+
+                                repeat(4) { line ->
+                                    val y =
+                                        size.height * (0.20f + line * 0.20f)
+
+                                    drawLine(
+                                        color = lineColor,
+                                        start = Offset(left, y),
+                                        end = Offset(right, y),
+                                        strokeWidth = stroke,
+                                        cap = StrokeCap.Round
+                                    )
+                                }
+                            } else {
+                                // Two permanently bright chevrons — essentially
+                                // ">" rotated upward and downward.
+                                val chevronColor = NuvioColors.TextPrimary
+
+                                val cx = size.width * 0.50f
+                                val halfWidth = size.width * 0.30f
+                                val halfHeight = size.height * 0.11f
+
+                                val upY = size.height * 0.24f
+                                drawLine(
+                                    color = chevronColor,
+                                    start = Offset(
+                                        cx - halfWidth,
+                                        upY + halfHeight
+                                    ),
+                                    end = Offset(cx, upY - halfHeight),
+                                    strokeWidth = stroke,
+                                    cap = StrokeCap.Round
+                                )
+                                drawLine(
+                                    color = chevronColor,
+                                    start = Offset(cx, upY - halfHeight),
+                                    end = Offset(
+                                        cx + halfWidth,
+                                        upY + halfHeight
+                                    ),
+                                    strokeWidth = stroke,
+                                    cap = StrokeCap.Round
+                                )
+
+                                val downY = size.height * 0.76f
+                                drawLine(
+                                    color = chevronColor,
+                                    start = Offset(
+                                        cx - halfWidth,
+                                        downY - halfHeight
+                                    ),
+                                    end = Offset(cx, downY + halfHeight),
+                                    strokeWidth = stroke,
+                                    cap = StrokeCap.Round
+                                )
+                                drawLine(
+                                    color = chevronColor,
+                                    start = Offset(cx, downY + halfHeight),
+                                    end = Offset(
+                                        cx + halfWidth,
+                                        downY - halfHeight
+                                    ),
+                                    strokeWidth = stroke,
+                                    cap = StrokeCap.Round
+                                )
+                            }
+                        }
+            }
+
+            Spacer(modifier = Modifier.width(6.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
@@ -288,8 +616,13 @@ private fun CatalogOrderCard(
                     onClick = onMoveToTop,
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
-                        contentColor = NuvioColors.TextSecondary,
+                        containerColor =
+                            if (isPickedUp) NuvioColors.FocusBackground
+                            else NuvioColors.BackgroundCard,
+                        disabledContainerColor =
+                            if (isPickedUp) NuvioColors.FocusBackground
+                            else NuvioColors.BackgroundCard,
+contentColor = NuvioColors.TextSecondary,
                         focusedContainerColor = NuvioColors.FocusBackground,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -313,8 +646,13 @@ private fun CatalogOrderCard(
                     onClick = onMoveUp,
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
-                        contentColor = NuvioColors.TextSecondary,
+                        containerColor =
+                            if (isPickedUp) NuvioColors.FocusBackground
+                            else NuvioColors.BackgroundCard,
+                        disabledContainerColor =
+                            if (isPickedUp) NuvioColors.FocusBackground
+                            else NuvioColors.BackgroundCard,
+contentColor = NuvioColors.TextSecondary,
                         focusedContainerColor = NuvioColors.FocusBackground,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -338,8 +676,13 @@ private fun CatalogOrderCard(
                     onClick = onMoveDown,
                     enabled = item.canMoveDown,
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
-                        contentColor = NuvioColors.TextSecondary,
+                        containerColor =
+                            if (isPickedUp) NuvioColors.FocusBackground
+                            else NuvioColors.BackgroundCard,
+                        disabledContainerColor =
+                            if (isPickedUp) NuvioColors.FocusBackground
+                            else NuvioColors.BackgroundCard,
+contentColor = NuvioColors.TextSecondary,
                         focusedContainerColor = NuvioColors.FocusBackground,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -362,7 +705,17 @@ private fun CatalogOrderCard(
                 Button(
                     onClick = onToggleNumbered,
                     colors = ButtonDefaults.colors(
-                        containerColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                        containerColor =
+                            if (isPickedUp) {
+                                NuvioColors.FocusBackground
+                            } else if (
+                                item.numberStyle !=
+                                com.nuvio.tv.ui.screens.home.NumberStyle.OFF
+                            ) {
+                                NuvioColors.FocusBackground
+                            } else {
+                                NuvioColors.BackgroundCard
+                            },
                         contentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
                         focusedContainerColor = NuvioColors.FocusBackground,
                         focusedContentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
@@ -394,7 +747,14 @@ private fun CatalogOrderCard(
                 if (!globalLandscapeEnabled) Button(
                     onClick = onToggleLandscape,
                     colors = ButtonDefaults.colors(
-                        containerColor = if (item.isLandscape) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                        containerColor =
+                            if (isPickedUp) {
+                                NuvioColors.FocusBackground
+                            } else if (item.isLandscape) {
+                                NuvioColors.FocusBackground
+                            } else {
+                                NuvioColors.BackgroundCard
+                            },
                         contentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
                         focusedContainerColor = NuvioColors.FocusBackground,
                         focusedContentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
@@ -418,7 +778,14 @@ private fun CatalogOrderCard(
                 if (!item.isGroup) Button(
                     onClick = onToggleShuffle,
                     colors = ButtonDefaults.colors(
-                        containerColor = if (item.isShuffled) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+                        containerColor =
+                            if (isPickedUp) {
+                                NuvioColors.FocusBackground
+                            } else if (item.isShuffled) {
+                                NuvioColors.FocusBackground
+                            } else {
+                                NuvioColors.BackgroundCard
+                            },
                         contentColor = if (item.isShuffled) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
                         focusedContainerColor = NuvioColors.FocusBackground,
                         focusedContentColor = if (item.isShuffled) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
@@ -442,7 +809,9 @@ private fun CatalogOrderCard(
                 Button(
                     onClick = onToggleEnabled,
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor =
+                            if (isPickedUp) NuvioColors.FocusBackground
+                            else NuvioColors.BackgroundCard,
                         contentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.TextSecondary,
                         focusedContainerColor = NuvioColors.FocusBackground,
                         focusedContentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.Error
