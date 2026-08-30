@@ -257,6 +257,7 @@ fun ModernHomeContent(
     val strTypeSeries = stringResource(R.string.type_series)
     val rowBuildCache = remember { ModernCarouselRowBuildCache() }
     val context = LocalContext.current
+    val density = LocalDensity.current
     val enrichmentReadyRowKeys: Set<String> = uiState.enrichmentReadyRowKeys
     val continueWatchingEnrichmentReady: Boolean = uiState.continueWatchingEnrichmentReady
     val currentContinueWatchingOrderKeys =
@@ -1648,6 +1649,161 @@ fun ModernHomeContent(
     val latestActiveItemIndex by rememberUpdatedState(clampedActiveItemIndex)
     val latestCarouselRows by rememberUpdatedState(carouselRows)
     val latestVerticalRowListState by rememberUpdatedState(verticalRowListState)
+    val latestLandscapeCatalogKeys by rememberUpdatedState(uiState.landscapeCatalogKeys)
+    val latestUseLandscapePosters by rememberUpdatedState(useLandscapePosters)
+    val latestPosterCardWidthDp by rememberUpdatedState(uiState.posterCardWidthDp)
+    val latestPosterCardHeightDp by rememberUpdatedState(uiState.posterCardHeightDp)
+    val latestEffectiveExpandEnabled by rememberUpdatedState(effectiveExpandEnabled)
+
+    /*
+     * Coil-only nearby-row prewarm.
+     *
+     * IMPORTANT: this does not participate in renderer selection, LazyColumn
+     * caching, focus, or row composition. The existing full/lightweight
+     * renderer neighborhood remains completely unchanged.
+     *
+     * Warm the first visible run of cards for the two rows above and two rows
+     * below the focused row. Re-run when enrichment replaces artwork URLs so
+     * landscape rows warm the image they will actually render.
+     */
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.flow.combine(
+            snapshotFlow { Pair(activeRowKey, latestCarouselRows) },
+            isFastScrollingRef
+        ) { pair, scrolling -> Pair(pair, scrolling) }
+            .debounce(80L)
+            .collectLatest { (pair, isScrolling) ->
+                if (isScrolling) return@collectLatest
+
+                val (rowKey, rows) = pair
+                if (rowKey == null) return@collectLatest
+
+                val focusedRowIndex =
+                    rows.indexOfFirst { it.key == rowKey }
+                if (focusedRowIndex < 0) return@collectLatest
+
+                val portraitWidth = latestPosterCardWidthDp.dp
+                val portraitHeight = latestPosterCardHeightDp.dp
+                if (portraitWidth <= 0.dp || portraitHeight <= 0.dp) {
+                    return@collectLatest
+                }
+
+                data class NearbyImageWarmTarget(
+                    val url: String,
+                    val widthPx: Int,
+                    val heightPx: Int
+                )
+
+                val warmTargets =
+                    listOf(-2, -1, 1, 2)
+                        .mapNotNull { offset ->
+                            rows.getOrNull(focusedRowIndex + offset)
+                        }
+                        .filter { nearbyRow ->
+                            nearbyRow.key != "continue_watching" &&
+                                nearbyRow.items.isNotEmpty()
+                        }
+                        .flatMap { nearbyRow ->
+                            val rowLandscape =
+                                latestUseLandscapePosters ||
+                                    nearbyRow.key in latestLandscapeCatalogKeys
+
+                            val cardWidth =
+                                if (rowLandscape) {
+                                    portraitWidth * 1.24f * 1.34f
+                                } else {
+                                    portraitWidth * 0.84f * 1.08f
+                                }
+
+                            val cardHeight =
+                                if (rowLandscape) {
+                                    cardWidth / 1.77f
+                                } else {
+                                    portraitHeight * 0.84f * 1.08f
+                                }
+
+                            // Match ModernPosterCard's actual request width.
+                            val requestWidth =
+                                if (latestEffectiveExpandEnabled) {
+                                    maxOf(
+                                        cardWidth,
+                                        cardHeight * (16f / 9f)
+                                    )
+                                } else {
+                                    cardWidth
+                                }
+
+                            val requestWidthPx =
+                                with(density) {
+                                    requestWidth.roundToPx()
+                                }
+                            val requestHeightPx =
+                                with(density) {
+                                    cardHeight.roundToPx()
+                                }
+
+                            val rememberedIndex =
+                                (
+                                    uiCaches.lastActuallyFocusedIndexByRow[
+                                        nearbyRow.key
+                                    ]
+                                        ?: uiCaches.focusedItemByRow[
+                                            nearbyRow.key
+                                        ]
+                                        ?: 0
+                                    ).coerceIn(
+                                    0,
+                                    (nearbyRow.items.size - 1)
+                                        .coerceAtLeast(0)
+                                )
+
+                            nearbyRow.items
+                                .drop(rememberedIndex)
+                                .take(6)
+                                .mapNotNull { item ->
+                                    item.imageUrl
+                                        ?.takeIf { it.isNotBlank() }
+                                        ?.let { url ->
+                                            NearbyImageWarmTarget(
+                                                url = url,
+                                                widthPx = requestWidthPx,
+                                                heightPx = requestHeightPx
+                                            )
+                                        }
+                                }
+                        }
+                        .distinct()
+
+                if (warmTargets.isEmpty()) {
+                    return@collectLatest
+                }
+
+                val imageLoader =
+                    coil.Coil.imageLoader(context)
+
+                kotlinx.coroutines.coroutineScope {
+                    warmTargets.forEach { target ->
+                        launch(kotlinx.coroutines.Dispatchers.IO) {
+                            runCatching {
+                                imageLoader.execute(
+                                    coil.request.ImageRequest.Builder(context)
+                                        .data(target.url)
+                                        .crossfade(false)
+                                        .size(
+                                            width = target.widthPx,
+                                            height = target.heightPx
+                                        )
+                                        .memoryCachePolicy(
+                                            coil.request.CachePolicy.ENABLED
+                                        )
+                                        .build()
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+    }
 
     LaunchedEffect(Unit) {
         kotlinx.coroutines.flow.combine(
