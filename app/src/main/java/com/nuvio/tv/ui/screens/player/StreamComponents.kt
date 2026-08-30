@@ -222,8 +222,12 @@ internal fun AddonFilterChips(
 ) {
     val chipMap = sourceChips.associateBy { it.name }
     val orderedNames = externalOrderedNames ?: buildList {
-        addAll(addons)
-        sourceChips.forEach { chip -> if (chip.name !in this) add(chip.name) }
+        sourceChips.forEach { chip ->
+            if (chip.name !in this) add(chip.name)
+        }
+        addons.forEach { addon ->
+            if (addon !in this) add(addon)
+        }
     }
     val focusRequesters = externalFocusRequesters ?: remember(orderedNames.size) {
         List(orderedNames.size + 1) { FocusRequester() }

@@ -740,8 +740,16 @@ private fun RightStreamSection(
     var focusJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val orderedAddonNames = remember(availableAddons, sourceChips) {
         buildList {
-            addAll(availableAddons)
-            sourceChips.forEach { if (it.name !in this) add(it.name) }
+            // sourceChips preserve the original source order established when
+            // loading begins. Status changes must never reorder the pill row.
+            sourceChips.forEach { chip ->
+                if (chip.name !in this) add(chip.name)
+            }
+
+            // Defensive fallback for a source discovered after fetch start.
+            availableAddons.forEach { addon ->
+                if (addon !in this) add(addon)
+            }
         }
     }
     val allChipFocusRequester = remember { FocusRequester() }
@@ -788,6 +796,35 @@ private fun RightStreamSection(
         }
     }
 
+    // Do not expose a stream list while that page can still change underneath
+    // the user's focus.
+    //
+    // All waits for every source to reach SUCCESS or ERROR.
+    // Individual addon pages wait only for that addon.
+    //
+    // `isLoading` alone cannot be used here because the ViewModel sets it false
+    // on progressive success emissions while other addons may still be running.
+    val selectedAddonStatus = selectedAddonFilter?.let { selected ->
+        sourceChips.firstOrNull { it.name == selected }?.status
+    }
+
+    val allPageStillLoading = if (sourceChips.isEmpty()) {
+        isLoading
+    } else {
+        sourceChips.any { it.status == SourceChipStatus.LOADING }
+    }
+
+    val selectedPageStillLoading = when {
+        selectedAddonFilter == null -> allPageStillLoading
+
+        selectedAddonStatus == SourceChipStatus.LOADING -> true
+
+        // Covers the very small window before the chip model is populated.
+        selectedAddonStatus == null && isLoading && streams.isEmpty() -> true
+
+        else -> false
+    }
+
     Column(
         modifier = modifier
             .padding(top = 48.dp, end = 48.dp, bottom = 48.dp)
@@ -832,7 +869,7 @@ private fun RightStreamSection(
                 contentAlignment = Alignment.Center
             ) {
                 when {
-                    isLoading -> {
+                    selectedPageStillLoading -> {
                         LoadingState()
                     }
                     error != null -> {
@@ -916,23 +953,46 @@ private fun AddonFilterChips(
 
                 val allOptions = listOf<String?>(null) + orderedNames
                 val currentIdx = focusedChipIndex.coerceIn(0, allOptions.lastIndex)
-                when (event.key) {
-                    androidx.compose.ui.input.key.Key.DirectionLeft -> {
-                        if (isRtl) {
-                            if (currentIdx < allOptions.lastIndex) { focusedChipIndex = currentIdx + 1; onAddonSelected(allOptions[currentIdx + 1]); true } else false
-                        } else {
-                            if (currentIdx > 0) { focusedChipIndex = currentIdx - 1; onAddonSelected(allOptions[currentIdx - 1]); true } else false
-                        }
-                    }
-                    androidx.compose.ui.input.key.Key.DirectionRight -> {
-                        if (isRtl) {
-                            if (currentIdx > 0) { focusedChipIndex = currentIdx - 1; onAddonSelected(allOptions[currentIdx - 1]); true } else false
-                        } else {
-                            if (currentIdx < allOptions.lastIndex) { focusedChipIndex = currentIdx + 1; onAddonSelected(allOptions[currentIdx + 1]); true } else false
-                        }
-                    }
-                    else -> false
+
+                // Loading/error pills are visible status indicators but are not
+                // navigation destinations. Never select a pill before it can
+                // actually accept focus, otherwise selection and real TV focus
+                // can temporarily diverge and make two pills look focused.
+                fun canNavigateTo(index: Int): Boolean {
+                    if (index == 0) return true // All
+
+                    val addon = orderedNames.getOrNull(index - 1) ?: return false
+                    val status = chipMap[addon]?.status ?: SourceChipStatus.SUCCESS
+                    return addon in addons && status == SourceChipStatus.SUCCESS
                 }
+
+                fun nextNavigableIndex(step: Int): Int? {
+                    var candidate = currentIdx + step
+                    while (candidate in allOptions.indices) {
+                        if (canNavigateTo(candidate)) {
+                            return candidate
+                        }
+                        candidate += step
+                    }
+                    return null
+                }
+
+                val step = when (event.key) {
+                    androidx.compose.ui.input.key.Key.DirectionLeft ->
+                        if (isRtl) 1 else -1
+
+                    androidx.compose.ui.input.key.Key.DirectionRight ->
+                        if (isRtl) -1 else 1
+
+                    else -> return@onKeyEvent false
+                }
+
+                val targetIdx = nextNavigableIndex(step)
+                    ?: return@onKeyEvent false
+
+                focusedChipIndex = targetIdx
+                onAddonSelected(allOptions[targetIdx])
+                true
             }
     ) {
         item {
@@ -958,7 +1018,12 @@ private fun AddonFilterChips(
                 status = chipStatus,
                 isSelectable = isSelectable,
                 onClick = { if (isSelectable) onAddonSelected(addon) },
-                modifier = Modifier.focusRequester(focusRequesters[i + 1])
+                modifier = Modifier
+                    .focusRequester(focusRequesters[i + 1])
+                    // LOADING/ERROR pills are informational only. Keeping them
+                    // out of the focus graph prevents a finishing addon from
+                    // acquiring TV focus while another page is being used.
+                    .focusProperties { canFocus = isSelectable }
             )
         }
     }

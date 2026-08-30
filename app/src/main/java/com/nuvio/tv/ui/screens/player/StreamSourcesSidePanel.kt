@@ -63,8 +63,13 @@ internal fun StreamSourcesSidePanel(
 
     val orderedAddonNames = remember(uiState.sourceAvailableAddons, uiState.sourceChips) {
         buildList {
-            addAll(uiState.sourceAvailableAddons)
-            uiState.sourceChips.forEach { if (it.name !in this) add(it.name) }
+            uiState.sourceChips.forEach { chip ->
+                if (chip.name !in this) add(chip.name)
+            }
+
+            uiState.sourceAvailableAddons.forEach { addon ->
+                if (addon !in this) add(addon)
+            }
         }
     }
     val allChipFocusRequester = remember { FocusRequester() }
