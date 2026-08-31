@@ -1752,6 +1752,7 @@ private fun BackdropLayer(
             onRemoteKey = onTrailerControlKey,
             onProgressChanged = onTrailerProgressChanged,
             onEnded = onTrailerEnded,
+            cropToFill = true,
             modifier = Modifier.fillMaxSize()
         )
         Box(

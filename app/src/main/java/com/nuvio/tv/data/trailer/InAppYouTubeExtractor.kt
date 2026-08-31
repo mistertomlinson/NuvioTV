@@ -939,15 +939,44 @@ class InAppYouTubeExtractor @Inject constructor() {
     }
 
     /**
-     * Search YouTube for a trailer and return the first video ID found.
-     * Used as a fallback when TMDB has no trailer candidates for a title.
+     * Search YouTube for the best validated trailer/promo candidate.
+     * Used only as a fallback when TMDB has no trailer candidates for a title.
+     *
+     * TV searches use media type, year, and an already-known network when
+     * available so ambiguous names do not blindly inherit YouTube's first hit.
      */
-    suspend fun searchForTrailerVideoId(title: String, year: String?): String? = withContext(Dispatchers.IO) {
+    suspend fun searchForTrailerVideoId(
+        title: String,
+        year: String?,
+        type: String? = null,
+        network: String? = null
+    ): String? = withContext(Dispatchers.IO) {
         try {
+            val normalizedType = type?.trim()?.lowercase()
+            val isTv =
+                normalizedType in setOf(
+                    "tv",
+                    "series",
+                    "show",
+                    "tvshow"
+                )
+            val isMovie = normalizedType == "movie"
+            val queryNetwork =
+                network
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+
             val query = buildString {
                 append(title)
                 if (!year.isNullOrBlank()) append(" $year")
-                append(" official trailer")
+                if (isTv) {
+                    if (queryNetwork != null) append(" $queryNetwork")
+                    append(" season 1 official trailer")
+                } else if (isMovie) {
+                    append(" movie official trailer")
+                } else {
+                    append(" official trailer")
+                }
             }
             val encodedQuery = java.net.URLEncoder.encode(query, "UTF-8")
             val searchUrl = "https://www.youtube.com/results?search_query=$encodedQuery"
@@ -1013,6 +1042,9 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
             val trailerVariants = setOf(
                 "trailer", "trialer", "traler", "trailor", "trailerr", "traeler", "trailr"
             )
+            val tvPromoVariants = setOf(
+                "promo", "preview", "teaser"
+            )
 
             fun normalizeForMatch(s: String): String =
                 s.replace("\\u0026", "&")
@@ -1023,7 +1055,42 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
             fun hasTrailerWord(normalized: String): Boolean =
                 normalized.split(" ").any { it in trailerVariants }
 
+            fun hasTvPromoWord(normalized: String): Boolean =
+                normalized
+                    .split(" ")
+                    .any { it in trailerVariants || it in tvPromoVariants }
+
+            fun containsNormalizedPhrase(
+                normalizedText: String,
+                normalizedPhrase: String
+            ): Boolean {
+                if (normalizedPhrase.isBlank()) return false
+                return " $normalizedText ".contains(" $normalizedPhrase ")
+            }
+
             val normalizedTitle = normalizeForMatch(title)
+            val normalizedNetwork = normalizeForMatch(network.orEmpty())
+            val normalizedYear =
+                year
+                    ?.trim()
+                    ?.takeIf { it.matches(Regex("\\d{4}")) }
+
+            /*
+             * Single meaningful-word TV titles are especially ambiguous:
+             * "Conan", "Survivor", "The Bear", etc. Do not accept a generic
+             * title hit for these unless year or network corroborates identity.
+             */
+            val titleIdentityWords =
+                normalizedTitle
+                    .split(" ")
+                    .filter { it.isNotBlank() }
+                    .filterNot { it in setOf("the", "a", "an") }
+
+            val ambiguousTvTitle =
+                isTv && titleIdentityWords.size <= 1
+
+            val ambiguousMovieTitle =
+                isMovie && titleIdentityWords.size <= 2
 
             // All title/headline run positions, in document order.
             val titlePositions = titleRunRegex.findAll(searchableHtml)
@@ -1032,6 +1099,8 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
 
             var candidateCount = 0
             var selectedId: String? = null
+            var selectedTitle: String? = null
+            var selectedTier = Int.MIN_VALUE
             val seen = HashSet<String>()
 
             for (idMatch in videoIdRegex.findAll(searchableHtml)) {
@@ -1046,25 +1115,221 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
                 val between = searchableHtml.substring(titlePos, idPos)
                 if (shortsIndicators.any { it in between }) continue
 
+                // The TV selector below was validated against the first 20
+                // YouTube results. Do not let increasingly remote search results
+                // override a strong early match.
+                if ((isTv || ambiguousMovieTitle) && candidateCount >= 20) break
                 candidateCount++
+
                 val normalizedResult = normalizeForMatch(rawTitle)
+                val resultWords =
+                    normalizedResult
+                        .split(" ")
+                        .filter { it.isNotBlank() }
 
-                // Gate 1: the FULL item title must appear as a contiguous run.
-                val hasFullTitle = normalizedTitle.isNotBlank() &&
-                    normalizedResult.contains(normalizedTitle)
-                // Gate 2: a trailer word (or known misspelling) must be present.
-                val hasTrailer = hasTrailerWord(normalizedResult)
+                // Gate 1: requested title must appear as complete normalized words.
+                val hasFullTitle =
+                    containsNormalizedPhrase(
+                        normalizedText = normalizedResult,
+                        normalizedPhrase = normalizedTitle
+                    )
 
-                if (hasFullTitle && hasTrailer) {
-                    selectedId = id
-                    break
+                /*
+                 * Movies retain the existing trailer requirement.
+                 * TV may also use promo / preview / teaser terminology.
+                 */
+                val hasPromoWord =
+                    if (isTv) {
+                        hasTvPromoWord(normalizedResult)
+                    } else {
+                        hasTrailerWord(normalizedResult)
+                    }
+
+                /*
+                 * Inspect identity words outside the requested movie title.
+                 * This avoids treating title words themselves as medium markers
+                 * (for example a movie whose actual title contains "Season").
+                 */
+                val movieIdentityRemainder =
+                    if (isMovie && normalizedTitle.isNotBlank()) {
+                        normalizedResult
+                            .replaceFirst(normalizedTitle, " ")
+                            .replace(Regex("\\s+"), " ")
+                            .trim()
+                    } else {
+                        ""
+                    }
+
+                val movieRemainderWords =
+                    movieIdentityRemainder
+                        .split(" ")
+                        .filter { it.isNotBlank() }
+
+                val hasExplicitMovieIdentity =
+                    isMovie &&
+                        movieRemainderWords.any { word ->
+                            word == "movie" || word == "film"
+                        }
+
+                val hasExplicitTvIdentity =
+                    isMovie &&
+                        (
+                            containsNormalizedPhrase(movieIdentityRemainder, "tv show") ||
+                                containsNormalizedPhrase(movieIdentityRemainder, "tv shows") ||
+                                containsNormalizedPhrase(movieIdentityRemainder, "tv series") ||
+                                containsNormalizedPhrase(movieIdentityRemainder, "television show") ||
+                                containsNormalizedPhrase(movieIdentityRemainder, "television series") ||
+                                (
+                                    movieRemainderWords.any { it == "season" } &&
+                                        movieRemainderWords.any { word ->
+                                            word.toIntOrNull() != null
+                                        }
+                                )
+                        )
+
+                /*
+                 * Do not cross media types merely because two works share a name.
+                 */
+                val wrongMedium =
+                    when {
+                        isTv ->
+                            resultWords.any { word ->
+                                word == "movie" || word == "film"
+                            }
+                        isMovie -> hasExplicitTvIdentity
+                        else -> false
+                    }
+
+                val yearMatches =
+                    normalizedYear != null &&
+                        resultWords.any { word ->
+                            word == normalizedYear
+                        }
+
+                val networkMatches =
+                    normalizedNetwork.isNotBlank() &&
+                        containsNormalizedPhrase(
+                            normalizedText = normalizedResult,
+                            normalizedPhrase = normalizedNetwork
+                        )
+
+                val hasSeasonOne =
+                    isTv &&
+                        resultWords.any { word -> word == "season" } &&
+                        resultWords.any { word -> word == "1" }
+
+                /*
+                 * A leading title match is stronger than merely containing the
+                 * requested title somewhere later in the result. This lets launch
+                 * material such as "Survivor: Borneo (Season 1 Trailer)" and
+                 * "Conan O'Brien: TBS Promo" qualify without requiring the year to
+                 * be printed in the YouTube title.
+                 */
+                val titleLeading =
+                    normalizedResult == normalizedTitle ||
+                        normalizedResult.startsWith("$normalizedTitle ")
+
+                /*
+                 * Ambiguous one-word TV titles still need a meaningful identity
+                 * signal. A title-leading Season 1 trailer or title-leading promo
+                 * is accepted, while unrelated containing-title results remain
+                 * rejected.
+                 */
+                val strongLeadingTvIdentity =
+                    isTv &&
+                        titleLeading &&
+                        (
+                            (hasSeasonOne && hasTrailerWord(normalizedResult)) ||
+                                normalizedResult
+                                    .split(" ")
+                                    .any { it in tvPromoVariants }
+                        )
+
+                val identityCorroborated =
+                    !ambiguousTvTitle ||
+                        yearMatches ||
+                        networkMatches ||
+                        strongLeadingTvIdentity
+
+                /*
+                 * A short movie title is too easy to collide with another work.
+                 * Require either the requested year or an explicit movie/film
+                 * identity signal. Prefer no trailer over a confident mismatch.
+                 */
+                val movieIdentityCorroborated =
+                    !ambiguousMovieTitle ||
+                        yearMatches ||
+                        hasExplicitMovieIdentity
+
+                if (
+                    hasFullTitle &&
+                    hasPromoWord &&
+                    !wrongMedium &&
+                    identityCorroborated &&
+                    movieIdentityCorroborated
+                ) {
+                    if (!isTv) {
+                        // Movies still preserve YouTube order among validated results.
+                        selectedId = id
+                        selectedTitle = rawTitle
+                        selectedTier = 0
+                        break
+                    }
+
+                    /*
+                     * TV fallback uses semantic tiers while preserving YouTube
+                     * order inside each tier:
+                     *
+                     * 4 = title-leading Season 1 trailer
+                     * 3 = known-network match
+                     * 2 = title-leading promo / preview / teaser
+                     * 1 = requested-year match
+                     * 0 = otherwise-valid non-ambiguous TV result
+                     *
+                     * This favors actual launch material over poor archival uploads
+                     * without another HTTP request or video-quality probe.
+                     */
+                    val hasExplicitTvPromo =
+                        normalizedResult
+                            .split(" ")
+                            .any { it in tvPromoVariants }
+
+                    val candidateTier =
+                        when {
+                            titleLeading &&
+                                hasSeasonOne &&
+                                hasTrailerWord(normalizedResult) -> 4
+                            networkMatches -> 3
+                            titleLeading && hasExplicitTvPromo -> 2
+                            yearMatches -> 1
+                            else -> 0
+                        }
+
+                    // Iteration is already YouTube order, so only replace the
+                    // selection when a strictly stronger tier appears.
+                    if (candidateTier > selectedTier) {
+                        selectedTier = candidateTier
+                        selectedId = id
+                        selectedTitle = rawTitle
+                        Log.d(
+                            TAG,
+                            "Best TV fallback candidate for '$title' updated " +
+                                "(tier=$candidateTier year=$yearMatches " +
+                                "network=$networkMatches season1=$hasSeasonOne " +
+                                "videoId=$id resultTitle='$rawTitle')"
+                        )
+                    }
                 } else {
                     Log.d(
                         TAG,
                         "Rejecting fallback candidate for '$title' " +
-                            "(fullTitle=$hasFullTitle trailer=$hasTrailer)"
+                            "(fullTitle=$hasFullTitle promo=$hasPromoWord " +
+                            "wrongMedium=$wrongMedium year=$yearMatches " +
+                            "network=$networkMatches season1=$hasSeasonOne " +
+                            "ambiguous=$ambiguousTvTitle)"
                     )
                 }
+
             }
 
             val decodeBranch = when {
@@ -1076,7 +1341,11 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
 
             val videoId = selectedId
             if (videoId != null) {
-                Log.d(TAG, "YouTube search found videoId for '$title': ${videoId.take(4)}***")
+                Log.d(
+                    TAG,
+                    "YouTube search found videoId for '$title': $videoId " +
+                        "resultTitle='${selectedTitle.orEmpty()}' tier=$selectedTier"
+                )
             } else {
                 Log.w(TAG, "YouTube search returned no videoId for '$title'")
             }

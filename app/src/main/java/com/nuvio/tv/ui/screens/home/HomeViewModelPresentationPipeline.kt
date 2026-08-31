@@ -336,12 +336,22 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                 }
             }
 
+            // Network metadata is already fetched by normal Home TMDB enrichment.
+            // Use it only when it is already in memory; never wait for enrichment or
+            // add another request to the trailer/focus path.
+            val cachedNetwork =
+                enrichmentCache[itemId]
+                    ?.networks
+                    ?.firstOrNull()
+                    ?.name
+
             val trailerSource = withContext(Dispatchers.IO) {
                 trailerService.getTrailerPlaybackSource(
                     title = title,
                     year = extractYear(releaseInfo),
                     tmdbId = tmdbId,
-                    type = apiType
+                    type = apiType,
+                    network = cachedNetwork
                 )
             }
 

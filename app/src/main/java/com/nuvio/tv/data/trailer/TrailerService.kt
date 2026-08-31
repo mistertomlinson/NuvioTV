@@ -45,9 +45,15 @@ class TrailerService @Inject constructor(
         title: String,
         year: String? = null,
         tmdbId: String? = null,
-        type: String? = null
+        type: String? = null,
+        network: String? = null
     ): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
-        val cacheKey = "$title|$year|$tmdbId|$type"
+        val normalizedNetwork =
+            network
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+        val cacheKey =
+            "$title|$year|$tmdbId|$type|${normalizedNetwork?.lowercase()}"
 
         cache[cacheKey]?.let { cached ->
             if (cached === NEGATIVE_CACHE) {
@@ -67,7 +73,11 @@ class TrailerService @Inject constructor(
         }
 
         try {
-            Log.d(TAG, "Searching trailer: title=$title, year=$year, tmdbId=$tmdbId, type=$type")
+            Log.d(
+                TAG,
+                "Searching trailer: title=$title, year=$year, tmdbId=$tmdbId, " +
+                    "type=$type, network=$normalizedNetwork"
+            )
 
             // 1) TMDB-first path (independent of TMDB enrichment settings).
             val tmdbSource = getTrailerPlaybackSourceFromTmdbId(
@@ -82,7 +92,13 @@ class TrailerService @Inject constructor(
                 return@withContext tmdbSource
             }
             Log.w(TAG, "TMDB path exhausted; trying YouTube search fallback for '$title'")
-            val searchVideoId = inAppYouTubeExtractor.searchForTrailerVideoId(title, year)
+            val searchVideoId =
+                inAppYouTubeExtractor.searchForTrailerVideoId(
+                    title = title,
+                    year = year,
+                    type = type,
+                    network = normalizedNetwork
+                )
             if (searchVideoId != null) {
                 val searchUrl = "https://www.youtube.com/watch?v=$searchVideoId"
                 val searchSource = getTrailerPlaybackSourceFromYouTubeUrl(

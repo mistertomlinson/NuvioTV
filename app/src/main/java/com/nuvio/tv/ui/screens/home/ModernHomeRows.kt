@@ -2530,7 +2530,7 @@ private fun ModernCarouselCard(
                     )
                 }
 
-                // Layer 3: Trailer video (no overscan — letterbox naturally)
+                // Layer 3: Trailer video — fill the 16:9 expanded media surface.
                 if (shouldPlayTrailerInCard) {
                     TrailerPlayer(
                         trailerUrl = trailerPreviewUrl,
@@ -2545,6 +2545,7 @@ private fun ModernCarouselCard(
                         onFirstFrameRendered = {
                             trailerFirstFrameRendered = true
                         },
+                        cropToFill = true,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
