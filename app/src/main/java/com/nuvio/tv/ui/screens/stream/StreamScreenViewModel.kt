@@ -8,6 +8,7 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
 import com.nuvio.tv.core.debrid.DirectDebridResolveResult
 import com.nuvio.tv.core.debrid.DirectDebridResolver
+import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
 import com.nuvio.tv.core.debrid.DirectDebridStreamPreparer
 import com.nuvio.tv.core.plugin.PluginManager
 import com.nuvio.tv.core.network.NetworkResult
@@ -372,29 +373,21 @@ class StreamScreenViewModel @Inject constructor(
                 contentId?.let { bingeGroupCacheDataStore.get(it) }
             } else null
 
-            fun applySuccess(addonStreamGroups: List<AddonStreams>, isAllLoaded: Boolean) {
+            suspend fun applySuccess(addonStreamGroups: List<AddonStreams>, isAllLoaded: Boolean) {
                 val orderedAddonStreams = StreamAutoPlaySelector.orderAddonStreams(
                     addonStreamGroups,
                     installedAddonOrder
                 )
                 
-                val allStreams = orderedAddonStreams.flatMap { addonStreams ->
-                    addonStreams.streams
-                }.let { streams ->
-                    // Partition by debridCacheStatus.providerId so preferred debrid
-                    // streams from ALL addons float to the top of the merged list,
-                    // preserving within-group quality order from DebridStreamPresentation.
-                    val preferred = preferredDebridProviderId
-                    if (preferred.isNullOrBlank()) streams
-                    else {
-                        val (preferredDebrid, rest) = streams.partition {
-                            it.debridCacheStatus?.providerId == preferred
-                        }
-                        val (otherDebrid, nonDebrid) = rest.partition {
-                            it.debridCacheStatus?.providerId != null
-                        }
-                        preferredDebrid + otherDebrid + nonDebrid
-                    }
+                val allStreams = kotlinx.coroutines.withContext(
+                    kotlinx.coroutines.Dispatchers.Default
+                ) {
+                    DirectDebridStreamFilter.sortForSourceList(
+                        streams = orderedAddonStreams.flatMap { addonStreams ->
+                            addonStreams.streams
+                        },
+                        settings = debridSettings
+                    )
                 }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
                 // Auto-select only after all addons have responded or the

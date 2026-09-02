@@ -123,7 +123,7 @@ fun StreamScreen(
     )
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
-    var focusedStreamIndex by rememberSaveable { mutableStateOf(0) }
+    var focusedStreamKey by rememberSaveable { mutableStateOf<String?>(null) }
     var restoreFocusedStream by rememberSaveable { mutableStateOf(false) }
     var pendingRestoreOnResume by rememberSaveable { mutableStateOf(false) }
     var showPlayerChoiceDialog by remember { mutableStateOf(false) }
@@ -405,7 +405,11 @@ fun StreamScreen(
                                 it.addonName == stream.addonName
                         }
                         if (currentIndex >= 0) {
-                            focusedStreamIndex = currentIndex
+
+                            focusedStreamKey =
+
+                                buildStreamFocusKeys(uiState.filteredStreams).getOrNull(currentIndex)
+
                         }
                         scope.coroutineLaunch {
                             val playbackInfo = viewModel.resolveStreamForPlayback(stream)
@@ -416,7 +420,7 @@ fun StreamScreen(
                             }
                         }
                     },
-                    focusedStreamIndex = focusedStreamIndex,
+                    focusedStreamKey = focusedStreamKey,
                     shouldRestoreFocusedStream = restoreFocusedStream,
                     onRestoreFocusedStreamHandled = { restoreFocusedStream = false },
                     onRetry = { viewModel.onEvent(StreamScreenEvent.OnRetry) },
@@ -727,7 +731,7 @@ private fun RightStreamSection(
     showFileSizeBadges: Boolean,
     onAddonFilterSelected: (String?) -> Unit,
     onStreamSelected: (Stream) -> Unit,
-    focusedStreamIndex: Int,
+    focusedStreamKey: String?,
     shouldRestoreFocusedStream: Boolean,
     onRestoreFocusedStreamHandled: () -> Unit,
     onRetry: () -> Unit,
@@ -791,8 +795,10 @@ private fun RightStreamSection(
             withFrameNanos { }
         }
 
-        runCatching {
-            allChipFocusRequester.requestFocus()
+        if (!shouldRestoreFocusedStream) {
+            runCatching {
+                allChipFocusRequester.requestFocus()
+            }
         }
     }
 
@@ -885,7 +891,7 @@ private fun RightStreamSection(
                         StreamsList(
                             streams = streams,
                             onStreamSelected = onStreamSelected,
-                            focusedStreamIndex = focusedStreamIndex,
+                            focusedStreamKey = focusedStreamKey,
                             shouldRestoreFocusedStream = shouldRestoreFocusedStream,
                             onRestoreFocusedStreamHandled = onRestoreFocusedStreamHandled,
                             availableAddons = availableAddons,
@@ -927,7 +933,40 @@ private fun AddonFilterChips(
     }
     val scope = rememberCoroutineScope()
     val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
+    val chipListState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    // A completed addon can be several pills away while intervening
+    // addons are still loading. Keep the actual focused pill inside
+    // the LazyRow viewport when navigation skips those unavailable pills.
+    LaunchedEffect(
+        focusedChipIndex,
+        chipRowHasFocus,
+        focusRequesters.size
+    ) {
+        if (!chipRowHasFocus || focusRequesters.isEmpty()) {
+            return@LaunchedEffect
+        }
+
+        val targetIndex = focusedChipIndex.coerceIn(
+            0,
+            focusRequesters.lastIndex
+        )
+
+        val targetVisible = chipListState.layoutInfo.visibleItemsInfo.any {
+            it.index == targetIndex
+        }
+
+        if (!targetVisible) {
+            chipListState.scrollToItem(targetIndex)
+            withFrameNanos { }
+        }
+
+        runCatching {
+            focusRequesters[targetIndex].requestFocus()
+        }
+    }
     LazyRow(
+        state = chipListState,
         horizontalArrangement = Arrangement.spacedBy(16.dp),
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         modifier = Modifier
@@ -1115,12 +1154,41 @@ private fun EmptyState() {
     }
 }
 
+private fun buildStreamFocusKeys(streams: List<Stream>): List<String> {
+    val seenLogicalKeys = mutableSetOf<String>()
+    val variantOccurrences = mutableMapOf<String, Int>()
+
+    return streams.map { stream ->
+        val baseKey = stream.stableKey(0)
+
+        if (seenLogicalKeys.add(baseKey)) {
+            baseKey
+        } else {
+            val variantKey = buildString {
+                append(baseKey)
+                append('\u0000')
+                append("provider-variant")
+                append('\u0000')
+                append(stream.debridCacheStatus?.providerId.orEmpty())
+            }
+            val occurrence = variantOccurrences[variantKey] ?: 0
+            variantOccurrences[variantKey] = occurrence + 1
+
+            buildString {
+                append(variantKey)
+                append('\u0000')
+                append(occurrence)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun StreamsList(
     streams: List<Stream>,
     onStreamSelected: (Stream) -> Unit,
-    focusedStreamIndex: Int = 0,
+    focusedStreamKey: String? = null,
     shouldRestoreFocusedStream: Boolean = false,
     onRestoreFocusedStreamHandled: () -> Unit = {},
     availableAddons: List<String> = emptyList(),
@@ -1173,18 +1241,22 @@ private fun StreamsList(
     val streamFocusRequesters = remember {
         mutableMapOf<String, FocusRequester>()
     }
+    streamFocusRequesters.keys.retainAll(streamKeys.toSet())
     streamKeys.forEach { key ->
         streamFocusRequesters.getOrPut(key) {
             FocusRequester()
         }
     }
 
-    LaunchedEffect(shouldRestoreFocusedStream, focusedStreamIndex, streams.size) {
+    LaunchedEffect(shouldRestoreFocusedStream, focusedStreamKey, streamKeys) {
         if (!shouldRestoreFocusedStream) return@LaunchedEffect
-        if (streams.isEmpty()) {
+
+        val key = focusedStreamKey
+        if (key == null || key !in streamKeys) {
             onRestoreFocusedStreamHandled()
             return@LaunchedEffect
         }
+
         repeat(2) { withFrameNanos { } }
         try {
             restoreFocusRequester.requestFocus()
@@ -1207,8 +1279,10 @@ private fun StreamsList(
                     if (now - lastKeyRepeatDispatchRef.get() < 112L) return@onKeyEvent true
                     lastKeyRepeatDispatchRef.set(now)
                 }
-                if (availableAddons.isEmpty()) return@onKeyEvent false
-                val allOptions = listOf<String?>(null) + availableAddons
+                val navigableAddons =
+                    orderedAddonNames.filter { it in availableAddons }
+                if (navigableAddons.isEmpty()) return@onKeyEvent false
+                val allOptions = listOf<String?>(null) + navigableAddons
                 val currentIdx = allOptions.indexOf(selectedAddonFilter)
                 when (event.key) {
                     Key.DirectionLeft -> {
@@ -1242,10 +1316,7 @@ private fun StreamsList(
                     onClick = { onStreamSelected(stream) },
                     focusRequester = when {
                         shouldRestoreFocusedStream &&
-                            index == focusedStreamIndex.coerceIn(
-                                0,
-                                (streams.lastIndex).coerceAtLeast(0)
-                            ) -> restoreFocusRequester
+                            streamKeys[index] == focusedStreamKey -> restoreFocusRequester
                         else -> streamFocusRequesters.getValue(streamKeys[index])
                     },
                     onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
@@ -1288,9 +1359,16 @@ private fun StreamCard(
             .fillMaxWidth()
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .then(if (onUpKey != null) Modifier.onKeyEvent { event ->
-                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN && event.key == Key.DirectionUp) {
-                    onUpKey(); true
-                } else false
+                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN &&
+                    event.key == Key.DirectionUp
+                ) {
+                    if (event.nativeKeyEvent.repeatCount == 0) {
+                        onUpKey()
+                    }
+                    true
+                } else {
+                    false
+                }
             } else Modifier),
         colors = CardDefaults.colors(
             containerColor = NuvioColors.BackgroundElevated,

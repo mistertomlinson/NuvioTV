@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.tv.core.debrid.DirectDebridPlayableResult
+import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.data.local.StreamAutoPlayMode
@@ -21,16 +22,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
-private suspend fun PlayerRuntimeController.preferredDebridProviderId(): String? {
-    return debridSettingsDataStore.settings.first().activeResolverProviderId
-}
-
-private fun List<com.nuvio.tv.domain.model.Stream>.sortByPreferredDebrid(preferredId: String?): List<com.nuvio.tv.domain.model.Stream> {
-    if (preferredId.isNullOrBlank()) return this
-    val (preferredDebrid, rest) = partition { it.debridCacheStatus?.providerId == preferredId }
-    val (otherDebrid, nonDebrid) = rest.partition { it.debridCacheStatus?.providerId != null }
-    return preferredDebrid + otherDebrid + nonDebrid
-}
 internal fun PlayerRuntimeController.showEpisodesPanel() {
     _uiState.update {
         it.copy(
@@ -121,6 +112,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
 
         val installedAddons = addonRepository.getInstalledAddons().first()
         val installedAddonOrder = installedAddons.map { it.displayName }
+        val debridSettings = debridSettingsDataStore.settings.first()
         updateSourceChipsForFetchStart(type, installedAddons)
 
         streamRepository.getStreamsFromAllAddons(
@@ -132,8 +124,12 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
             when (result) {
                 is NetworkResult.Success -> {
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
-                    val preferredDebrid = preferredDebridProviderId()
-                    val allStreams = addonStreams.flatMap { it.streams }.sortByPreferredDebrid(preferredDebrid)
+                    val allStreams = withContext(Dispatchers.Default) {
+                        DirectDebridStreamFilter.sortForSourceList(
+                            streams = addonStreams.flatMap { it.streams },
+                            settings = debridSettings
+                        )
+                    }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
@@ -174,8 +170,7 @@ internal fun PlayerRuntimeController.dismissSourcesPanel() {
     _uiState.update {
         it.copy(
             showSourcesPanel = false,
-            isLoadingSourceStreams = false,
-            sourceChips = emptyList()
+            isLoadingSourceStreams = false
         )
     }
     sourceChipErrorDismissJob?.cancel()
@@ -553,6 +548,7 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
 
         val installedAddons = addonRepository.getInstalledAddons().first()
         val installedAddonOrder = installedAddons.map { it.displayName }
+        val debridSettings = debridSettingsDataStore.settings.first()
 
         streamRepository.getStreamsFromAllAddons(
             type = type,
@@ -563,8 +559,12 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
             when (result) {
                 is NetworkResult.Success -> {
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
-                    val preferredDebrid = preferredDebridProviderId()
-                    val allStreams = addonStreams.flatMap { it.streams }.sortByPreferredDebrid(preferredDebrid)
+                    val allStreams = withContext(Dispatchers.Default) {
+                        DirectDebridStreamFilter.sortForSourceList(
+                            streams = addonStreams.flatMap { it.streams },
+                            settings = debridSettings
+                        )
+                    }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     val selectedAddon = previousAddonFilter?.takeIf { it in availableAddons }

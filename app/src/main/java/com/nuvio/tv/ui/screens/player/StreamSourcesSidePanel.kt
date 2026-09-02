@@ -40,6 +40,7 @@ import android.view.KeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -57,9 +58,10 @@ internal fun StreamSourcesSidePanel(
     onStreamSelected: (Stream) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    // Stream-result completion must never request focus. The chip row owns
-    // initial focus; after the user enters the list, stable row identity lets
-    // Compose retain the exact focused stream through progressive re-sorting.
+    // Prefer the currently playing source for initial focus. While a cold
+    // result is still loading, the chip row may temporarily own focus. Once
+    // Playing becomes available it may take focus only if the user has not
+    // already started navigating.
 
     val orderedAddonNames = remember(uiState.sourceAvailableAddons, uiState.sourceChips) {
         buildList {
@@ -90,11 +92,50 @@ internal fun StreamSourcesSidePanel(
         }
     }
 
-    val streamKeys = remember(uiState.sourceFilteredStreams) {
+    val sourceCurrentStreamIndex = remember(
+        uiState.sourceFilteredStreams,
+        uiState.currentSourceStreamKey,
+        uiState.currentStreamUrl,
+        uiState.currentStreamName,
+        uiState.currentStreamAddonName,
+        uiState.currentStreamDescription
+    ) {
+        findCurrentStreamIndex(
+            streams = uiState.sourceFilteredStreams,
+            currentSourceStreamKey = uiState.currentSourceStreamKey,
+            currentStreamUrl = uiState.currentStreamUrl,
+            currentStreamName = uiState.currentStreamName,
+            currentStreamAddonName = uiState.currentStreamAddonName,
+            currentStreamDescription = uiState.currentStreamDescription
+        )
+    }
+
+    val displayStreams = remember(
+        uiState.sourceFilteredStreams,
+        sourceCurrentStreamIndex
+    ) {
+        if (sourceCurrentStreamIndex > 0) {
+            buildList {
+                add(uiState.sourceFilteredStreams[sourceCurrentStreamIndex])
+                uiState.sourceFilteredStreams.forEachIndexed { index, stream ->
+                    if (index != sourceCurrentStreamIndex) {
+                        add(stream)
+                    }
+                }
+            }
+        } else {
+            uiState.sourceFilteredStreams
+        }
+    }
+
+    val currentStreamIndex =
+        if (sourceCurrentStreamIndex >= 0) 0 else -1
+
+    val streamKeys = remember(displayStreams) {
         val seenLogicalKeys = mutableSetOf<String>()
         val variantOccurrences = mutableMapOf<String, Int>()
 
-        uiState.sourceFilteredStreams.map { stream ->
+        displayStreams.map { stream ->
             val baseKey = stream.stableKey(0)
 
             if (seenLogicalKeys.add(baseKey)) {
@@ -107,6 +148,7 @@ internal fun StreamSourcesSidePanel(
                     append('\u0000')
                     append(stream.debridCacheStatus?.providerId.orEmpty())
                 }
+
                 val occurrence = variantOccurrences[variantKey] ?: 0
                 variantOccurrences[variantKey] = occurrence + 1
 
@@ -122,10 +164,18 @@ internal fun StreamSourcesSidePanel(
     val streamFocusRequesters = remember {
         mutableMapOf<String, FocusRequester>()
     }
+    streamFocusRequesters.keys.retainAll(streamKeys.toSet())
     streamKeys.forEach { key ->
         streamFocusRequesters.getOrPut(key) {
             FocusRequester()
         }
+    }
+
+    val userInteractedBeforePlayingFocus = remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    val playingFocusApplied = remember {
+        androidx.compose.runtime.mutableStateOf(false)
     }
 
     LaunchedEffect(Unit) {
@@ -134,8 +184,38 @@ internal fun StreamSourcesSidePanel(
             androidx.compose.runtime.withFrameNanos { }
         }
 
-        runCatching {
-            allChipFocusRequester.requestFocus()
+        if (currentStreamIndex != 0) {
+            runCatching {
+                allChipFocusRequester.requestFocus()
+            }
+        }
+    }
+
+    LaunchedEffect(
+        currentStreamIndex,
+        streamKeys,
+        uiState.sourceSelectedAddonFilter,
+        userInteractedBeforePlayingFocus.value
+    ) {
+        if (playingFocusApplied.value ||
+            userInteractedBeforePlayingFocus.value ||
+            uiState.sourceSelectedAddonFilter != null ||
+            currentStreamIndex != 0 ||
+            streamKeys.isEmpty()
+        ) {
+            return@LaunchedEffect
+        }
+
+        val requester =
+            streamFocusRequesters[streamKeys.first()] ?: return@LaunchedEffect
+
+        repeat(3) {
+            androidx.compose.runtime.withFrameNanos { }
+
+            if (runCatching { requester.requestFocus() }.isSuccess) {
+                playingFocusApplied.value = true
+                return@LaunchedEffect
+            }
         }
     }
 
@@ -145,6 +225,14 @@ internal fun StreamSourcesSidePanel(
             .width(520.dp)
             .clip(RoundedCornerShape(topStart = 16.dp, bottomStart = 16.dp))
             .background(NuvioColors.BackgroundElevated)
+            .onPreviewKeyEvent { event ->
+                if (!playingFocusApplied.value &&
+                    event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN
+                ) {
+                    userInteractedBeforePlayingFocus.value = true
+                }
+                false
+            }
     ) {
         Column(modifier = Modifier.padding(24.dp)) {
             Row(
@@ -240,14 +328,6 @@ internal fun StreamSourcesSidePanel(
                 }
 
                 else -> {
-                    val currentStreamIndex = findCurrentStreamIndex(
-                        streams = uiState.sourceFilteredStreams,
-                        currentSourceStreamKey = uiState.currentSourceStreamKey,
-                        currentStreamUrl = uiState.currentStreamUrl,
-                        currentStreamName = uiState.currentStreamName,
-                        currentStreamAddonName = uiState.currentStreamAddonName,
-                        currentStreamDescription = uiState.currentStreamDescription
-                    )
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         contentPadding = PaddingValues(
@@ -260,7 +340,8 @@ internal fun StreamSourcesSidePanel(
                             .fillMaxHeight()
                             .onKeyEvent { event ->
                                 if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
-                                val addons = uiState.sourceAvailableAddons
+                                val addons =
+                                    orderedAddonNames.filter { it in uiState.sourceAvailableAddons }
                                 if (addons.isEmpty()) return@onKeyEvent false
                                 val allOptions = listOf<String?>(null) + addons
                                 val currentIdx = allOptions.indexOf(uiState.sourceSelectedAddonFilter)
@@ -276,7 +357,7 @@ internal fun StreamSourcesSidePanel(
                             }
                     ) {
                         itemsIndexed(
-                            items = uiState.sourceFilteredStreams,
+                            items = displayStreams,
                             key = { index, _ -> streamKeys[index] }
                         ) { index, stream ->
                             StreamItem(
@@ -314,10 +395,13 @@ private fun findCurrentStreamIndex(
     // Best signal: the exact source row selected by the user. This survives
     // direct-debrid resolution even when the actual playback URL changes.
     if (!currentSourceStreamKey.isNullOrBlank()) {
-        val exactKeyMatch = streams.indexOfFirst {
-            it.stableKey() == currentSourceStreamKey
+        val exactKeyMatches = streams.indices.filter { index ->
+            streams[index].stableKey() == currentSourceStreamKey
         }
-        if (exactKeyMatch >= 0) return exactKeyMatch
+
+        if (exactKeyMatches.size == 1) {
+            return exactKeyMatches.first()
+        }
     }
 
     val indexedStreams = streams.withIndex().toList()

@@ -61,6 +61,64 @@ object DirectDebridStreamFilter {
     fun facts(stream: Stream, settings: DebridSettings): StreamFacts =
         streamFacts(stream, effectivePreferences(settings))
 
+    /**
+     * Sort a finished merged source list using the configured Nuvio stream
+     * ordering across addon and Connected Service boundaries.
+     *
+     * The configured sort criteria are primary. The preferred resolver
+     * provider is only a tie-breaker when streams otherwise compare equal.
+     *
+     * Filters and result limits are intentionally not re-applied here.
+     */
+    fun sortForSourceList(
+        streams: List<Stream>,
+        settings: DebridSettings
+    ): List<Stream> {
+        if (streams.size < 2) return streams
+
+        val preferences = effectivePreferences(settings)
+        val preferredProviderId = settings.activeResolverProviderId
+
+        val ranked = streams.mapIndexed { originalIndex, stream ->
+            Triple(
+                stream,
+                streamFacts(stream, preferences),
+                originalIndex
+            )
+        }
+
+        fun providerRank(stream: Stream): Int {
+            if (preferredProviderId.isNullOrBlank()) return 0
+
+            return when {
+                stream.debridCacheStatus?.providerId == preferredProviderId -> 0
+                stream.debridCacheStatus?.providerId != null -> 1
+                else -> 2
+            }
+        }
+
+        return ranked.sortedWith { left, right ->
+            val configuredOrder = compareFacts(
+                left.second,
+                right.second,
+                preferences.sortCriteria
+            )
+
+            if (configuredOrder != 0) {
+                configuredOrder
+            } else {
+                val providerOrder =
+                    providerRank(left.first).compareTo(providerRank(right.first))
+
+                if (providerOrder != 0) {
+                    providerOrder
+                } else {
+                    left.third.compareTo(right.third)
+                }
+            }
+        }.map { it.first }
+    }
+
     private fun effectivePreferences(settings: DebridSettings): DebridStreamPreferences {
         val default = DebridStreamPreferences()
         if (settings.streamPreferences != default) return settings.streamPreferences

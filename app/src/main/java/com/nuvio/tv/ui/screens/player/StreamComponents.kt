@@ -74,9 +74,15 @@ internal fun StreamItem(
             .then(if (requestInitialFocus) Modifier.focusRequester(focusRequester) else Modifier)
             .then(if (onUpKey != null) Modifier.onKeyEvent { event ->
                 if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN &&
-                    event.key == Key.DirectionUp) {
-                    onUpKey(); true
-                } else false
+                    event.key == Key.DirectionUp
+                ) {
+                    if (event.nativeKeyEvent.repeatCount == 0) {
+                        onUpKey()
+                    }
+                    true
+                } else {
+                    false
+                }
             } else Modifier),
         colors = CardDefaults.colors(
             containerColor = NuvioColors.BackgroundElevated,
