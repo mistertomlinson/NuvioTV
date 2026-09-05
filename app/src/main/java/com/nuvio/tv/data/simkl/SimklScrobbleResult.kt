@@ -23,7 +23,8 @@ internal data class SimklScrobbleResult(
     val mediaType: SimklMediaType,
     val media: SimklMedia,
     val episode: SimklPlaybackEpisode?,
-    val watchedAt: String? = null
+    val watchedAt: String? = null,
+    val requiresHistoryRecovery: Boolean = false
 )
 
 internal fun SimklApiResponse.toSimklScrobbleResult(
@@ -43,8 +44,12 @@ internal fun SimklApiResponse.toSimklScrobbleResult(
     val progress = payload.doubleValue("progress")
         ?.coerceIn(0.0, 100.0)
         ?: event.progressPercent.coerceIn(0.0, 100.0)
+    val requiresHistoryRecovery = requestedAction == TrackingScrobbleAction.STOP &&
+        isSoftSuccess &&
+        status == 409 &&
+        progress >= 80.0
     val outcome = when {
-        isSoftSuccess && status == 409 -> SimklScrobbleOutcome.SCROBBLE
+        isSoftSuccess && status == 409 -> requestedAction.fallbackOutcome(progress)
         else -> payload.stringValue("action")
             ?.toSimklScrobbleOutcome()
             ?: requestedAction.fallbackOutcome(progress)
@@ -57,7 +62,8 @@ internal fun SimklApiResponse.toSimklScrobbleResult(
         media = responseMedia?.mergeMissing(fallbackMedia) ?: fallbackMedia,
         episode = episode,
         watchedAt = payload.stringValue("watched_at")
-            ?.takeIf { value -> parseSimklUtcEpochMs(value) != null }
+            ?.takeIf { value -> parseSimklUtcEpochMs(value) != null },
+        requiresHistoryRecovery = requiresHistoryRecovery
     )
 }
 

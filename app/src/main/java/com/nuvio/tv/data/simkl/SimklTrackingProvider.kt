@@ -3,7 +3,9 @@ package com.nuvio.tv.data.simkl
 import android.util.Log
 import com.nuvio.tv.core.tracking.TRACKING_SCROBBLE_DIAGNOSTIC_TAG
 import com.nuvio.tv.core.tracking.TrackingCapability
+import com.nuvio.tv.core.tracking.TrackingHistoryItem
 import com.nuvio.tv.core.tracking.TrackingListStatus
+import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingProvider
 import com.nuvio.tv.core.tracking.TrackingProviderDescriptor
 import com.nuvio.tv.core.tracking.TrackingProviderId
@@ -59,7 +61,27 @@ class SimklTrackingScrobbler @Inject constructor(
             action = action,
             event = enrichedEvent
         )
-        syncRepository.commitScrobble(result)
+        if (result.requiresHistoryRecovery) {
+            Log.w(
+                TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
+                "simkl completion conflict; repairing with history write " +
+                    enrichedEvent.scrobbleDiagnosticSummary()
+            )
+        }
+        val recovered = commitSimklScrobbleResult(
+            result = result,
+            media = enrichedEvent.media,
+            mutationService = mutationService,
+            syncRepository = syncRepository,
+            watchedAtEpochMs = System.currentTimeMillis()
+        )
+        if (recovered) {
+            Log.d(
+                TRACKING_SCROBBLE_DIAGNOSTIC_TAG,
+                "simkl completion conflict repaired " +
+                    enrichedEvent.scrobbleDiagnosticSummary()
+            )
+        }
 
         if (action == TrackingScrobbleAction.START) {
             val startedPlanToWatchEntry = syncRepository.state.value.snapshot.entries
@@ -96,6 +118,32 @@ class SimklTrackingScrobbler @Inject constructor(
             "simkl adapter complete action=${action.wireValue} ${enrichedEvent.scrobbleDiagnosticSummary()}"
         )
     }
+}
+
+internal suspend fun commitSimklScrobbleResult(
+    result: SimklScrobbleResult,
+    media: TrackingMediaReference,
+    mutationService: SimklMutationService,
+    syncRepository: SimklSyncRepository,
+    watchedAtEpochMs: Long
+): Boolean {
+    if (!result.requiresHistoryRecovery) {
+        syncRepository.commitScrobble(result)
+        return false
+    }
+    val recovery = mutationService.addToHistory(
+        items = listOf(
+            TrackingHistoryItem(
+                media = media,
+                watchedAtEpochMs = watchedAtEpochMs
+            )
+        )
+    )
+    check(recovery.isComplete) {
+        "Simkl could not recover completed playback through history"
+    }
+    syncRepository.commitScrobble(result)
+    return true
 }
 
 @Singleton
