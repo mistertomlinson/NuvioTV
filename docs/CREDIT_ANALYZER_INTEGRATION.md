@@ -9,12 +9,16 @@
   usable IntroDB interval suppresses VPS analysis for that episode.
 - PenguPlay and streams that require custom HTTP request headers use the
   existing percentage/minutes fallback.
-- While a VPS job is queued or running, fallback timing is suppressed.
+- While a VPS job is queued or running, legacy percentage timing is suppressed.
+  If the VPS has a successful result for another release of the same title or
+  episode with a nearby runtime, its conservative runtime-adjusted boundaries
+  remain usable until exact analysis finishes.
 - A completed AI result uses `final_credits_start_ms` for Next Episode,
   autoplay, and recommendations. `credits_start_ms` is diagnostic only and
   never opens post-play UI when post-credit scenes remain.
-- Analyzer failure, unavailability, unsupported streams, or a no-credits result
-  restores the existing threshold behavior.
+- Analyzer failure or a no-credits result retains an available cross-release
+  estimate. Without one, analyzer failure, unavailability, or an unsupported
+  stream restores the existing threshold behavior.
 
 ## Resume and cache behavior
 
@@ -29,6 +33,15 @@ cancels only app-side polling; it does not call the analyzer cancellation API.
 The VPS continues the accepted job. Opening the same release later submits the
 same key, allowing the service to return the in-flight job or the completed
 SQLite-cached result without analyzing again.
+
+Nuvio also sends a SHA-256 content key derived from the canonical movie ID, or
+from the canonical series ID plus season and episode. It contains no title or
+stream URL. Successful exact analyses are indexed under that identity. When a
+different release is within the VPS runtime tolerance, the service estimates
+both boundaries using end-relative and proportional offsets and chooses the
+later value to avoid opening post-play UI early. Exact current-release timing
+always replaces the estimate when it arrives. A materially different cut does
+not receive this fallback.
 
 ## Build configuration
 

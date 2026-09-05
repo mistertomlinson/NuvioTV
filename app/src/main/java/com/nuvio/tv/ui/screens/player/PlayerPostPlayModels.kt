@@ -38,12 +38,15 @@ data class PostPlayRecommendation(
 
 /**
  * Returns null when legacy IntroDB/percentage timing should decide. A running
- * analyzer always returns false so fallback UI cannot appear prematurely.
+ * analyzer uses a cross-release estimate when one is available and otherwise
+ * returns false so fallback UI cannot appear prematurely.
  */
 internal fun authoritativeEndActionDecision(
     timing: CreditTimingUiState,
     positionMs: Long
 ): Boolean? {
-    if (timing.status == CreditTimingStatus.RUNNING) return false
+    if (timing.status == CreditTimingStatus.RUNNING && timing.finalCreditsStartMs == null) {
+        return false
+    }
     return timing.finalCreditsStartMs?.let { positionMs >= it }
 }

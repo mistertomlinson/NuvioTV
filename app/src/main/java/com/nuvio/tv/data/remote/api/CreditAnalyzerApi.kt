@@ -13,6 +13,7 @@ import retrofit2.http.Path
 data class CreditAnalyzeRequest(
     @Json(name = "media_url") val mediaUrl: String,
     @Json(name = "media_key") val mediaKey: String,
+    @Json(name = "content_key") val contentKey: String?,
     @Json(name = "duration_ms") val durationMs: Long?,
     @Json(name = "size_bytes") val sizeBytes: Long?,
     val title: String?,
@@ -39,12 +40,23 @@ data class CreditAnalysisResult(
 )
 
 @JsonClass(generateAdapter = true)
+data class CreditTimingFallback(
+    @Json(name = "credits_start_ms") val creditsStartMs: Long,
+    @Json(name = "final_credits_start_ms") val finalCreditsStartMs: Long,
+    @Json(name = "source_duration_ms") val sourceDurationMs: Long,
+    @Json(name = "target_duration_ms") val targetDurationMs: Long,
+    @Json(name = "runtime_difference_ms") val runtimeDifferenceMs: Long,
+    val confidence: Double
+)
+
+@JsonClass(generateAdapter = true)
 data class CreditAnalyzerJobResponse(
     @Json(name = "job_id") val jobId: String,
     @Json(name = "cache_key") val cacheKey: String,
     val status: String,
     val cached: Boolean = false,
     val result: CreditAnalysisResult?,
+    val fallback: CreditTimingFallback? = null,
     val error: String?
 )
 

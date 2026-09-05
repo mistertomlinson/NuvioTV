@@ -75,6 +75,7 @@ internal fun PlayerRuntimeController.evaluateCreditTiming(
         val request = CreditAnalyzeRequest(
             mediaUrl = currentStreamUrl,
             mediaKey = mediaKey,
+            contentKey = buildCreditAnalyzerContentKey(),
             durationMs = durationMs.takeIf { it >= 60_000L },
             sizeBytes = currentVideoSize?.takeIf { it > 0L },
             title = buildCreditAnalyzerTitle(),
@@ -87,6 +88,7 @@ internal fun PlayerRuntimeController.evaluateCreditTiming(
             useCreditTimingFallback()
             return@launch
         }
+        applyCreditAnalyzerFallback(job, mediaKey)
 
         while (isActive && job.status in setOf("queued", "running")) {
             delay(CREDIT_JOB_POLL_INTERVAL_MS)
@@ -99,6 +101,39 @@ internal fun PlayerRuntimeController.evaluateCreditTiming(
             }
         }
         applyCreditAnalyzerResult(job, mediaKey)
+    }
+}
+
+private fun PlayerRuntimeController.applyCreditAnalyzerFallback(
+    job: CreditAnalyzerJobResponse,
+    expectedIdentity: String
+) {
+    if (creditAnalysisIdentity != expectedIdentity) return
+    val fallback = job.fallback ?: return
+    Log.i(
+        PlayerRuntimeController.TAG,
+        "Credit analyzer cross-release fallback ready: " +
+            "sourceDurationMs=${fallback.sourceDurationMs}, " +
+            "targetDurationMs=${fallback.targetDurationMs}, " +
+            "runtimeDifferenceMs=${fallback.runtimeDifferenceMs}, " +
+            "finalCreditsStartMs=${fallback.finalCreditsStartMs}"
+    )
+    _uiState.update {
+        it.copy(
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING,
+                creditsStartMs = fallback.creditsStartMs,
+                finalCreditsStartMs = fallback.finalCreditsStartMs,
+                hasPostCreditScenes = fallback.finalCreditsStartMs > fallback.creditsStartMs,
+                confidence = fallback.confidence
+            )
+        )
+    }
+    if (shouldUsePostPlayRecommendations(_uiState.value) &&
+        _uiState.value.postPlayRecommendations.isEmpty() &&
+        !_uiState.value.isPostPlayRecommendationLoading
+    ) {
+        loadPostPlayRecommendations()
     }
 }
 
@@ -136,7 +171,7 @@ private fun PlayerRuntimeController.applyCreditAnalyzerResult(
 
 private fun PlayerRuntimeController.useCreditTimingFallback() {
     _uiState.update {
-        it.copy(creditTiming = CreditTimingUiState(status = CreditTimingStatus.FALLBACK))
+        it.copy(creditTiming = it.creditTiming.copy(status = CreditTimingStatus.FALLBACK))
     }
     if (shouldUsePostPlayRecommendations(_uiState.value) &&
         _uiState.value.postPlayRecommendations.isEmpty() &&
@@ -198,7 +233,8 @@ internal fun PlayerRuntimeController.evaluatePostPlayRecommendations(
         !state.isPostPlayRecommendationLoading &&
         !state.postPlayRecommendationDismissed &&
         positionMs >= CREDIT_ANALYZER_TRIGGER_POSITION_MS &&
-        state.creditTiming.status != CreditTimingStatus.RUNNING
+        (state.creditTiming.status != CreditTimingStatus.RUNNING ||
+            state.creditTiming.finalCreditsStartMs != null)
     ) {
         loadPostPlayRecommendations()
     }
@@ -350,6 +386,36 @@ private fun PlayerRuntimeController.buildCreditAnalyzerMediaKey(): String? {
     if (filename == null && mediaId.isNullOrBlank() && size == null) return null
     val rawIdentity = listOfNotNull(mediaId, filename, size?.toString()).joinToString("|")
     return "release:${sha256(rawIdentity)}"
+}
+
+private fun PlayerRuntimeController.buildCreditAnalyzerContentKey(): String? =
+    buildCreditAnalyzerContentKey(
+        contentType = contentType,
+        contentId = contentId,
+        videoId = currentVideoId,
+        season = currentSeason,
+        episode = currentEpisode
+    )
+
+internal fun buildCreditAnalyzerContentKey(
+    contentType: String?,
+    contentId: String?,
+    videoId: String?,
+    season: Int?,
+    episode: Int?
+): String? {
+    val normalizedType = contentType?.trim()?.lowercase()
+    val stableId = (contentId ?: videoId)?.trim()?.lowercase()?.takeIf { it.isNotBlank() }
+        ?: return null
+    val rawIdentity = when (normalizedType) {
+        "series", "tv", "show", "tvshow" -> {
+            if (season == null || episode == null) return null
+            "episode|$stableId|season:$season|episode:$episode"
+        }
+        "movie", "film" -> "movie|$stableId"
+        else -> "other|$stableId"
+    }
+    return sha256(rawIdentity)
 }
 
 private fun PlayerRuntimeController.buildCreditAnalyzerTitle(): String {
