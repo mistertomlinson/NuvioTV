@@ -626,6 +626,9 @@ fun NuvioNavHost(
                                 filename = playbackInfo.filename,
                                 videoHash = playbackInfo.videoHash,
                                 videoSize = playbackInfo.videoSize,
+                                infoHash = playbackInfo.infoHash,
+                                fileIdx = playbackInfo.fileIdx,
+                                sources = playbackInfo.sources,
                                 startFromBeginning = startFromBeginning,
                                 addonName = playbackInfo.addonName,
                                 addonLogo = playbackInfo.addonLogo,
@@ -663,6 +666,9 @@ fun NuvioNavHost(
                                 filename = playbackInfo.filename,
                                 videoHash = playbackInfo.videoHash,
                                 videoSize = playbackInfo.videoSize,
+                                infoHash = playbackInfo.infoHash,
+                                fileIdx = playbackInfo.fileIdx,
+                                sources = playbackInfo.sources,
                                 startFromBeginning = startFromBeginning,
                                 addonName = playbackInfo.addonName,
                                 addonLogo = playbackInfo.addonLogo,
@@ -816,6 +822,26 @@ fun NuvioNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = "false"
+                },
+                navArgument("infoHash") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("fileIdx") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("sources") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("contentLanguage") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
@@ -979,6 +1005,30 @@ fun NuvioNavHost(
                         if (!poppedToDetail) {
                             navController.popBackStack(Screen.Stream.route, inclusive = true)
                         }
+                    }
+                },
+                onPostPlayRecommendationSelected = { recommendation, playNow ->
+                    val route = if (playNow) {
+                        Screen.Stream.createRoute(
+                            videoId = recommendation.id,
+                            contentType = recommendation.contentType,
+                            title = recommendation.title,
+                            poster = recommendation.poster,
+                            backdrop = recommendation.backdrop,
+                            contentId = recommendation.id,
+                            contentName = recommendation.title,
+                            returnToDetailOnBack = true
+                        )
+                    } else {
+                        Screen.Detail.createRoute(
+                            itemId = recommendation.id,
+                            itemType = recommendation.contentType,
+                            heroBackdropUrl = recommendation.backdrop
+                        )
+                    }
+                    navController.navigate(route) {
+                        popUpTo(Screen.Player.route) { inclusive = true }
+                        launchSingleTop = true
                     }
                 },
                 onPlaybackErrorBack = {

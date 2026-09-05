@@ -1,6 +1,9 @@
 package com.nuvio.tv.data.simkl
 
 import com.nuvio.tv.domain.model.WatchProgress
+import io.mockk.coVerify
+import io.mockk.mockk
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -8,6 +11,75 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SimklDurableProgressTest {
+    @Test
+    fun `completed progress dismisses stale Simkl playback and removes durable resume`() = runTest {
+        val durableProgressStore = mockk<SimklDurableProgressStore>(relaxed = true)
+        val progressDismissalStore = mockk<SimklProgressDismissalStore>(relaxed = true)
+        val provider = SimklTrackingProgressProvider(
+            syncRepository = mockk(relaxed = true),
+            apiClient = mockk(relaxed = true),
+            authStorage = mockk(relaxed = true),
+            layoutPreferences = mockk(relaxed = true),
+            durableProgressStore = durableProgressStore,
+            progressDismissalStore = progressDismissalStore
+        )
+        val completed = progress(
+            contentId = "tt0000099",
+            percent = 100f,
+            lastWatched = 500L
+        )
+
+        provider.persistDurableProgress(completed)
+
+        coVerify(exactly = 1) {
+            progressDismissalStore.dismiss(
+                contentId = "tt0000099",
+                season = null,
+                episode = null,
+                dismissedAtEpochMs = 500L
+            )
+        }
+        coVerify(exactly = 1) {
+            durableProgressStore.removeProgress(
+                contentId = "tt0000099",
+                season = null,
+                episode = null
+            )
+        }
+        coVerify(exactly = 0) { progressDismissalStore.clearForNewerProgress(any()) }
+        coVerify(exactly = 0) { durableProgressStore.persist(any()) }
+    }
+
+    @Test
+    fun `unfinished progress clears older dismissal and remains durable`() = runTest {
+        val durableProgressStore = mockk<SimklDurableProgressStore>(relaxed = true)
+        val progressDismissalStore = mockk<SimklProgressDismissalStore>(relaxed = true)
+        val provider = SimklTrackingProgressProvider(
+            syncRepository = mockk(relaxed = true),
+            apiClient = mockk(relaxed = true),
+            authStorage = mockk(relaxed = true),
+            layoutPreferences = mockk(relaxed = true),
+            durableProgressStore = durableProgressStore,
+            progressDismissalStore = progressDismissalStore
+        )
+        val unfinished = progress(
+            contentId = "tt0000099",
+            percent = 50f,
+            lastWatched = 600L
+        )
+
+        provider.persistDurableProgress(unfinished)
+
+        coVerify(exactly = 1) { progressDismissalStore.clearForNewerProgress(unfinished) }
+        coVerify(exactly = 1) { durableProgressStore.persist(unfinished) }
+        coVerify(exactly = 0) {
+            progressDismissalStore.dismiss(any(), any(), any(), any())
+        }
+        coVerify(exactly = 0) {
+            durableProgressStore.removeProgress(any(), any(), any())
+        }
+    }
+
     @Test
     fun `only unfinished progress past the start threshold is durable`() {
         assertFalse(shouldPersistSimklDurableProgress(progress(percent = 1f)))

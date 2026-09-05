@@ -16,6 +16,7 @@ import com.nuvio.tv.data.remote.api.ImdbTapframeApi
 import com.nuvio.tv.data.remote.api.TorboxApi
 import com.nuvio.tv.data.remote.api.PremiumizeApi
 import com.nuvio.tv.data.remote.api.RealDebridApi
+import com.nuvio.tv.data.remote.api.CreditAnalyzerApi
 import com.nuvio.tv.data.remote.api.MDBListApi
 import com.nuvio.tv.data.remote.api.ParentalGuideApi
 import com.nuvio.tv.data.remote.api.SeriesGraphApi
@@ -425,6 +426,29 @@ object NetworkModule {
     @Singleton
     fun provideImdbTapframeApi(@Named("imdbTapframe") retrofit: Retrofit): ImdbTapframeApi =
         retrofit.create(ImdbTapframeApi::class.java)
+
+    @Provides
+    @Singleton
+    @Named("creditAnalyzer")
+    fun provideCreditAnalyzerRetrofit(okHttpClient: OkHttpClient, moshi: Moshi): Retrofit {
+        val rawBaseUrl = BuildConfig.CREDIT_ANALYZER_BASE_URL.trim()
+        val normalizedBaseUrl = when {
+            rawBaseUrl.isBlank() -> "https://localhost/"
+            rawBaseUrl.endsWith('/') -> rawBaseUrl
+            else -> "$rawBaseUrl/"
+        }
+        return Retrofit.Builder()
+            .baseUrl(normalizedBaseUrl)
+            .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+    }
+
+    @Provides
+    @Singleton
+    fun provideCreditAnalyzerApi(
+        @Named("creditAnalyzer") retrofit: Retrofit
+    ): CreditAnalyzerApi = retrofit.create(CreditAnalyzerApi::class.java)
 
     // --- Debrid APIs ---
 

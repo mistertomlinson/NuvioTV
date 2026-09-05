@@ -1201,7 +1201,7 @@ class StreamScreenViewModel @Inject constructor(
             year = year,
             isExternal = stream.isExternal(),
             isTorrent = stream.isTorrent(),
-            infoHash = stream.infoHash,
+            infoHash = stream.infoHash ?: stream.clientResolve?.infoHash,
             ytId = stream.ytId,
             headers = stream.behaviorHints?.proxyHeaders?.request,
             contentId = contentId ?: videoId.substringBefore(":"),  // Use explicit contentId or extract from videoId
@@ -1215,14 +1215,18 @@ class StreamScreenViewModel @Inject constructor(
             episode = episode,
             episodeTitle = episodeName,
             bingeGroup = stream.behaviorHints?.bingeGroup,
-            filename = stream.behaviorHints?.filename,
+            filename = stream.behaviorHints?.filename
+                ?: stream.clientResolve?.filename
+                ?: stream.clientResolve?.stream?.raw?.filename,
             videoHash = stream.behaviorHints?.videoHash,
-            videoSize = stream.behaviorHints?.videoSize,
+            videoSize = stream.behaviorHints?.videoSize
+                ?: stream.clientResolve?.stream?.raw?.size
+                ?: stream.debridCacheStatus?.cachedSize,
             addonName = stream.addonName,
             addonLogo = stream.addonLogo,
             streamDescription = stream.description,
-            fileIdx = stream.fileIdx,
-            sources = stream.sources,
+            fileIdx = stream.fileIdx ?: stream.clientResolve?.fileIdx,
+            sources = stream.sources ?: stream.clientResolve?.sources,
             contentLanguage = contentLanguage
         )
 

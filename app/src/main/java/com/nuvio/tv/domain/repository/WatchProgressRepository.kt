@@ -121,7 +121,10 @@ interface WatchProgressRepository {
     /**
      * Mark content as completed
      */
-    suspend fun markAsCompleted(progress: WatchProgress)
+    suspend fun markAsCompleted(
+        progress: WatchProgress,
+        broadcastTrackingHistory: Boolean = true
+    )
 
     /**
      * Mark multiple episodes as completed in a single batch operation.

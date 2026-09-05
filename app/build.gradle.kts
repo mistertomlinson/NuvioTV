@@ -64,6 +64,8 @@ android {
         buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${localProperties.getProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
         buildConfigField("String", "DONATIONS_DONATE_URL", "\"${localProperties.getProperty("DONATIONS_DONATE_URL", "")}\"")
         buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
+        buildConfigField("String", "CREDIT_ANALYZER_BASE_URL", "\"${localProperties.getProperty("CREDIT_ANALYZER_BASE_URL", "")}\"")
+        buildConfigField("String", "CREDIT_ANALYZER_TOKEN", "\"${localProperties.getProperty("CREDIT_ANALYZER_TOKEN", "")}\"")
 
         // In-app updater (GitHub Releases)
         buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
@@ -99,6 +101,8 @@ android {
             buildConfigField("String", "DONATIONS_BASE_URL", "\"${devProperties.getProperty("DONATIONS_BASE_URL", localProperties.getProperty("DONATIONS_BASE_URL", ""))}\"")
             buildConfigField("String", "DONATIONS_DONATE_URL", "\"${devProperties.getProperty("DONATIONS_DONATE_URL", localProperties.getProperty("DONATIONS_DONATE_URL", ""))}\"")
             buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${devProperties.getProperty("AVATAR_PUBLIC_BASE_URL", localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", ""))}\"")
+            buildConfigField("String", "CREDIT_ANALYZER_BASE_URL", "\"${devProperties.getProperty("CREDIT_ANALYZER_BASE_URL", localProperties.getProperty("CREDIT_ANALYZER_BASE_URL", ""))}\"")
+            buildConfigField("String", "CREDIT_ANALYZER_TOKEN", "\"${devProperties.getProperty("CREDIT_ANALYZER_TOKEN", localProperties.getProperty("CREDIT_ANALYZER_TOKEN", ""))}\"")
         }
         release {
             isMinifyEnabled = true

@@ -29,6 +29,8 @@ internal data class PlayerNavigationArgs(
     val addonName: String?,
     val addonLogo: String?,
     val streamDescription: String?,
+    val infoHash: String?,
+    val fileIdx: Int?,
     val manualSelection: Boolean
 ) {
     companion object {
@@ -65,6 +67,8 @@ internal data class PlayerNavigationArgs(
                 addonName = decodedOrNull("addonName"),
                 addonLogo = decodedOrNull("addonLogo"),
                 streamDescription = decodedOrNull("streamDescription"),
+                infoHash = savedStateHandle.get<String>("infoHash")?.takeIf { it.isNotEmpty() },
+                fileIdx = savedStateHandle.get<String>("fileIdx")?.toIntOrNull(),
                 manualSelection = savedStateHandle.get<String>("manualSelection")?.toBooleanStrictOrNull() == true
             )
         }

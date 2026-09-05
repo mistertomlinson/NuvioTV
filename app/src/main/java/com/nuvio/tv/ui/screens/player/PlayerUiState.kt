@@ -110,12 +110,19 @@ data class PlayerUiState(
     val skipIntervalDismissed: Boolean = false,
     // Next episode card
     val nextEpisode: NextEpisodeInfo? = null,
+    val isNextEpisodeMetadataResolved: Boolean = false,
     val showNextEpisodeCard: Boolean = false,
     val nextEpisodeCardDismissed: Boolean = false,
     val nextEpisodeAutoPlaySearching: Boolean = false,
     val nextEpisodeAutoPlaySourceName: String? = null,
     val nextEpisodeAutoPlayCountdownSec: Int? = null,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
+    val creditTiming: CreditTimingUiState = CreditTimingUiState(),
+    val postPlayRecommendations: List<PostPlayRecommendation> = emptyList(),
+    val postPlayRecommendationIndex: Int = 0,
+    val isPostPlayRecommendationLoading: Boolean = false,
+    val isPostPlayRecommendationVisible: Boolean = false,
+    val postPlayRecommendationDismissed: Boolean = false,
     // Stream source badge
     val showStreamSourceIndicator: Boolean = false,
     val streamSourceIndicatorText: String = "",
@@ -140,7 +147,15 @@ data class PlayerUiState(
     val ratingSubmitted: Boolean = false,
     val showPlayerBlackout: Boolean = false,
     val pendingRating: Int? = null
-)
+) {
+    val postPlayRecommendation: PostPlayRecommendation?
+        get() = postPlayRecommendations.getOrNull(postPlayRecommendationIndex)
+
+    val blocksNaturalCompletion: Boolean
+        get() = isPostPlayRecommendationVisible ||
+            isPostPlayRecommendationLoading ||
+            creditTiming.status == CreditTimingStatus.RUNNING
+}
 
 data class TrackInfo(
     val index: Int,
@@ -215,6 +230,9 @@ sealed class PlayerEvent {
     data object OnDismissSkipIntro : PlayerEvent()
     data object OnPlayNextEpisode : PlayerEvent()
     data object OnDismissNextEpisodeCard : PlayerEvent()
+    data object OnReturnToPlayerFromPostPlay : PlayerEvent()
+    data object OnPreviousPostPlayRecommendation : PlayerEvent()
+    data object OnNextPostPlayRecommendation : PlayerEvent()
     // Subtitle style events (for in-player style tab)
     data class OnSetSubtitleSize(val size: Int) : PlayerEvent()
     data class OnSetSubtitleTextColor(val color: Int) : PlayerEvent()

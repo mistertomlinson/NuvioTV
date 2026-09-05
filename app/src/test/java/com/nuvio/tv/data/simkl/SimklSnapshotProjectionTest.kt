@@ -78,13 +78,13 @@ class SimklSnapshotProjectionTest {
         assertTrue(progress.getValue(1 to 1).isCompleted())
         assertEquals(0.25f, progress.getValue(1 to 2).progressPercentage)
         assertTrue(projection.isWatched("tmdb:101", null, 1, 1))
-        assertFalse(projection.isWatched("tt0000001", null, 1, 2))
+        assertTrue(projection.isWatched("tt0000001", null, 1, 2))
         assertEquals("simkl:status:watching", projection.membershipKey("tmdb:101", "series"))
         assertTrue("tmdb:101" in projection.showIdSiblings.getValue("tt0000001"))
     }
 
     @Test
-    fun `indexed lookups preserve hidden anime and movie rules`() {
+    fun `indexed lookups preserve hidden anime and movie watched history during replay`() {
         val dropped = entry(
             type = SimklMediaType.SHOWS,
             status = SimklListStatus.DROPPED,
@@ -122,7 +122,8 @@ class SimklSnapshotProjectionTest {
         assertTrue(projection.nextUp(true).none { it.contentId == "tt0000001" })
         assertTrue(projection.isWatchedByVideoId("mal:202:7", 1))
         assertFalse(projection.isWatchedByVideoId("mal:202:8", 8))
-        assertFalse("tt0000003" in projection.watchedMovieIds)
+        assertTrue("tt0000003" in projection.watchedMovieIds)
+        assertTrue(projection.isWatched("tt0000003", null, null, null))
     }
 
     @Test
@@ -180,10 +181,13 @@ class SimklSnapshotProjectionTest {
         )
 
         val library = snapshot.toSimklLibraryProjection()
+        val projection = SimklSnapshotProjection.create(snapshot)
         val planToWatch = library.itemsByStatus.getValue("simkl:status:plantowatch")
 
         assertTrue(planToWatch.isEmpty())
         assertTrue(library.items.none { it.id == movieMedia.canonicalContentId() })
+        assertFalse("tt0000031" in projection.watchedMovieIds)
+        assertFalse(projection.isWatched("tt0000031", null, null, null))
     }
 
     @Test(timeout = 20_000)

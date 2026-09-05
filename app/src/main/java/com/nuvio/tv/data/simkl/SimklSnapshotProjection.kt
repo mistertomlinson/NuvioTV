@@ -16,7 +16,6 @@ internal class SimklSnapshotProjection private constructor(
     private val canonicalIdByAlias: Map<String, String>,
     private val watchedItemsByContent: Map<String, List<WatchedItem>>,
     private val watchedKeys: Set<SimklProjectionItemKey>,
-    private val playbackByEpisode: Map<SimklProjectionItemKey, WatchProgress>,
     private val hiddenContentIds: Set<String>,
     private val watchedAnimeEpisodes: Map<String, Set<Int>>,
     private val membershipByContent: Map<SimklProjectionMembershipKey, SimklProjectionMembership>
@@ -50,8 +49,6 @@ internal class SimklSnapshotProjection private constructor(
         episode: Int?
     ): Boolean {
         val directKey = SimklProjectionItemKey(contentId.simklLookupKey(), season, episode)
-        val playback = playbackByEpisode[directKey]
-        if (playback != null && playback.progressPercentage > 0f && !playback.isCompleted()) return false
         if (directKey in watchedKeys) return true
         val resolvedId = canonicalIdByAlias[directKey.contentId]
         if (resolvedId != null) {
@@ -124,13 +121,6 @@ internal class SimklSnapshotProjection private constructor(
             val watchedKeys = watched.items.mapTo(linkedSetOf()) { item ->
                 SimklProjectionItemKey(item.contentId.simklLookupKey(), item.season, item.episode)
             }
-            val playbackByEpisode = linkedMapOf<SimklProjectionItemKey, WatchProgress>()
-            progress.forEach { item ->
-                playbackByEpisode.putIfAbsent(
-                    SimklProjectionItemKey(item.contentId.simklLookupKey(), item.season, item.episode),
-                    item
-                )
-            }
             val watchedItemsByContent = watched.items
                 .filter { item -> item.season != null && item.episode != null }
                 .groupBy { item -> item.contentId.simklLookupKey() }
@@ -144,7 +134,7 @@ internal class SimklSnapshotProjection private constructor(
                 library = library,
                 watched = watched,
                 progress = progress,
-                watchedMovieIds = snapshot.simklWatchedMovieIds(progress),
+                watchedMovieIds = snapshot.simklWatchedMovieIds(),
                 watchedShowEpisodes = watched.items
                     .filter { item -> item.season != null && item.episode != null }
                     .groupBy(WatchedItem::contentId)
@@ -159,7 +149,6 @@ internal class SimklSnapshotProjection private constructor(
                 canonicalIdByAlias = canonicalIdByAlias,
                 watchedItemsByContent = watchedItemsByContent,
                 watchedKeys = watchedKeys,
-                playbackByEpisode = playbackByEpisode,
                 hiddenContentIds = hiddenContentIds,
                 watchedAnimeEpisodes = watchedAnimeEpisodes,
                 membershipByContent = membershipByContent
@@ -172,7 +161,7 @@ internal fun SimklSyncSnapshot.toSimklNextUpSeeds(
     preferFurthestEpisode: Boolean
 ): List<WatchProgress> = SimklSnapshotProjection.create(this).nextUp(preferFurthestEpisode)
 
-private fun SimklSyncSnapshot.simklWatchedMovieIds(progress: List<WatchProgress>): Set<String> {
+private fun SimklSyncSnapshot.simklWatchedMovieIds(): Set<String> {
     val watched = linkedSetOf<String>()
     entries.forEach { entry ->
         if (entry.mediaType != SimklMediaType.MOVIES) return@forEach
@@ -183,9 +172,6 @@ private fun SimklSyncSnapshot.simklWatchedMovieIds(progress: List<WatchProgress>
         media.ids.idValue("tmdb")?.takeIf(String::isNotBlank)?.let { watched.add("tmdb:$it") }
         media.ids.idValue("tvdb")?.takeIf(String::isNotBlank)?.let { watched.add("tvdb:$it") }
     }
-    progress.filter { item ->
-        item.contentType == "movie" && item.progressPercentage > 0f && !item.isCompleted()
-    }.forEach { item -> watched.remove(item.contentId) }
     return watched
 }
 

@@ -474,19 +474,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
                         watchProgressPreferences.allProgress,
                         watchedItemsPreferences.allItems
                     ) { progressList, watchedItems ->
-                        val completedIds = mutableSetOf<String>()
-                        val replayingIds = mutableSetOf<String>()
-
-                        progressList.forEach { progress ->
-                            if (progress.isCompleted()) {
-                                completedIds += progress.contentId
-                            } else if (
-                                progress.position > 0L ||
-                                progress.progressPercent?.let { it > 0f } == true
-                            ) {
-                                replayingIds += progress.contentId
-                            }
-                        }
+                        val completedIds = progressList
+                            .filter(WatchProgress::isCompleted)
+                            .map(WatchProgress::contentId)
+                            .toSet()
 
                         val watchedItemIds = watchedItems
                             .filter { item ->
@@ -495,7 +486,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
                             .map(WatchedItem::contentId)
                             .toSet()
 
-                        (completedIds + watchedItemIds) - replayingIds
+                        completedIds + watchedItemIds
                     }.debounce(500)
                 }
             }
@@ -532,19 +523,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
                             episode
                         )
                     ) { progressEntry, itemWatched ->
-                        val hasStartedReplay = progressEntry?.let { entry ->
-                            !entry.isCompleted() &&
-                                (
-                                    entry.position > 0L ||
-                                        entry.progressPercent?.let { it > 0f } == true
-                                    )
-                        } == true
-
-                        if (hasStartedReplay) {
-                            false
-                        } else {
-                            progressEntry?.isCompleted() == true || itemWatched
-                        }
+                        progressEntry?.isCompleted() == true || itemWatched
                     }
                 }
             }
@@ -761,7 +740,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
         triggerWatchedItemsSync()
     }
     override suspend fun markAsCompleted(
-        progress: WatchProgress
+        progress: WatchProgress,
+        broadcastTrackingHistory: Boolean
     ) {
         val provider = activeProgressProvider()
         val now = System.currentTimeMillis()
@@ -780,40 +760,44 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 quiet = false
             )
 
-            val writer = trackingHistoryWriters.writer(
-                provider.providerId
-            ) ?: throw IllegalStateException(
-                "No history writer registered for ${provider.providerId}"
-            )
+            if (broadcastTrackingHistory) {
+                val writer = trackingHistoryWriters.writer(
+                    provider.providerId
+                ) ?: throw IllegalStateException(
+                    "No history writer registered for ${provider.providerId}"
+                )
 
-            val media = buildTrackingMediaReference(
-                contentType = completed.contentType,
-                parentMetaId = completed.contentId,
-                videoId = completed.videoId,
-                title = completed.name,
-                seasonNumber = completed.season,
-                episodeNumber = completed.episode,
-                episodeTitle = completed.episodeTitle
-            )
+                val media = buildTrackingMediaReference(
+                    contentType = completed.contentType,
+                    parentMetaId = completed.contentId,
+                    videoId = completed.videoId,
+                    title = completed.name,
+                    seasonNumber = completed.season,
+                    episodeNumber = completed.episode,
+                    episodeTitle = completed.episodeTitle
+                )
 
-            runCatching {
-                writer.addToHistory(
-                    profileId = profileManager.activeProfileId.value,
-                    items = listOf(
-                        TrackingHistoryItem(
-                            media = media,
-                            watchedAtEpochMs = now
+                runCatching {
+                    writer.addToHistory(
+                        profileId = profileManager.activeProfileId.value,
+                        items = listOf(
+                            TrackingHistoryItem(
+                                media = media,
+                                watchedAtEpochMs = now
+                            )
                         )
                     )
-                )
-            }.onFailure {
-                provider.applyOptimisticRemoval(
-                    contentId = completed.contentId,
-                    season = completed.season,
-                    episode = completed.episode
-                )
-                throw it
+                }.onFailure {
+                    provider.applyOptimisticRemoval(
+                        contentId = completed.contentId,
+                        season = completed.season,
+                        episode = completed.episode
+                    )
+                    throw it
+                }
             }
+
+            provider.persistDurableProgress(completed)
         }
 
         watchProgressPreferences.markAsCompleted(completed)

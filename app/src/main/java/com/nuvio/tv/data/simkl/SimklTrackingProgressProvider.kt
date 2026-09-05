@@ -123,6 +123,21 @@ class SimklTrackingProgressProvider @Inject constructor(
         syncRepository.refresh(intent)
 
     override suspend fun persistDurableProgress(progress: WatchProgress) {
+        if (progress.isCompleted()) {
+            progressDismissalStore.dismiss(
+                contentId = progress.contentId,
+                season = progress.season,
+                episode = progress.episode,
+                dismissedAtEpochMs = progress.lastWatched
+            )
+            durableProgressStore.removeProgress(
+                contentId = progress.contentId,
+                season = progress.season,
+                episode = progress.episode
+            )
+            return
+        }
+
         progressDismissalStore.clearForNewerProgress(progress)
         durableProgressStore.persist(progress)
     }

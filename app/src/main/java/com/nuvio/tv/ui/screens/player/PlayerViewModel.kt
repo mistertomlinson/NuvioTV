@@ -7,10 +7,14 @@ import androidx.lifecycle.viewModelScope
 import androidx.media3.exoplayer.ExoPlayer
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.tmdb.TmdbMetadataService
+import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.core.tracking.TrackingScrobbleCoordinator
 import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
+import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.data.repository.CreditAnalyzerRepository
 import com.nuvio.tv.data.repository.ParentalGuideRepository
 import com.nuvio.tv.data.repository.SkipIntroRepository
 import com.nuvio.tv.data.repository.TraktEpisodeMappingService
@@ -38,6 +42,10 @@ class PlayerViewModel @Inject constructor(
     private val trackingRatingCoordinator: TrackingRatingCoordinator,
     private val traktEpisodeMappingService: TraktEpisodeMappingService,
     private val skipIntroRepository: SkipIntroRepository,
+    private val creditAnalyzerRepository: CreditAnalyzerRepository,
+    private val tmdbService: TmdbService,
+    private val tmdbMetadataService: TmdbMetadataService,
+    private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
     private val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     private val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
@@ -60,6 +68,10 @@ class PlayerViewModel @Inject constructor(
         trackingRatingCoordinator = trackingRatingCoordinator,
         traktEpisodeMappingService = traktEpisodeMappingService,
         skipIntroRepository = skipIntroRepository,
+        creditAnalyzerRepository = creditAnalyzerRepository,
+        tmdbService = tmdbService,
+        tmdbMetadataService = tmdbMetadataService,
+        tmdbSettingsDataStore = tmdbSettingsDataStore,
         playerSettingsDataStore = playerSettingsDataStore,
         streamLinkCacheDataStore = streamLinkCacheDataStore,
         layoutPreferenceDataStore = layoutPreferenceDataStore,

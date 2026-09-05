@@ -32,6 +32,7 @@ internal fun PlayerRuntimeController.fetchMetaDetails(id: String?, type: String?
 
 internal fun PlayerRuntimeController.applyMetaDetails(meta: Meta) {
     metaVideos = meta.videos
+    hasResolvedMetaDetails = true
     val description = resolveDescription(meta)
 
     _uiState.update { state ->
@@ -72,6 +73,7 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         _uiState.update {
             it.copy(
                 nextEpisode = null,
+                isNextEpisodeMetadataResolved = true,
                 showNextEpisodeCard = false,
                 nextEpisodeCardDismissed = false,
                 nextEpisodeAutoPlaySearching = false,
@@ -89,6 +91,7 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         _uiState.update {
             it.copy(
                 nextEpisode = null,
+                isNextEpisodeMetadataResolved = hasResolvedMetaDetails,
                 showNextEpisodeCard = false,
                 nextEpisodeCardDismissed = false,
                 nextEpisodeAutoPlaySearching = false,
@@ -110,6 +113,7 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         _uiState.update {
             it.copy(
                 nextEpisode = null,
+                isNextEpisodeMetadataResolved = hasResolvedMetaDetails,
                 showNextEpisodeCard = false,
                 nextEpisodeCardDismissed = false,
                 nextEpisodeAutoPlaySearching = false,
@@ -142,6 +146,7 @@ internal fun PlayerRuntimeController.recomputeNextEpisode(resetVisibility: Boole
         val shouldResetVisibility = resetVisibility || !sameEpisode
         state.copy(
             nextEpisode = nextInfo,
+            isNextEpisodeMetadataResolved = true,
             showNextEpisodeCard = if (shouldResetVisibility) false else state.showNextEpisodeCard,
             nextEpisodeCardDismissed = if (shouldResetVisibility) false else state.nextEpisodeCardDismissed
         )
@@ -176,17 +181,16 @@ internal fun PlayerRuntimeController.evaluateNextEpisodeCardVisibility(positionM
         }
         return
     }
+    if (!state.nextEpisode.hasAired) {
+        if (state.showNextEpisodeCard) {
+            _uiState.update { it.copy(showNextEpisodeCard = false) }
+        }
+        return
+    }
     if (state.showNextEpisodeCard || state.nextEpisodeCardDismissed) return
 
     val effectiveDuration = durationMs.takeIf { it > 0L } ?: lastKnownDuration
-    val shouldShow = PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
-        positionMs = positionMs,
-        durationMs = effectiveDuration,
-        skipIntervals = skipIntervals,
-        thresholdMode = nextEpisodeThresholdModeSetting,
-        thresholdPercent = nextEpisodeThresholdPercentSetting,
-        thresholdMinutesBeforeEnd = nextEpisodeThresholdMinutesBeforeEndSetting
-    )
+    val shouldShow = isEndActionTriggerReached(positionMs, effectiveDuration)
 
     if (shouldShow) {
         _uiState.update { it.copy(showNextEpisodeCard = true) }

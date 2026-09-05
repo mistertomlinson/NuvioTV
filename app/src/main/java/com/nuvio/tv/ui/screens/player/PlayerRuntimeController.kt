@@ -7,12 +7,16 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.plugin.PluginManager
+import com.nuvio.tv.core.tmdb.TmdbMetadataService
+import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingScrobbleCoordinator
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
+import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.data.repository.CreditAnalyzerRepository
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.repository.ParentalGuideRepository
 import com.nuvio.tv.data.repository.SkipIntroRepository
@@ -48,6 +52,10 @@ class PlayerRuntimeController(
     internal val trackingRatingCoordinator: TrackingRatingCoordinator,
     internal val traktEpisodeMappingService: TraktEpisodeMappingService,
     internal val skipIntroRepository: SkipIntroRepository,
+    internal val creditAnalyzerRepository: CreditAnalyzerRepository,
+    internal val tmdbService: TmdbService,
+    internal val tmdbMetadataService: TmdbMetadataService,
+    internal val tmdbSettingsDataStore: TmdbSettingsDataStore,
     internal val playerSettingsDataStore: PlayerSettingsDataStore,
     internal val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     internal val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
@@ -122,6 +130,8 @@ class PlayerRuntimeController(
 
     internal var currentVideoHash: String? = navigationArgs.videoHash
     internal var currentVideoSize: Long? = navigationArgs.videoSize
+    internal var currentInfoHash: String? = navigationArgs.infoHash
+    internal var currentFileIdx: Int? = navigationArgs.fileIdx
     internal var currentFilename: String? = navigationArgs.filename
         ?: initialStreamUrl.substringBefore('?').substringAfterLast('/', "")
             .takeIf { it.isNotBlank() && it.contains('.') }
@@ -188,6 +198,10 @@ class PlayerRuntimeController(
     internal var hideStreamSourceIndicatorJob: Job? = null
     internal var hideSubtitleDelayOverlayJob: Job? = null
     internal var nextEpisodeAutoPlayJob: Job? = null
+    internal var creditAnalysisJob: Job? = null
+    internal var recommendationLoadJob: Job? = null
+    internal var creditAnalysisIdentity: String? = null
+    internal var introDbCreditIntervals: List<SkipInterval> = emptyList()
     internal var sourceStreamsJob: Job? = null
     internal var sourceChipErrorDismissJob: Job? = null
     internal var sourceStreamsCacheRequestKey: String? = null
@@ -197,6 +211,7 @@ class PlayerRuntimeController(
     
     internal var lastSavedPosition: Long = 0L
     internal val saveThresholdMs = 5000L 
+    internal var hasMarkedCurrentItemCompleted: Boolean = false
     internal var lastKnownDuration: Long = 0L
 
     
@@ -204,6 +219,7 @@ class PlayerRuntimeController(
     internal var hasRenderedFirstFrame = false
     internal var shouldEnforceAutoplayOnFirstReady = true
     internal var metaVideos: List<Video> = emptyList()
+    internal var hasResolvedMetaDetails: Boolean = false
     internal var nextEpisodeVideo: Video? = null
     internal var userPausedManually = false
 
@@ -290,6 +306,8 @@ class PlayerRuntimeController(
     
 
     fun onCleared() {
+        creditAnalysisJob?.cancel()
+        recommendationLoadJob?.cancel()
         releasePlayer()
         mediaSourceFactory.shutdown()
         sourceChipErrorDismissJob?.cancel()

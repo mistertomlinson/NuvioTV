@@ -33,7 +33,60 @@ class SkipIntroRepository @Inject constructor(
     private val cache = ConcurrentHashMap<String, List<SkipInterval>>()
     private val imdbEntriesCache = ConcurrentHashMap<String, List<ArmEntry>>()
     private val animeSkipShowIdCache = ConcurrentHashMap<String, String>()
+    private val introDbOnlyCache = ConcurrentHashMap<String, List<SkipInterval>>()
     private val introDbConfigured = BuildConfig.INTRODB_API_URL.isNotEmpty()
+
+    /**
+     * Checks IntroDB only. Credit analysis uses this independently of the user's
+     * skip-button setting so that a disabled skip button never causes duplicate
+     * VPS work. An empty result means IntroDB has no usable timestamp for this
+     * exact episode (or IntroDB is unavailable).
+     */
+    suspend fun getIntroDbIntervalsForMedia(
+        mediaId: String?,
+        season: Int,
+        episode: Int
+    ): List<SkipInterval> {
+        if (!introDbConfigured || mediaId.isNullOrBlank()) return emptyList()
+        val effectiveId = mediaId.trim()
+        val imdbAndSeason = when {
+            effectiveId.startsWith("tt") -> {
+                effectiveId.substringBefore(':').substringBefore('/') to season
+            }
+            effectiveId.startsWith("mal:") -> {
+                val malId = effectiveId.split(':').getOrNull(1) ?: return emptyList()
+                val imdbId = try {
+                    armApi.resolveMalToImdb(malId = malId)
+                        .takeIf { it.isSuccessful }?.body()?.imdb
+                } catch (_: Exception) {
+                    null
+                } ?: return emptyList()
+                val entries = resolveImdbEntries(imdbId)
+                val mappedSeason = entries.indexOfFirst { it.myanimelist == malId.toIntOrNull() }
+                    .takeIf { it >= 0 }?.plus(1) ?: season
+                imdbId to mappedSeason
+            }
+            effectiveId.startsWith("kitsu:") -> {
+                val kitsuId = effectiveId.split(':').getOrNull(1) ?: return emptyList()
+                val imdbId = try {
+                    armApi.resolveKitsuToImdb(kitsuId = kitsuId)
+                        .takeIf { it.isSuccessful }?.body()?.imdb
+                } catch (_: Exception) {
+                    null
+                } ?: return emptyList()
+                val entries = resolveImdbEntries(imdbId)
+                val mappedSeason = entries.indexOfFirst { it.kitsu == kitsuId.toIntOrNull() }
+                    .takeIf { it >= 0 }?.plus(1) ?: season
+                imdbId to mappedSeason
+            }
+            else -> return emptyList()
+        }
+
+        val cacheKey = "introdb:${imdbAndSeason.first}:${imdbAndSeason.second}:$episode"
+        return introDbOnlyCache.getOrPutSuspending(cacheKey) {
+            fetchFromIntroDb(imdbAndSeason.first, imdbAndSeason.second, episode)
+        }
+    }
 
     suspend fun getSkipIntervals(imdbId: String?, season: Int, episode: Int): List<SkipInterval> {
         if (imdbId == null) return emptyList()
@@ -273,4 +326,13 @@ class SkipIntroRepository @Inject constructor(
     companion object {
         private const val NO_ID = "__none__"
     }
+}
+
+private suspend fun <K, V> ConcurrentHashMap<K, V>.getOrPutSuspending(
+    key: K,
+    value: suspend () -> V
+): V {
+    get(key)?.let { return it }
+    val resolved = value()
+    return putIfAbsent(key, resolved) ?: resolved
 }

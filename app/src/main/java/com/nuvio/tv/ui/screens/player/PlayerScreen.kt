@@ -22,6 +22,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.PaddingValues
@@ -119,7 +120,8 @@ fun PlayerScreen(
     onBackPress: (currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean) -> Unit,
     onRatingBackPress: ((currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean) -> Unit)? = null,
     onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, false) },
-    onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?) -> Unit)? = null
+    onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?) -> Unit)? = null,
+    onPostPlayRecommendationSelected: ((PostPlayRecommendation, Boolean) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -132,6 +134,8 @@ fun PlayerScreen(
     val skipIntroFocusRequester = remember { FocusRequester() }
     var skipButtonActuallyVisible by remember { mutableStateOf(false) }
     val nextEpisodeFocusRequester = remember { FocusRequester() }
+    val postPlayFocusRequester = remember { FocusRequester() }
+    val postPlayPlayerFocusRequester = remember { FocusRequester() }
     val exitPlayer: () -> Unit = {
         viewModel.stopAndRelease()
         onBackPress(uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL)
@@ -142,7 +146,9 @@ fun PlayerScreen(
     }
 
     val handleBackPress = {
-        if (uiState.error != null) {
+        if (uiState.isPostPlayRecommendationVisible) {
+            viewModel.onEvent(PlayerEvent.OnReturnToPlayerFromPostPlay)
+        } else if (uiState.error != null) {
             exitPlayerFromError()
         } else if (uiState.showAudioOverlay || uiState.showSubtitleOverlay) {
             viewModel.onEvent(PlayerEvent.OnDismissTransientOverlay)
@@ -230,10 +236,11 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(uiState.playbackEnded, uiState.error) {
+    LaunchedEffect(uiState.playbackEnded, uiState.error, uiState.blocksNaturalCompletion) {
         if (uiState.playbackEnded && uiState.error == null &&
             !uiState.nextEpisodeAutoPlaySearching &&
-            uiState.nextEpisodeAutoPlayCountdownSec == null
+            uiState.nextEpisodeAutoPlayCountdownSec == null &&
+            !uiState.blocksNaturalCompletion
         ) {
             viewModel.stopAndRelease()
             val next = uiState.nextEpisode?.takeIf { it.hasAired }
@@ -306,8 +313,11 @@ fun PlayerScreen(
         uiState.showAudioOverlay,
         uiState.showSubtitleOverlay,
         uiState.showSpeedDialog,
+        uiState.isPostPlayRecommendationVisible,
     ) {
-        if (uiState.showControls && !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
+        if (uiState.isPostPlayRecommendationVisible) {
+            return@LaunchedEffect
+        } else if (uiState.showControls && !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
             !uiState.showAudioOverlay && !uiState.showSubtitleOverlay &&
             !uiState.showSubtitleStylePanel && !uiState.showSubtitleDelayOverlay &&
             !uiState.showSpeedDialog
@@ -417,6 +427,7 @@ fun PlayerScreen(
                         uiState.showSubtitleStylePanel || uiState.showSpeedDialog ||
                         uiState.showSubtitleDelayOverlay || uiState.showMoreDialog
                 if (panelOrDialogOpen) return@onKeyEvent false
+                if (uiState.isPostPlayRecommendationVisible) return@onKeyEvent false
 
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
                     when (keyEvent.nativeKeyEvent.keyCode) {
@@ -536,6 +547,44 @@ fun PlayerScreen(
                 } else false
             }
     ) {
+        val postPlayVisible = uiState.isPostPlayRecommendationVisible &&
+            uiState.postPlayRecommendation != null
+        val playerWindowFraction by animateFloatAsState(
+            targetValue = if (postPlayVisible) 0.32f else 1f,
+            animationSpec = tween(420),
+            label = "postPlayPlayerWindowFraction"
+        )
+        val playerWindowPadding by animateDpAsState(
+            targetValue = if (postPlayVisible) 26.dp else 0.dp,
+            animationSpec = tween(420),
+            label = "postPlayPlayerWindowPadding"
+        )
+
+        if (postPlayVisible) {
+            val recommendation = uiState.postPlayRecommendation!!
+            PostPlayRecommendationOverlay(
+                recommendation = recommendation,
+                currentTitle = uiState.contentName ?: uiState.title,
+                canGoPrevious = uiState.postPlayRecommendations.size > 1,
+                canGoNext = uiState.postPlayRecommendations.size > 1,
+                playFocusRequester = postPlayFocusRequester,
+                playerWindowFocusRequester = postPlayPlayerFocusRequester,
+                onPlay = {
+                    viewModel.stopAndRelease()
+                    onPostPlayRecommendationSelected?.invoke(recommendation, true)
+                },
+                onOpenDetails = {
+                    viewModel.stopAndRelease()
+                    onPostPlayRecommendationSelected?.invoke(recommendation, false)
+                },
+                onPrevious = { viewModel.onEvent(PlayerEvent.OnPreviousPostPlayRecommendation) },
+                onNext = { viewModel.onEvent(PlayerEvent.OnNextPostPlayRecommendation) },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(0.5f)
+            )
+        }
+
         // Video Player
         viewModel.exoPlayer?.let { player ->
             val subtitleStyle = uiState.subtitleStyle
@@ -599,7 +648,27 @@ fun PlayerScreen(
                         }
                     }
                 },
-                modifier = Modifier.fillMaxSize()
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxWidth(playerWindowFraction)
+                    .aspectRatio(16f / 9f)
+                    .padding(top = playerWindowPadding, end = playerWindowPadding)
+                    .clip(RoundedCornerShape(if (postPlayVisible) 12.dp else 0.dp))
+                    .zIndex(if (postPlayVisible) 3f else 0f)
+            )
+        }
+
+        if (postPlayVisible) {
+            PostPlayPlayerWindow(
+                focusRequester = postPlayPlayerFocusRequester,
+                downFocusRequester = postPlayFocusRequester,
+                onClick = { viewModel.onEvent(PlayerEvent.OnReturnToPlayerFromPostPlay) },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .fillMaxWidth(playerWindowFraction)
+                    .aspectRatio(16f / 9f)
+                    .padding(top = playerWindowPadding, end = playerWindowPadding)
+                    .zIndex(4f)
             )
         }
 
@@ -619,7 +688,7 @@ fun PlayerScreen(
         }
 
         LoadingOverlay(
-            visible = uiState.showLoadingOverlay && uiState.error == null,
+            visible = uiState.showLoadingOverlay && uiState.error == null && !postPlayVisible,
             backdropUrl = uiState.backdrop,
             logoUrl = uiState.logo,
             title = uiState.title,
@@ -630,7 +699,7 @@ fun PlayerScreen(
         )
 
         PauseOverlay(
-            visible = uiState.showPauseOverlay && uiState.error == null && !uiState.showLoadingOverlay && !uiState.showRatingOverlay,
+            visible = uiState.showPauseOverlay && uiState.error == null && !uiState.showLoadingOverlay && !uiState.showRatingOverlay && !postPlayVisible,
             onClose = { viewModel.onEvent(PlayerEvent.OnDismissPauseOverlay) },
             title = uiState.title,
             logo = uiState.logo,
@@ -647,7 +716,7 @@ fun PlayerScreen(
         )
 
         StreamInfoOverlay(
-            visible = uiState.showStreamInfoOverlay && uiState.error == null && !uiState.showLoadingOverlay,
+            visible = uiState.showStreamInfoOverlay && uiState.error == null && !uiState.showLoadingOverlay && !postPlayVisible,
             onClose = { viewModel.onEvent(PlayerEvent.OnDismissStreamInfo) },
             data = uiState.streamInfoData,
             modifier = Modifier
@@ -656,7 +725,7 @@ fun PlayerScreen(
         )
 
         // Buffering indicator
-        if (uiState.isBuffering && !uiState.showLoadingOverlay) {
+        if (uiState.isBuffering && !uiState.showLoadingOverlay && !postPlayVisible) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -681,7 +750,7 @@ fun PlayerScreen(
 
         // Skip Intro button (bottom-left, lifted when controls are visible)
         SkipIntroButton(
-            interval = if (uiState.showPauseOverlay || uiState.showLoadingOverlay || uiState.showRatingOverlay) null else uiState.activeSkipInterval,
+            interval = if (uiState.showPauseOverlay || uiState.showLoadingOverlay || uiState.showRatingOverlay || postPlayVisible) null else uiState.activeSkipInterval,
             dismissed = uiState.skipIntervalDismissed,
             controlsVisible = uiState.showControls,
             onSkip = { viewModel.onEvent(PlayerEvent.OnSkipIntro) },
@@ -747,6 +816,7 @@ fun PlayerScreen(
         )
 
         val showClockOverlay = uiState.showControls &&
+            !postPlayVisible &&
             uiState.osdClockEnabled &&
             uiState.error == null &&
             !uiState.showLoadingOverlay &&
@@ -778,6 +848,7 @@ fun PlayerScreen(
         // Controls overlay
         AnimatedVisibility(
             visible = uiState.showControls && uiState.error == null &&
+                !postPlayVisible &&
                 !uiState.showLoadingOverlay && !uiState.showPauseOverlay && !uiState.showRatingOverlay &&
                 !uiState.showStreamInfoOverlay &&
                 !uiState.showSubtitleStylePanel &&
@@ -858,6 +929,7 @@ fun PlayerScreen(
         // Seek-only overlay (progress bar + time) when controls are hidden
         AnimatedVisibility(
             visible = uiState.showSubtitleDelayOverlay &&
+                !postPlayVisible &&
                 !uiState.showControls &&
                 uiState.error == null &&
                 !uiState.showLoadingOverlay &&
@@ -882,6 +954,7 @@ fun PlayerScreen(
 
         AnimatedVisibility(
             visible = uiState.showSeekOverlay && !uiState.showControls && uiState.error == null &&
+                !postPlayVisible &&
                 !uiState.showLoadingOverlay && !uiState.showPauseOverlay && !uiState.showRatingOverlay &&
                 !uiState.showSubtitleDelayOverlay && !uiState.showMoreDialog,
             enter = fadeIn(animationSpec = tween(150)),

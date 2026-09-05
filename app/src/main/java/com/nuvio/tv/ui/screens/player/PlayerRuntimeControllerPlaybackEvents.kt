@@ -48,6 +48,14 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     )
                 }
                 updateActiveSkipInterval(pos)
+                evaluateCreditTiming(
+                    positionMs = pos,
+                    durationMs = playerDuration.coerceAtLeast(0L)
+                )
+                evaluatePostPlayRecommendations(
+                    positionMs = pos,
+                    durationMs = playerDuration.coerceAtLeast(0L)
+                )
 
                 // Periodic provider pause snapshot so progress survives a force-stop
                 if (player.isPlaying && hasRequestedScrobbleStartForCurrentItem) {
@@ -170,17 +178,28 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
         progressPercent = fallbackPercent
     )
 
-    scope.launch {
+    scope.launch(kotlinx.coroutines.NonCancellable) {
         val effectiveContentId =
             watchProgressRepository.normalizeParentContentId(
                 parentContentId = progress.contentId,
                 videoId = progress.videoId
             )
 
-        watchProgressRepository.saveProgress(
-            progress = progress.copy(contentId = effectiveContentId),
-            syncRemote = syncRemote
-        )
+        val normalizedProgress = progress.copy(contentId = effectiveContentId)
+        when {
+            hasMarkedCurrentItemCompleted -> Unit
+            normalizedProgress.isCompleted() -> {
+                hasMarkedCurrentItemCompleted = true
+                watchProgressRepository.markAsCompleted(
+                    progress = normalizedProgress,
+                    broadcastTrackingHistory = false
+                )
+            }
+            else -> watchProgressRepository.saveProgress(
+                progress = normalizedProgress,
+                syncRemote = syncRemote
+            )
+        }
     }
 }
 
@@ -266,7 +285,7 @@ internal fun PlayerRuntimeController.emitScrobbleStop(
 
     val percent = provided ?: currentPlaybackProgressPercent()
 
-    scope.launch {
+    scope.launch(kotlinx.coroutines.NonCancellable) {
         trackingScrobbleCoordinator.scrobble(
             action = TrackingScrobbleAction.STOP,
             event = TrackingScrobbleEvent(
@@ -846,6 +865,15 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                     nextEpisodeAutoPlayCountdownSec = null
                 )
             }
+        }
+        PlayerEvent.OnReturnToPlayerFromPostPlay -> {
+            returnToPlayerFromPostPlay()
+        }
+        PlayerEvent.OnPreviousPostPlayRecommendation -> {
+            showAdjacentPostPlayRecommendation(-1)
+        }
+        PlayerEvent.OnNextPostPlayRecommendation -> {
+            showAdjacentPostPlayRecommendation(1)
         }
         is PlayerEvent.OnSetSubtitleSize -> {
             scope.launch { playerSettingsDataStore.setSubtitleSize(event.size) }

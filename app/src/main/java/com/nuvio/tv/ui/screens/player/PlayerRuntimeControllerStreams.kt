@@ -284,7 +284,10 @@ private fun PlayerRuntimeController.applySelectedStreamState(
 ) {
     currentStreamUrl = url
     currentHeaders = headers
-    currentFilename = stream.behaviorHints?.filename ?: navigationArgs.filename
+    currentFilename = stream.behaviorHints?.filename
+        ?: stream.clientResolve?.filename
+        ?: stream.clientResolve?.stream?.raw?.filename
+        ?: navigationArgs.filename
     currentStreamMimeType = PlayerMediaSourceFactory.inferMimeType(
         url = url,
         filename = currentFilename
@@ -292,6 +295,10 @@ private fun PlayerRuntimeController.applySelectedStreamState(
     currentStreamBingeGroup = stream.behaviorHints?.bingeGroup
     currentVideoHash = stream.behaviorHints?.videoHash
     currentVideoSize = stream.behaviorHints?.videoSize
+        ?: stream.clientResolve?.stream?.raw?.size
+        ?: stream.debridCacheStatus?.cachedSize
+    currentInfoHash = stream.infoHash ?: stream.clientResolve?.infoHash
+    currentFileIdx = stream.fileIdx ?: stream.clientResolve?.fileIdx
     currentAddonName = stream.addonName
     currentAddonLogo = stream.addonLogo
     currentStreamDescription = stream.description
@@ -299,6 +306,7 @@ private fun PlayerRuntimeController.applySelectedStreamState(
     currentVideoWidth = null
     currentVideoHeight = null
     currentVideoBitrate = null
+    resetCreditTimingForNewPlayback()
 }
 
 private fun PlayerRuntimeController.persistSelectedStreamForReuse(
@@ -657,6 +665,7 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     currentTraktEpisodeMapping = null
     currentTraktEpisodeMappingKey = null
     lastSavedPosition = 0L
+    hasMarkedCurrentItemCompleted = false
 
     _uiState.update {
         it.copy(
