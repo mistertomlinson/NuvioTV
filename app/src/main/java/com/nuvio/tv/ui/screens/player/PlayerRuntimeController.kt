@@ -200,6 +200,7 @@ class PlayerRuntimeController(
     internal var nextEpisodeAutoPlayJob: Job? = null
     internal var creditAnalysisJob: Job? = null
     internal var recommendationLoadJob: Job? = null
+    internal var ratingTransitionJob: Job? = null
     internal var creditAnalysisIdentity: String? = null
     internal var introDbCreditIntervals: List<SkipInterval> = emptyList()
     internal var sourceStreamsJob: Job? = null

@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import androidx.compose.runtime.Immutable
+import com.nuvio.tv.domain.model.Video
 
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
 
@@ -10,6 +11,11 @@ enum class CreditTimingStatus {
     INTRO_DB_AVAILABLE,
     COMPLETE,
     FALLBACK
+}
+
+enum class RatingOverlayDestination {
+    EXIT_PLAYER,
+    POST_PLAY
 }
 
 @Immutable
@@ -49,4 +55,47 @@ internal fun authoritativeEndActionDecision(
         return false
     }
     return timing.finalCreditsStartMs?.let { positionMs >= it }
+}
+
+internal fun isRatingPromptEligibleContent(
+    contentType: String?,
+    currentSeason: Int?,
+    currentEpisode: Int?,
+    episodes: List<Video>
+): Boolean {
+    return when (contentType?.trim()?.lowercase()) {
+        "movie" -> true
+        "series", "tv" -> {
+            if (currentSeason == null || currentEpisode == null || episodes.isEmpty()) {
+                false
+            } else {
+                val finalEpisodeInSeason = episodes
+                    .asSequence()
+                    .filter { it.season == currentSeason }
+                    .mapNotNull { it.episode }
+                    .maxOrNull()
+                finalEpisodeInSeason != null && currentEpisode >= finalEpisodeInSeason
+            }
+        }
+        else -> false
+    }
+}
+
+internal fun shouldShowCreditRatingPrompt(
+    state: PlayerUiState,
+    positionMs: Long
+): Boolean {
+    if (!state.isRatingProviderConnected || state.creditRatingPromptHandled) return false
+    if (state.ratingOverlayDestination != null || state.showRatingOverlay) return false
+    if (!isRatingPromptEligibleContent(
+            contentType = state.contentType,
+            currentSeason = state.currentSeason,
+            currentEpisode = state.currentEpisode,
+            episodes = state.episodesAll
+        )
+    ) {
+        return false
+    }
+    val finalCreditsStartMs = state.creditTiming.finalCreditsStartMs ?: return false
+    return positionMs >= finalCreditsStartMs
 }

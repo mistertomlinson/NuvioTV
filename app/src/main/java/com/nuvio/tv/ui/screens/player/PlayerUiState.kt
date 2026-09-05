@@ -146,7 +146,9 @@ data class PlayerUiState(
     val showRatingOverlay: Boolean = false,
     val ratingSubmitted: Boolean = false,
     val showPlayerBlackout: Boolean = false,
-    val pendingRating: Int? = null
+    val pendingRating: Int? = null,
+    val ratingOverlayDestination: RatingOverlayDestination? = null,
+    val creditRatingPromptHandled: Boolean = false
 ) {
     val postPlayRecommendation: PostPlayRecommendation?
         get() = postPlayRecommendations.getOrNull(postPlayRecommendationIndex)
@@ -154,7 +156,12 @@ data class PlayerUiState(
     val blocksNaturalCompletion: Boolean
         get() = isPostPlayRecommendationVisible ||
             isPostPlayRecommendationLoading ||
-            creditTiming.status == CreditTimingStatus.RUNNING
+            creditTiming.status == CreditTimingStatus.RUNNING ||
+            showRatingOverlay ||
+            ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
+
+    val blocksEndActionForRating: Boolean
+        get() = ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
 }
 
 data class TrackInfo(

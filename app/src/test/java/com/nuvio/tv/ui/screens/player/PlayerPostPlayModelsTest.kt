@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.domain.model.Video
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -98,4 +99,78 @@ class PlayerPostPlayModelsTest {
 
         assertTrue(first != next)
     }
+
+    @Test
+    fun `credit rating prompt starts for movie at final credits`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE,
+                finalCreditsStartMs = 6_700_000L
+            )
+        )
+
+        assertFalse(shouldShowCreditRatingPrompt(state, 6_699_999L))
+        assertTrue(shouldShowCreditRatingPrompt(state, 6_700_000L))
+    }
+
+    @Test
+    fun `credit rating prompt starts only on final episode of season`() {
+        val episodes = listOf(episode(season = 1, number = 1), episode(season = 1, number = 2))
+        val base = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 1,
+            episodesAll = episodes,
+            isRatingProviderConnected = true,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.INTRO_DB_AVAILABLE,
+                finalCreditsStartMs = 2_400_000L
+            )
+        )
+
+        assertFalse(shouldShowCreditRatingPrompt(base, 2_400_000L))
+        assertTrue(
+            shouldShowCreditRatingPrompt(
+                base.copy(currentEpisode = 2),
+                2_400_000L
+            )
+        )
+    }
+
+    @Test
+    fun `handled credit rating prompt does not reopen`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            creditRatingPromptHandled = true,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE,
+                finalCreditsStartMs = 6_700_000L
+            )
+        )
+
+        assertFalse(shouldShowCreditRatingPrompt(state, 6_700_000L))
+    }
+
+    @Test
+    fun `credit rating transition blocks natural completion and end actions`() {
+        val state = PlayerUiState(
+            ratingOverlayDestination = RatingOverlayDestination.POST_PLAY
+        )
+
+        assertTrue(state.blocksNaturalCompletion)
+        assertTrue(state.blocksEndActionForRating)
+    }
+
+    private fun episode(season: Int, number: Int): Video = Video(
+        id = "episode-$season-$number",
+        title = "Episode $number",
+        released = null,
+        thumbnail = null,
+        season = season,
+        episode = number,
+        overview = null
+    )
 }

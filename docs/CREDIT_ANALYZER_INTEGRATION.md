@@ -43,6 +43,22 @@ later value to avoid opening post-play UI early. Exact current-release timing
 always replaces the estimate when it arrives. A materially different cut does
 not receive this fallback.
 
+## Rating handoff
+
+When a connected rating provider is available, movies and the final episode of
+a season show the existing rating overlay at `final_credits_start_ms`. Playback
+continues underneath the overlay. Next Episode, autoplay, and recommendation
+navigation remain blocked until the rating interaction finishes.
+
+Selecting a rating or Dismiss runs the existing staggered exit animation,
+reveals the still-playing video, and releases the appropriate post-play action
+after a short delay. Rating submission is asynchronous and does not hold the
+transition on network latency. Return to Video closes the prompt and suppresses
+both Next Episode and recommendations for the remainder of that playback.
+Ordinary episodes do not show the automatic rating prompt. The existing
+late-playback Back-button rating prompt remains available and also leaves
+playback running behind it.
+
 ## Build configuration
 
 Set these values in `local.properties` (or `local.dev.properties` for a debug

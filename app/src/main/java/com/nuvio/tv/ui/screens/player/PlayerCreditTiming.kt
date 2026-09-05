@@ -186,6 +186,8 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
     creditAnalysisJob = null
     recommendationLoadJob?.cancel()
     recommendationLoadJob = null
+    ratingTransitionJob?.cancel()
+    ratingTransitionJob = null
     creditAnalysisIdentity = null
     introDbCreditIntervals = emptyList()
     _uiState.update {
@@ -195,7 +197,13 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
             postPlayRecommendationIndex = 0,
             isPostPlayRecommendationLoading = false,
             isPostPlayRecommendationVisible = false,
-            postPlayRecommendationDismissed = false
+            postPlayRecommendationDismissed = false,
+            showRatingOverlay = false,
+            ratingSubmitted = false,
+            showPlayerBlackout = false,
+            pendingRating = null,
+            ratingOverlayDestination = null,
+            creditRatingPromptHandled = false
         )
     }
 }
@@ -241,6 +249,7 @@ internal fun PlayerRuntimeController.evaluatePostPlayRecommendations(
 
     if (state.postPlayRecommendations.isNotEmpty() &&
         !state.postPlayRecommendationDismissed &&
+        !state.blocksEndActionForRating &&
         isEndActionTriggerReached(positionMs, durationMs)
     ) {
         _uiState.update {
@@ -313,6 +322,8 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
                 ?: _uiState.value.duration
             val shouldShowImmediately = mapped.isNotEmpty() &&
                 !_uiState.value.postPlayRecommendationDismissed &&
+                !_uiState.value.blocksEndActionForRating &&
+                !shouldShowCreditRatingPrompt(_uiState.value, playerPosition) &&
                 isEndActionTriggerReached(playerPosition, playerDuration)
             _uiState.update {
                 it.copy(

@@ -175,6 +175,12 @@ internal fun PlayerRuntimeController.evaluateNextEpisodeCardVisibility(positionM
     if (!hasRenderedFirstFrame) return
 
     val state = _uiState.value
+    if (state.blocksEndActionForRating) {
+        if (state.showNextEpisodeCard) {
+            _uiState.update { it.copy(showNextEpisodeCard = false) }
+        }
+        return
+    }
     if (state.nextEpisode == null || nextEpisodeVideo == null) {
         if (state.showNextEpisodeCard) {
             _uiState.update { it.copy(showNextEpisodeCard = false) }

@@ -103,6 +103,7 @@ fun RatingOverlay(
     LaunchedEffect(visible) {
         if (visible) {
             isExiting = false
+            isDismissing = false
             selectedRating = RATING_NONE
             exitAlpha.snapTo(1f)
             overlayAlpha.snapTo(0f)
@@ -175,7 +176,7 @@ fun RatingOverlay(
         logoAlpha.animateTo(0f, tween(150))
         logoOffsetY.animateTo(16f, tween(180, easing = FastOutSlowInEasing))
 
-        // 4. Signal complete — PlayerScreen triggers stopAndRelease + navigation
+        // 4. Signal complete — the caller exits or advances to post-play.
         onExitAnimationComplete()
     }
 
@@ -208,7 +209,10 @@ fun RatingOverlay(
                 when (keyEvent.nativeKeyEvent.keyCode) {
                     AndroidKeyEvent.KEYCODE_BACK,
                     AndroidKeyEvent.KEYCODE_ESCAPE -> {
-                        if (keyEvent.type == KeyEventType.KeyUp && !isExiting) onDismiss()
+                        if (keyEvent.type == KeyEventType.KeyUp && !isExiting && !isDismissing) {
+                            isDismissing = true
+                            onDismiss()
+                        }
                         true
                     }
                     AndroidKeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
@@ -360,7 +364,7 @@ fun RatingOverlay(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    // Dismiss → exits to detail screen
+                    // Dismiss → exit or advance, depending on how the prompt opened.
                     Button(
                         onClick = {
                         if (!isExiting && !isDismissing) {
@@ -411,7 +415,7 @@ fun RatingOverlay(
                         )
                     }
 
-                    // Return to video → resumes playback
+                    // Return to the unobstructed video.
                     Button(
                         onClick = { if (!isExiting) onReturnToVideo() },
                         modifier = Modifier

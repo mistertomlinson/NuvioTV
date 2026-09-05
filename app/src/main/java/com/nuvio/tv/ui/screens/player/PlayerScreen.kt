@@ -182,33 +182,16 @@ fun PlayerScreen(
             val progressPct = if (uiState.duration > 0L) {
                 (uiState.currentPosition.toFloat() / uiState.duration.toFloat()) * 100f
             } else 0f
-            val isMovie = uiState.contentType?.lowercase() == "movie"
-            val currentSeasonLocal = uiState.currentSeason
-            val currentEpisodeLocal = uiState.currentEpisode
-            val isSeries = uiState.contentType?.lowercase() == "series" ||
-                uiState.contentType?.lowercase() == "tv"
-            // Last episode of current season = highest episode number in this season
-            val isSeasonFinale = isSeries &&
-                currentSeasonLocal != null && currentEpisodeLocal != null &&
-                uiState.episodesAll.isNotEmpty() && run {
-                    val episodesInSeason = uiState.episodesAll
-                        .filter { it.season == currentSeasonLocal && it.episode != null }
-                    val maxEpisode = episodesInSeason.maxOfOrNull { it.episode ?: 0 } ?: 0
-                    currentEpisodeLocal >= maxEpisode && maxEpisode > 0
-                }
-            // Series finale = last episode globally (no next episode at all)
-            val isSeriesFinale = isSeries &&
-                currentSeasonLocal != null && currentEpisodeLocal != null &&
-                uiState.episodesAll.isNotEmpty() &&
-                PlayerNextEpisodeRules.resolveNextEpisode(
-                    videos = uiState.episodesAll,
-                    currentSeason = currentSeasonLocal,
-                    currentEpisode = currentEpisodeLocal
-                ) == null
-            val isFinale = isSeasonFinale || isSeriesFinale
             val shouldPromptRating = progressPct >= 85f &&
                 uiState.isRatingProviderConnected &&
-                !uiState.showRatingOverlay && (isMovie || isFinale)
+                !uiState.showRatingOverlay &&
+                !uiState.creditRatingPromptHandled &&
+                isRatingPromptEligibleContent(
+                    contentType = uiState.contentType,
+                    currentSeason = uiState.currentSeason,
+                    currentEpisode = uiState.currentEpisode,
+                    episodes = uiState.episodesAll
+                )
             if (shouldPromptRating) {
                 viewModel.onEvent(PlayerEvent.OnShowRatingOverlay)
             } else {
@@ -221,7 +204,8 @@ fun PlayerScreen(
         handleBackPress()
     }
 
-    // Exit after rating POST completes
+    // Exit after a Back-initiated rating flow completes. Credit-initiated
+    // rating flows never set ratingSubmitted.
     LaunchedEffect(uiState.ratingSubmitted) {
         if (uiState.ratingSubmitted) {
             // stopAndRelease() is called before navigating so progress is saved

@@ -52,6 +52,7 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                     positionMs = pos,
                     durationMs = playerDuration.coerceAtLeast(0L)
                 )
+                evaluateCreditRatingPrompt(positionMs = pos)
                 evaluatePostPlayRecommendations(
                     positionMs = pos,
                     durationMs = playerDuration.coerceAtLeast(0L)
@@ -953,7 +954,6 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                     return@launch
                 }
 
-                _exoPlayer?.pause()
                 _uiState.update {
                     it.copy(
                         isRatingProviderConnected = true,
@@ -961,7 +961,9 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                         showControls = false,
                         showPauseOverlay = false,
                         showPlayerBlackout = false,
-                        ratingSubmitted = false
+                        ratingSubmitted = false,
+                        pendingRating = null,
+                        ratingOverlayDestination = RatingOverlayDestination.EXIT_PLAYER
                     )
                 }
             }
@@ -974,25 +976,89 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             _uiState.update { it.copy(showPlayerBlackout = true, pendingRating = null) }
         }
         PlayerEvent.OnReturnToVideo -> {
-            _uiState.update { it.copy(showRatingOverlay = false, showPlayerBlackout = false) }
-            _exoPlayer?.play()
-            userPausedManually = false
+            ratingTransitionJob?.cancel()
+            ratingTransitionJob = null
+            val isCreditFlow =
+                _uiState.value.ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
+            if (isCreditFlow) {
+                nextEpisodeAutoPlayJob?.cancel()
+                nextEpisodeAutoPlayJob = null
+            }
+            _uiState.update {
+                it.copy(
+                    showRatingOverlay = false,
+                    showPlayerBlackout = false,
+                    pendingRating = null,
+                    ratingOverlayDestination = null,
+                    creditRatingPromptHandled = true,
+                    postPlayRecommendationDismissed =
+                        if (isCreditFlow) true else it.postPlayRecommendationDismissed,
+                    isPostPlayRecommendationVisible =
+                        if (isCreditFlow) false else it.isPostPlayRecommendationVisible,
+                    nextEpisodeCardDismissed =
+                        if (isCreditFlow) true else it.nextEpisodeCardDismissed,
+                    showNextEpisodeCard = if (isCreditFlow) false else it.showNextEpisodeCard,
+                    nextEpisodeAutoPlaySearching =
+                        if (isCreditFlow) false else it.nextEpisodeAutoPlaySearching,
+                    nextEpisodeAutoPlaySourceName =
+                        if (isCreditFlow) null else it.nextEpisodeAutoPlaySourceName,
+                    nextEpisodeAutoPlayCountdownSec =
+                        if (isCreditFlow) null else it.nextEpisodeAutoPlayCountdownSec
+                )
+            }
         }
         PlayerEvent.OnRatingExitComplete -> {
             val rating = _uiState.value.pendingRating
             val media = buildScrobbleItem()
-            if (rating != null && media != null) {
+            if (_uiState.value.ratingOverlayDestination == RatingOverlayDestination.POST_PLAY) {
+                if (rating != null && media != null) {
+                    scope.launch {
+                        runCatching {
+                            trackingRatingCoordinator.submit(media = media, rating = rating)
+                        }
+                    }
+                }
+                _uiState.update {
+                    it.copy(
+                        showRatingOverlay = false,
+                        showPlayerBlackout = false,
+                        pendingRating = null
+                    )
+                }
+                ratingTransitionJob?.cancel()
+                ratingTransitionJob = scope.launch {
+                    delay(750)
+                    _uiState.update {
+                        if (it.ratingOverlayDestination != RatingOverlayDestination.POST_PLAY) {
+                            it
+                        } else {
+                            it.copy(
+                                ratingOverlayDestination = null,
+                                creditRatingPromptHandled = true
+                            )
+                        }
+                    }
+                }
+            } else if (rating != null && media != null) {
                 scope.launch {
                     runCatching {
                         trackingRatingCoordinator.submit(media = media, rating = rating)
                     }
                     _uiState.update {
-                        it.copy(ratingSubmitted = true, showRatingOverlay = false)
+                        it.copy(
+                            ratingSubmitted = true,
+                            showRatingOverlay = false,
+                            ratingOverlayDestination = null
+                        )
                     }
                 }
             } else {
                 _uiState.update {
-                    it.copy(ratingSubmitted = true, showRatingOverlay = false)
+                    it.copy(
+                        ratingSubmitted = true,
+                        showRatingOverlay = false,
+                        ratingOverlayDestination = null
+                    )
                 }
             }
         }
