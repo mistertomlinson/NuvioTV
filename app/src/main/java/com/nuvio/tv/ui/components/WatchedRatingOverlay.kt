@@ -66,12 +66,16 @@ fun WatchedRatingOverlay(
     val likeFocusRequester = remember { FocusRequester() }
     val loveFocusRequester = remember { FocusRequester() }
     var consumed by remember { mutableStateOf(false) }
+    var ratingButtonsCanFocus by remember(visible) {
+        mutableStateOf(false)
+    }
 
     LaunchedEffect(visible) {
         if (visible) {
             consumed = false
             kotlinx.coroutines.delay(80)
             runCatching { dismissFocusRequester.requestFocus() }
+            ratingButtonsCanFocus = true
         }
     }
 
@@ -119,6 +123,7 @@ fun WatchedRatingOverlay(
                         iconRes = R.raw.ic_player_rating_dislike,
                         contentDescription = "Thumbs down",
                         focusRequester = dislikeFocusRequester,
+                        canFocus = ratingButtonsCanFocus,
                         nextFocusDown = dismissFocusRequester,
                         nextFocusUp = dismissFocusRequester,
                         nextFocusRight = likeFocusRequester,
@@ -128,6 +133,7 @@ fun WatchedRatingOverlay(
                         iconRes = R.raw.ic_player_rating_like,
                         contentDescription = "Thumbs up",
                         focusRequester = likeFocusRequester,
+                        canFocus = ratingButtonsCanFocus,
                         nextFocusDown = dismissFocusRequester,
                         nextFocusUp = dismissFocusRequester,
                         nextFocusLeft = dislikeFocusRequester,
@@ -138,6 +144,7 @@ fun WatchedRatingOverlay(
                         iconRes = R.raw.ic_player_rating_love,
                         contentDescription = "Love it",
                         focusRequester = loveFocusRequester,
+                        canFocus = ratingButtonsCanFocus,
                         nextFocusDown = dismissFocusRequester,
                         nextFocusUp = dismissFocusRequester,
                         nextFocusLeft = likeFocusRequester,
@@ -198,6 +205,7 @@ private fun WatchedRatingButton(
     iconRes: Int,
     contentDescription: String,
     focusRequester: FocusRequester,
+    canFocus: Boolean,
     nextFocusDown: FocusRequester,
     nextFocusUp: FocusRequester,
     nextFocusLeft: FocusRequester? = null,
@@ -211,6 +219,7 @@ private fun WatchedRatingButton(
             .size(60.dp)
             .focusRequester(focusRequester)
             .focusProperties {
+                this.canFocus = canFocus
                 down = nextFocusDown
                 up = nextFocusUp
                 if (nextFocusLeft != null) left = nextFocusLeft
