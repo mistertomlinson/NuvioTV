@@ -846,6 +846,18 @@ fun NuvioNavHost(
             )
         ) { backStackEntry ->
             PlayerScreen(
+                onPostPlayBackPress = {
+                    backStackEntry.savedStateHandle["ratingExit"] = true
+                    val returnedHome = navController.popBackStack(
+                        Screen.Home.route,
+                        inclusive = false
+                    )
+                    if (!returnedHome) {
+                        navController.navigate(Screen.Home.route) {
+                            launchSingleTop = true
+                        }
+                    }
+                },
                 onRatingBackPress = { currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean ->
                     backStackEntry.savedStateHandle["ratingExit"] = true
                     // reuse same logic as onBackPress below

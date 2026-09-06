@@ -9,11 +9,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.update
 
 @Singleton
 class SimklTrackingProgressProvider @Inject constructor(
@@ -25,6 +27,8 @@ class SimklTrackingProgressProvider @Inject constructor(
     private val progressDismissalStore: SimklProgressDismissalStore
 ) : TrackingProgressProvider {
     override val providerId = TrackingProviderId.SIMKL
+    private val optimisticMovieWatchedOverrides =
+        MutableStateFlow<Map<String, Boolean>>(emptyMap())
     override val isAuthenticated = authStorage.state.map { state -> state.isAuthenticated }
         .distinctUntilChanged()
     override val allProgress = combine(
@@ -62,8 +66,14 @@ class SimklTrackingProgressProvider @Inject constructor(
             dismissedAtByKey = dismissedAtByKey
         )
     }.distinctUntilChanged()
-    override val watchedMovieIds = syncRepository.projection.map { projection ->
-        projection.watchedMovieIds
+    override val watchedMovieIds = combine(
+        syncRepository.projection,
+        optimisticMovieWatchedOverrides
+    ) { projection, overrides ->
+        applySimklWatchedMovieOverrides(
+            remoteIds = projection.watchedMovieIds,
+            overrides = overrides
+        )
     }.distinctUntilChanged()
     override val watchedItems = syncRepository.projection.map { projection ->
         projection.watched.items
@@ -192,11 +202,33 @@ class SimklTrackingProgressProvider @Inject constructor(
         )
     }
 
-    override fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean) = Unit
+    override fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean) {
+        if (
+            progress.season != null ||
+            progress.episode != null ||
+            !progress.isCompleted()
+        ) {
+            return
+        }
+        optimisticMovieWatchedOverrides.update { current ->
+            current + (progress.contentId to true)
+        }
+    }
 
-    override fun applyOptimisticRemoval(contentId: String, season: Int?, episode: Int?) = Unit
+    override fun applyOptimisticRemoval(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) {
+        if (season != null || episode != null) return
+        optimisticMovieWatchedOverrides.update { current ->
+            current + (contentId to false)
+        }
+    }
 
-    override fun clearOptimistic() = Unit
+    override fun clearOptimistic() {
+        optimisticMovieWatchedOverrides.value = emptyMap()
+    }
 
     override fun isHiddenFromProgress(contentId: String): Boolean =
         syncRepository.projection.value.isHidden(contentId)
@@ -205,6 +237,15 @@ class SimklTrackingProgressProvider @Inject constructor(
         syncRepository.projection.value.isWatchedByVideoId(videoId, episode)
 
     override suspend fun prepareNextUpSeed(progress: WatchProgress): WatchProgress = progress
+}
+
+internal fun applySimklWatchedMovieOverrides(
+    remoteIds: Set<String>,
+    overrides: Map<String, Boolean>
+): Set<String> = remoteIds.toMutableSet().apply {
+    overrides.forEach { (contentId, watched) ->
+        if (watched) add(contentId) else remove(contentId)
+    }
 }
 
 internal fun checkWatchedByVideoId(

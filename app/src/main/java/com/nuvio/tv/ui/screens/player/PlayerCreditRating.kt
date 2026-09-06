@@ -30,3 +30,43 @@ internal fun PlayerRuntimeController.evaluateCreditRatingPrompt(positionMs: Long
         )
     }
 }
+
+internal fun PlayerRuntimeController.requestManualEndAction() {
+    val state = _uiState.value
+    if (!shouldStartManualEndAction(
+            state = state,
+            positionMs = state.currentPosition,
+            durationMs = state.duration
+        )
+    ) {
+        return
+    }
+
+    nextEpisodeAutoPlayJob?.cancel()
+    nextEpisodeAutoPlayJob = null
+    val showRating = state.isRatingProviderConnected
+    Log.i(
+        PlayerRuntimeController.TAG,
+        "Manual near-end exit requested post-play positionMs=${state.currentPosition}"
+    )
+    _uiState.update {
+        it.copy(
+            manualEndActionRequested = true,
+            showRatingOverlay = showRating,
+            showControls = false,
+            showPauseOverlay = false,
+            showPlayerBlackout = false,
+            ratingSubmitted = false,
+            pendingRating = null,
+            ratingOverlayDestination =
+                if (showRating) RatingOverlayDestination.POST_PLAY else null,
+            creditRatingPromptHandled = !showRating,
+            isPostPlayRecommendationVisible = false,
+            showNextEpisodeCard = false,
+            nextEpisodeAutoPlaySearching = false,
+            nextEpisodeAutoPlaySourceName = null,
+            nextEpisodeAutoPlayCountdownSec = null
+        )
+    }
+    preparePostPlayRecommendationsForManualEndAction()
+}

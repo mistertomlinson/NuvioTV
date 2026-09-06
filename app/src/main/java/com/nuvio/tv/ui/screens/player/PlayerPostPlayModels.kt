@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.nuvio.tv.domain.model.Video
 
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
+internal const val MANUAL_END_ACTION_THRESHOLD = 0.85
 
 enum class CreditTimingStatus {
     NOT_STARTED,
@@ -98,4 +99,23 @@ internal fun shouldShowCreditRatingPrompt(
     }
     val finalCreditsStartMs = state.creditTiming.finalCreditsStartMs ?: return false
     return positionMs >= finalCreditsStartMs
+}
+
+internal fun shouldStartManualEndAction(
+    state: PlayerUiState,
+    positionMs: Long,
+    durationMs: Long
+): Boolean {
+    if (durationMs <= 0L || positionMs < 0L) return false
+    if (state.creditRatingPromptHandled || state.postPlayRecommendationDismissed) return false
+    if (!isRatingPromptEligibleContent(
+            contentType = state.contentType,
+            currentSeason = state.currentSeason,
+            currentEpisode = state.currentEpisode,
+            episodes = state.episodesAll
+        )
+    ) {
+        return false
+    }
+    return positionMs.toDouble() / durationMs.toDouble() >= MANUAL_END_ACTION_THRESHOLD
 }

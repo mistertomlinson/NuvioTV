@@ -968,6 +968,9 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 }
             }
         }
+        PlayerEvent.OnRequestManualEndAction -> {
+            requestManualEndAction()
+        }
         is PlayerEvent.OnSubmitRating -> {
             // Trigger blackout + store rating — animation drives the exit
             _uiState.update { it.copy(showPlayerBlackout = true, pendingRating = event.rating) }
@@ -993,6 +996,8 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                     creditRatingPromptHandled = true,
                     postPlayRecommendationDismissed =
                         if (isCreditFlow) true else it.postPlayRecommendationDismissed,
+                    manualEndActionRequested =
+                        if (isCreditFlow) false else it.manualEndActionRequested,
                     isPostPlayRecommendationVisible =
                         if (isCreditFlow) false else it.isPostPlayRecommendationVisible,
                     nextEpisodeCardDismissed =

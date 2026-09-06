@@ -484,10 +484,17 @@ fun HomeScreen(
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManually,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
-                                isCatalogItemWatched = { item ->
-                                    val key = homeItemStatusKey(item.id, item.apiType)
-                                    uiState.movieWatchedStatus[key] == true ||
-                                        uiState.seriesWatchedStatus[key] == true
+                                isCatalogItemWatched = remember(
+                                    uiState.movieWatchedStatus,
+                                    uiState.seriesWatchedStatus
+                                ) {
+                                    val movieStatus = uiState.movieWatchedStatus
+                                    val seriesStatus = uiState.seriesWatchedStatus
+                                    { item ->
+                                        val key = homeItemStatusKey(item.id, item.apiType)
+                                        movieStatus[key] == true ||
+                                            seriesStatus[key] == true
+                                    }
                                 },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
                                     val statusKey = homeItemStatusKey(item.id, item.apiType)

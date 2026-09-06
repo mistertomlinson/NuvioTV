@@ -164,6 +164,45 @@ class PlayerPostPlayModelsTest {
         assertTrue(state.blocksEndActionForRating)
     }
 
+    @Test
+    fun `manual near end exit starts post play for a movie`() {
+        val state = PlayerUiState(contentType = "movie")
+
+        assertFalse(shouldStartManualEndAction(state, 84_999L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 85_000L, 100_000L))
+    }
+
+    @Test
+    fun `manual near end exit does not reopen after return to video`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            creditRatingPromptHandled = true,
+            postPlayRecommendationDismissed = true
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+    }
+
+    @Test
+    fun `manual near end exit is limited to final season episode`() {
+        val episodes = listOf(episode(season = 1, number = 1), episode(season = 1, number = 2))
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 1,
+            episodesAll = episodes
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertTrue(
+            shouldStartManualEndAction(
+                state.copy(currentEpisode = 2),
+                95_000L,
+                100_000L
+            )
+        )
+    }
+
     private fun episode(season: Int, number: Int): Video = Video(
         id = "episode-$season-$number",
         title = "Episode $number",

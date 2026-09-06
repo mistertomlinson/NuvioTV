@@ -4,6 +4,7 @@ import com.nuvio.tv.core.tracking.TrackingExternalIds
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingMutationResult
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import io.mockk.coEvery
@@ -50,6 +51,37 @@ class SimklScrobbleConflictTest {
     }
 
     @Test
+    fun `successful completion refreshes aliases after local commit`() = runTest {
+        val media = movie()
+        val result = SimklApiResponse(
+            status = 201,
+            body = """{"action":"scrobble","progress":95}""",
+            headers = emptyMap()
+        ).toSimklScrobbleResult(
+            requestedAction = TrackingScrobbleAction.STOP,
+            event = event(progress = 95.0),
+            json = Json { ignoreUnknownKeys = true }
+        )
+        val mutationService = mockk<SimklMutationService>(relaxed = true)
+        val syncRepository = mockk<SimklSyncRepository>(relaxed = true)
+
+        val recovered = commitSimklScrobbleResult(
+            result = result,
+            media = media,
+            mutationService = mutationService,
+            syncRepository = syncRepository,
+            watchedAtEpochMs = 123_456L
+        )
+
+        assertFalse(recovered)
+        coVerify(exactly = 0) { mutationService.addToHistory(any()) }
+        coVerify(exactly = 1) { syncRepository.commitScrobble(result) }
+        coVerify(exactly = 1) {
+            syncRepository.refresh(TrackingRefreshIntent.INVALIDATED)
+        }
+    }
+
+    @Test
     fun `completion conflict writes history instead of trusting scrobble result`() = runTest {
         val media = movie()
         val result = conflictResult(progress = 95.0)
@@ -75,6 +107,9 @@ class SimklScrobbleConflictTest {
             )
         }
         coVerify(exactly = 1) { syncRepository.commitScrobble(result) }
+        coVerify(exactly = 1) {
+            syncRepository.refresh(TrackingRefreshIntent.INVALIDATED)
+        }
     }
 
     private fun conflictResult(progress: Double): SimklScrobbleResult = SimklApiResponse(

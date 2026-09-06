@@ -121,6 +121,7 @@ fun PlayerScreen(
     onRatingBackPress: ((currentSeason: Int?, currentEpisode: Int?, autoPlayEnabled: Boolean) -> Unit)? = null,
     onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, false) },
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?) -> Unit)? = null,
+    onPostPlayBackPress: (() -> Unit)? = null,
     onPostPlayRecommendationSelected: ((PostPlayRecommendation, Boolean) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -147,7 +148,16 @@ fun PlayerScreen(
 
     val handleBackPress = {
         if (uiState.isPostPlayRecommendationVisible) {
-            viewModel.onEvent(PlayerEvent.OnReturnToPlayerFromPostPlay)
+            viewModel.stopAndRelease()
+            if (onPostPlayBackPress != null) {
+                onPostPlayBackPress()
+            } else {
+                onBackPress(
+                    uiState.currentSeason,
+                    uiState.currentEpisode,
+                    uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL
+                )
+            }
         } else if (uiState.error != null) {
             exitPlayerFromError()
         } else if (uiState.showAudioOverlay || uiState.showSubtitleOverlay) {
@@ -178,22 +188,13 @@ fun PlayerScreen(
             // If controls are visible, hide them instead of going back
             viewModel.hideControls()
         } else {
-            // If controls are hidden: show rating overlay when ≥1% watched (testing; restore to 85f)
-            val progressPct = if (uiState.duration > 0L) {
-                (uiState.currentPosition.toFloat() / uiState.duration.toFloat()) * 100f
-            } else 0f
-            val shouldPromptRating = progressPct >= 85f &&
-                uiState.isRatingProviderConnected &&
-                !uiState.showRatingOverlay &&
-                !uiState.creditRatingPromptHandled &&
-                isRatingPromptEligibleContent(
-                    contentType = uiState.contentType,
-                    currentSeason = uiState.currentSeason,
-                    currentEpisode = uiState.currentEpisode,
-                    episodes = uiState.episodesAll
+            if (shouldStartManualEndAction(
+                    state = uiState,
+                    positionMs = uiState.currentPosition,
+                    durationMs = uiState.duration
                 )
-            if (shouldPromptRating) {
-                viewModel.onEvent(PlayerEvent.OnShowRatingOverlay)
+            ) {
+                viewModel.onEvent(PlayerEvent.OnRequestManualEndAction)
             } else {
                 exitPlayer()
             }

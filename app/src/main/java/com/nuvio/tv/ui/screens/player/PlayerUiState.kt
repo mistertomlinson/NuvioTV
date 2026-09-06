@@ -123,6 +123,7 @@ data class PlayerUiState(
     val isPostPlayRecommendationLoading: Boolean = false,
     val isPostPlayRecommendationVisible: Boolean = false,
     val postPlayRecommendationDismissed: Boolean = false,
+    val manualEndActionRequested: Boolean = false,
     // Stream source badge
     val showStreamSourceIndicator: Boolean = false,
     val streamSourceIndicatorText: String = "",
@@ -253,6 +254,7 @@ sealed class PlayerEvent {
     data object OnDismissStreamInfo : PlayerEvent()
     // Rating overlay
     data object OnShowRatingOverlay : PlayerEvent()
+    data object OnRequestManualEndAction : PlayerEvent()
     data class OnSubmitRating(val rating: Int) : PlayerEvent()
     data object OnDismissRatingOverlay : PlayerEvent()
     data object OnReturnToVideo : PlayerEvent()

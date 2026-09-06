@@ -9,6 +9,7 @@ import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingProvider
 import com.nuvio.tv.core.tracking.TrackingProviderDescriptor
 import com.nuvio.tv.core.tracking.TrackingProviderId
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.core.tracking.TrackingScrobbleAction
 import com.nuvio.tv.core.tracking.TrackingScrobbleEvent
 import com.nuvio.tv.core.tracking.TrackingScrobbler
@@ -129,6 +130,9 @@ internal suspend fun commitSimklScrobbleResult(
 ): Boolean {
     if (!result.requiresHistoryRecovery) {
         syncRepository.commitScrobble(result)
+        if (result.outcome == SimklScrobbleOutcome.SCROBBLE) {
+            syncRepository.refresh(TrackingRefreshIntent.INVALIDATED)
+        }
         return false
     }
     val recovery = mutationService.addToHistory(
@@ -143,6 +147,7 @@ internal suspend fun commitSimklScrobbleResult(
         "Simkl could not recover completed playback through history"
     }
     syncRepository.commitScrobble(result)
+    syncRepository.refresh(TrackingRefreshIntent.INVALIDATED)
     return true
 }
 

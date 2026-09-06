@@ -703,6 +703,11 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 profileId = profileManager.activeProfileId.value,
                 items = listOf(media)
             )
+            provider.applyOptimisticRemoval(
+                contentId = contentId,
+                season = season,
+                episode = episode
+            )
         }
 
         watchProgressPreferences.removeProgress(

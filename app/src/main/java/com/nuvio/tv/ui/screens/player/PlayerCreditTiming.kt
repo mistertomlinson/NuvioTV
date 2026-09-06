@@ -198,6 +198,7 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
             isPostPlayRecommendationLoading = false,
             isPostPlayRecommendationVisible = false,
             postPlayRecommendationDismissed = false,
+            manualEndActionRequested = false,
             showRatingOverlay = false,
             ratingSubmitted = false,
             showPlayerBlackout = false,
@@ -212,6 +213,7 @@ internal fun PlayerRuntimeController.isEndActionTriggerReached(
     positionMs: Long,
     durationMs: Long
 ): Boolean {
+    if (_uiState.value.manualEndActionRequested) return true
     val timing = _uiState.value.creditTiming
     authoritativeEndActionDecision(timing, positionMs)?.let { return it }
 
@@ -241,7 +243,8 @@ internal fun PlayerRuntimeController.evaluatePostPlayRecommendations(
         !state.isPostPlayRecommendationLoading &&
         !state.postPlayRecommendationDismissed &&
         positionMs >= CREDIT_ANALYZER_TRIGGER_POSITION_MS &&
-        (state.creditTiming.status != CreditTimingStatus.RUNNING ||
+        (state.manualEndActionRequested ||
+            state.creditTiming.status != CreditTimingStatus.RUNNING ||
             state.creditTiming.finalCreditsStartMs != null)
     ) {
         loadPostPlayRecommendations()
@@ -269,6 +272,14 @@ private fun PlayerRuntimeController.shouldUsePostPlayRecommendations(state: Play
         "series", "tv", "show", "tvshow" ->
             state.isNextEpisodeMetadataResolved && state.nextEpisode?.hasAired != true
         else -> false
+    }
+}
+
+internal fun PlayerRuntimeController.preparePostPlayRecommendationsForManualEndAction() {
+    val state = _uiState.value
+    if (!shouldUsePostPlayRecommendations(state)) return
+    if (state.postPlayRecommendations.isEmpty() && !state.isPostPlayRecommendationLoading) {
+        loadPostPlayRecommendations()
     }
 }
 
@@ -366,7 +377,8 @@ internal fun PlayerRuntimeController.returnToPlayerFromPostPlay() {
     _uiState.update {
         it.copy(
             isPostPlayRecommendationVisible = false,
-            postPlayRecommendationDismissed = true
+            postPlayRecommendationDismissed = true,
+            manualEndActionRequested = false
         )
     }
 }

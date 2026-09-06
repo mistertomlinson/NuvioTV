@@ -298,6 +298,13 @@ fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
                     }
                 }
             }
+        }.onSuccess {
+            _uiState.update { state ->
+                state.copy(
+                    movieWatchedStatus = state.movieWatchedStatus +
+                        (statusKey to !currentlyWatched)
+                )
+            }
         }.onFailure { error ->
             Log.w(HomeViewModel.TAG, "Failed to toggle poster watched status for ${item.id}: ${error.message}")
         }
