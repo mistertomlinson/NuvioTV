@@ -593,7 +593,9 @@ fun PlayerScreen(
                     playerView.subtitleView?.apply {
                         // Calculate font size based on percentage (100% = 24sp base)
                         val baseFontSize = 24f
-                        val scaledFontSize = baseFontSize * (subtitleStyle.size / 100f)
+                        val scaledFontSize = baseFontSize *
+                            (subtitleStyle.size / 100f) *
+                            playerWindowFraction
                         setFixedTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, scaledFontSize)
                         setApplyEmbeddedFontSizes(false)
                         

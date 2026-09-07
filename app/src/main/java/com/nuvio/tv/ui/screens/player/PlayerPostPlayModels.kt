@@ -51,6 +51,11 @@ data class PostPlayRecommendation(
     val metadataResolved: Boolean = false
 )
 
+internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
+    metadataResolved &&
+        !logo.isNullOrBlank() &&
+        mdbListRatings?.let { !it.isEmpty() } == true
+
 /**
  * Returns null when legacy IntroDB/percentage timing should decide. A running
  * analyzer uses a cross-release estimate when one is available and otherwise

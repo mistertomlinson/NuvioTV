@@ -1027,6 +1027,7 @@ fun NuvioNavHost(
                             title = recommendation.title,
                             poster = recommendation.poster,
                             backdrop = recommendation.backdrop,
+                            logo = recommendation.logo,
                             contentId = recommendation.id,
                             contentName = recommendation.title,
                             returnToDetailOnBack = true
@@ -1039,7 +1040,7 @@ fun NuvioNavHost(
                         )
                     }
                     navController.navigate(route) {
-                        popUpTo(Screen.Player.route) { inclusive = true }
+                        popUpTo(Screen.Stream.route) { inclusive = true }
                         launchSingleTop = true
                     }
                 },

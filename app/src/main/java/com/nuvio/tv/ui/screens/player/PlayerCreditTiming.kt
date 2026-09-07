@@ -6,7 +6,11 @@ import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.remote.api.CreditAnalyzeRequest
 import com.nuvio.tv.data.remote.api.CreditAnalyzerJobResponse
 import com.nuvio.tv.domain.model.ContentType
+import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.PosterShape
 import java.security.MessageDigest
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -319,7 +323,7 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
             }
             val mapped = recommendations
                 .filterNot { it.id == sourceId || it.id == "tmdb:$tmdbId" }
-                .take(MAX_POST_PLAY_RECOMMENDATIONS)
+                .take(MAX_POST_PLAY_RECOMMENDATION_CANDIDATES)
                 .map { item ->
                     PostPlayRecommendation(
                         id = item.id,
@@ -341,9 +345,25 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
                 }
                 return@launch
             }
-            val firstRecommendation = resolvePostPlayRecommendation(mapped.first())
-            val readyRecommendations = mapped.toMutableList().apply {
-                this[0] = firstRecommendation
+            val readyRecommendations = mutableListOf<PostPlayRecommendation>()
+            for (batch in mapped.chunked(MAX_POST_PLAY_RECOMMENDATIONS)) {
+                val resolvedBatch = coroutineScope {
+                    batch.map { candidate ->
+                        async { resolvePostPlayRecommendation(candidate) }
+                    }.awaitAll()
+                }
+                readyRecommendations += resolvedBatch.filter {
+                    it.isPresentationReady()
+                }
+                if (readyRecommendations.size >= MAX_POST_PLAY_RECOMMENDATIONS) break
+            }
+            val displayRecommendations = readyRecommendations
+                .take(MAX_POST_PLAY_RECOMMENDATIONS)
+            if (displayRecommendations.isEmpty()) {
+                if (recommendationIdentity() == expectedIdentity) {
+                    _uiState.update { it.copy(isPostPlayRecommendationLoading = false) }
+                }
+                return@launch
             }
             val currentIdentity = recommendationIdentity()
             if (!isActive || currentIdentity != expectedIdentity) return@launch
@@ -358,28 +378,13 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
                 isEndActionTriggerReached(playerPosition, playerDuration)
             _uiState.update {
                 it.copy(
-                    postPlayRecommendations = readyRecommendations,
+                    postPlayRecommendations = displayRecommendations,
                     postPlayRecommendationIndex = 0,
                     isPostPlayRecommendationLoading = false,
                     isPostPlayRecommendationVisible = shouldShowImmediately,
                     showControls = if (shouldShowImmediately) false else it.showControls,
                     showPauseOverlay = if (shouldShowImmediately) false else it.showPauseOverlay
                 )
-            }
-            coroutineScope {
-                for (index in 1..readyRecommendations.lastIndex) {
-                    launch preload@ {
-                        if (recommendationIdentity() != expectedIdentity) return@preload
-                        val current = _uiState.value.postPlayRecommendations.getOrNull(index)
-                            ?: return@preload
-                        if (current.metadataResolved) return@preload
-                        publishResolvedPostPlayRecommendation(
-                            index = index,
-                            candidate = current,
-                            enriched = resolvePostPlayRecommendation(current)
-                        )
-                    }
-                }
             }
         } catch (error: CancellationException) {
             throw error
@@ -428,15 +433,38 @@ private suspend fun PlayerRuntimeController.resolvePostPlayRecommendation(
         ).first { it !is NetworkResult.Loading }
             .let { (it as? NetworkResult.Success)?.data }
     }
-    val ratings = meta?.let {
-        runCatching {
-            mdbListRepository.getRatingsForMeta(
-                meta = it,
-                fallbackItemId = candidate.id,
-                fallbackItemType = candidate.contentType
-            )?.ratings
-        }.getOrNull()
-    }
+    // MDBList only needs a stable media type and external ID. Do not make its
+    // ratings depend on the optional addon-meta request completing in time.
+    val ratingsMeta = meta ?: Meta(
+        id = imdbId ?: candidate.id,
+        type = type,
+        rawType = candidate.contentType,
+        name = enrichment?.localizedTitle ?: candidate.title,
+        poster = enrichment?.poster ?: candidate.poster,
+        posterShape = PosterShape.POSTER,
+        background = enrichment?.backdrop ?: candidate.backdrop,
+        logo = enrichment?.logo ?: candidate.logo,
+        description = enrichment?.description ?: candidate.description,
+        releaseInfo = enrichment?.releaseInfo ?: candidate.releaseInfo,
+        imdbRating = candidate.imdbRating,
+        genres = enrichment?.genres ?: candidate.genres,
+        runtime = enrichment?.runtimeMinutes?.toString() ?: candidate.runtime,
+        director = emptyList(),
+        cast = emptyList(),
+        videos = emptyList(),
+        country = null,
+        awards = null,
+        language = null,
+        links = emptyList(),
+        imdbId = imdbId
+    )
+    val ratings = runCatching {
+        mdbListRepository.getRatingsForMeta(
+            meta = ratingsMeta,
+            fallbackItemId = candidate.id,
+            fallbackItemType = candidate.contentType
+        )?.ratings
+    }.getOrNull()
     candidate.copy(
         title = enrichment?.localizedTitle?.takeIf { it.isNotBlank() }
             ?: meta?.name?.takeIf { it.isNotBlank() }
@@ -603,3 +631,4 @@ private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
     .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 
 private const val MAX_POST_PLAY_RECOMMENDATIONS = 4
+private const val MAX_POST_PLAY_RECOMMENDATION_CANDIDATES = 12

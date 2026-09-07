@@ -1904,13 +1904,18 @@ internal fun HomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<Cata
 }
 
 internal fun HomeViewModel.startMovieWatchedObserverIfNeeded(rows: List<CatalogRow>) {
-    val allMovieItemsByKey = linkedMapOf<String, String>()
+    val allMovieItemsByKey = linkedMapOf<String, Set<String>>()
     rows.asSequence()
         .flatMap { row -> row.items.asSequence() }
         .filter { it.apiType.equals("movie", ignoreCase = true) }
         .forEach { item ->
             val key = homeItemStatusKey(item.id, item.apiType)
-            if (key !in allMovieItemsByKey) allMovieItemsByKey[key] = item.id
+            if (key !in allMovieItemsByKey) {
+                allMovieItemsByKey[key] = homeMovieWatchedLookupIds(
+                    itemId = item.id,
+                    imdbId = item.imdbId
+                )
+            }
         }
     val desiredMovieKeys = allMovieItemsByKey.keys
     if (desiredMovieKeys == lastMovieWatchedItemKeys && movieWatchedBatchJob?.isActive == true) return
@@ -1922,10 +1927,11 @@ internal fun HomeViewModel.startMovieWatchedObserverIfNeeded(rows: List<CatalogR
     movieWatchedBatchJob = viewModelScope.launch {
         watchProgressRepository.observeWatchedMovieIds()
             .collectLatest { watchedIds ->
+                val normalizedWatchedIds = normalizeHomeMovieWatchedIds(watchedIds)
                 _uiState.update { state ->
                     val newStatus = buildMap {
-                        allMovieItemsByKey.forEach { (statusKey, contentId) ->
-                            put(statusKey, contentId in watchedIds)
+                        allMovieItemsByKey.forEach { (statusKey, lookupIds) ->
+                            put(statusKey, lookupIds.any(normalizedWatchedIds::contains))
                         }
                     }
                     if (state.movieWatchedStatus == newStatus) state
@@ -1948,14 +1954,17 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
         }
     val desiredLibraryKeys = desiredLibraryItemsByKey.keys
 
-    val allMovieItemsByKey = linkedMapOf<String, String>()
+    val allMovieItemsByKey = linkedMapOf<String, Set<String>>()
     rows.asSequence()
         .flatMap { row -> row.items.asSequence() }
         .filter { it.apiType.equals("movie", ignoreCase = true) }
         .forEach { item ->
             val key = homeItemStatusKey(item.id, item.apiType)
             if (key !in allMovieItemsByKey) {
-                allMovieItemsByKey[key] = item.id
+                allMovieItemsByKey[key] = homeMovieWatchedLookupIds(
+                    itemId = item.id,
+                    imdbId = item.imdbId
+                )
             }
         }
     val desiredMovieKeys = allMovieItemsByKey.keys
@@ -2000,10 +2009,11 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
             movieWatchedBatchJob = viewModelScope.launch {
                 watchProgressRepository.observeWatchedMovieIds()
                     .collectLatest { watchedIds ->
+                        val normalizedWatchedIds = normalizeHomeMovieWatchedIds(watchedIds)
                         _uiState.update { state ->
                             val newStatus = buildMap {
-                                allMovieItemsByKey.forEach { (statusKey, contentId) ->
-                                    put(statusKey, contentId in watchedIds)
+                                allMovieItemsByKey.forEach { (statusKey, lookupIds) ->
+                                    put(statusKey, lookupIds.any(normalizedWatchedIds::contains))
                                 }
                             }
                             if (state.movieWatchedStatus == newStatus) {
@@ -2081,4 +2091,22 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
     }
 }
 
+internal fun homeMovieWatchedLookupIds(
+    itemId: String,
+    imdbId: String?
+): Set<String> = normalizeHomeMovieWatchedIds(listOfNotNull(itemId, imdbId))
+
+internal fun normalizeHomeMovieWatchedIds(ids: Iterable<String>): Set<String> = buildSet {
+    ids.forEach { value ->
+        val id = value.trim().lowercase()
+        if (id.isBlank()) return@forEach
+        add(id)
+        when {
+            id.startsWith("imdb:") -> id.substringAfter(':')
+                .takeIf(String::isNotBlank)
+                ?.let(::add)
+            id.startsWith("tt") -> add("imdb:$id")
+        }
+    }
+}
 

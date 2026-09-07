@@ -339,21 +339,6 @@ private fun PostPlayRecommendationDetails(
         recommendation.mdbListRatings?.takeUnless { it.isEmpty() }?.let { ratings ->
             Spacer(Modifier.height(10.dp))
             PostPlayRatingsRow(ratings)
-        } ?: run {
-            val standardRatings = listOfNotNull(
-                recommendation.imdbRating?.takeIf { it > 0f }
-                    ?.let { "IMDb ${formatOneDecimal(it.toDouble())}" },
-                recommendation.tmdbRating?.takeIf { it > 0f }
-                    ?.let { "TMDB ${(it * 10).toInt()}" }
-            )
-            if (standardRatings.isNotEmpty()) {
-                Spacer(Modifier.height(10.dp))
-                Text(
-                    text = standardRatings.joinToString("   "),
-                    color = Color.White.copy(alpha = 0.78f),
-                    fontSize = 14.sp
-                )
-            }
         }
 
         recommendation.description?.takeIf { it.isNotBlank() }?.let { description ->

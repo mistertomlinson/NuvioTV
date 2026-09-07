@@ -210,19 +210,22 @@ class SimklTrackingProgressProvider @Inject constructor(
         ) {
             return
         }
+        val watchedIds = optimisticSimklMovieIds(progress.contentId, progress.videoId)
         optimisticMovieWatchedOverrides.update { current ->
-            current + (progress.contentId to true)
+            current + watchedIds.associateWith { true }
         }
     }
 
     override fun applyOptimisticRemoval(
         contentId: String,
+        videoId: String?,
         season: Int?,
         episode: Int?
     ) {
         if (season != null || episode != null) return
+        val watchedIds = optimisticSimklMovieIds(contentId, videoId)
         optimisticMovieWatchedOverrides.update { current ->
-            current + (contentId to false)
+            current + watchedIds.associateWith { false }
         }
     }
 
@@ -246,6 +249,23 @@ internal fun applySimklWatchedMovieOverrides(
     overrides.forEach { (contentId, watched) ->
         if (watched) add(contentId) else remove(contentId)
     }
+}
+
+internal fun optimisticSimklMovieIds(
+    contentId: String,
+    videoId: String?
+): Set<String> = buildSet {
+    listOfNotNull(contentId, videoId)
+        .map(String::trim)
+        .filter(String::isNotBlank)
+        .forEach { id ->
+            add(id)
+            if (id.startsWith("imdb:", ignoreCase = true)) {
+                id.substringAfter(':').takeIf(String::isNotBlank)?.let(::add)
+            } else if (id.startsWith("tt", ignoreCase = true)) {
+                add("imdb:$id")
+            }
+        }
 }
 
 internal fun checkWatchedByVideoId(

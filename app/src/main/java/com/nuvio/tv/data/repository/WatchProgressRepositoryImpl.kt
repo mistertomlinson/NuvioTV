@@ -570,6 +570,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 // Watching while its selected provider settles.
                 provider.applyOptimisticRemoval(
                     contentId = progress.contentId,
+                    videoId = progress.videoId,
                     season = progress.season,
                     episode = progress.episode
                 )
@@ -618,6 +619,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
         if (provider != null) {
             provider.applyOptimisticRemoval(
                 contentId = contentId,
+                videoId = null,
                 season = season,
                 episode = episode
             )
@@ -705,6 +707,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
             )
             provider.applyOptimisticRemoval(
                 contentId = contentId,
+                videoId = videoId,
                 season = season,
                 episode = episode
             )
@@ -795,6 +798,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 }.onFailure {
                     provider.applyOptimisticRemoval(
                         contentId = completed.contentId,
+                        videoId = completed.videoId,
                         season = completed.season,
                         episode = completed.episode
                     )

@@ -35,7 +35,12 @@ interface TrackingProgressProvider {
     suspend fun removeProgress(contentId: String, season: Int?, episode: Int?)
     suspend fun dismissNextUp(contentId: String, season: Int?, episode: Int?) = Unit
     fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean)
-    fun applyOptimisticRemoval(contentId: String, season: Int?, episode: Int?)
+    fun applyOptimisticRemoval(
+        contentId: String,
+        videoId: String?,
+        season: Int?,
+        episode: Int?
+    )
     fun clearOptimistic()
     fun retainsLocalProgress(contentId: String): Boolean = false
     fun retainsLocalWatchedEpisode(item: WatchedItem): Boolean = false
