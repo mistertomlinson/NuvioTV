@@ -147,7 +147,9 @@ fun PlayerScreen(
     }
 
     val handleBackPress = {
-        if (uiState.isPostPlayRecommendationVisible) {
+        if (uiState.isPostPlayRecommendationVisible && uiState.isPostPlayTrailerPlaying) {
+            viewModel.onEvent(PlayerEvent.OnStopPostPlayTrailer)
+        } else if (uiState.isPostPlayRecommendationVisible) {
             viewModel.stopAndRelease()
             if (onPostPlayBackPress != null) {
                 onPostPlayBackPress()
@@ -534,6 +536,10 @@ fun PlayerScreen(
     ) {
         val postPlayVisible = uiState.isPostPlayRecommendationVisible &&
             uiState.postPlayRecommendation != null
+        val postPlayMiniPlayerVisible = postPlayVisible &&
+            !uiState.playbackEnded &&
+            !uiState.isPostPlayTrailerPlaying &&
+            !uiState.hasPlayedPostPlayTrailer
         val playerWindowFraction by animateFloatAsState(
             targetValue = if (postPlayVisible) 0.32f else 1f,
             animationSpec = tween(420),
@@ -555,9 +561,18 @@ fun PlayerScreen(
                     uiState.postPlayRecommendations.lastIndex,
                 playFocusRequester = postPlayFocusRequester,
                 playerWindowFocusRequester = postPlayPlayerFocusRequester,
+                isTrailerPlaying = uiState.isPostPlayTrailerPlaying,
+                hasPlayedTrailer = uiState.hasPlayedPostPlayTrailer,
+                trailerCountdownSec = uiState.postPlayTrailerCountdownSec,
                 onPlay = {
                     viewModel.stopAndRelease()
                     onPostPlayRecommendationSelected?.invoke(recommendation, true)
+                },
+                onPlayTrailer = {
+                    viewModel.onEvent(PlayerEvent.OnPlayPostPlayTrailer)
+                },
+                onTrailerEnded = {
+                    viewModel.onEvent(PlayerEvent.OnPostPlayTrailerEnded)
                 },
                 onPrevious = { viewModel.onEvent(PlayerEvent.OnPreviousPostPlayRecommendation) },
                 onNext = { viewModel.onEvent(PlayerEvent.OnNextPostPlayRecommendation) },
@@ -568,7 +583,7 @@ fun PlayerScreen(
         }
 
         // Video Player
-        if (!postPlayVisible || !uiState.playbackEnded) {
+        if (!postPlayVisible || postPlayMiniPlayerVisible) {
             viewModel.exoPlayer?.let { player ->
             val subtitleStyle = uiState.subtitleStyle
             val resizeMode = uiState.resizeMode
@@ -651,7 +666,7 @@ fun PlayerScreen(
             }
         }
 
-        if (postPlayVisible && !uiState.playbackEnded) {
+        if (postPlayMiniPlayerVisible) {
             PostPlayPlayerWindow(
                 focusRequester = postPlayPlayerFocusRequester,
                 downFocusRequester = postPlayFocusRequester,

@@ -16,6 +16,8 @@ import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
+import com.nuvio.tv.data.local.TrailerSettingsDataStore
+import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.data.repository.CreditAnalyzerRepository
 import com.nuvio.tv.data.repository.MDBListRepository
 import com.nuvio.tv.data.local.StreamAutoPlayMode
@@ -58,6 +60,8 @@ class PlayerRuntimeController(
     internal val tmdbMetadataService: TmdbMetadataService,
     internal val tmdbSettingsDataStore: TmdbSettingsDataStore,
     internal val mdbListRepository: MDBListRepository,
+    internal val trailerService: TrailerService,
+    internal val trailerSettingsDataStore: TrailerSettingsDataStore,
     internal val playerSettingsDataStore: PlayerSettingsDataStore,
     internal val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     internal val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
@@ -203,6 +207,7 @@ class PlayerRuntimeController(
     internal var creditAnalysisJob: Job? = null
     internal var recommendationLoadJob: Job? = null
     internal var recommendationMetadataJob: Job? = null
+    internal var postPlayTrailerCountdownJob: Job? = null
     internal var pendingPostPlayRecommendationIndex: Int? = null
     internal var ratingTransitionJob: Job? = null
     internal var creditAnalysisIdentity: String? = null

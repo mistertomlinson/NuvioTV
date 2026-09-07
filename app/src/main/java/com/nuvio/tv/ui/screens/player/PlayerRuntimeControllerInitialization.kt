@@ -320,6 +320,7 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                             emitCompletionScrobbleStop(progressPercent = 99.5f)
                             saveWatchProgress()
                             resetNextEpisodeCardState(clearEpisode = false)
+                            schedulePostPlayTrailerAfterPlaybackEnded()
                         }
                     }
 

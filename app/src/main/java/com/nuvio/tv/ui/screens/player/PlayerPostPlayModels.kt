@@ -49,8 +49,18 @@ data class PostPlayRecommendation(
     val tmdbRating: Float? = null,
     val mdbListRatings: MDBListRatings? = null,
     val playbackVideoId: String? = null,
+    val trailerVideoUrl: String? = null,
+    val trailerAudioUrl: String? = null,
     val metadataResolved: Boolean = false
-)
+) {
+    val hasTrailer: Boolean
+        get() = !trailerVideoUrl.isNullOrBlank()
+}
+
+internal fun shouldShowPostPlayTrailerAction(
+    recommendation: PostPlayRecommendation,
+    isTrailerPlaying: Boolean
+): Boolean = recommendation.hasTrailer && !isTrailerPlaying
 
 internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
     metadataResolved &&

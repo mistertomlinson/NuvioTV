@@ -123,6 +123,9 @@ data class PlayerUiState(
     val isPostPlayRecommendationLoading: Boolean = false,
     val isPostPlayRecommendationVisible: Boolean = false,
     val postPlayRecommendationDismissed: Boolean = false,
+    val isPostPlayTrailerPlaying: Boolean = false,
+    val hasPlayedPostPlayTrailer: Boolean = false,
+    val postPlayTrailerCountdownSec: Int? = null,
     val manualEndActionRequested: Boolean = false,
     // Stream source badge
     val showStreamSourceIndicator: Boolean = false,
@@ -239,6 +242,9 @@ sealed class PlayerEvent {
     data object OnPlayNextEpisode : PlayerEvent()
     data object OnDismissNextEpisodeCard : PlayerEvent()
     data object OnReturnToPlayerFromPostPlay : PlayerEvent()
+    data object OnPlayPostPlayTrailer : PlayerEvent()
+    data object OnStopPostPlayTrailer : PlayerEvent()
+    data object OnPostPlayTrailerEnded : PlayerEvent()
     data object OnPreviousPostPlayRecommendation : PlayerEvent()
     data object OnNextPostPlayRecommendation : PlayerEvent()
     // Subtitle style events (for in-player style tab)

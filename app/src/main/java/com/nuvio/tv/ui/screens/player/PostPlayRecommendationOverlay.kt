@@ -3,6 +3,9 @@
 package com.nuvio.tv.ui.screens.player
 
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -12,6 +15,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -70,6 +74,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.MDBListRatings
 import com.nuvio.tv.ui.components.SynopsisDescription
 import com.nuvio.tv.ui.components.SynopsisOverlay
+import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioTheme
 import java.util.Locale
 import kotlinx.coroutines.delay
@@ -82,7 +87,12 @@ internal fun PostPlayRecommendationOverlay(
     canGoNext: Boolean,
     playFocusRequester: FocusRequester,
     playerWindowFocusRequester: FocusRequester,
+    isTrailerPlaying: Boolean,
+    hasPlayedTrailer: Boolean,
+    trailerCountdownSec: Int?,
     onPlay: () -> Unit,
+    onPlayTrailer: () -> Unit,
+    onTrailerEnded: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier
@@ -90,12 +100,29 @@ internal fun PostPlayRecommendationOverlay(
     val previousFocusRequester = remember { FocusRequester() }
     val nextFocusRequester = remember { FocusRequester() }
     val readMoreFocusRequester = remember(recommendation.id) { FocusRequester() }
+    val trailerFocusRequester = remember(recommendation.id) { FocusRequester() }
     var pendingNavigationDirection by remember { mutableIntStateOf(0) }
     var synopsisExpanded by remember(recommendation.id) { mutableStateOf(false) }
     var descriptionTruncated by remember(recommendation.id) { mutableStateOf(false) }
     val playPainter = rememberPostPlayIcon(R.raw.ic_player_play)
+    val trailerPainter = rememberPostPlayIcon(R.raw.trailer_play_button)
+    val logoHeight by animateDpAsState(
+        targetValue = if (isTrailerPlaying) 60.dp else 92.dp,
+        animationSpec = tween(600),
+        label = "postPlayRecommendationLogoHeight"
+    )
+    val logoMaxWidth by animateFloatAsState(
+        targetValue = if (isTrailerPlaying) 0.48f else 0.76f,
+        animationSpec = tween(600),
+        label = "postPlayRecommendationLogoWidth"
+    )
+    val actionTopSpacing by animateDpAsState(
+        targetValue = if (isTrailerPlaying) 16.dp else 0.dp,
+        animationSpec = tween(600),
+        label = "postPlayRecommendationActionSpacing"
+    )
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(isTrailerPlaying) {
         delay(420L)
         runCatching { playFocusRequester.requestFocus() }
     }
@@ -132,6 +159,16 @@ internal fun PostPlayRecommendationOverlay(
                 contentScale = ContentScale.Crop
             )
         }
+        androidx.compose.runtime.key(recommendation.trailerVideoUrl ?: recommendation.id) {
+            TrailerPlayer(
+                trailerUrl = recommendation.trailerVideoUrl,
+                trailerAudioUrl = recommendation.trailerAudioUrl,
+                isPlaying = isTrailerPlaying,
+                onEnded = onTrailerEnded,
+                cropToFill = true,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -158,14 +195,18 @@ internal fun PostPlayRecommendationOverlay(
                 .padding(start = 52.dp, bottom = 42.dp),
             horizontalAlignment = Alignment.Start
         ) {
-            Text(
-                text = stringResource(R.string.player_post_play_because, currentTitle),
-                color = Color.White.copy(alpha = 0.62f),
-                fontSize = 14.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Spacer(Modifier.height(12.dp))
+            AnimatedVisibility(visible = !isTrailerPlaying) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.player_post_play_because, currentTitle),
+                        color = Color.White.copy(alpha = 0.62f),
+                        fontSize = 14.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
 
             AnimatedContent(
                 targetState = recommendation,
@@ -175,8 +216,8 @@ internal fun PostPlayRecommendationOverlay(
                 contentKey = { it.id },
                 label = "postPlayRecommendationLogo",
                 modifier = Modifier
-                    .fillMaxWidth(0.76f)
-                    .height(92.dp)
+                    .fillMaxWidth(logoMaxWidth)
+                    .height(logoHeight)
             ) { displayedRecommendation ->
                 Box(
                     modifier = Modifier.fillMaxSize(),
@@ -208,81 +249,100 @@ internal fun PostPlayRecommendationOverlay(
                 }
             }
 
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp),
-                contentAlignment = Alignment.TopStart
-            ) {
-                AnimatedContent(
-                    targetState = recommendation,
-                    transitionSpec = {
-                        fadeIn(tween(180)) togetherWith fadeOut(tween(180))
-                    },
-                    contentKey = { it.id },
-                    label = "postPlayRecommendationDetails",
-                    modifier = Modifier.fillMaxSize()
-                ) { displayedRecommendation ->
-                    PostPlayRecommendationDetails(
-                        recommendation = displayedRecommendation,
-                        readMoreFocusRequester = readMoreFocusRequester,
-                        playerWindowFocusRequester = playerWindowFocusRequester,
-                        playFocusRequester = playFocusRequester,
-                        onShowSynopsis = { synopsisExpanded = true },
-                        onDescriptionTruncationChanged = { truncated ->
-                            if (displayedRecommendation.id == recommendation.id) {
-                                descriptionTruncated = truncated
+            AnimatedVisibility(visible = !isTrailerPlaying) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(180.dp),
+                    contentAlignment = Alignment.TopStart
+                ) {
+                    AnimatedContent(
+                        targetState = recommendation,
+                        transitionSpec = {
+                            fadeIn(tween(180)) togetherWith fadeOut(tween(180))
+                        },
+                        contentKey = { it.id },
+                        label = "postPlayRecommendationDetails",
+                        modifier = Modifier.fillMaxSize()
+                    ) { displayedRecommendation ->
+                        PostPlayRecommendationDetails(
+                            recommendation = displayedRecommendation,
+                            readMoreFocusRequester = readMoreFocusRequester,
+                            playerWindowFocusRequester = playerWindowFocusRequester,
+                            playFocusRequester = playFocusRequester,
+                            onShowSynopsis = { synopsisExpanded = true },
+                            onDescriptionTruncationChanged = { truncated ->
+                                if (displayedRecommendation.id == recommendation.id) {
+                                    descriptionTruncated = truncated
+                                }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                Button(
-                    onClick = onPlay,
-                    modifier = Modifier
-                        .width(214.dp)
-                        .focusRequester(playFocusRequester)
-                        .focusProperties {
-                            up = if (descriptionTruncated) {
-                                readMoreFocusRequester
-                            } else {
-                                playerWindowFocusRequester
+            Spacer(Modifier.height(actionTopSpacing))
+
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                val showTrailerButton = shouldShowPostPlayTrailerAction(
+                    recommendation = recommendation,
+                    isTrailerPlaying = isTrailerPlaying
+                )
+                val showNavigationButtons = canGoPrevious || canGoNext
+                val actionCount = if (showTrailerButton) 2 else 1
+                val navigationCount = if (showNavigationButtons) 2 else 0
+                val itemCount = actionCount + navigationCount
+                val spacing = 12.dp
+                val availableActionWidth = maxWidth -
+                    48.dp * navigationCount - spacing * (itemCount - 1)
+                val buttonWidth = minOf((maxWidth - spacing) / 2, availableActionWidth / actionCount)
+                Row(horizontalArrangement = Arrangement.spacedBy(spacing), verticalAlignment = Alignment.CenterVertically) {
+                    PostPlayActionButton(
+                        label = stringResource(R.string.player_post_play_play),
+                        painter = playPainter,
+                        primary = true,
+                        focusRequester = playFocusRequester,
+                        onClick = onPlay,
+                        modifier = Modifier
+                            .width(buttonWidth)
+                            .focusProperties {
+                                when {
+                                    descriptionTruncated && !isTrailerPlaying -> up = readMoreFocusRequester
+                                    !hasPlayedTrailer -> up = playerWindowFocusRequester
+                                }
                             }
-                        },
-                    colors = ButtonDefaults.colors(
-                        containerColor = Color.White,
-                        focusedContainerColor = Color.White,
-                        contentColor = Color.Black,
-                        focusedContentColor = Color.Black
-                    ),
-                    shape = ButtonDefaults.shape(shape = RoundedCornerShape(24.dp)),
-                    scale = ButtonDefaults.scale(focusedScale = 1.1f),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
-                            shape = RoundedCornerShape(24.dp)
+                    )
+                    if (showTrailerButton) {
+                        PostPlayActionButton(
+                            label = if (trailerCountdownSec != null) {
+                                stringResource(
+                                    R.string.player_post_play_trailer_countdown,
+                                    trailerCountdownSec
+                                )
+                            } else {
+                                stringResource(R.string.player_post_play_trailer)
+                            },
+                            painter = trailerPainter,
+                            primary = false,
+                            focusRequester = trailerFocusRequester,
+                            onClick = onPlayTrailer,
+                            modifier = Modifier
+                                .width(buttonWidth)
+                                .focusProperties {
+                                    when {
+                                        descriptionTruncated -> up = readMoreFocusRequester
+                                        !hasPlayedTrailer -> up = playerWindowFocusRequester
+                                    }
+                                }
                         )
-                    ),
-                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(playPainter, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.player_post_play_play))
                     }
-                }
-                if (canGoPrevious || canGoNext) {
+                    if (showNavigationButtons) {
                     PostPlayNavigationButton(
                         focusRequester = previousFocusRequester,
                         icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
                         contentDescription = stringResource(R.string.player_post_play_previous_recommendation),
                         playerWindowFocusRequester = playerWindowFocusRequester,
+                        canFocusPlayerWindow = !hasPlayedTrailer,
                         enabled = canGoPrevious,
                         onClick = {
                             pendingNavigationDirection = -1
@@ -294,12 +354,14 @@ internal fun PostPlayRecommendationOverlay(
                         icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
                         contentDescription = stringResource(R.string.player_post_play_next_recommendation),
                         playerWindowFocusRequester = playerWindowFocusRequester,
+                        canFocusPlayerWindow = !hasPlayedTrailer,
                         enabled = canGoNext,
                         onClick = {
                             pendingNavigationDirection = 1
                             onNext()
                         }
                     )
+                    }
                 }
             }
         }
@@ -311,6 +373,47 @@ internal fun PostPlayRecommendationOverlay(
             description = recommendation.description.orEmpty(),
             onDismiss = { synopsisExpanded = false }
         )
+    }
+}
+
+@Composable
+private fun PostPlayActionButton(
+    label: String,
+    painter: Painter,
+    primary: Boolean,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val shape = RoundedCornerShape(24.dp)
+    Button(
+        onClick = onClick,
+        modifier = modifier.focusRequester(focusRequester),
+        colors = ButtonDefaults.colors(
+            containerColor = if (primary) Color.White else NuvioTheme.colors.BackgroundCard,
+            focusedContainerColor = if (primary) Color.White else NuvioTheme.colors.Secondary,
+            contentColor = if (primary) Color.Black else NuvioTheme.colors.TextPrimary,
+            focusedContentColor = if (primary) Color.Black else NuvioTheme.colors.OnSecondary
+        ),
+        shape = ButtonDefaults.shape(shape = shape),
+        scale = ButtonDefaults.scale(focusedScale = 1.1f),
+        border = ButtonDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
+                shape = shape
+            )
+        ),
+        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(painter, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(label)
+        }
     }
 }
 
@@ -363,6 +466,7 @@ private fun PostPlayNavigationButton(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     contentDescription: String,
     playerWindowFocusRequester: FocusRequester,
+    canFocusPlayerWindow: Boolean,
     enabled: Boolean,
     onClick: () -> Unit
 ) {
@@ -372,7 +476,9 @@ private fun PostPlayNavigationButton(
         modifier = Modifier
             .size(48.dp)
             .focusRequester(focusRequester)
-            .focusProperties { up = playerWindowFocusRequester },
+            .focusProperties {
+                if (canFocusPlayerWindow) up = playerWindowFocusRequester
+            },
         colors = IconButtonDefaults.colors(
             containerColor = NuvioTheme.colors.BackgroundCard,
             focusedContainerColor = NuvioTheme.colors.Secondary,

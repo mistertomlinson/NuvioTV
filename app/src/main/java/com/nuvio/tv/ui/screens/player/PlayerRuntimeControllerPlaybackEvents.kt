@@ -870,6 +870,13 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnReturnToPlayerFromPostPlay -> {
             returnToPlayerFromPostPlay()
         }
+        PlayerEvent.OnPlayPostPlayTrailer -> {
+            startPostPlayTrailer()
+        }
+        PlayerEvent.OnStopPostPlayTrailer,
+        PlayerEvent.OnPostPlayTrailerEnded -> {
+            stopPostPlayTrailer()
+        }
         PlayerEvent.OnPreviousPostPlayRecommendation -> {
             showAdjacentPostPlayRecommendation(-1)
         }

@@ -195,6 +195,8 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
     recommendationLoadJob = null
     recommendationMetadataJob?.cancel()
     recommendationMetadataJob = null
+    postPlayTrailerCountdownJob?.cancel()
+    postPlayTrailerCountdownJob = null
     pendingPostPlayRecommendationIndex = null
     ratingTransitionJob?.cancel()
     ratingTransitionJob = null
@@ -208,6 +210,9 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
             isPostPlayRecommendationLoading = false,
             isPostPlayRecommendationVisible = false,
             postPlayRecommendationDismissed = false,
+            isPostPlayTrailerPlaying = false,
+            hasPlayedPostPlayTrailer = false,
+            postPlayTrailerCountdownSec = null,
             manualEndActionRequested = false,
             showRatingOverlay = false,
             ratingSubmitted = false,
@@ -386,6 +391,9 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
                     showPauseOverlay = if (shouldShowImmediately) false else it.showPauseOverlay
                 )
             }
+            if (_uiState.value.playbackEnded) {
+                schedulePostPlayTrailerAfterPlaybackEnded()
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: Exception) {
@@ -458,13 +466,30 @@ private suspend fun PlayerRuntimeController.resolvePostPlayRecommendation(
         links = emptyList(),
         imdbId = imdbId
     )
-    val ratings = runCatching {
-        mdbListRepository.getRatingsForMeta(
-            meta = ratingsMeta,
-            fallbackItemId = candidate.id,
-            fallbackItemType = candidate.contentType
-        )?.ratings
-    }.getOrNull()
+    val (ratings, trailerSource) = coroutineScope {
+        val ratingsJob = async {
+            runCatching {
+                mdbListRepository.getRatingsForMeta(
+                    meta = ratingsMeta,
+                    fallbackItemId = candidate.id,
+                    fallbackItemType = candidate.contentType
+                )?.ratings
+            }.getOrNull()
+        }
+        val trailerJob = async {
+            withTimeoutOrNull(15_000L) {
+                trailerService.getTrailerPlaybackSource(
+                    title = enrichment?.localizedTitle?.takeIf { it.isNotBlank() }
+                        ?: meta?.name?.takeIf { it.isNotBlank() }
+                        ?: candidate.title,
+                    year = enrichment?.releaseInfo ?: meta?.releaseInfo ?: candidate.releaseInfo,
+                    tmdbId = tmdbId,
+                    type = candidate.contentType
+                )
+            }
+        }
+        ratingsJob.await() to trailerJob.await()
+    }
     candidate.copy(
         playbackVideoId = imdbId ?: candidate.playbackVideoId,
         title = enrichment?.localizedTitle?.takeIf { it.isNotBlank() }
@@ -482,6 +507,8 @@ private suspend fun PlayerRuntimeController.resolvePostPlayRecommendation(
         imdbRating = meta?.imdbRating ?: candidate.imdbRating,
         tmdbRating = enrichment?.rating?.toFloat(),
         mdbListRatings = ratings,
+        trailerVideoUrl = trailerSource?.videoUrl,
+        trailerAudioUrl = trailerSource?.audioUrl,
         metadataResolved = true
     )
 } catch (cancelled: CancellationException) {
@@ -535,6 +562,14 @@ internal fun PlayerRuntimeController.showAdjacentPostPlayRecommendation(directio
     val newIndex = (state.postPlayRecommendationIndex + direction)
         .coerceIn(0, state.postPlayRecommendations.lastIndex)
     if (newIndex == state.postPlayRecommendationIndex) return
+    postPlayTrailerCountdownJob?.cancel()
+    postPlayTrailerCountdownJob = null
+    _uiState.update {
+        it.copy(
+            isPostPlayTrailerPlaying = false,
+            postPlayTrailerCountdownSec = null
+        )
+    }
     val recommendation = state.postPlayRecommendations[newIndex]
     if (recommendation.metadataResolved) {
         pendingPostPlayRecommendationIndex = null
@@ -557,6 +592,53 @@ internal fun PlayerRuntimeController.returnToPlayerFromPostPlay() {
             postPlayRecommendationDismissed = true,
             manualEndActionRequested = false
         )
+    }
+}
+
+internal fun PlayerRuntimeController.startPostPlayTrailer() {
+    val state = _uiState.value
+    if (state.isPostPlayTrailerPlaying || state.postPlayRecommendation?.hasTrailer != true) return
+    postPlayTrailerCountdownJob?.cancel()
+    postPlayTrailerCountdownJob = null
+    releasePlayer()
+    _uiState.update {
+        it.copy(
+            isPostPlayTrailerPlaying = true,
+            hasPlayedPostPlayTrailer = true,
+            postPlayTrailerCountdownSec = null
+        )
+    }
+}
+
+internal fun PlayerRuntimeController.stopPostPlayTrailer() {
+    _uiState.update {
+        it.copy(
+            isPostPlayTrailerPlaying = false,
+            hasPlayedPostPlayTrailer = true,
+            postPlayTrailerCountdownSec = null
+        )
+    }
+}
+
+internal fun PlayerRuntimeController.schedulePostPlayTrailerAfterPlaybackEnded() {
+    val state = _uiState.value
+    if (!state.isPostPlayRecommendationVisible ||
+        state.isPostPlayTrailerPlaying ||
+        state.hasPlayedPostPlayTrailer ||
+        state.postPlayRecommendation?.hasTrailer != true ||
+        postPlayTrailerCountdownJob?.isActive == true
+    ) {
+        return
+    }
+    postPlayTrailerCountdownJob = scope.launch {
+        val enabled = runCatching { trailerSettingsDataStore.settings.first().enabled }
+            .getOrDefault(true)
+        if (!enabled) return@launch
+        for (seconds in 5 downTo 1) {
+            _uiState.update { it.copy(postPlayTrailerCountdownSec = seconds) }
+            delay(1_000L)
+        }
+        startPostPlayTrailer()
     }
 }
 
