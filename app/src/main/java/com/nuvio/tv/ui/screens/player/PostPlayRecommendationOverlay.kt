@@ -2,52 +2,76 @@
 
 package com.nuvio.tv.ui.screens.player
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.PlayArrow
+import androidx.annotation.RawRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.IconButton
+import androidx.tv.material3.IconButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import coil.compose.rememberAsyncImagePainter
+import coil.decode.SvgDecoder
+import coil.request.ImageRequest
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.MDBListRatings
+import com.nuvio.tv.ui.components.SynopsisDescription
+import com.nuvio.tv.ui.components.SynopsisOverlay
+import com.nuvio.tv.ui.theme.NuvioTheme
+import java.util.Locale
 import kotlinx.coroutines.delay
 
 @Composable
@@ -59,136 +83,413 @@ internal fun PostPlayRecommendationOverlay(
     playFocusRequester: FocusRequester,
     playerWindowFocusRequester: FocusRequester,
     onPlay: () -> Unit,
-    onOpenDetails: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val opensDetails = recommendation.contentType.trim().lowercase() in
-        setOf("series", "tv", "show", "tvshow")
+    val previousFocusRequester = remember { FocusRequester() }
+    val nextFocusRequester = remember { FocusRequester() }
+    val readMoreFocusRequester = remember(recommendation.id) { FocusRequester() }
+    var pendingNavigationDirection by remember { mutableIntStateOf(0) }
+    var synopsisExpanded by remember(recommendation.id) { mutableStateOf(false) }
+    var descriptionTruncated by remember(recommendation.id) { mutableStateOf(false) }
+    val playPainter = rememberPostPlayIcon(R.raw.ic_player_play)
 
-    LaunchedEffect(recommendation.id) {
+    LaunchedEffect(Unit) {
         delay(420L)
         runCatching { playFocusRequester.requestFocus() }
     }
 
+    // Keep focus on the arrow that initiated paging after the new item composes.
+    LaunchedEffect(recommendation.id) {
+        if (pendingNavigationDirection == 0) return@LaunchedEffect
+        repeat(2) { withFrameNanos { } }
+        val requester = when {
+            pendingNavigationDirection < 0 && canGoPrevious -> previousFocusRequester
+            pendingNavigationDirection > 0 && canGoNext -> nextFocusRequester
+            canGoPrevious -> previousFocusRequester
+            canGoNext -> nextFocusRequester
+            else -> playFocusRequester
+        }
+        runCatching { requester.requestFocus() }
+        pendingNavigationDirection = 0
+    }
+
     Box(modifier = modifier.background(Color.Black)) {
-        AsyncImage(
-            model = recommendation.backdrop ?: recommendation.poster,
-            contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.Crop
-        )
+        AnimatedContent(
+            targetState = recommendation,
+            transitionSpec = {
+                fadeIn(tween(180)) togetherWith fadeOut(tween(180))
+            },
+            contentKey = { it.id },
+            label = "postPlayRecommendationBackdrop",
+            modifier = Modifier.fillMaxSize()
+        ) { displayedRecommendation ->
+            AsyncImage(
+                model = displayedRecommendation.backdrop ?: displayedRecommendation.poster,
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        }
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.horizontalGradient(
-                        0f to Color.Black.copy(alpha = 0.96f),
-                        0.52f to Color.Black.copy(alpha = 0.70f),
-                        1f to Color.Black.copy(alpha = 0.24f)
+                        0f to Color.Black.copy(alpha = 0.88f),
+                        0.54f to Color.Black.copy(alpha = 0.16f),
+                        1f to Color.Black.copy(alpha = 0.22f)
                     )
                 )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        0f to Color.Black.copy(alpha = 0.15f),
-                        1f to Color.Black.copy(alpha = 0.72f)
+                        0f to Color.Black.copy(alpha = 0.08f),
+                        0.58f to Color.Transparent,
+                        1f to Color.Black.copy(alpha = 0.82f)
                     )
                 )
         )
 
         Column(
             modifier = Modifier
-                .fillMaxHeight()
-                .fillMaxWidth(0.55f)
-                .padding(start = 52.dp, end = 28.dp, top = 54.dp, bottom = 42.dp),
-            verticalArrangement = Arrangement.Center
+                .align(Alignment.BottomStart)
+                .fillMaxWidth(0.52f)
+                .padding(start = 52.dp, bottom = 42.dp),
+            horizontalAlignment = Alignment.Start
         ) {
             Text(
                 text = stringResource(R.string.player_post_play_because, currentTitle),
-                color = Color.White.copy(alpha = 0.72f),
-                fontSize = 15.sp
-            )
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = recommendation.title,
-                color = Color.White,
-                fontSize = 36.sp,
-                lineHeight = 40.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
+                color = Color.White.copy(alpha = 0.62f),
+                fontSize = 14.sp,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            val facts = listOfNotNull(
-                recommendation.releaseInfo?.takeIf { it.isNotBlank() },
-                recommendation.genres.take(3).joinToString(" • ").takeIf { it.isNotBlank() }
-            ).joinToString("  •  ")
-            if (facts.isNotBlank()) {
-                Spacer(Modifier.height(10.dp))
-                Text(facts, color = Color.White.copy(alpha = 0.76f), fontSize = 14.sp)
+            Spacer(Modifier.height(12.dp))
+
+            AnimatedContent(
+                targetState = recommendation,
+                transitionSpec = {
+                    fadeIn(tween(180)) togetherWith fadeOut(tween(180))
+                },
+                contentKey = { it.id },
+                label = "postPlayRecommendationLogo",
+                modifier = Modifier
+                    .fillMaxWidth(0.76f)
+                    .height(92.dp)
+            ) { displayedRecommendation ->
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    var logoFailed by remember(displayedRecommendation.logo) {
+                        mutableStateOf(false)
+                    }
+                    if (!displayedRecommendation.logo.isNullOrBlank() && !logoFailed) {
+                        AsyncImage(
+                            model = displayedRecommendation.logo,
+                            contentDescription = displayedRecommendation.title,
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.CenterStart,
+                            modifier = Modifier.fillMaxSize(),
+                            onError = { logoFailed = true }
+                        )
+                    } else {
+                        Text(
+                            text = displayedRecommendation.title,
+                            color = Color.White,
+                            fontSize = 36.sp,
+                            lineHeight = 40.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
             }
-            recommendation.description?.takeIf { it.isNotBlank() }?.let { description ->
-                Spacer(Modifier.height(16.dp))
-                Text(
-                    text = description,
-                    color = Color.White.copy(alpha = 0.88f),
-                    fontSize = 16.sp,
-                    lineHeight = 23.sp,
-                    maxLines = 5,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp),
+                contentAlignment = Alignment.TopStart
+            ) {
+                AnimatedContent(
+                    targetState = recommendation,
+                    transitionSpec = {
+                        fadeIn(tween(180)) togetherWith fadeOut(tween(180))
+                    },
+                    contentKey = { it.id },
+                    label = "postPlayRecommendationDetails",
+                    modifier = Modifier.fillMaxSize()
+                ) { displayedRecommendation ->
+                    PostPlayRecommendationDetails(
+                        recommendation = displayedRecommendation,
+                        readMoreFocusRequester = readMoreFocusRequester,
+                        playerWindowFocusRequester = playerWindowFocusRequester,
+                        playFocusRequester = playFocusRequester,
+                        onShowSynopsis = { synopsisExpanded = true },
+                        onDescriptionTruncationChanged = { truncated ->
+                            if (displayedRecommendation.id == recommendation.id) {
+                                descriptionTruncated = truncated
+                            }
+                        }
+                    )
+                }
             }
-            Spacer(Modifier.height(24.dp))
+
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Button(
-                    onClick = if (opensDetails) onOpenDetails else onPlay,
+                    onClick = onPlay,
                     modifier = Modifier
+                        .width(214.dp)
                         .focusRequester(playFocusRequester)
-                        .focusProperties { up = playerWindowFocusRequester },
-                    contentPadding = ButtonDefaults.ContentPadding
+                        .focusProperties {
+                            up = if (descriptionTruncated) {
+                                readMoreFocusRequester
+                            } else {
+                                playerWindowFocusRequester
+                            }
+                        },
+                    colors = ButtonDefaults.colors(
+                        containerColor = Color.White,
+                        focusedContainerColor = Color.White,
+                        contentColor = Color.Black,
+                        focusedContentColor = Color.Black
+                    ),
+                    shape = ButtonDefaults.shape(shape = RoundedCornerShape(24.dp)),
+                    scale = ButtonDefaults.scale(focusedScale = 1.1f),
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
+                            shape = RoundedCornerShape(24.dp)
+                        )
+                    ),
+                    contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
                 ) {
-                    Icon(
-                        if (opensDetails) Icons.Default.Info else Icons.Default.PlayArrow,
-                        contentDescription = null
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        stringResource(
-                            if (opensDetails) R.string.tmdb_details_title
-                            else R.string.player_post_play_play
-                        )
-                    )
-                }
-                if (!opensDetails) {
-                    Button(onClick = onOpenDetails) {
-                        Icon(Icons.Default.Info, contentDescription = null)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(playPainter, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text(stringResource(R.string.tmdb_details_title))
+                        Text(stringResource(R.string.player_post_play_play))
                     }
                 }
-                if (canGoPrevious) {
-                    IconButton(onClick = onPrevious) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                            contentDescription = stringResource(R.string.player_post_play_previous_recommendation)
-                        )
-                    }
-                }
-                if (canGoNext) {
-                    IconButton(onClick = onNext) {
-                        Icon(
-                            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                            contentDescription = stringResource(R.string.player_post_play_next_recommendation)
-                        )
-                    }
+                if (canGoPrevious || canGoNext) {
+                    PostPlayNavigationButton(
+                        focusRequester = previousFocusRequester,
+                        icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                        contentDescription = stringResource(R.string.player_post_play_previous_recommendation),
+                        playerWindowFocusRequester = playerWindowFocusRequester,
+                        enabled = canGoPrevious,
+                        onClick = {
+                            pendingNavigationDirection = -1
+                            onPrevious()
+                        }
+                    )
+                    PostPlayNavigationButton(
+                        focusRequester = nextFocusRequester,
+                        icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                        contentDescription = stringResource(R.string.player_post_play_next_recommendation),
+                        playerWindowFocusRequester = playerWindowFocusRequester,
+                        enabled = canGoNext,
+                        onClick = {
+                            pendingNavigationDirection = 1
+                            onNext()
+                        }
+                    )
                 }
             }
         }
     }
+
+    if (synopsisExpanded) {
+        SynopsisOverlay(
+            title = recommendation.title,
+            description = recommendation.description.orEmpty(),
+            onDismiss = { synopsisExpanded = false }
+        )
+    }
+}
+
+@Composable
+private fun PostPlayRecommendationDetails(
+    recommendation: PostPlayRecommendation,
+    readMoreFocusRequester: FocusRequester,
+    playerWindowFocusRequester: FocusRequester,
+    playFocusRequester: FocusRequester,
+    onShowSynopsis: () -> Unit,
+    onDescriptionTruncationChanged: (Boolean) -> Unit
+) {
+    Column {
+        val metadata = recommendation.metadataLine()
+        if (metadata.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = metadata,
+                color = Color.White.copy(alpha = 0.76f),
+                fontSize = 14.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+
+        recommendation.mdbListRatings?.takeUnless { it.isEmpty() }?.let { ratings ->
+            Spacer(Modifier.height(10.dp))
+            PostPlayRatingsRow(ratings)
+        } ?: run {
+            val standardRatings = listOfNotNull(
+                recommendation.imdbRating?.takeIf { it > 0f }
+                    ?.let { "IMDb ${formatOneDecimal(it.toDouble())}" },
+                recommendation.tmdbRating?.takeIf { it > 0f }
+                    ?.let { "TMDB ${(it * 10).toInt()}" }
+            )
+            if (standardRatings.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = standardRatings.joinToString("   "),
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 14.sp
+                )
+            }
+        }
+
+        recommendation.description?.takeIf { it.isNotBlank() }?.let { description ->
+            Spacer(Modifier.height(12.dp))
+            SynopsisDescription(
+                description = description,
+                onShowFullDescription = onShowSynopsis,
+                maxLines = 3,
+                focusRequester = readMoreFocusRequester,
+                upFocusRequester = playerWindowFocusRequester,
+                downFocusRequester = playFocusRequester,
+                onTruncationChanged = onDescriptionTruncationChanged,
+                modifier = Modifier.fillMaxWidth(0.92f)
+            )
+        }
+    }
+}
+
+@Composable
+private fun PostPlayNavigationButton(
+    focusRequester: FocusRequester,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    contentDescription: String,
+    playerWindowFocusRequester: FocusRequester,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    IconButton(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = Modifier
+            .size(48.dp)
+            .focusRequester(focusRequester)
+            .focusProperties { up = playerWindowFocusRequester },
+        colors = IconButtonDefaults.colors(
+            containerColor = NuvioTheme.colors.BackgroundCard,
+            focusedContainerColor = NuvioTheme.colors.Secondary,
+            contentColor = NuvioTheme.colors.TextPrimary,
+            focusedContentColor = NuvioTheme.colors.OnSecondary
+        ),
+        scale = IconButtonDefaults.scale(focusedScale = 1.1f),
+        border = IconButtonDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
+                shape = CircleShape
+            )
+        ),
+        shape = IconButtonDefaults.shape(shape = CircleShape)
+    ) {
+        Icon(icon, contentDescription = contentDescription, modifier = Modifier.size(32.dp))
+    }
+}
+
+@Composable
+private fun PostPlayRatingsRow(ratings: MDBListRatings) {
+    val logoRatings = listOfNotNull(
+        ratings.trakt?.let { Triple("trakt", R.raw.mdblist_trakt, it) },
+        ratings.imdb?.let { Triple("imdb", R.raw.imdb_logo_2016, it) },
+        ratings.tmdb?.let { Triple("tmdb", R.raw.mdblist_tmdb, it) },
+        ratings.letterboxd?.let { Triple("letterboxd", R.raw.mdblist_letterboxd, it) },
+        ratings.tomatoes?.let { Triple("tomatoes", R.raw.mdblist_tomatoes, it) }
+    )
+    Row(horizontalArrangement = Arrangement.spacedBy(13.dp), verticalAlignment = Alignment.CenterVertically) {
+        logoRatings.forEach { (provider, icon, rating) ->
+            Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+                AsyncImage(model = icon, contentDescription = null, modifier = Modifier.size(22.dp))
+                Text(
+                    text = formatPostPlayRating(provider, rating),
+                    color = Color.White.copy(alpha = 0.78f),
+                    fontSize = 13.sp
+                )
+            }
+        }
+        ratings.audience?.let { rating ->
+            PostPlayDrawableRating(R.drawable.mdblist_audience, formatPostPlayRating("audience", rating))
+        }
+        ratings.metacritic?.let { rating ->
+            PostPlayDrawableRating(R.drawable.mdblist_metacritic, formatPostPlayRating("metacritic", rating))
+        }
+    }
+}
+
+@Composable
+private fun PostPlayDrawableRating(drawable: Int, rating: String) {
+    Row(horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically) {
+        Image(painterResource(drawable), contentDescription = null, modifier = Modifier.size(22.dp))
+        Text(rating, color = Color.White.copy(alpha = 0.78f), fontSize = 13.sp)
+    }
+}
+
+private fun PostPlayRecommendation.metadataLine(): String = buildList {
+    genres.take(2).takeIf { it.isNotEmpty() }?.joinToString(" • ")?.let(::add)
+    formatPostPlayReleaseInfo(releaseInfo)?.takeIf { it.isNotBlank() }?.let(::add)
+    formatPostPlayRuntime(runtime)?.takeIf { it.isNotBlank() }?.let(::add)
+}.joinToString("  •  ")
+
+private fun formatPostPlayReleaseInfo(releaseInfo: String?): String? {
+    val value = releaseInfo?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val years = Regex("\\b(?:19|20)\\d{2}\\b")
+        .findAll(value)
+        .map { it.value }
+        .distinct()
+        .toList()
+    return when {
+        years.size > 1 -> years.joinToString("–")
+        years.size == 1 -> years.single()
+        else -> value
+    }
+}
+
+private fun formatPostPlayRuntime(runtime: String?): String? {
+    val value = runtime?.trim()?.takeIf { it.isNotBlank() } ?: return null
+    val minutes = value.filter(Char::isDigit).toIntOrNull() ?: return value
+    if (minutes < 60) return "${minutes}m"
+    val hours = minutes / 60
+    val remainder = minutes % 60
+    return if (remainder == 0) "${hours}h" else "${hours}h ${remainder}m"
+}
+
+private fun formatPostPlayRating(provider: String, rating: Double): String = when (provider) {
+    "imdb", "tmdb", "letterboxd" -> formatOneDecimal(rating)
+    else -> if (rating % 1.0 == 0.0) rating.toInt().toString() else formatOneDecimal(rating)
+}
+
+private fun formatOneDecimal(value: Double): String = String.format(Locale.US, "%.1f", value)
+
+@Composable
+private fun rememberPostPlayIcon(@RawRes iconRes: Int): Painter {
+    val context = LocalContext.current
+    val model = remember(iconRes, context) {
+        ImageRequest.Builder(context)
+            .data(iconRes)
+            .decoderFactory(SvgDecoder.Factory())
+            .build()
+    }
+    return rememberAsyncImagePainter(model = model)
 }
 
 @Composable
@@ -209,7 +510,7 @@ internal fun PostPlayPlayerWindow(
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(12.dp)),
         border = CardDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(
+            focusedBorder = Border(
                 border = BorderStroke(3.dp, MaterialTheme.colorScheme.primary),
                 shape = RoundedCornerShape(12.dp)
             )

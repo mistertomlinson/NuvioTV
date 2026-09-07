@@ -17,6 +17,7 @@ import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.repository.CreditAnalyzerRepository
+import com.nuvio.tv.data.repository.MDBListRepository
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.repository.ParentalGuideRepository
 import com.nuvio.tv.data.repository.SkipIntroRepository
@@ -56,6 +57,7 @@ class PlayerRuntimeController(
     internal val tmdbService: TmdbService,
     internal val tmdbMetadataService: TmdbMetadataService,
     internal val tmdbSettingsDataStore: TmdbSettingsDataStore,
+    internal val mdbListRepository: MDBListRepository,
     internal val playerSettingsDataStore: PlayerSettingsDataStore,
     internal val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     internal val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
@@ -200,6 +202,8 @@ class PlayerRuntimeController(
     internal var nextEpisodeAutoPlayJob: Job? = null
     internal var creditAnalysisJob: Job? = null
     internal var recommendationLoadJob: Job? = null
+    internal var recommendationMetadataJob: Job? = null
+    internal var pendingPostPlayRecommendationIndex: Int? = null
     internal var ratingTransitionJob: Job? = null
     internal var creditAnalysisIdentity: String? = null
     internal var introDbCreditIntervals: List<SkipInterval> = emptyList()
@@ -309,6 +313,7 @@ class PlayerRuntimeController(
     fun onCleared() {
         creditAnalysisJob?.cancel()
         recommendationLoadJob?.cancel()
+        recommendationMetadataJob?.cancel()
         releasePlayer()
         mediaSourceFactory.shutdown()
         sourceChipErrorDismissJob?.cancel()

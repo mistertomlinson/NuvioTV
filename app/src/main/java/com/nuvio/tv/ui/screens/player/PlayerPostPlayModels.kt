@@ -1,10 +1,12 @@
 package com.nuvio.tv.ui.screens.player
 
 import androidx.compose.runtime.Immutable
+import com.nuvio.tv.domain.model.MDBListRatings
 import com.nuvio.tv.domain.model.Video
 
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
 internal const val MANUAL_END_ACTION_THRESHOLD = 0.85
+internal const val FINAL_CREDIT_ACTION_GRACE_MS = 2_000L
 
 enum class CreditTimingStatus {
     NOT_STARTED,
@@ -38,9 +40,15 @@ data class PostPlayRecommendation(
     val title: String,
     val backdrop: String?,
     val poster: String?,
+    val logo: String? = null,
     val description: String?,
     val releaseInfo: String?,
-    val genres: List<String>
+    val genres: List<String>,
+    val runtime: String? = null,
+    val imdbRating: Float? = null,
+    val tmdbRating: Float? = null,
+    val mdbListRatings: MDBListRatings? = null,
+    val metadataResolved: Boolean = false
 )
 
 /**
@@ -55,7 +63,9 @@ internal fun authoritativeEndActionDecision(
     if (timing.status == CreditTimingStatus.RUNNING && timing.finalCreditsStartMs == null) {
         return false
     }
-    return timing.finalCreditsStartMs?.let { positionMs >= it }
+    return timing.finalCreditsStartMs?.let { finalCreditsStartMs ->
+        positionMs >= finalCreditsStartMs + FINAL_CREDIT_ACTION_GRACE_MS
+    }
 }
 
 internal fun isRatingPromptEligibleContent(
@@ -98,7 +108,7 @@ internal fun shouldShowCreditRatingPrompt(
         return false
     }
     val finalCreditsStartMs = state.creditTiming.finalCreditsStartMs ?: return false
-    return positionMs >= finalCreditsStartMs
+    return positionMs >= finalCreditsStartMs + FINAL_CREDIT_ACTION_GRACE_MS
 }
 
 internal fun shouldStartManualEndAction(

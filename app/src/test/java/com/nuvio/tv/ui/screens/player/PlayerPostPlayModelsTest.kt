@@ -24,8 +24,8 @@ class PlayerPostPlayModelsTest {
             hasPostCreditScenes = true
         )
 
-        assertFalse(authoritativeEndActionDecision(timing, 6_699_999L)!!)
-        assertTrue(authoritativeEndActionDecision(timing, 6_700_000L)!!)
+        assertFalse(authoritativeEndActionDecision(timing, 6_701_999L)!!)
+        assertTrue(authoritativeEndActionDecision(timing, 6_702_000L)!!)
     }
 
     @Test
@@ -38,7 +38,8 @@ class PlayerPostPlayModelsTest {
         )
 
         assertFalse(authoritativeEndActionDecision(timing, 6_297_575L)!!)
-        assertTrue(authoritativeEndActionDecision(timing, 6_695_575L)!!)
+        assertFalse(authoritativeEndActionDecision(timing, 6_697_574L)!!)
+        assertTrue(authoritativeEndActionDecision(timing, 6_697_575L)!!)
     }
 
     @Test
@@ -55,8 +56,8 @@ class PlayerPostPlayModelsTest {
             finalCreditsStartMs = 6_700_000L
         )
 
-        assertFalse(authoritativeEndActionDecision(timing, 6_699_999L)!!)
-        assertTrue(authoritativeEndActionDecision(timing, 6_700_000L)!!)
+        assertFalse(authoritativeEndActionDecision(timing, 6_701_999L)!!)
+        assertTrue(authoritativeEndActionDecision(timing, 6_702_000L)!!)
     }
 
     @Test
@@ -101,7 +102,7 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
-    fun `credit rating prompt starts for movie at final credits`() {
+    fun `credit rating prompt starts two seconds into final credits`() {
         val state = PlayerUiState(
             contentType = "movie",
             isRatingProviderConnected = true,
@@ -111,8 +112,8 @@ class PlayerPostPlayModelsTest {
             )
         )
 
-        assertFalse(shouldShowCreditRatingPrompt(state, 6_699_999L))
-        assertTrue(shouldShowCreditRatingPrompt(state, 6_700_000L))
+        assertFalse(shouldShowCreditRatingPrompt(state, 6_701_999L))
+        assertTrue(shouldShowCreditRatingPrompt(state, 6_702_000L))
     }
 
     @Test
@@ -134,7 +135,7 @@ class PlayerPostPlayModelsTest {
         assertTrue(
             shouldShowCreditRatingPrompt(
                 base.copy(currentEpisode = 2),
-                2_400_000L
+                2_402_000L
             )
         )
     }

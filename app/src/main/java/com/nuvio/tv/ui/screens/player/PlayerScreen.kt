@@ -550,17 +550,14 @@ fun PlayerScreen(
             PostPlayRecommendationOverlay(
                 recommendation = recommendation,
                 currentTitle = uiState.contentName ?: uiState.title,
-                canGoPrevious = uiState.postPlayRecommendations.size > 1,
-                canGoNext = uiState.postPlayRecommendations.size > 1,
+                canGoPrevious = uiState.postPlayRecommendationIndex > 0,
+                canGoNext = uiState.postPlayRecommendationIndex <
+                    uiState.postPlayRecommendations.lastIndex,
                 playFocusRequester = postPlayFocusRequester,
                 playerWindowFocusRequester = postPlayPlayerFocusRequester,
                 onPlay = {
                     viewModel.stopAndRelease()
                     onPostPlayRecommendationSelected?.invoke(recommendation, true)
-                },
-                onOpenDetails = {
-                    viewModel.stopAndRelease()
-                    onPostPlayRecommendationSelected?.invoke(recommendation, false)
                 },
                 onPrevious = { viewModel.onEvent(PlayerEvent.OnPreviousPostPlayRecommendation) },
                 onNext = { viewModel.onEvent(PlayerEvent.OnNextPostPlayRecommendation) },
@@ -581,12 +578,18 @@ fun PlayerScreen(
                         this.player = player
                         useController = false
                         keepScreenOn = true
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        setBackgroundColor(android.graphics.Color.BLACK)
                         setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
                     }
                 },
                 update = { playerView ->
                     Log.d("PlayerScreen", "Applying resizeMode: $resizeMode")
-                    playerView.resizeMode = resizeMode
+                    playerView.resizeMode = if (postPlayVisible) {
+                        androidx.media3.ui.AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    } else {
+                        resizeMode
+                    }
                     playerView.subtitleView?.apply {
                         // Calculate font size based on percentage (100% = 24sp base)
                         val baseFontSize = 24f
@@ -635,10 +638,11 @@ fun PlayerScreen(
                 },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .padding(top = playerWindowPadding, end = playerWindowPadding)
                     .fillMaxWidth(playerWindowFraction)
                     .aspectRatio(16f / 9f)
-                    .padding(top = playerWindowPadding, end = playerWindowPadding)
                     .clip(RoundedCornerShape(if (postPlayVisible) 12.dp else 0.dp))
+                    .background(Color.Black)
                     .zIndex(if (postPlayVisible) 3f else 0f)
             )
         }
@@ -650,9 +654,9 @@ fun PlayerScreen(
                 onClick = { viewModel.onEvent(PlayerEvent.OnReturnToPlayerFromPostPlay) },
                 modifier = Modifier
                     .align(Alignment.TopEnd)
+                    .padding(top = playerWindowPadding, end = playerWindowPadding)
                     .fillMaxWidth(playerWindowFraction)
                     .aspectRatio(16f / 9f)
-                    .padding(top = playerWindowPadding, end = playerWindowPadding)
                     .zIndex(4f)
             )
         }

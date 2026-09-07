@@ -2,16 +2,19 @@ package com.nuvio.tv.ui.screens.player
 
 import android.net.Uri
 import android.util.Log
+import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.remote.api.CreditAnalyzeRequest
 import com.nuvio.tv.data.remote.api.CreditAnalyzerJobResponse
 import com.nuvio.tv.domain.model.ContentType
 import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 private const val CREDIT_JOB_POLL_INTERVAL_MS = 5_000L
 private const val MOVIE_FALLBACK_THRESHOLD = 0.95
@@ -186,6 +189,9 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
     creditAnalysisJob = null
     recommendationLoadJob?.cancel()
     recommendationLoadJob = null
+    recommendationMetadataJob?.cancel()
+    recommendationMetadataJob = null
+    pendingPostPlayRecommendationIndex = null
     ratingTransitionJob?.cancel()
     ratingTransitionJob = null
     creditAnalysisIdentity = null
@@ -313,6 +319,7 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
             }
             val mapped = recommendations
                 .filterNot { it.id == sourceId || it.id == "tmdb:$tmdbId" }
+                .take(MAX_POST_PLAY_RECOMMENDATIONS)
                 .map { item ->
                     PostPlayRecommendation(
                         id = item.id,
@@ -320,31 +327,59 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
                         title = item.name,
                         backdrop = item.backdropUrl,
                         poster = item.poster,
+                        logo = item.logo,
                         description = item.description,
                         releaseInfo = item.releaseInfo,
-                        genres = item.genres
+                        genres = item.genres,
+                        runtime = item.runtime,
+                        imdbRating = item.imdbRating
                     )
                 }
+            if (mapped.isEmpty()) {
+                if (recommendationIdentity() == expectedIdentity) {
+                    _uiState.update { it.copy(isPostPlayRecommendationLoading = false) }
+                }
+                return@launch
+            }
+            val firstRecommendation = resolvePostPlayRecommendation(mapped.first())
+            val readyRecommendations = mapped.toMutableList().apply {
+                this[0] = firstRecommendation
+            }
             val currentIdentity = recommendationIdentity()
             if (!isActive || currentIdentity != expectedIdentity) return@launch
             val playerPosition = _exoPlayer?.currentPosition?.coerceAtLeast(0L)
                 ?: _uiState.value.currentPosition
             val playerDuration = _exoPlayer?.duration?.takeIf { it > 0L }
                 ?: _uiState.value.duration
-            val shouldShowImmediately = mapped.isNotEmpty() &&
+            val shouldShowImmediately =
                 !_uiState.value.postPlayRecommendationDismissed &&
                 !_uiState.value.blocksEndActionForRating &&
                 !shouldShowCreditRatingPrompt(_uiState.value, playerPosition) &&
                 isEndActionTriggerReached(playerPosition, playerDuration)
             _uiState.update {
                 it.copy(
-                    postPlayRecommendations = mapped,
+                    postPlayRecommendations = readyRecommendations,
                     postPlayRecommendationIndex = 0,
                     isPostPlayRecommendationLoading = false,
                     isPostPlayRecommendationVisible = shouldShowImmediately,
                     showControls = if (shouldShowImmediately) false else it.showControls,
                     showPauseOverlay = if (shouldShowImmediately) false else it.showPauseOverlay
                 )
+            }
+            coroutineScope {
+                for (index in 1..readyRecommendations.lastIndex) {
+                    launch preload@ {
+                        if (recommendationIdentity() != expectedIdentity) return@preload
+                        val current = _uiState.value.postPlayRecommendations.getOrNull(index)
+                            ?: return@preload
+                        if (current.metadataResolved) return@preload
+                        publishResolvedPostPlayRecommendation(
+                            index = index,
+                            candidate = current,
+                            enriched = resolvePostPlayRecommendation(current)
+                        )
+                    }
+                }
             }
         } catch (error: CancellationException) {
             throw error
@@ -357,6 +392,107 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
     }
 }
 
+private suspend fun PlayerRuntimeController.resolvePostPlayRecommendation(
+    candidate: PostPlayRecommendation
+): PostPlayRecommendation = try {
+    val type = when (candidate.contentType.trim().lowercase()) {
+        "series", "tv", "show", "tvshow" -> ContentType.SERIES
+        else -> ContentType.MOVIE
+    }
+    val settings = tmdbSettingsDataStore.settings.first()
+    val tmdbId = candidate.id
+        .removePrefix("tmdb:")
+        .substringBefore(':')
+        .takeIf { it.toIntOrNull() != null }
+        ?: tmdbService.ensureTmdbId(candidate.id, candidate.contentType)
+    val enrichment = if (tmdbId != null) {
+        withTimeoutOrNull(12_000L) {
+            tmdbMetadataService.fetchEnrichment(
+                tmdbId = tmdbId,
+                contentType = type,
+                language = settings.language
+            )
+        }
+    } else {
+        null
+    }
+    val imdbId = tmdbId?.toIntOrNull()?.let { numericId ->
+        runCatching {
+            tmdbService.tmdbToImdb(numericId, candidate.contentType)
+        }.getOrNull()
+    }
+    val meta = withTimeoutOrNull(8_000L) {
+        metaRepository.getMetaFromAllAddons(
+            type = candidate.contentType,
+            id = imdbId ?: candidate.id
+        ).first { it !is NetworkResult.Loading }
+            .let { (it as? NetworkResult.Success)?.data }
+    }
+    val ratings = meta?.let {
+        runCatching {
+            mdbListRepository.getRatingsForMeta(
+                meta = it,
+                fallbackItemId = candidate.id,
+                fallbackItemType = candidate.contentType
+            )?.ratings
+        }.getOrNull()
+    }
+    candidate.copy(
+        title = enrichment?.localizedTitle?.takeIf { it.isNotBlank() }
+            ?: meta?.name?.takeIf { it.isNotBlank() }
+            ?: candidate.title,
+        backdrop = enrichment?.backdrop ?: meta?.backdropUrl ?: candidate.backdrop,
+        poster = enrichment?.poster ?: meta?.poster ?: candidate.poster,
+        logo = enrichment?.logo ?: meta?.logo ?: candidate.logo,
+        description = enrichment?.description ?: meta?.description ?: candidate.description,
+        releaseInfo = enrichment?.releaseInfo ?: meta?.releaseInfo ?: candidate.releaseInfo,
+        genres = enrichment?.genres?.takeIf { it.isNotEmpty() }
+            ?: meta?.genres?.takeIf { it.isNotEmpty() }
+            ?: candidate.genres,
+        runtime = enrichment?.runtimeMinutes?.toString() ?: meta?.runtime ?: candidate.runtime,
+        imdbRating = meta?.imdbRating ?: candidate.imdbRating,
+        tmdbRating = enrichment?.rating?.toFloat(),
+        mdbListRatings = ratings,
+        metadataResolved = true
+    )
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (error: Exception) {
+    Log.w(PlayerRuntimeController.TAG, "Post-play metadata failed: ${error.message}")
+    candidate.copy(metadataResolved = true)
+}
+
+private fun PlayerRuntimeController.publishResolvedPostPlayRecommendation(
+    index: Int,
+    candidate: PostPlayRecommendation,
+    enriched: PostPlayRecommendation
+) {
+    val selectResolved = pendingPostPlayRecommendationIndex == index
+    _uiState.update { state ->
+        val current = state.postPlayRecommendations.getOrNull(index)
+        if (current?.id != candidate.id) return@update state
+        state.copy(
+            postPlayRecommendations = state.postPlayRecommendations.toMutableList().apply {
+                this[index] = enriched
+            },
+            postPlayRecommendationIndex = if (selectResolved) index
+                else state.postPlayRecommendationIndex
+        )
+    }
+    if (selectResolved) pendingPostPlayRecommendationIndex = null
+}
+
+private fun PlayerRuntimeController.enrichPostPlayRecommendation(index: Int) {
+    val candidate = _uiState.value.postPlayRecommendations.getOrNull(index) ?: return
+    if (candidate.metadataResolved || recommendationMetadataJob?.isActive == true) return
+    val expectedIdentity = recommendationIdentity()
+    recommendationMetadataJob = scope.launch {
+        val enriched = resolvePostPlayRecommendation(candidate)
+        if (!isActive || recommendationIdentity() != expectedIdentity) return@launch
+        publishResolvedPostPlayRecommendation(index, candidate, enriched)
+    }
+}
+
 private fun PlayerRuntimeController.recommendationIdentity(): String = listOf(
     creditAnalysisIdentity,
     currentVideoId,
@@ -365,11 +501,23 @@ private fun PlayerRuntimeController.recommendationIdentity(): String = listOf(
 ).joinToString("|")
 
 internal fun PlayerRuntimeController.showAdjacentPostPlayRecommendation(direction: Int) {
-    _uiState.update { state ->
-        if (state.postPlayRecommendations.isEmpty()) return@update state
-        val count = state.postPlayRecommendations.size
-        val newIndex = (state.postPlayRecommendationIndex + direction + count) % count
-        state.copy(postPlayRecommendationIndex = newIndex)
+    val state = _uiState.value
+    if (state.postPlayRecommendations.isEmpty()) return
+    val newIndex = (state.postPlayRecommendationIndex + direction)
+        .coerceIn(0, state.postPlayRecommendations.lastIndex)
+    if (newIndex == state.postPlayRecommendationIndex) return
+    val recommendation = state.postPlayRecommendations[newIndex]
+    if (recommendation.metadataResolved) {
+        pendingPostPlayRecommendationIndex = null
+        _uiState.update { current ->
+            current.copy(postPlayRecommendationIndex = newIndex)
+        }
+        return
+    }
+
+    pendingPostPlayRecommendationIndex = newIndex
+    if (recommendationLoadJob?.isActive != true) {
+        enrichPostPlayRecommendation(newIndex)
     }
 }
 
@@ -453,3 +601,5 @@ private fun PlayerRuntimeController.buildCreditAnalyzerTitle(): String {
 private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
     .digest(value.toByteArray(Charsets.UTF_8))
     .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+private const val MAX_POST_PLAY_RECOMMENDATIONS = 4
