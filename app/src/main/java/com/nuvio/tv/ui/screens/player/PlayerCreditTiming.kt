@@ -466,6 +466,7 @@ private suspend fun PlayerRuntimeController.resolvePostPlayRecommendation(
         )?.ratings
     }.getOrNull()
     candidate.copy(
+        playbackVideoId = imdbId ?: candidate.playbackVideoId,
         title = enrichment?.localizedTitle?.takeIf { it.isNotBlank() }
             ?: meta?.name?.takeIf { it.isNotBlank() }
             ?: candidate.title,

@@ -564,15 +564,7 @@ class TmdbMetadataService @Inject constructor(
                 .orEmpty()
                 .filter { it.id > 0 }
             val languageCode = normalizedLanguage.substringBefore("-")
-            val sortedResults = rawResults
-                .sortedWith(
-                    compareByDescending<TmdbRecommendationResult> {
-                        it.originalLanguage?.equals(languageCode, ignoreCase = true) == true
-                    }
-                        .thenByDescending { it.voteCount ?: 0 }
-                        .thenByDescending { it.voteAverage ?: 0.0 }
-                )
-            val qualityFilteredResults = sortedResults.filter { rec ->
+            val qualityFilteredResults = rawResults.filter { rec ->
                 val voteCount = rec.voteCount ?: 0
                 val voteAverage = rec.voteAverage ?: 0.0
                 val localized = rec.originalLanguage?.equals(languageCode, ignoreCase = true) == true
@@ -581,7 +573,7 @@ class TmdbMetadataService @Inject constructor(
             val recommendationResults = (if (qualityFilteredResults.isNotEmpty()) {
                 qualityFilteredResults
             } else {
-                sortedResults
+                rawResults
             }).take(maxItems.coerceAtLeast(1))
 
             val items = coroutineScope {

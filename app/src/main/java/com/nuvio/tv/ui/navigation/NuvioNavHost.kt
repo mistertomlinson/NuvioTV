@@ -1022,7 +1022,7 @@ fun NuvioNavHost(
                 onPostPlayRecommendationSelected = { recommendation, playNow ->
                     val route = if (playNow) {
                         Screen.Stream.createRoute(
-                            videoId = recommendation.id,
+                            videoId = recommendation.playbackVideoId ?: recommendation.id,
                             contentType = recommendation.contentType,
                             title = recommendation.title,
                             poster = recommendation.poster,
@@ -1030,7 +1030,7 @@ fun NuvioNavHost(
                             logo = recommendation.logo,
                             contentId = recommendation.id,
                             contentName = recommendation.title,
-                            returnToDetailOnBack = true
+                            returnToHomeOnBack = true
                         )
                     } else {
                         Screen.Detail.createRoute(
@@ -1040,7 +1040,7 @@ fun NuvioNavHost(
                         )
                     }
                     navController.navigate(route) {
-                        popUpTo(Screen.Stream.route) { inclusive = true }
+                        popUpTo(Screen.Home.route) { inclusive = false }
                         launchSingleTop = true
                     }
                 },

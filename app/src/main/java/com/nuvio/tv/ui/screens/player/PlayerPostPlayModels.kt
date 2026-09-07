@@ -48,6 +48,7 @@ data class PostPlayRecommendation(
     val imdbRating: Float? = null,
     val tmdbRating: Float? = null,
     val mdbListRatings: MDBListRatings? = null,
+    val playbackVideoId: String? = null,
     val metadataResolved: Boolean = false
 )
 

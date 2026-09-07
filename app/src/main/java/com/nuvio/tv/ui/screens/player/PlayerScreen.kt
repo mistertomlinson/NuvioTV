@@ -568,7 +568,8 @@ fun PlayerScreen(
         }
 
         // Video Player
-        viewModel.exoPlayer?.let { player ->
+        if (!postPlayVisible || !uiState.playbackEnded) {
+            viewModel.exoPlayer?.let { player ->
             val subtitleStyle = uiState.subtitleStyle
             val resizeMode = uiState.resizeMode
             
@@ -647,9 +648,10 @@ fun PlayerScreen(
                     .background(Color.Black)
                     .zIndex(if (postPlayVisible) 3f else 0f)
             )
+            }
         }
 
-        if (postPlayVisible) {
+        if (postPlayVisible && !uiState.playbackEnded) {
             PostPlayPlayerWindow(
                 focusRequester = postPlayPlayerFocusRequester,
                 downFocusRequester = postPlayFocusRequester,
