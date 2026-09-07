@@ -469,11 +469,13 @@ private suspend fun PlayerRuntimeController.resolvePostPlayRecommendation(
     val (ratings, trailerSource) = coroutineScope {
         val ratingsJob = async {
             runCatching {
-                mdbListRepository.getRatingsForMeta(
-                    meta = ratingsMeta,
-                    fallbackItemId = candidate.id,
-                    fallbackItemType = candidate.contentType
-                )?.ratings
+                withTimeoutOrNull(3_000L) {
+                    mdbListRepository.getRatingsForMeta(
+                        meta = ratingsMeta,
+                        fallbackItemId = candidate.id,
+                        fallbackItemType = candidate.contentType
+                    )?.ratings
+                }
             }.getOrNull()
         }
         val trailerJob = async {

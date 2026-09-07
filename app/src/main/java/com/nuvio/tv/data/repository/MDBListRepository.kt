@@ -21,6 +21,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicLong
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -47,9 +48,12 @@ class MDBListRepository @Inject constructor(
 
     private val tag = "MDBListRepository"
     private val cacheTtlMs = 30L * 60L * 1000L
+    private val rateLimitCooldownMs = 10L * 60L * 1000L
     private val cache = ConcurrentHashMap<String, CacheEntry>()
     private val inFlight = mutableMapOf<String, kotlinx.coroutines.Deferred<MDBListRatingsResult?>>()
     private val inFlightMutex = Mutex()
+    private val requestSemaphore = Semaphore(4)
+    private val rateLimitCooldownUntilMs = AtomicLong(0L)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Exposes the settings flow so observers (e.g. HomeViewModel) can react to changes. */
@@ -82,6 +86,11 @@ class MDBListRepository @Inject constructor(
             }
             cache.remove(cacheKey)
         }
+
+        // A single 429 means the account is rate-limited, not merely this
+        // provider or title. Avoid multiplying failures across every enabled
+        // provider and recommendation for a short period.
+        if (rateLimitCooldownUntilMs.get() > now) return null
 
         val deferred = inFlightMutex.withLock {
             inFlight[cacheKey] ?: scope.async {
@@ -116,7 +125,6 @@ class MDBListRepository @Inject constructor(
         apiKey: String,
         providers: List<ProviderType>
     ): MDBListRatingsResult? {
-        val semaphore = Semaphore(4)
         val requestBody = MDBListRatingRequestDto(
             ids = listOf(imdbId),
             provider = "imdb"
@@ -124,13 +132,17 @@ class MDBListRepository @Inject constructor(
 
         val results = providers.map { provider ->
             scope.async {
-                semaphore.withPermit {
-                    fetchProviderRating(
-                        mediaType = mediaType,
-                        provider = provider,
-                        apiKey = apiKey,
-                        requestBody = requestBody
-                    )
+                requestSemaphore.withPermit {
+                    if (rateLimitCooldownUntilMs.get() > System.currentTimeMillis()) {
+                        provider to null
+                    } else {
+                        fetchProviderRating(
+                            mediaType = mediaType,
+                            provider = provider,
+                            apiKey = apiKey,
+                            requestBody = requestBody
+                        )
+                    }
                 }
             }
         }.awaitAll().toMap()
@@ -168,6 +180,12 @@ class MDBListRepository @Inject constructor(
             )
 
             if (!response.isSuccessful) {
+                if (response.code() == 429) {
+                    val cooldownUntil = System.currentTimeMillis() + rateLimitCooldownMs
+                    rateLimitCooldownUntilMs.updateAndGet { current ->
+                        maxOf(current, cooldownUntil)
+                    }
+                }
                 Log.w(tag, "Failed ${provider.apiValue} (${response.code()})")
                 return provider to null
             }
