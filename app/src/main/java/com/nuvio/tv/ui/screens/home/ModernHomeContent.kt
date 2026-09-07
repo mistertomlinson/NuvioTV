@@ -2517,7 +2517,28 @@ fun ModernHomeContent(
             useLandscapePosters = useLandscapePosters,
             rowTitleHeightDp = rowTitleHeight
         )
-        val bgColor = NuvioColors.Background
+        /*
+         * Keep the Home canvas and hero gradients on the authoritative hero
+         * trailer crossfade. This remains Nuvio background in expanded-card
+         * mode and whenever no hero trailer pixels are visible.
+         */
+        val heroMediaBackgroundProgress =
+            if (
+                uiState.focusedPosterBackdropTrailerPlaybackTarget ==
+                    FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
+            ) {
+                heroTransitionProgress
+            } else {
+                0f
+            }
+        val bgColor =
+            androidx.compose.ui.graphics.lerp(
+                NuvioColors.Background,
+                androidx.compose.ui.graphics.Color.Black,
+                heroMediaBackgroundProgress
+            )
+
+        Box(modifier = Modifier.fillMaxSize().background(bgColor))
         val contentFocusRequester = LocalContentFocusRequester.current
         val carouselFocusRequester = LocalCarouselFocusRequester.current
         val rowFocusRestorerState = LocalRowFocusRestorer.current
@@ -3861,6 +3882,45 @@ fun ModernHomeContent(
                             if (isContinueWatchingRow) {
                                 if (lastFocusedContinueWatchingIndexRef.get() != index) {
                                     lastFocusedContinueWatchingIndexRef.set(index)
+                                }
+                                /*
+                                 * Continue Watching does not publish a
+                                 * FocusedCatalogSelection. If Trailer A is
+                                 * retained, hand it directly to this focused
+                                 * item's Backdrop B before clearing the
+                                 * outgoing catalog selection.
+                                 */
+                                val incomingHero =
+                                    activeRow?.items
+                                        ?.getOrNull(index)
+                                        ?.heroPreview
+                                val incomingBackdrop =
+                                    incomingHero?.let { preview ->
+                                        firstNonBlank(
+                                            preview.backdrop,
+                                            preview.imageUrl
+                                        )
+                                    }
+
+                                if (
+                                    retainedHeroTrailerSelection != null &&
+                                    incomingBackdrop != null
+                                ) {
+                                    val samePendingHandoff =
+                                        trailerExitBackdropOverride ==
+                                            incomingBackdrop &&
+                                            (
+                                                trailerExitAwaitingBackdrop ||
+                                                    trailerExitFadeInProgress
+                                                )
+
+                                    if (!samePendingHandoff) {
+                                        trailerExitBackdropOverride = incomingBackdrop
+                                        trailerExitAwaitingBackdrop = true
+                                        trailerExitAudioMuted = false
+                                        trailerExitFadeInProgress = false
+                                    }
+                                    heroTrailerHoldMuted = false
                                 }
                                 if (focusedCatalogSelection != null) {
                                     focusedCatalogSelection = null

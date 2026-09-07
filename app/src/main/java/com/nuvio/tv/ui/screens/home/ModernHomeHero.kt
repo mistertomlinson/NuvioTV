@@ -116,6 +116,17 @@ internal fun ModernHeroMediaLayer(
     val latestOnBackdropFrameReady =
         androidx.compose.runtime.rememberUpdatedState(onBackdropFrameReady)
 
+    suspend fun reportBackdropFrameReadyAfterCommit(backdrop: String?) {
+        /*
+         * displayedFrame invalidates composition before this callback. Crossing
+         * two frame boundaries guarantees the new frame has had a complete draw
+         * opportunity before its covering trailer begins fading away.
+         */
+        androidx.compose.runtime.withFrameNanos { }
+        androidx.compose.runtime.withFrameNanos { }
+        latestOnBackdropFrameReady.value(backdrop)
+    }
+
     // Pair URL, scale, and crop alignment so Crossfade captures them atomically.
     // The outgoing image keeps its original presentation for the full crossfade.
     data class BackdropFrame(
@@ -141,7 +152,7 @@ internal fun ModernHeroMediaLayer(
         val isPosterFallback = heroBackdropIsPosterFallback
         if (target == null) {
             displayedFrame = BackdropFrame(null, scale, isPosterFallback)
-            latestOnBackdropFrameReady.value(null)
+            reportBackdropFrameReadyAfterCommit(null)
             return@LaunchedEffect
         }
         // If already memory-cached, flip immediately — no visible delay.
@@ -149,7 +160,7 @@ internal fun ModernHeroMediaLayer(
         if (imageLoader.memoryCache?.get(cacheKey) != null) {
             displayedFrame =
                 BackdropFrame(target, scale, isPosterFallback)
-            latestOnBackdropFrameReady.value(target)
+            reportBackdropFrameReadyAfterCommit(target)
             return@LaunchedEffect
         }
         // Pre-load into memory cache, then flip.  2 s timeout so a slow
@@ -166,7 +177,7 @@ internal fun ModernHeroMediaLayer(
         // the old snap behaviour on a very slow connection, never a hang.
         displayedFrame =
             BackdropFrame(target, scale, isPosterFallback)
-        latestOnBackdropFrameReady.value(target)
+        reportBackdropFrameReadyAfterCommit(target)
     }
 
     Box(modifier = modifier.clipToBounds()) {
