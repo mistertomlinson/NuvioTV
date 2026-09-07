@@ -964,6 +964,7 @@ fun ModernHomeContent(
     }
     var trailerExitBackdropOverride by remember { mutableStateOf<String?>(null) }
     var trailerExitAwaitingBackdrop by remember { mutableStateOf(false) }
+    var trailerExitBackdropReady by remember { mutableStateOf(false) }
 
     /*
      * Becomes true only after the incoming backdrop has rendered. While true,
@@ -1219,6 +1220,7 @@ fun ModernHomeContent(
                             incomingBackdrop &&
                             (
                                 trailerExitAwaitingBackdrop ||
+                                    trailerExitBackdropReady ||
                                     trailerExitFadeInProgress
                                 )
 
@@ -1226,6 +1228,7 @@ fun ModernHomeContent(
                         trailerExitBackdropOverride =
                             incomingBackdrop
                         trailerExitAwaitingBackdrop = true
+                        trailerExitBackdropReady = false
                         trailerExitAudioMuted = false
                         trailerExitFadeInProgress = false
                     }
@@ -1249,6 +1252,7 @@ fun ModernHomeContent(
             }
 
             !trailerExitAwaitingBackdrop &&
+                !trailerExitBackdropReady &&
                 !trailerExitFadeInProgress -> {
                 retainedHeroTrailerSelection = null
                 trailerExitBackdropOverride = null
@@ -2249,7 +2253,9 @@ fun ModernHomeContent(
             resolvedHero?.backdrop,
             resolvedHero?.imageUrl,
             trailerExitBackdropOverride,
-            trailerExitAwaitingBackdrop
+            trailerExitAwaitingBackdrop,
+            trailerExitBackdropReady,
+            trailerExitFadeInProgress
         ) {
             val override = trailerExitBackdropOverride
             val resolved = firstNonBlank(
@@ -2259,6 +2265,8 @@ fun ModernHomeContent(
 
             if (
                 !trailerExitAwaitingBackdrop &&
+                !trailerExitBackdropReady &&
+                !trailerExitFadeInProgress &&
                 override != null &&
                 resolved == override
             ) {
@@ -2344,6 +2352,33 @@ fun ModernHomeContent(
          * remaining quick during D-pad navigation.
          */
         val heroTrailerExitDurationMillis = 220
+
+        /*
+         * Backdrop readiness and row settlement are independent. Keep Trailer A
+         * fully visible and playing until B is committed and the vertical list
+         * has finished its visual scroll, then begin the existing exit fade.
+         */
+        androidx.compose.runtime.LaunchedEffect(
+            isVerticalRowsScrolling,
+            trailerExitBackdropReady,
+            trailerExitBackdropOverride,
+            retainedHeroTrailerSelection?.focusKey
+        ) {
+            if (
+                !isVerticalRowsScrolling &&
+                trailerExitBackdropReady &&
+                trailerExitBackdropOverride != null &&
+                retainedHeroTrailerSelection != null
+            ) {
+                trailerExitBackdropReady = false
+                trailerExitAudioMuted = true
+                sharedTrailerPlayer?.let { player ->
+                    player.volume = 0f
+                }
+                trailerExitFadeInProgress = true
+                heroTrailerHoldMuted = false
+            }
+        }
 
         val heroTransitionTarget =
             if (
@@ -2745,23 +2780,11 @@ fun ModernHomeContent(
                     readyBackdrop == pendingBackdrop
                 ) {
                     /*
-                     * B is now rendered underneath Trailer A. Keep A's player
-                     * alive and playing, but animate its alpha to zero while
-                     * B's alpha rises through the same transition progress.
+                     * B is committed underneath Trailer A. Row settlement now
+                     * owns the start of the visual and audio exit.
                      */
                     trailerExitAwaitingBackdrop = false
-
-                    /*
-                     * Kill the outgoing audio before the first frame in which
-                     * Backdrop B can gain visible opacity.
-                     */
-                    trailerExitAudioMuted = true
-                    sharedTrailerPlayer?.let { player ->
-                        player.volume = 0f
-                    }
-
-                    trailerExitFadeInProgress = true
-                    heroTrailerHoldMuted = false
+                    trailerExitBackdropReady = true
                 }
             },
             heroBackdropAlpha = heroBackdropAlpha,
@@ -3911,12 +3934,14 @@ fun ModernHomeContent(
                                             incomingBackdrop &&
                                             (
                                                 trailerExitAwaitingBackdrop ||
+                                                    trailerExitBackdropReady ||
                                                     trailerExitFadeInProgress
                                                 )
 
                                     if (!samePendingHandoff) {
                                         trailerExitBackdropOverride = incomingBackdrop
                                         trailerExitAwaitingBackdrop = true
+                                        trailerExitBackdropReady = false
                                         trailerExitAudioMuted = false
                                         trailerExitFadeInProgress = false
                                     }
@@ -4072,5 +4097,3 @@ fun ModernHomeContent(
         )
     }
 }
-
-
