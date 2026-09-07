@@ -29,8 +29,8 @@ class PostPlayRecommendationPresentationTest {
     }
 
     @Test
-    fun `recommendation without scores is not presentation ready`() {
-        assertFalse(
+    fun `recommendation without scores remains presentation ready`() {
+        assertTrue(
             recommendation(
                 logo = "https://image.test/logo.png",
                 ratings = null,

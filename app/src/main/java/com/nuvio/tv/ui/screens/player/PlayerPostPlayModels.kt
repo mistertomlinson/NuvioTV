@@ -64,8 +64,7 @@ internal fun shouldShowPostPlayTrailerAction(
 
 internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
     metadataResolved &&
-        !logo.isNullOrBlank() &&
-        mdbListRatings?.let { !it.isEmpty() } == true
+        !logo.isNullOrBlank()
 
 /**
  * Returns null when legacy IntroDB/percentage timing should decide. A running
