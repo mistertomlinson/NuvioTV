@@ -170,6 +170,7 @@ fun DebugSettingsContent(
 
     if (showErrorDialog) {
         NuvioDialog(
+        glass = true,
             onDismiss = { showErrorDialog = false },
             title = stringResource(R.string.debug_error_dialog_title),
             subtitle = stringResource(R.string.debug_error_dialog_subtitle)
@@ -194,8 +195,8 @@ private fun DebugToggleCard(
         modifier = Modifier
             .fillMaxWidth(),
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -236,7 +237,7 @@ private fun DebugToggleCard(
                     checkedThumbColor = NuvioColors.Secondary,
                     checkedTrackColor = NuvioColors.Secondary.copy(alpha = 0.3f),
                     uncheckedThumbColor = NuvioColors.TextSecondary,
-                    uncheckedTrackColor = NuvioColors.BackgroundCard
+                    uncheckedTrackColor = SettingsGlassRowColor
                 )
             )
         }
@@ -257,8 +258,8 @@ private fun DebugActionCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -302,8 +303,8 @@ private fun DebugDialogButton(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.Secondary
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
         scale = CardDefaults.scale(focusedScale = 1.0f)

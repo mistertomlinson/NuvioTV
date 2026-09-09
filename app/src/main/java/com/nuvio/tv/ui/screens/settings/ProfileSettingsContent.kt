@@ -44,23 +44,24 @@ internal fun ProfileSettingsContent(
                 onClick = onManageProfiles,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
                     .height(60.dp),
                 colors = CardDefaults.colors(
-                    containerColor = NuvioColors.BackgroundElevated,
-                    focusedContainerColor = NuvioColors.FocusBackground
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor
                 ),
                 border = CardDefaults.border(
                     border = Border(
-                        border = BorderStroke(1.dp, NuvioColors.Border),
+                        border = BorderStroke(1.dp, SettingsGlassBorderColor),
                         shape = RoundedCornerShape(SettingsPillRadius)
                     ),
                     focusedBorder = Border(
-                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                        border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
                         shape = RoundedCornerShape(SettingsPillRadius)
                     )
                 ),
                 shape = CardDefaults.shape(RoundedCornerShape(SettingsPillRadius)),
-                scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+                scale = CardDefaults.scale(focusedScale = 1.018f, pressedScale = 0.99f)
             ) {
                 Box(
                     modifier = Modifier

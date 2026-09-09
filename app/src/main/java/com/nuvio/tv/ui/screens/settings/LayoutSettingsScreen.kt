@@ -872,8 +872,8 @@ private fun LayoutCard(
             }
         },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             border = if (isSelected) Border(
@@ -886,7 +886,7 @@ private fun LayoutCard(
             )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(SettingsSecondaryCardRadius)),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(focusedScale = 1.025f, pressedScale = 0.99f)
     ) {
         Column(
             modifier = Modifier
@@ -947,7 +947,7 @@ private fun LayoutPreviewPlaceholder() {
             .fillMaxWidth()
             .height(112.dp)
             .background(
-                color = NuvioColors.BackgroundCard,
+                color = SettingsGlassRowColor,
                 shape = RoundedCornerShape(12.dp)
             )
             .padding(10.dp),
@@ -957,13 +957,13 @@ private fun LayoutPreviewPlaceholder() {
             modifier = Modifier
                 .fillMaxWidth(0.7f)
                 .height(10.dp)
-                .background(NuvioColors.Border, RoundedCornerShape(999.dp))
+                .background(SettingsGlassBorderColor, RoundedCornerShape(999.dp))
         )
         Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .background(NuvioColors.BackgroundElevated, RoundedCornerShape(10.dp))
+                .background(SettingsGlassGroupColor, RoundedCornerShape(10.dp))
         )
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             repeat(3) {
@@ -971,7 +971,7 @@ private fun LayoutPreviewPlaceholder() {
                     modifier = Modifier
                         .weight(1f)
                         .height(10.dp)
-                        .background(NuvioColors.Border, RoundedCornerShape(999.dp))
+                        .background(SettingsGlassBorderColor, RoundedCornerShape(999.dp))
                 )
             }
         }
@@ -1173,53 +1173,11 @@ private fun CardDepthStyleControls(
             }
         }
 
-        Button(
+        SettingsResetButton(
             onClick = onReset,
-            modifier =
-                Modifier.onFocusChanged {
-                    if (it.isFocused) {
-                        onFocused()
-                    }
-                },
-            shape =
-                ButtonDefaults.shape(
-                    shape =
-                        RoundedCornerShape(
-                            SettingsPillRadius
-                        )
-                ),
-            colors =
-                ButtonDefaults.colors(
-                    containerColor =
-                        NuvioColors.Background,
-                    focusedContainerColor =
-                        NuvioColors.Background
-                ),
-            border =
-                ButtonDefaults.border(
-                    focusedBorder =
-                        Border(
-                            border =
-                                BorderStroke(
-                                    2.dp,
-                                    NuvioColors.FocusRing
-                                ),
-                            shape =
-                                RoundedCornerShape(
-                                    SettingsPillRadius
-                                )
-                        )
-                )
-        ) {
-            Text(
-                text = stringResource(
-                    R.string.layout_reset_default
-                ),
-                style =
-                    MaterialTheme.typography.labelLarge,
-                color = NuvioColors.TextPrimary
-            )
-        }
+            modifier = Modifier.fillMaxWidth(),
+            onFocused = onFocused
+        )
     }
 }
 
@@ -1232,7 +1190,14 @@ private fun CardDepthFineTuneDialog(
     onReset: () -> Unit,
     onDismiss: () -> Unit
 ) {
+    val initialFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(Unit) {
+        initialFocusRequester.requestFocus()
+    }
+
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = stringResource(
             R.string.settings_card_depth_fine_tune_title
@@ -1240,7 +1205,8 @@ private fun CardDepthFineTuneDialog(
         subtitle = stringResource(
             R.string.settings_card_depth_fine_tune_hint_tv
         ),
-        width = 680.dp
+        width = 680.dp,
+        usePlatformDefaultWidth = false
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1261,7 +1227,7 @@ private fun CardDepthFineTuneDialog(
                     Arrangement.spacedBy(8.dp)
             ) {
                 SliderSettingsItem(
-                    icon = Icons.Default.Tune,
+                    icon = null,
                     title = stringResource(
                         R.string.settings_card_depth_edge_value
                     ),
@@ -1273,12 +1239,12 @@ private fun CardDepthFineTuneDialog(
                     minValue = 0,
                     maxValue = 70,
                     step = 1,
-                    onValueChange =
-                        onEdgeStrengthChange
+                    onValueChange = onEdgeStrengthChange,
+                    modifier = Modifier.focusRequester(initialFocusRequester)
                 )
 
                 SliderSettingsItem(
-                    icon = Icons.Default.Tune,
+                    icon = null,
                     title = stringResource(
                         R.string.settings_card_depth_sheen_value
                     ),
@@ -1295,7 +1261,7 @@ private fun CardDepthFineTuneDialog(
                 )
 
                 SliderSettingsItem(
-                    icon = Icons.Default.Tune,
+                    icon = null,
                     title = stringResource(
                         R.string.settings_card_depth_coverage_value
                     ),
@@ -1309,23 +1275,10 @@ private fun CardDepthFineTuneDialog(
                         onEdgeCoverageChange
                 )
 
-                Button(
+                SettingsResetButton(
                     onClick = onReset,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors =
-                        ButtonDefaults.colors(
-                            containerColor =
-                                NuvioColors.Background,
-                            focusedContainerColor =
-                                NuvioColors.Background
-                        )
-                ) {
-                    Text(
-                        text = stringResource(
-                            R.string.layout_reset_default
-                        )
-                    )
-                }
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
@@ -1409,29 +1362,11 @@ private fun PosterCardStyleControls(
             onFocused = onFocused
         )
 
-        Button(
+        SettingsResetButton(
             onClick = onReset,
-            modifier = Modifier.onFocusChanged {
-                if (it.isFocused) onFocused()
-            },
-            shape = ButtonDefaults.shape(shape = RoundedCornerShape(SettingsPillRadius)),
-            colors = ButtonDefaults.colors(
-                containerColor = NuvioColors.Background,
-                focusedContainerColor = NuvioColors.Background
-            ),
-            border = ButtonDefaults.border(
-                focusedBorder = Border(
-                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                    shape = RoundedCornerShape(SettingsPillRadius)
-                )
-            )
-        ) {
-            Text(
-                text = stringResource(R.string.layout_reset_default),
-                style = MaterialTheme.typography.labelLarge,
-                color = NuvioColors.TextPrimary
-            )
-        }
+            modifier = Modifier.fillMaxWidth(),
+            onFocused = onFocused
+        )
     }
 }
 

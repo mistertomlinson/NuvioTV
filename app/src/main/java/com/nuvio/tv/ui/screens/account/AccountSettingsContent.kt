@@ -45,6 +45,10 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.AuthState
+import com.nuvio.tv.ui.screens.settings.SettingsGlassFocusBorderColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
@@ -132,8 +136,8 @@ private fun SyncOverviewCard(overview: SyncOverview) {
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = NuvioColors.BackgroundCard,
-                shape = RoundedCornerShape(8.dp)
+                color = SettingsGlassGroupColor,
+                shape = RoundedCornerShape(18.dp)
             )
             .padding(10.dp)
     ) {
@@ -143,8 +147,8 @@ private fun SyncOverviewCard(overview: SyncOverview) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(
-                        color = NuvioColors.BackgroundElevated,
-                        shape = RoundedCornerShape(6.dp)
+                        color = SettingsGlassRowColor,
+                        shape = RoundedCornerShape(14.dp)
                     )
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -204,8 +208,8 @@ private fun ProfileSyncRow(profile: ProfileSyncStats) {
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = NuvioColors.BackgroundElevated,
-                shape = RoundedCornerShape(6.dp)
+                color = SettingsGlassRowColor,
+                shape = RoundedCornerShape(14.dp)
             )
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -271,8 +275,8 @@ private fun SyncOverviewLoadingCard() {
         modifier = Modifier
             .fillMaxWidth()
             .background(
-                color = NuvioColors.BackgroundCard,
-                shape = RoundedCornerShape(8.dp)
+                color = SettingsGlassGroupColor,
+                shape = RoundedCornerShape(18.dp)
             )
             .padding(10.dp),
         contentAlignment = Alignment.Center
@@ -298,19 +302,20 @@ private fun SettingsActionButton(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(8.dp)
+                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
+                shape = RoundedCornerShape(16.dp)
             )
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.02f)
+        shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.018f, pressedScale = 0.99f)
     ) {
         Row(
             modifier = Modifier
@@ -349,7 +354,7 @@ private fun StatusCard(label: String, value: String) {
             .fillMaxWidth()
             .background(
                 color = NuvioColors.Secondary.copy(alpha = 0.1f),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(16.dp)
             )
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -379,7 +384,9 @@ private fun StatusCard(label: String, value: String) {
 private fun SignOutSettingsButton(onClick: () -> Unit) {
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp),
         colors = CardDefaults.colors(
             containerColor = Color(0xFFC62828).copy(alpha = 0.12f),
             focusedContainerColor = Color(0xFFC62828).copy(alpha = 0.25f)
@@ -387,11 +394,11 @@ private fun SignOutSettingsButton(onClick: () -> Unit) {
         border = CardDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(2.dp, Color(0xFFF44336).copy(alpha = 0.5f)),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(16.dp)
             )
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.02f)
+        shape = CardDefaults.shape(shape = RoundedCornerShape(16.dp)),
+        scale = CardDefaults.scale(focusedScale = 1.018f, pressedScale = 0.99f)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),

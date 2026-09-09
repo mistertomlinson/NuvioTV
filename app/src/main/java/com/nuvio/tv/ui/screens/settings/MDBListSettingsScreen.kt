@@ -212,6 +212,7 @@ private fun MDBListApiKeyDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.mdblist_dialog_title),
         subtitle = stringResource(R.string.mdblist_dialog_subtitle),
@@ -223,8 +224,8 @@ private fun MDBListApiKeyDialog(
                 .fillMaxWidth()
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.BackgroundElevated,
-                focusedContainerColor = NuvioColors.BackgroundElevated
+                containerColor = SettingsGlassRowColor,
+                focusedContainerColor = SettingsGlassRowColor
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -280,7 +281,7 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundElevated,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
@@ -290,7 +291,7 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = onClear,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundElevated,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
@@ -300,7 +301,7 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = { if (!validating) viewModel.validateAndSaveApiKey(value, onSaved) },
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {

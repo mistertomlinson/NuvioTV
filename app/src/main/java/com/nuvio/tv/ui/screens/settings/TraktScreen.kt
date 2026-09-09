@@ -116,10 +116,10 @@ fun TraktScreen(
     }
     val traktLogoPainter = rememberRawSvgPainter(R.raw.trakt_tv_favicon)
 
+    SettingsGlassScreen {
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(horizontal = 48.dp, vertical = 28.dp),
         horizontalArrangement = Arrangement.spacedBy(36.dp)
     ) {
@@ -162,7 +162,7 @@ fun TraktScreen(
                 .weight(0.55f)
                 .fillMaxHeight()
                 .border(1.dp, NuvioColors.Border.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                .background(NuvioColors.BackgroundElevated.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                .background(SettingsGlassRowColor.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
                 .padding(20.dp)
         ) {
             val expiresAt = uiState.deviceCodeExpiresAtMillis
@@ -194,7 +194,7 @@ fun TraktScreen(
                         Button(
                             onClick = { viewModel.onCancelDeviceFlow() },
                             colors = ButtonDefaults.colors(
-                                containerColor = NuvioColors.BackgroundCard,
+                                containerColor = SettingsGlassRowColor,
                                 contentColor = NuvioColors.TextPrimary
                             )
                         ) {
@@ -241,7 +241,7 @@ fun TraktScreen(
                         onClick = { showDisconnectConfirm = true },
                         modifier = Modifier.focusRequester(primaryFocusRequester),
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary
                         )
                     ) {
@@ -335,7 +335,7 @@ fun TraktScreen(
                 Button(
                     onClick = onBackPress,
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
                     )
                 ) {
@@ -347,6 +347,7 @@ fun TraktScreen(
 
     if (showDaysCapDialog) {
         NuvioDialog(
+        glass = true,
             onDismiss = { showDaysCapDialog = false },
             title = stringResource(R.string.trakt_cw_window_title),
             subtitle = stringResource(R.string.trakt_cw_window_subtitle),
@@ -368,8 +369,8 @@ fun TraktScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (selected) NuvioColors.Primary else NuvioColors.BackgroundCard,
-                                    contentColor = if (selected) Color.Black else NuvioColors.TextPrimary
+                                    containerColor = if (selected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                                    contentColor = NuvioColors.TextPrimary
                                 )
                             ) {
                                 Text(cwWindowFormatter(days))
@@ -388,7 +389,7 @@ fun TraktScreen(
                     Button(
                         onClick = { showDaysCapDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary
                         )
                     ) {
@@ -401,6 +402,7 @@ fun TraktScreen(
 
     if (showUnairedNextUpDialog) {
         NuvioDialog(
+        glass = true,
             onDismiss = { showUnairedNextUpDialog = false },
             title = stringResource(R.string.trakt_unaired_dialog_title),
             subtitle = stringResource(R.string.trakt_unaired_dialog_subtitle),
@@ -414,8 +416,8 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (uiState.showUnairedNextUp) NuvioColors.Primary else NuvioColors.BackgroundCard,
-                        contentColor = if (uiState.showUnairedNextUp) Color.Black else NuvioColors.TextPrimary
+                        containerColor = if (uiState.showUnairedNextUp) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        contentColor = NuvioColors.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -427,8 +429,8 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (!uiState.showUnairedNextUp) NuvioColors.Primary else NuvioColors.BackgroundCard,
-                        contentColor = if (!uiState.showUnairedNextUp) Color.Black else NuvioColors.TextPrimary
+                        containerColor = if (!uiState.showUnairedNextUp) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        contentColor = NuvioColors.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -441,7 +443,7 @@ fun TraktScreen(
                     Button(
                         onClick = { showUnairedNextUpDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary
                         )
                     ) {
@@ -454,6 +456,7 @@ fun TraktScreen(
 
     if (showCommentsDialog) {
         NuvioDialog(
+        glass = true,
             onDismiss = { showCommentsDialog = false },
             title = stringResource(R.string.trakt_comments_dialog_title),
             subtitle = stringResource(R.string.trakt_comments_dialog_subtitle),
@@ -467,8 +470,8 @@ fun TraktScreen(
                         showCommentsDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (uiState.showMetaComments) NuvioColors.Primary else NuvioColors.BackgroundCard,
-                        contentColor = if (uiState.showMetaComments) Color.Black else NuvioColors.TextPrimary
+                        containerColor = if (uiState.showMetaComments) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        contentColor = NuvioColors.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -480,8 +483,8 @@ fun TraktScreen(
                         showCommentsDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (!uiState.showMetaComments) NuvioColors.Primary else NuvioColors.BackgroundCard,
-                        contentColor = if (!uiState.showMetaComments) Color.Black else NuvioColors.TextPrimary
+                        containerColor = if (!uiState.showMetaComments) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        contentColor = NuvioColors.TextPrimary
                     ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -494,7 +497,7 @@ fun TraktScreen(
                     Button(
                         onClick = { showCommentsDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary
                         )
                     ) {
@@ -507,6 +510,7 @@ fun TraktScreen(
 
     if (showDisconnectConfirm) {
         NuvioDialog(
+        glass = true,
             onDismiss = { showDisconnectConfirm = false },
             title = stringResource(R.string.trakt_disconnect_title),
             subtitle = stringResource(R.string.trakt_disconnect_subtitle),
@@ -522,7 +526,7 @@ fun TraktScreen(
                         viewModel.onDisconnectClick()
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
                     )
                 ) {
@@ -531,7 +535,7 @@ fun TraktScreen(
                 Button(
                     onClick = { showDisconnectConfirm = false },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
                     )
                 ) {
@@ -539,6 +543,7 @@ fun TraktScreen(
                 }
             }
         }
+    }
     }
 }
 

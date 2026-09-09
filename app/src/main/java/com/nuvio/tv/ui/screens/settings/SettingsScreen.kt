@@ -267,17 +267,18 @@ fun SettingsScreen(
         pendingContentFocusCategory = null
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuvioColors.Background)
-            .padding(
-                start = 32.dp,
-                end = 32.dp,
-                top = if (showBuiltInHeader) 24.dp else 68.dp,
-                bottom = 24.dp
-            )
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    start = 32.dp,
+                    end = 32.dp,
+                    top = if (showBuiltInHeader) 24.dp else 68.dp,
+                    bottom = 24.dp
+                )
+        ) {
         SettingsWorkspaceSurface(
             modifier = Modifier
                 .fillMaxSize()
@@ -451,6 +452,7 @@ fun SettingsScreen(
                     }
                 }
             }
+        }
         }
     }
 }

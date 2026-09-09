@@ -87,6 +87,7 @@ import com.nuvio.tv.domain.model.PluginRepository
 import com.nuvio.tv.domain.model.ScraperInfo
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.screens.settings.SettingsGlassCanvasBrush
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -106,7 +107,7 @@ fun PluginScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
+            .background(SettingsGlassCanvasBrush)
             .padding(horizontal = 48.dp, vertical = 24.dp)
     ) {
         PluginScreenContent(

@@ -1,6 +1,5 @@
 package com.nuvio.tv.ui.screens.search
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -26,7 +25,6 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
-import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.roundToInt
 
 @Composable
@@ -75,7 +73,6 @@ fun DiscoverScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
     ) {
         if (!uiState.discoverEnabled) {
             EmptyScreenState(

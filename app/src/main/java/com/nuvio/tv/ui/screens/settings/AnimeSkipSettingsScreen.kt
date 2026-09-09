@@ -137,6 +137,7 @@ private fun AnimeSkipClientIdDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.animeskip_dialog_title),
         subtitle = stringResource(R.string.animeskip_dialog_subtitle),
@@ -146,8 +147,8 @@ private fun AnimeSkipClientIdDialog(
             onClick = { inputFocusRequester.requestFocus() },
             modifier = Modifier.fillMaxWidth().onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.BackgroundElevated,
-                focusedContainerColor = NuvioColors.BackgroundElevated
+                containerColor = SettingsGlassRowColor,
+                focusedContainerColor = SettingsGlassRowColor
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -198,7 +199,7 @@ private fun AnimeSkipClientIdDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundElevated,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) { Text(stringResource(R.string.action_cancel)) }
@@ -206,7 +207,7 @@ private fun AnimeSkipClientIdDialog(
             Button(
                 onClick = onClear,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundElevated,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) { Text(stringResource(R.string.action_clear)) }
@@ -214,7 +215,7 @@ private fun AnimeSkipClientIdDialog(
             Button(
                 onClick = { if (!validating) viewModel.validateAndSave(value, onSaved) },
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {

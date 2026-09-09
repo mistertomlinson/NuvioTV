@@ -193,6 +193,7 @@ fun ThemeSettingsContent(
         val fontFocusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) { fontFocusRequester.requestFocus() }
         NuvioDialog(
+        glass = true,
             onDismiss = { showFontDialog = false },
             title = stringResource(R.string.appearance_font_dialog_title),
             width = 400.dp,
@@ -222,8 +223,10 @@ fun ThemeSettingsContent(
                                     .fillMaxWidth()
                                     .then(if (index == 0) Modifier.focusRequester(fontFocusRequester) else Modifier),
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                                    contentColor = NuvioColors.TextPrimary
+                                    containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                                    focusedContainerColor = SettingsGlassRowFocusedColor,
+                                    contentColor = NuvioColors.TextPrimary,
+                                    focusedContentColor = NuvioColors.TextPrimary
                                 )
                             ) {
                                 Text(
@@ -242,6 +245,7 @@ fun ThemeSettingsContent(
         val firstFocusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) { firstFocusRequester.requestFocus() }
         NuvioDialog(
+        glass = true,
             onDismiss = { showLanguageDialog = false },
             title = stringResource(R.string.appearance_language_dialog_title),
             width = 400.dp,
@@ -276,8 +280,10 @@ fun ThemeSettingsContent(
                                     .fillMaxWidth()
                                     .then(if (index == 0) Modifier.focusRequester(firstFocusRequester) else Modifier),
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                                    contentColor = NuvioColors.TextPrimary
+                                    containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                                    focusedContainerColor = SettingsGlassRowFocusedColor,
+                                    contentColor = NuvioColors.TextPrimary,
+                                    focusedContentColor = NuvioColors.TextPrimary
                                 )
                             ) {
                                 Text(name)
@@ -317,8 +323,8 @@ private fun ThemeCard(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             border = if (isSelected) Border(
@@ -331,7 +337,7 @@ private fun ThemeCard(
             )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(SettingsSecondaryCardRadius)),
-        scale = CardDefaults.scale(focusedScale = 1f)
+        scale = CardDefaults.scale(focusedScale = 1.025f, pressedScale = 0.99f)
     ) {
         Column(
             modifier = Modifier

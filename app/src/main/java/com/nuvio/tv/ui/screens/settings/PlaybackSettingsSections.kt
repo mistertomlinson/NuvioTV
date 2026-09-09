@@ -649,6 +649,7 @@ private fun PlayerPreferenceDialog(
     )
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.playback_player),
         width = 420.dp,
@@ -676,8 +677,8 @@ private fun PlayerPreferenceDialog(
                             .fillMaxWidth()
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                            focusedContainerColor = NuvioColors.FocusBackground
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)

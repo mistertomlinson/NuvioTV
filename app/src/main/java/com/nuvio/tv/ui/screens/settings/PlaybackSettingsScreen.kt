@@ -372,8 +372,8 @@ internal fun ToggleSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -460,12 +460,12 @@ internal fun RenderTypeSettingsItem(
             containerColor = if (isSelected) {
                 NuvioColors.Primary.copy(alpha = 0.15f * contentAlpha)
             } else {
-                NuvioColors.BackgroundCard
+                SettingsGlassRowColor
             },
             focusedContainerColor = if (isSelected) {
                 NuvioColors.Primary.copy(alpha = 0.15f * contentAlpha)
             } else {
-                NuvioColors.BackgroundCard
+                SettingsGlassRowColor
             }
         ),
         border = CardDefaults.border(
@@ -540,8 +540,8 @@ internal fun NavigationSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -597,7 +597,7 @@ internal fun NavigationSettingsItem(
 
 @Composable
 internal fun SliderSettingsItem(
-    icon: ImageVector,
+    icon: ImageVector?,
     title: String,
     value: Int,
     valueText: String,
@@ -607,14 +607,15 @@ internal fun SliderSettingsItem(
     onValueChange: (Int) -> Unit,
     subtitle: String? = null,
     onFocused: () -> Unit = {},
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
 
     Card(
         onClick = { },
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
@@ -641,8 +642,8 @@ internal fun SliderSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -662,14 +663,16 @@ internal fun SliderSettingsItem(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = (if (isFocused && enabled) NuvioColors.Primary else NuvioColors.TextSecondary).copy(alpha = contentAlpha),
-                    modifier = Modifier.size(22.dp)
-                )
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = (if (isFocused && enabled) NuvioColors.Primary else NuvioColors.TextSecondary).copy(alpha = contentAlpha),
+                        modifier = Modifier.size(22.dp)
+                    )
 
-                Spacer(modifier = Modifier.width(16.dp))
+                    Spacer(modifier = Modifier.width(16.dp))
+                }
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -726,8 +729,8 @@ internal fun SliderSettingsItem(
                             }
                         },
                     colors = CardDefaults.colors(
-                        containerColor = NuvioColors.Background,
-                        focusedContainerColor = NuvioColors.Background
+                        containerColor = SettingsGlassControlIdleColor,
+                        focusedContainerColor = SettingsGlassRowFocusedColor
                     ),
                     border = CardDefaults.border(
                         focusedBorder = Border(
@@ -757,7 +760,7 @@ internal fun SliderSettingsItem(
                         .weight(1f)
                         .height(8.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(NuvioColors.BackgroundElevated)
+                        .background(Color.White.copy(alpha = 0.10f * contentAlpha))
                 ) {
                     val progress = ((value - minValue).toFloat() / (maxValue - minValue).toFloat()).coerceIn(0f, 1f)
                     Box(
@@ -787,8 +790,8 @@ internal fun SliderSettingsItem(
                             }
                         },
                     colors = CardDefaults.colors(
-                        containerColor = NuvioColors.Background,
-                        focusedContainerColor = NuvioColors.Background
+                        containerColor = SettingsGlassControlIdleColor,
+                        focusedContainerColor = SettingsGlassRowFocusedColor
                     ),
                     border = CardDefaults.border(
                         focusedBorder = Border(
@@ -841,8 +844,8 @@ internal fun ColorSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
@@ -928,6 +931,7 @@ internal fun LanguageSelectionDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = title,
         width = 400.dp,
@@ -1011,8 +1015,8 @@ private fun LanguageOptionItem(
             .then(modifier)
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
         scale = CardDefaults.scale(focusedScale = 1f)
@@ -1063,6 +1067,7 @@ internal fun ColorSelectionDialog(
     val focusRequester = remember { FocusRequester() }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = title,
         suppressFirstKeyUp = false
@@ -1097,8 +1102,8 @@ internal fun ColorSelectionDialog(
             Card(
                 onClick = onDismiss,
                 colors = CardDefaults.colors(
-                    containerColor = NuvioColors.BackgroundElevated,
-                    focusedContainerColor = NuvioColors.Primary
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor
                 ),
                 border = CardDefaults.border(
                     focusedBorder = Border(

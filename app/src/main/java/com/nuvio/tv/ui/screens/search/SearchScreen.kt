@@ -104,6 +104,9 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 
 /** Skeleton rows shown while a search is pending, matching the two mobile renders. */
 private const val SEARCH_SKELETON_ROW_COUNT = 2
@@ -814,9 +817,9 @@ private fun RecentSearchesSection(
                 onClick = onClearHistory,
                 modifier = Modifier.focusRequester(clearHistoryFocusRequester),
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioTheme.colors.TextPrimary,
-                    focusedContainerColor = NuvioTheme.colors.FocusBackground,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     focusedContentColor = NuvioTheme.colors.Primary
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
@@ -842,9 +845,9 @@ private fun RecentSearchesSection(
                         }
                     },
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioTheme.colors.BackgroundCard,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioTheme.colors.TextPrimary,
-                    focusedContainerColor = NuvioTheme.colors.FocusBackground,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     focusedContentColor = NuvioTheme.colors.Primary
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
@@ -909,11 +912,11 @@ private fun SearchInputField(
                     .size(56.dp)
                     .border(
                         width = if (isDiscoverButtonFocused) 2.dp else 1.dp,
-                        color = if (isDiscoverButtonFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.Border,
+                        color = if (isDiscoverButtonFocused) NuvioTheme.colors.FocusRing else SettingsGlassBorderColor,
                         shape = RoundedCornerShape(12.dp)
                     )
                     .background(
-                        color = NuvioTheme.colors.BackgroundCard,
+                        color = SettingsGlassRowColor,
                         shape = RoundedCornerShape(12.dp)
                     )
             ) {
@@ -1002,11 +1005,11 @@ private fun SearchInputField(
                         .size(56.dp)
                         .border(
                             width = if (isVoiceButtonFocused || isVoiceListening) 2.dp else 1.dp,
-                            color = if (isVoiceListening) themeAccent else if (isVoiceButtonFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.Border,
+                            color = if (isVoiceListening) themeAccent else if (isVoiceButtonFocused) NuvioTheme.colors.FocusRing else SettingsGlassBorderColor,
                             shape = RoundedCornerShape(12.dp)
                         )
                         .background(
-                            color = if (isVoiceListening) themeAccent.copy(alpha = 0.15f) else NuvioTheme.colors.BackgroundCard,
+                            color = if (isVoiceListening) themeAccent.copy(alpha = 0.15f) else SettingsGlassRowColor,
                             shape = RoundedCornerShape(12.dp)
                         )
                 ) {
@@ -1106,10 +1109,10 @@ private fun SearchInputField(
                 )
             },
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = NuvioTheme.colors.BackgroundCard,
-                unfocusedContainerColor = NuvioTheme.colors.BackgroundCard,
+                focusedContainerColor = SettingsGlassRowColor,
+                unfocusedContainerColor = SettingsGlassRowColor,
                 focusedIndicatorColor = NuvioTheme.colors.FocusRing,
-                unfocusedIndicatorColor = NuvioTheme.colors.Border,
+                unfocusedIndicatorColor = SettingsGlassBorderColor,
                 focusedTextColor = NuvioTheme.colors.TextPrimary,
                 unfocusedTextColor = NuvioTheme.colors.TextPrimary,
                 cursorColor = NuvioTheme.colors.FocusRing
@@ -1128,11 +1131,11 @@ private fun SearchInputField(
                     .size(56.dp)
                     .border(
                         width = if (isClearButtonFocused) 2.dp else 1.dp,
-                        color = if (isClearButtonFocused) NuvioTheme.colors.FocusRing else NuvioTheme.colors.Border,
+                        color = if (isClearButtonFocused) NuvioTheme.colors.FocusRing else SettingsGlassBorderColor,
                         shape = RoundedCornerShape(12.dp)
                     )
                     .background(
-                        color = NuvioTheme.colors.BackgroundCard,
+                        color = SettingsGlassRowColor,
                         shape = RoundedCornerShape(12.dp)
                     )
             ) {

@@ -47,11 +47,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -73,12 +77,67 @@ import coil.compose.rememberAsyncImagePainter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.nuvio.tv.R
+import com.nuvio.tv.LocalSettingsBackdropBitmap
 import com.nuvio.tv.ui.theme.NuvioColors
 
 internal val SettingsContainerRadius = 28.dp
 internal val SettingsPillRadius = 999.dp
 internal val SettingsSecondaryCardRadius = 18.dp
 internal val SettingsRailItemHeight = 56.dp
+internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xAD2A3038),
+        Color(0x9E20252C),
+        Color(0xA824292F)
+    )
+)
+internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
+internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
+internal val SettingsGlassGroupColor = Color.White.copy(alpha = 0.025f)
+internal val SettingsGlassBorderColor = Color.White.copy(alpha = 0.09f)
+internal val SettingsGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
+internal val SettingsGlassControlIdleColor = Color.Transparent
+internal val SettingsGlassControlSelectedColor: Color
+    @Composable get() = NuvioColors.Secondary.copy(alpha = 0.22f)
+
+@Composable
+internal fun SettingsGlassBackdrop(
+    modifier: Modifier = Modifier
+) {
+    val bitmap = LocalSettingsBackdropBitmap.current
+    Box(modifier = modifier) {
+        if (bitmap != null && !bitmap.isRecycled) {
+            val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
+            Image(
+                bitmap = imageBitmap,
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(30.dp)
+                    .graphicsLayer {
+                        scaleX = 1.06f
+                        scaleY = 1.06f
+                    }
+            )
+        }
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(SettingsGlassCanvasBrush)
+        )
+    }
+}
+
+@Composable
+internal fun SettingsGlassScreen(
+    content: @Composable BoxScope.() -> Unit
+) {
+    Box(modifier = Modifier.fillMaxSize()) {
+        SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
+        content()
+    }
+}
 
 @Composable
 internal fun SettingsStandaloneScaffold(
@@ -86,21 +145,22 @@ internal fun SettingsStandaloneScaffold(
     subtitle: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(NuvioColors.Background)
-            .padding(horizontal = 32.dp, vertical = 24.dp)
-    ) {
-        SettingsWorkspaceSurface(
+    Box(modifier = Modifier.fillMaxSize()) {
+        SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
+        Box(
             modifier = Modifier
                 .fillMaxSize()
+                .padding(horizontal = 32.dp, vertical = 24.dp)
         ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+            SettingsWorkspaceSurface(
+                modifier = Modifier.fillMaxSize()
             ) {
-                content()
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    content()
+                }
             }
         }
     }
@@ -119,10 +179,10 @@ internal fun SettingsBrandPanel(
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(SettingsContainerRadius))
-            .background(NuvioColors.BackgroundElevated)
+            .background(SettingsGlassGroupColor)
             .border(
                 width = 1.dp,
-                color = NuvioColors.Border,
+                color = SettingsGlassBorderColor,
                 shape = RoundedCornerShape(SettingsContainerRadius)
             )
             .padding(26.dp),
@@ -134,7 +194,7 @@ internal fun SettingsBrandPanel(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(CircleShape)
-                    .background(NuvioColors.BackgroundCard),
+                    .background(SettingsGlassRowColor),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
@@ -199,15 +259,7 @@ internal fun SettingsWorkspaceSurface(
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(SettingsContainerRadius))
-            .background(NuvioColors.BackgroundElevated)
-            .border(
-                width = 1.dp,
-                color = NuvioColors.Border,
-                shape = RoundedCornerShape(SettingsContainerRadius)
-            )
-            .padding(20.dp),
+        modifier = modifier,
         content = content
     )
 }
@@ -234,6 +286,7 @@ internal fun SettingsRailButton(
         onClick = onClick,
         modifier = appliedModifier
             .fillMaxWidth()
+            .padding(horizontal = 4.dp, vertical = 3.dp)
             .heightIn(min = SettingsRailItemHeight)
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
@@ -243,21 +296,25 @@ internal fun SettingsRailButton(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) NuvioColors.BackgroundCard else NuvioColors.Background,
-            focusedContainerColor = NuvioColors.BackgroundCard
+            containerColor = if (isSelected) {
+                NuvioColors.Secondary.copy(alpha = 0.20f)
+            } else {
+                SettingsGlassRowColor
+            },
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             border = if (isSelected) Border(
-                border = BorderStroke(1.dp, NuvioColors.FocusRing),
+                border = BorderStroke(1.dp, NuvioColors.Secondary.copy(alpha = 0.55f)),
                 shape = RoundedCornerShape(SettingsPillRadius)
             ) else Border.None,
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
+                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
                 shape = RoundedCornerShape(SettingsPillRadius)
             )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(SettingsPillRadius)),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(focusedScale = 1.025f, pressedScale = 0.99f)
     ) {
         Box(
             modifier = Modifier
@@ -353,14 +410,11 @@ internal fun SettingsGroupCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(SettingsSecondaryCardRadius))
-            .background(NuvioColors.BackgroundCard)
-            .border(
-                width = 1.dp,
-                color = NuvioColors.Border,
+            .background(
+                color = SettingsGlassGroupColor,
                 shape = RoundedCornerShape(SettingsSecondaryCardRadius)
             )
-            .padding(14.dp),
+            .padding(horizontal = 6.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         if (!title.isNullOrBlank()) {
@@ -400,6 +454,7 @@ internal fun SettingsToggleRow(
         },
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
             .height(62.dp)
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
@@ -409,17 +464,17 @@ internal fun SettingsToggleRow(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing.copy(alpha = contentAlpha)),
+                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
                 shape = RoundedCornerShape(SettingsPillRadius)
             )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(SettingsPillRadius)),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(focusedScale = 1.018f, pressedScale = 0.99f)
     ) {
         Row(
             modifier = Modifier
@@ -474,6 +529,7 @@ internal fun SettingsActionRow(
         onClick = { if (enabled) onClick() },
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = 8.dp, vertical = 4.dp)
             .heightIn(min = 62.dp)
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
@@ -483,17 +539,17 @@ internal fun SettingsActionRow(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.Background,
-            focusedContainerColor = NuvioColors.Background
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing.copy(alpha = contentAlpha)),
+                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
                 shape = RoundedCornerShape(SettingsPillRadius)
             )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(SettingsPillRadius)),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(focusedScale = 1.018f, pressedScale = 0.99f)
     ) {
         Row(
             modifier = Modifier
@@ -555,7 +611,9 @@ internal fun SettingsChoiceChip(
 
     Card(
         onClick = onClick,
-        modifier = modifier.onFocusChanged { state ->
+        modifier = modifier
+            .padding(horizontal = 4.dp, vertical = 3.dp)
+            .onFocusChanged { state ->
             val nowFocused = state.isFocused
             if (isFocused != nowFocused) {
                 isFocused = nowFocused
@@ -563,21 +621,25 @@ internal fun SettingsChoiceChip(
             }
         },
         colors = CardDefaults.colors(
-            containerColor = if (selected) NuvioColors.FocusRing.copy(alpha = 0.2f) else NuvioColors.Background,
-            focusedContainerColor = if (selected) NuvioColors.FocusRing.copy(alpha = 0.2f) else NuvioColors.Background
+            containerColor = if (selected) {
+                NuvioColors.Secondary.copy(alpha = 0.22f)
+            } else {
+                SettingsGlassRowColor
+            },
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             border = if (selected) Border(
-                border = BorderStroke(1.dp, NuvioColors.FocusRing),
+                border = BorderStroke(1.dp, NuvioColors.Secondary.copy(alpha = 0.6f)),
                 shape = RoundedCornerShape(SettingsPillRadius)
             ) else Border.None,
             focusedBorder = Border(
-                border = BorderStroke(1.dp, NuvioColors.FocusRing),
+                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
                 shape = RoundedCornerShape(SettingsPillRadius)
             )
         ),
         shape = CardDefaults.shape(RoundedCornerShape(SettingsPillRadius)),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(focusedScale = 1.025f, pressedScale = 0.99f)
     ) {
         Text(
             text = label,
@@ -603,7 +665,7 @@ private fun SettingsTogglePill(
                 if (checked) {
                     NuvioColors.Secondary.copy(alpha = 0.35f * alpha)
                 } else {
-                    NuvioColors.Border.copy(alpha = alpha)
+                    Color.White.copy(alpha = 0.10f * alpha)
                 }
             )
             .padding(2.dp),
@@ -615,6 +677,57 @@ private fun SettingsTogglePill(
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = alpha))
         )
+    }
+}
+
+/**
+ * Shared neutral action used by every Reset to Default control. The label is
+ * explicitly centered because TV Material buttons otherwise inherit differing
+ * content arrangements from their call sites.
+ */
+@Composable
+internal fun SettingsResetButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    onFocused: () -> Unit = {}
+) {
+    val shape = RoundedCornerShape(SettingsSecondaryCardRadius)
+    androidx.tv.material3.Button(
+        onClick = onClick,
+        modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
+        colors = androidx.tv.material3.ButtonDefaults.colors(
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor,
+            contentColor = NuvioColors.TextPrimary,
+            focusedContentColor = NuvioColors.TextPrimary
+        ),
+        border = androidx.tv.material3.ButtonDefaults.border(
+            border = Border(
+                border = BorderStroke(1.dp, SettingsGlassBorderColor),
+                shape = shape
+            ),
+            focusedBorder = Border(
+                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
+                shape = shape
+            )
+        ),
+        shape = androidx.tv.material3.ButtonDefaults.shape(shape),
+        scale = androidx.tv.material3.ButtonDefaults.scale(
+            focusedScale = 1.018f,
+            pressedScale = 0.99f
+        )
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = stringResource(R.string.layout_reset_default),
+                style = MaterialTheme.typography.titleMedium,
+                color = NuvioColors.TextPrimary,
+                maxLines = 1
+            )
+        }
     }
 }
 
@@ -656,7 +769,7 @@ internal fun <T> SettingsSingleChoiceDialog(
 
     LaunchedEffect(focusedIndex) { focusRequester.requestFocusAfterFrames() }
 
-    NuvioDialog(onDismiss = onDismiss, title = title, subtitle = subtitle, width = width, suppressFirstKeyUp = false) {
+    NuvioDialog(glass = true, onDismiss = onDismiss, title = title, subtitle = subtitle, width = width, suppressFirstKeyUp = false) {
         Box(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
             LazyColumn(
                 state = listState,
@@ -670,8 +783,8 @@ internal fun <T> SettingsSingleChoiceDialog(
                         modifier = Modifier.fillMaxWidth()
                             .then(if (index == focusedIndex) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                            focusedContainerColor = NuvioColors.FocusBackground
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
@@ -718,7 +831,7 @@ internal fun <T> SettingsMultiChoiceDialog(
 
     LaunchedEffect(firstSelectedIndex) { focusRequester.requestFocusAfterFrames() }
 
-    NuvioDialog(onDismiss = onDismiss, title = title, subtitle = subtitle, width = width, suppressFirstKeyUp = false) {
+    NuvioDialog(glass = true, onDismiss = onDismiss, title = title, subtitle = subtitle, width = width, suppressFirstKeyUp = false) {
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Box(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 LazyColumn(
@@ -733,8 +846,8 @@ internal fun <T> SettingsMultiChoiceDialog(
                             modifier = Modifier.fillMaxWidth()
                                 .then(if (index == firstSelectedIndex) Modifier.focusRequester(focusRequester) else Modifier),
                             colors = CardDefaults.colors(
-                                containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                                focusedContainerColor = NuvioColors.FocusBackground
+                                containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                                focusedContainerColor = SettingsGlassRowFocusedColor
                             ),
                             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
                             scale = CardDefaults.scale(focusedScale = 1f)
@@ -784,11 +897,21 @@ internal fun SettingsDialogActionButton(
     primary: Boolean = false,
     enabled: Boolean = true
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    val containerColor =
+        when {
+            isFocused && primary -> NuvioColors.Secondary.copy(alpha = 0.36f)
+            isFocused -> SettingsGlassRowFocusedColor
+            primary -> SettingsGlassControlSelectedColor
+            else -> SettingsGlassRowColor
+        }
+
     Button(
         onClick = onClick,
         enabled = enabled,
+        modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
         colors = ButtonDefaults.buttonColors(
-            containerColor = if (primary) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
+            containerColor = containerColor,
             contentColor = NuvioColors.TextPrimary
         )
     ) {

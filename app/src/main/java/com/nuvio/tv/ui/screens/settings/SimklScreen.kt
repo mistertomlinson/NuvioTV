@@ -102,10 +102,10 @@ fun SimklScreen(
         R.raw.simkl_tv_wordmark
     )
 
+    SettingsGlassScreen {
     Row(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(horizontal = 48.dp, vertical = 28.dp),
         horizontalArrangement = Arrangement.spacedBy(36.dp)
     ) {
@@ -166,7 +166,7 @@ fun SimklScreen(
                     shape = RoundedCornerShape(18.dp)
                 )
                 .background(
-                    color = NuvioColors.BackgroundElevated.copy(alpha = 0.35f),
+                    color = SettingsGlassRowColor.copy(alpha = 0.35f),
                     shape = RoundedCornerShape(18.dp)
                 )
                 .padding(20.dp)
@@ -201,7 +201,7 @@ fun SimklScreen(
                         Button(
                             onClick = viewModel::onCancel,
                             colors = ButtonDefaults.colors(
-                                containerColor = NuvioColors.BackgroundCard,
+                                containerColor = SettingsGlassRowColor,
                                 contentColor = NuvioColors.TextPrimary
                             )
                         ) {
@@ -305,7 +305,7 @@ fun SimklScreen(
                                     },
                                     colors = ButtonDefaults.colors(
                                         containerColor =
-                                            NuvioColors.BackgroundCard,
+                                            SettingsGlassRowColor,
                                         contentColor =
                                             NuvioColors.TextPrimary
                                     )
@@ -364,7 +364,7 @@ fun SimklScreen(
                                 showDisconnectConfirm = true
                             },
                             colors = ButtonDefaults.colors(
-                                containerColor = NuvioColors.BackgroundCard,
+                                containerColor = SettingsGlassRowColor,
                                 contentColor = NuvioColors.TextPrimary
                             )
                         ) {
@@ -401,7 +401,7 @@ fun SimklScreen(
             Button(
                 onClick = onBackPress,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
+                    containerColor = SettingsGlassRowColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
@@ -412,6 +412,7 @@ fun SimklScreen(
 
     if (showDisconnectConfirm) {
         NuvioDialog(
+        glass = true,
             onDismiss = { showDisconnectConfirm = false },
             title = stringResource(R.string.simkl_disconnect_title),
             subtitle = stringResource(
@@ -429,7 +430,7 @@ fun SimklScreen(
                         viewModel.onDisconnect()
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
                     )
                 ) {
@@ -441,7 +442,7 @@ fun SimklScreen(
                         showDisconnectConfirm = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
+                        containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
                     )
                 ) {
@@ -449,6 +450,7 @@ fun SimklScreen(
                 }
             }
         }
+    }
     }
 }
 

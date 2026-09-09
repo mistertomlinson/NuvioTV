@@ -62,6 +62,12 @@ import com.nuvio.tv.ui.screens.settings.SettingsActionRow
 import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
 import com.nuvio.tv.R as NuvioR
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassControlIdleColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassControlSelectedColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import kotlinx.coroutines.launch
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import androidx.compose.foundation.Canvas
@@ -192,7 +198,6 @@ fun CatalogOrderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(horizontal = 48.dp, vertical = 24.dp)
     ) {
         LazyColumn(
@@ -396,9 +401,9 @@ private fun CatalogOrderCard(
             containerColor = if (isPickedUp) {
                 // Lifted rows should read as raised/lighter, not selected by
                 // another focus ring.
-                NuvioColors.FocusBackground
+                SettingsGlassRowFocusedColor
             } else {
-                NuvioColors.BackgroundCard
+                SettingsGlassRowColor
             }
         ),
         elevation = CardDefaults.cardElevation(
@@ -463,16 +468,16 @@ private fun CatalogOrderCard(
                         },
                         colors = ButtonDefaults.colors(
                             containerColor = if (isPickedUp) {
-                                NuvioColors.FocusBackground
+                                SettingsGlassRowFocusedColor
                             } else {
-                                NuvioColors.BackgroundCard
+                                SettingsGlassControlIdleColor
                             },
                             contentColor = if (isPickedUp) {
                                 NuvioColors.Primary
                             } else {
                                 NuvioColors.TextSecondary
                             },
-                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
                         border = ButtonDefaults.border(
@@ -617,13 +622,13 @@ private fun CatalogOrderCard(
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
                         containerColor =
-                            if (isPickedUp) NuvioColors.FocusBackground
-                            else NuvioColors.BackgroundCard,
+                            if (isPickedUp) SettingsGlassRowFocusedColor
+                            else SettingsGlassControlIdleColor,
                         disabledContainerColor =
-                            if (isPickedUp) NuvioColors.FocusBackground
-                            else NuvioColors.BackgroundCard,
+                            if (isPickedUp) SettingsGlassRowFocusedColor
+                            else SettingsGlassControlIdleColor,
 contentColor = NuvioColors.TextSecondary,
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
                     border = ButtonDefaults.border(
@@ -647,13 +652,13 @@ contentColor = NuvioColors.TextSecondary,
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
                         containerColor =
-                            if (isPickedUp) NuvioColors.FocusBackground
-                            else NuvioColors.BackgroundCard,
+                            if (isPickedUp) SettingsGlassRowFocusedColor
+                            else SettingsGlassControlIdleColor,
                         disabledContainerColor =
-                            if (isPickedUp) NuvioColors.FocusBackground
-                            else NuvioColors.BackgroundCard,
+                            if (isPickedUp) SettingsGlassRowFocusedColor
+                            else SettingsGlassControlIdleColor,
 contentColor = NuvioColors.TextSecondary,
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
                     border = ButtonDefaults.border(
@@ -677,13 +682,13 @@ contentColor = NuvioColors.TextSecondary,
                     enabled = item.canMoveDown,
                     colors = ButtonDefaults.colors(
                         containerColor =
-                            if (isPickedUp) NuvioColors.FocusBackground
-                            else NuvioColors.BackgroundCard,
+                            if (isPickedUp) SettingsGlassRowFocusedColor
+                            else SettingsGlassControlIdleColor,
                         disabledContainerColor =
-                            if (isPickedUp) NuvioColors.FocusBackground
-                            else NuvioColors.BackgroundCard,
+                            if (isPickedUp) SettingsGlassRowFocusedColor
+                            else SettingsGlassControlIdleColor,
 contentColor = NuvioColors.TextSecondary,
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
                     border = ButtonDefaults.border(
@@ -707,17 +712,17 @@ contentColor = NuvioColors.TextSecondary,
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (isPickedUp) {
-                                NuvioColors.FocusBackground
+                                SettingsGlassRowFocusedColor
                             } else if (
                                 item.numberStyle !=
                                 com.nuvio.tv.ui.screens.home.NumberStyle.OFF
                             ) {
-                                NuvioColors.FocusBackground
+                                SettingsGlassControlSelectedColor
                             } else {
-                                NuvioColors.BackgroundCard
+                                SettingsGlassControlIdleColor
                             },
                         contentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
                     ),
                     border = ButtonDefaults.border(
@@ -749,14 +754,14 @@ contentColor = NuvioColors.TextSecondary,
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (isPickedUp) {
-                                NuvioColors.FocusBackground
+                                SettingsGlassRowFocusedColor
                             } else if (item.isLandscape) {
-                                NuvioColors.FocusBackground
+                                SettingsGlassControlSelectedColor
                             } else {
-                                NuvioColors.BackgroundCard
+                                SettingsGlassControlIdleColor
                             },
                         contentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
                     ),
                     border = ButtonDefaults.border(
@@ -780,14 +785,14 @@ contentColor = NuvioColors.TextSecondary,
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (isPickedUp) {
-                                NuvioColors.FocusBackground
+                                SettingsGlassRowFocusedColor
                             } else if (item.isShuffled) {
-                                NuvioColors.FocusBackground
+                                SettingsGlassControlSelectedColor
                             } else {
-                                NuvioColors.BackgroundCard
+                                SettingsGlassControlIdleColor
                             },
                         contentColor = if (item.isShuffled) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.isShuffled) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
                     ),
                     border = ButtonDefaults.border(
@@ -810,10 +815,10 @@ contentColor = NuvioColors.TextSecondary,
                     onClick = onToggleEnabled,
                     colors = ButtonDefaults.colors(
                         containerColor =
-                            if (isPickedUp) NuvioColors.FocusBackground
-                            else NuvioColors.BackgroundCard,
+                            if (isPickedUp) SettingsGlassRowFocusedColor
+                            else SettingsGlassControlIdleColor,
                         contentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.TextSecondary,
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.Error
                     ),
                     border = ButtonDefaults.border(
@@ -849,8 +854,8 @@ private fun ShowAllCatalogsOnHomeToggleRow(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            containerColor = SettingsGlassGroupColor,
+            focusedContainerColor = SettingsGlassGroupColor
         ),
         border = androidx.tv.material3.CardDefaults.border(
             focusedBorder = Border(
@@ -882,7 +887,7 @@ private fun ShowAllCatalogsOnHomeToggleRow(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
             Box(
                 modifier = Modifier
                     .width(46.dp)
@@ -915,8 +920,8 @@ private fun HidePlatformNameToggleRow(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            containerColor = SettingsGlassGroupColor,
+            focusedContainerColor = SettingsGlassGroupColor
         ),
         border = androidx.tv.material3.CardDefaults.border(
             focusedBorder = Border(
@@ -948,7 +953,7 @@ private fun HidePlatformNameToggleRow(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
             Box(
                 modifier = Modifier
                     .width(46.dp)
@@ -1010,8 +1015,8 @@ private fun HeroMetadataSizeToggleRow(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            containerColor = SettingsGlassGroupColor,
+            focusedContainerColor = SettingsGlassGroupColor
         ),
         border = androidx.tv.material3.CardDefaults.border(
             focusedBorder = Border(
@@ -1043,7 +1048,7 @@ private fun HeroMetadataSizeToggleRow(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
             Box(
                 modifier = Modifier
                     .width(46.dp)
@@ -1076,8 +1081,8 @@ private fun AggregatePlatformsToggleRow(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            containerColor = SettingsGlassGroupColor,
+            focusedContainerColor = SettingsGlassGroupColor
         ),
         border = androidx.tv.material3.CardDefaults.border(
             focusedBorder = Border(
@@ -1109,7 +1114,7 @@ private fun AggregatePlatformsToggleRow(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
             Box(
                 modifier = Modifier
                     .width(46.dp)
@@ -1142,8 +1147,8 @@ private fun FullWidthIconRowToggleRow(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            containerColor = SettingsGlassGroupColor,
+            focusedContainerColor = SettingsGlassGroupColor
         ),
         border = androidx.tv.material3.CardDefaults.border(
             focusedBorder = Border(
@@ -1175,7 +1180,7 @@ private fun FullWidthIconRowToggleRow(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
             Box(
                 modifier = Modifier
                     .width(46.dp)
@@ -1209,8 +1214,8 @@ private fun DimIconsOnRowExitToggleRow(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            containerColor = SettingsGlassGroupColor,
+            focusedContainerColor = SettingsGlassGroupColor
         ),
         border = androidx.tv.material3.CardDefaults.border(
             focusedBorder = Border(
@@ -1242,7 +1247,7 @@ private fun DimIconsOnRowExitToggleRow(
                 )
             }
             Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
             Box(
                 modifier = Modifier
                     .width(46.dp)
@@ -1275,8 +1280,8 @@ private fun ThemeColorToggleRow(
             .height(62.dp)
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundElevated,
-            focusedContainerColor = NuvioColors.BackgroundElevated
+            containerColor = SettingsGlassGroupColor,
+            focusedContainerColor = SettingsGlassGroupColor
         ),
         border = androidx.tv.material3.CardDefaults.border(
             focusedBorder = Border(
@@ -1300,7 +1305,7 @@ private fun ThemeColorToggleRow(
                 color = NuvioColors.TextPrimary
             )
             Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else NuvioColors.Border
+            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
             Box(
                 modifier = Modifier
                     .width(46.dp)

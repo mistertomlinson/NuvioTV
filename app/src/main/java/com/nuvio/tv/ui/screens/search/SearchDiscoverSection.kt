@@ -69,6 +69,9 @@ import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.PosterCardStyle
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import com.nuvio.tv.ui.util.formatAddonTypeLabel
 import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 
@@ -329,12 +332,12 @@ private fun DiscoverDropdownPicker(
                 ),
             shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                focusedContainerColor = NuvioColors.FocusBackground
+                containerColor = SettingsGlassRowColor,
+                focusedContainerColor = SettingsGlassRowFocusedColor
             ),
             border = CardDefaults.border(
                 border = Border(
-                    border = BorderStroke(1.dp, NuvioColors.Border),
+                    border = BorderStroke(1.dp, SettingsGlassBorderColor),
                     shape = RoundedCornerShape(14.dp)
                 ),
                 focusedBorder = Border(
@@ -390,10 +393,10 @@ private fun DiscoverDropdownPicker(
                 .width(with(LocalDensity.current) { anchorSize.width.toDp() })
                 .heightIn(max = 320.dp),
             shape = RoundedCornerShape(14.dp),
-            containerColor = NuvioColors.BackgroundCard,
+            containerColor = SettingsGlassRowColor,
             tonalElevation = 0.dp,
             shadowElevation = 8.dp,
-            border = BorderStroke(1.dp, NuvioColors.Border)
+            border = BorderStroke(1.dp, SettingsGlassBorderColor)
         ) {
             options.forEach { option ->
                 val isSelected = option.value == selectedValue
@@ -405,7 +408,7 @@ private fun DiscoverDropdownPicker(
                 }
                 val itemBackgroundColor = when {
                     isOptionFocused -> NuvioColors.Secondary
-                    isSelected -> NuvioColors.FocusBackground
+                    isSelected -> SettingsGlassRowFocusedColor
                     else -> Color.Transparent
                 }
 
@@ -742,12 +745,12 @@ private fun DiscoverActionCard(
             ),
         shape = CardDefaults.shape(shape = cardShape),
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             border = Border(
-                border = BorderStroke(1.dp, NuvioColors.Border),
+                border = BorderStroke(1.dp, SettingsGlassBorderColor),
                 shape = cardShape
             ),
             focusedBorder = Border(

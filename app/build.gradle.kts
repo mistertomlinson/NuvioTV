@@ -147,8 +147,8 @@ android {
         }
         create("sideload") {
             initWith(buildTypes.getByName("release"))
-            isMinifyEnabled = false
-            isShrinkResources = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = if (file("../nuviotv.jks").exists()) {
                 signingConfigs.getByName("release")
             } else {

@@ -158,10 +158,10 @@ fun SupportersContributorsScreen(
         pendingContributorRestoreKey = null
     }
 
+    SettingsGlassScreen {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
             .padding(horizontal = 36.dp, vertical = 28.dp)
     ) {
         Row(
@@ -212,6 +212,7 @@ fun SupportersContributorsScreen(
             }
         )
     }
+    }
 }
 
 @Composable
@@ -246,7 +247,7 @@ private fun SupportersBrandColumn(
         modifier = modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(28.dp))
-            .background(NuvioColors.BackgroundElevated)
+            .background(SettingsGlassRowColor)
             .border(1.dp, NuvioColors.Border, RoundedCornerShape(28.dp))
             .padding(horizontal = 28.dp, vertical = 32.dp)
     ) {
@@ -400,8 +401,8 @@ private fun SupportersBrandBack(
                 .focusRequester(backFocusRequester)
                 .fillMaxWidth(),
             colors = ButtonDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                focusedContainerColor = NuvioColors.FocusBackground,
+                containerColor = SettingsGlassRowColor,
+                focusedContainerColor = SettingsGlassRowFocusedColor,
                 contentColor = NuvioColors.TextPrimary,
                 focusedContentColor = NuvioColors.Primary
             ),
@@ -436,7 +437,7 @@ private fun SupportersContentPanel(
         modifier = modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(28.dp))
-            .background(NuvioColors.BackgroundElevated)
+            .background(SettingsGlassRowColor)
             .border(1.dp, NuvioColors.Border, RoundedCornerShape(28.dp))
             .padding(24.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp)
@@ -500,7 +501,7 @@ private fun SupportersTabContent(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(NuvioColors.Background)
+            .background(SettingsGlassRowColor)
             .border(1.dp, NuvioColors.Border, RoundedCornerShape(24.dp))
     ) {
         when {
@@ -571,7 +572,7 @@ private fun ContributorsTabContent(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(24.dp))
-            .background(NuvioColors.Background)
+            .background(SettingsGlassRowColor)
             .border(1.dp, NuvioColors.Border, RoundedCornerShape(24.dp))
     ) {
         when {
@@ -720,8 +721,8 @@ private fun SupporterCard(
             }
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.BackgroundCard
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowColor
         ),
         border = CardDefaults.border(
             border = Border(
@@ -811,8 +812,8 @@ private fun ContributorCard(
             }
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.BackgroundCard
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowColor
         ),
         border = CardDefaults.border(
             border = Border(
@@ -888,7 +889,7 @@ private fun ContributorRoleBadge(role: String) {
     Box(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(NuvioColors.Background)
+            .background(SettingsGlassRowColor)
             .border(1.dp, NuvioColors.Border, RoundedCornerShape(8.dp))
             .padding(horizontal = 8.dp, vertical = 4.dp),
         contentAlignment = Alignment.Center
@@ -912,7 +913,7 @@ private fun NameAvatar(
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(NuvioColors.Background)
+            .background(SettingsGlassRowColor)
             .border(1.dp, NuvioColors.Border, CircleShape),
         contentAlignment = Alignment.Center
     ) {
@@ -942,7 +943,7 @@ private fun ContributorAvatar(
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(NuvioColors.Background)
+            .background(SettingsGlassRowColor)
             .border(1.dp, NuvioColors.Border, CircleShape),
         contentAlignment = Alignment.Center
     ) {
@@ -992,8 +993,8 @@ private fun SupportersTabButton(
                 if (state.isFocused) onClick()
             },
         colors = CardDefaults.colors(
-            containerColor = if (selected) NuvioColors.BackgroundCard else NuvioColors.Background,
-            focusedContainerColor = NuvioColors.BackgroundCard
+            containerColor = if (selected) SettingsGlassRowColor else SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowColor
         ),
         border = CardDefaults.border(
             border = if (selected) {
@@ -1046,6 +1047,7 @@ private fun SupporterDetailsDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = supporter.name,
         subtitle = formatDonationDate(supporter.date),
@@ -1090,8 +1092,8 @@ private fun SupporterDetailsDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
-                    focusedContainerColor = NuvioColors.FocusBackground,
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = NuvioColors.Primary
                 ),
@@ -1123,6 +1125,7 @@ private fun ContributorDetailsDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = contributor.login,
         subtitle = stringResource(
@@ -1207,8 +1210,8 @@ private fun ContributorDetailsDialog(
                 Button(
                     onClick = { showSupportQr = !showSupportQr },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
-                        focusedContainerColor = NuvioColors.FocusBackground,
+                        containerColor = SettingsGlassRowColor,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -1229,8 +1232,8 @@ private fun ContributorDetailsDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
-                    focusedContainerColor = NuvioColors.FocusBackground,
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = NuvioColors.Primary
                 ),

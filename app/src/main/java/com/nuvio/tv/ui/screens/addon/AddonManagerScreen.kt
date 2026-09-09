@@ -93,6 +93,11 @@ import androidx.compose.ui.platform.LocalLifecycleOwner
 import kotlinx.coroutines.launch
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassControlIdleColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -215,7 +220,6 @@ fun AddonManagerScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(NuvioColors.Background)
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -234,7 +238,7 @@ fun AddonManagerScreen(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = Color(0xFF1A3A5C)),
+                        colors = CardDefaults.cardColors(containerColor = NuvioColors.Secondary.copy(alpha = 0.16f)),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
@@ -253,7 +257,7 @@ fun AddonManagerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateContentSize(),
-                        colors = CardDefaults.cardColors(containerColor = NuvioColors.BackgroundCard),
+                        colors = CardDefaults.cardColors(containerColor = SettingsGlassRowColor),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Column(modifier = Modifier.padding(20.dp)) {
@@ -275,12 +279,12 @@ fun AddonManagerScreen(
                                         .weight(1f)
                                         .focusRequester(surfaceFocusRequester),
                                     colors = ClickableSurfaceDefaults.colors(
-                                        containerColor = NuvioColors.BackgroundElevated,
-                                        focusedContainerColor = NuvioColors.BackgroundElevated
+                                        containerColor = SettingsGlassGroupColor,
+                                        focusedContainerColor = SettingsGlassGroupColor
                                     ),
                                     border = ClickableSurfaceDefaults.border(
                                         border = Border(
-                                            border = BorderStroke(1.dp, NuvioColors.Border),
+                                            border = BorderStroke(1.dp, SettingsGlassBorderColor),
                                             shape = RoundedCornerShape(12.dp)
                                         ),
                                         focusedBorder = Border(
@@ -345,9 +349,9 @@ fun AddonManagerScreen(
                                     enabled = !uiState.isInstalling,
                                     modifier = Modifier.focusRequester(installButtonFocusRequester),
                                     colors = ButtonDefaults.colors(
-                                        containerColor = NuvioColors.BackgroundCard,
+                                        containerColor = SettingsGlassRowColor,
                                         contentColor = NuvioColors.TextPrimary,
-                                        focusedContainerColor = NuvioColors.FocusBackground,
+                                        focusedContainerColor = SettingsGlassRowFocusedColor,
                                         focusedContentColor = NuvioColors.Primary
                                     ),
                                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
@@ -544,8 +548,8 @@ private fun ManageFromPhoneCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
@@ -608,8 +612,8 @@ private fun CatalogOrderEntryCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
@@ -672,8 +676,8 @@ private fun RefreshCatalogsEntryCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
+            containerColor = SettingsGlassRowColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
@@ -785,7 +789,7 @@ private fun QrCodeOverlay(
                 modifier = Modifier.focusRequester(focusRequester),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = NuvioColors.Surface,
-                    focusedContainerColor = NuvioColors.FocusBackground
+                    focusedContainerColor = SettingsGlassRowFocusedColor
                 ),
                 border = ClickableSurfaceDefaults.border(
                     focusedBorder = Border(
@@ -1026,7 +1030,7 @@ private fun ConfirmAddonChangesDialog(
                             onClick = onReject,
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = NuvioColors.Surface,
-                                focusedContainerColor = NuvioColors.FocusBackground
+                                focusedContainerColor = SettingsGlassRowFocusedColor
                             ),
                             border = ClickableSurfaceDefaults.border(
                                 focusedBorder = Border(
@@ -1100,8 +1104,8 @@ private fun AddonCard(
                 .fillMaxWidth()
                 .animateContentSize(),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                focusedContainerColor = NuvioColors.BackgroundCard
+                containerColor = SettingsGlassRowColor,
+                focusedContainerColor = SettingsGlassRowColor
             ),
             border = ClickableSurfaceDefaults.border(
                 focusedBorder = Border(
@@ -1119,7 +1123,7 @@ private fun AddonCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .animateContentSize(),
-            colors = CardDefaults.cardColors(containerColor = NuvioColors.BackgroundCard),
+            colors = CardDefaults.cardColors(containerColor = SettingsGlassRowColor),
             shape = RoundedCornerShape(12.dp)
         ) {
             AddonCardContent(
@@ -1173,9 +1177,10 @@ private fun AddonCardContent(
                         onClick = onMoveUp,
                         enabled = canMoveUp,
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = SettingsGlassControlIdleColor,
+                            disabledContainerColor = SettingsGlassControlIdleColor,
                             contentColor = NuvioColors.TextSecondary,
-                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
                         shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
@@ -1186,9 +1191,10 @@ private fun AddonCardContent(
                         onClick = onMoveDown,
                         enabled = canMoveDown,
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = SettingsGlassControlIdleColor,
+                            disabledContainerColor = SettingsGlassControlIdleColor,
                             contentColor = NuvioColors.TextSecondary,
-                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
                         shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
@@ -1198,9 +1204,9 @@ private fun AddonCardContent(
                     Button(
                         onClick = onRemove,
                         colors = ButtonDefaults.colors(
-                            containerColor = NuvioColors.BackgroundCard,
+                            containerColor = SettingsGlassControlIdleColor,
                             contentColor = NuvioColors.TextSecondary,
-                            focusedContainerColor = NuvioColors.FocusBackground,
+                            focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Error
                         ),
                         shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))

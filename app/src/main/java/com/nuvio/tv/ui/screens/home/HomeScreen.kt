@@ -263,8 +263,8 @@ fun HomeScreen(
                  * composed, and the icon row is present at reveal. Both flags
                  * are self-releasing: heroBackdropWarm on a 2.5s bound in the
                  * VM, platformBackdropsPreloaded on the 3s bound in
-                 * preloadPlatformBackdrops. Local 6s backstop below covers the
-                 * case where neither ever fires.
+                 * preloadPlatformBackdrops. The local 6s backstop may relax
+                 * those media warmups, but never the platform-row draw gate.
                  */
                 var gateBackstopElapsed by remember(
                     uiState.homeLoadSessionId
@@ -275,8 +275,32 @@ fun HomeScreen(
                     kotlinx.coroutines.delay(6_000L)
                     gateBackstopElapsed = true
                 }
-                val warmupSatisfied = gateBackstopElapsed ||
+                var platformChromeCommitted by remember(
+                    uiState.homeLoadSessionId
+                ) {
+                    mutableStateOf(
+                        uiState.stableVisiblePlatformIds.isNotEmpty()
+                    )
+                }
+                /*
+                 * The platform row lives outside ModernHomeContent, so wait
+                 * until it has committed once before releasing the curtain.
+                 * If there are truly no platform IDs, catalogsReady plus the
+                 * preload flag remains the fallback "nothing to draw" path.
+                 */
+                val platformChromeReady =
+                    !uiState.aggregateStreamingPlatformsEnabled ||
+                        uiState.homeLayout != HomeLayout.MODERN ||
+                        platformChromeCommitted ||
+                        (
+                            uiState.catalogsReady &&
+                                platformBackdropsPreloaded &&
+                                uiState.stableVisiblePlatformIds.isEmpty()
+                            )
+                val mediaWarmupReady = gateBackstopElapsed ||
                     (heroBackdropWarm && platformBackdropsPreloaded)
+                val warmupSatisfied =
+                    platformChromeReady && mediaWarmupReady
                 val shouldShowLoadingGate = !uiState.skeletonReady ||
                     !uiState.layoutPreferencesReady ||
                     !warmupSatisfied ||
@@ -294,8 +318,7 @@ fun HomeScreen(
                 val initiallyReady = remember(
                     uiState.homeLoadSessionId
                 ) {
-                    uiState.skeletonReady &&
-                        uiState.layoutPreferencesReady
+                    !shouldShowLoadingGate
                 }
                 val useColdLaunchReveal = remember(
                     uiState.homeLoadSessionId
@@ -479,6 +502,9 @@ fun HomeScreen(
                                 skipReturnCurtain = skipReturnCurtain,
                                 returnFrameSignalActive = returnFrameSignalActive,
                                 onReturnFrameDrawn = onReturnFrameDrawn,
+                                onPlatformChromeCommitted = {
+                                    platformChromeCommitted = true
+                                },
                                 onNavigateToDetail = onNavigateToDetail,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
@@ -713,6 +739,7 @@ private fun ModernHomeRoute(
     skipReturnCurtain: Boolean,
     returnFrameSignalActive: Boolean,
     onReturnFrameDrawn: () -> Unit,
+    onPlatformChromeCommitted: () -> Unit,
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onContinueWatchingStartFromBeginning: (ContinueWatchingItem) -> Unit,
@@ -798,14 +825,6 @@ private fun ModernHomeRoute(
         cachedPlatformIds.isNotEmpty() -> cachedPlatformIds
         else -> emptySet()
     }
-    // Seed true when platform ids are already resolved at first composition
-    // (now typical, since the loading gate waits on platformBackdropsPreloaded)
-    // so the icon row doesn't fade in a beat after the rest of Home.
-    var carouselReady by rememberSaveable(
-        uiState.homeLoadSessionId
-    ) {
-        mutableStateOf(stablePlatformIds.isNotEmpty())
-    }
     /*
      * Shared hero-backdrop alpha for the platform chrome.
      *
@@ -822,12 +841,6 @@ private fun ModernHomeRoute(
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
             viewModel.setHomeHeroTrailerPlaying(false)
-        }
-    }
-    // Show carousel as soon as we have any platform ids — from cache or live
-    LaunchedEffect(stablePlatformIds) {
-        if (stablePlatformIds.isNotEmpty() && !carouselReady) {
-            carouselReady = true
         }
     }
     // Save to cache whenever live data is ready
@@ -892,11 +905,18 @@ private fun ModernHomeRoute(
         showHomeReturnCurtain = false
     }
 
-    val carouselAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (carouselReady && aggregatePlatformsEnabled) 1f else 0f,
-        animationSpec = androidx.compose.animation.core.tween(400),
-        label = "carouselFade"
-    )
+    /*
+     * Initial Home owns the reveal animation. The platform row is either fully
+     * rendered beneath that curtain or absent; giving it another 400 ms fade
+     * is what allowed it to visibly trail the rest of the screen.
+     */
+    val carouselAlpha =
+        if (stablePlatformIds.isNotEmpty() && aggregatePlatformsEnabled) 1f else 0f
+    val platformChromeDrawReported = remember(
+        uiState.homeLoadSessionId
+    ) {
+        java.util.concurrent.atomic.AtomicBoolean(false)
+    }
 
     CompositionLocalProvider(
         LocalNoBackdropImage provides uiState.focusedPosterNoBackdropImage,
@@ -983,6 +1003,15 @@ private fun ModernHomeRoute(
             .align(Alignment.TopEnd)
             .fillMaxWidth(if (fullWidthIconRowEnabled) 1f else 0.55f)
             .padding(top = 8.dp, end = if (fullWidthIconRowEnabled) 0.dp else 20.dp, start = if (fullWidthIconRowEnabled) 20.dp else 0.dp)
+            .drawWithContent {
+                drawContent()
+                if (
+                    stablePlatformIds.isNotEmpty() &&
+                        platformChromeDrawReported.compareAndSet(false, true)
+                ) {
+                    onPlatformChromeCommitted()
+                }
+            }
             .graphicsLayer {
                 alpha =
                     carouselAlpha *

@@ -1,10 +1,19 @@
 package com.nuvio.tv
 
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.content.Context
 import android.content.res.Configuration
+import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.Canvas as AndroidCanvas
+import android.view.View
+import android.view.PixelCopy
+import android.view.Window
 import androidx.core.os.ConfigurationCompat
 import android.util.Log
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.metrics.performance.JankStats
 import androidx.metrics.performance.PerformanceMetricsState
@@ -13,6 +22,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.lifecycle.lifecycleScope
 import java.util.Locale
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDp
@@ -63,6 +73,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -95,14 +106,11 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import androidx.tv.material3.DrawerValue
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
-import androidx.tv.material3.ModalNavigationDrawer
 import androidx.tv.material3.Surface
 import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
-import androidx.tv.material3.rememberDrawerState
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.data.local.AppOnboardingDataStore
@@ -130,6 +138,7 @@ import com.nuvio.tv.updater.ui.UpdatePromptDialog
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -152,6 +161,7 @@ val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
 val LocalCarouselFocusRequester = compositionLocalOf { FocusRequester.Default }
 val LocalSidebarOpenRequest = compositionLocalOf<() -> Unit> { {} }
 val LocalRowFocusRestorer = compositionLocalOf<androidx.compose.runtime.MutableState<FocusRequester>> { androidx.compose.runtime.mutableStateOf(FocusRequester.Default) }
+val LocalSettingsBackdropBitmap = compositionLocalOf<Bitmap?> { null }
 
 data class DrawerItem(
     val route: String,
@@ -159,6 +169,57 @@ data class DrawerItem(
     val iconRes: Int? = null,
     val icon: ImageVector? = null
 )
+
+private fun captureSettingsBackdrop(
+    window: Window?,
+    view: View,
+    onCaptured: (Bitmap?) -> Unit
+) {
+    if (view.width <= 0 || view.height <= 0) {
+        onCaptured(null)
+        return
+    }
+
+    val bitmap = Bitmap.createBitmap(
+        view.width,
+        view.height,
+        Bitmap.Config.ARGB_8888
+    )
+
+    if (
+        window != null &&
+        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O
+    ) {
+        PixelCopy.request(
+            window,
+            bitmap,
+            { result ->
+                if (result == PixelCopy.SUCCESS) {
+                    onCaptured(bitmap)
+                } else {
+                    Log.w(
+                        "SettingsGlass",
+                        "PixelCopy failed ($result); using View.draw fallback"
+                    )
+                    val fallback = runCatching {
+                        view.draw(AndroidCanvas(bitmap))
+                        bitmap
+                    }.getOrNull()
+                    if (fallback == null) bitmap.recycle()
+                    onCaptured(fallback)
+                }
+            },
+            Handler(Looper.getMainLooper())
+        )
+    } else {
+        val captured = runCatching {
+            view.draw(AndroidCanvas(bitmap))
+            bitmap
+        }.getOrNull()
+        if (captured == null) bitmap.recycle()
+        onCaptured(captured)
+    }
+}
 
 private data class MainUiPrefs(
     val theme: AppTheme = AppTheme.WHITE,
@@ -707,18 +768,19 @@ private fun LegacySidebarScaffold(
     onSwitchProfile: () -> Unit,
     onExitApp: () -> Unit
 ) {
-    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    var isLegacySidebarOpen by remember { mutableStateOf(false) }
+    val legacyDrawerProgress = remember { Animatable(0f) }
     val drawerItemFocusRequesters = remember(drawerItems) {
         drawerItems.associate { item -> item.route to FocusRequester() }
     }
     val showSidebar = currentRoute in rootRoutes
 
     LaunchedEffect(currentRoute) {
-        drawerState.setValue(DrawerValue.Closed)
+        isLegacySidebarOpen = false
     }
 
     val closedDrawerWidth = if (sidebarCollapsed) 0.dp else 72.dp
-    val openDrawerWidth = 196.dp
+    val openDrawerWidth = 202.dp
 
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
@@ -727,29 +789,108 @@ private fun LegacySidebarScaffold(
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
     var legacyLeftAtEdge by remember { mutableStateOf(false) }
     var legacyLeftReleasedSinceEdge by remember { mutableStateOf(false) }
-
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Closed) {
-        pendingSidebarFocusRequest = true
-        drawerState.setValue(DrawerValue.Open)
+    val legacyHostView = LocalView.current
+    val legacyActivity = LocalContext.current as? Activity
+    var settingsBackdropBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var settingsCaptureInProgress by remember { mutableStateOf(false) }
+    fun openLegacySidebar() {
+        if (settingsCaptureInProgress) return
+        if (currentRoute == Screen.Settings.route) {
+            pendingSidebarFocusRequest = true
+            isLegacySidebarOpen = true
+            return
+        }
+        settingsCaptureInProgress = true
+        captureSettingsBackdrop(
+            window = legacyActivity?.window,
+            view = legacyHostView
+        ) { captured ->
+            settingsCaptureInProgress = false
+            if (captured != null) {
+                settingsBackdropBitmap?.takeIf { it !== captured }?.recycle()
+                settingsBackdropBitmap = captured
+            }
+            pendingSidebarFocusRequest = true
+            isLegacySidebarOpen = true
+        }
+    }
+    val legacySidebarHazeState = remember { HazeState() }
+    val legacySidebarBlurEnabled =
+        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+    val legacyDrawerShape = RoundedCornerShape(24.dp)
+    val legacyDrawerBackgroundBrush = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color(0xAD2A3038),
+                Color(0x9E20252C),
+                Color(0xA824292F)
+            )
+        )
+    }
+    val legacyDrawerBorderColor = Color.White.copy(alpha = 0.09f)
+    val legacyDrawerVisible by remember {
+        derivedStateOf {
+            isLegacySidebarOpen || legacyDrawerProgress.value > 0.001f
+        }
+    }
+    val legacySidebarHazeCaptureActive by remember {
+        derivedStateOf {
+            legacySidebarBlurEnabled &&
+                legacyDrawerVisible
+        }
     }
 
-    BackHandler(enabled = currentRoute in rootRoutes && drawerState.currentValue == DrawerValue.Open) {
+    LaunchedEffect(isLegacySidebarOpen) {
+        if (isLegacySidebarOpen) {
+            legacyDrawerProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 520,
+                    easing = LinearOutSlowInEasing
+                )
+            )
+        } else {
+            legacyDrawerProgress.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 260,
+                    easing = FastOutSlowInEasing
+                )
+            )
+        }
+    }
+
+    BackHandler(enabled = currentRoute in rootRoutes && !isLegacySidebarOpen) {
+        openLegacySidebar()
+    }
+
+    BackHandler(enabled = currentRoute in rootRoutes && isLegacySidebarOpen) {
         onExitApp()
     }
 
-    LaunchedEffect(drawerState.currentValue, pendingContentFocusTransfer) {
-        if (!pendingContentFocusTransfer || drawerState.currentValue != DrawerValue.Closed) {
+    LaunchedEffect(isLegacySidebarOpen, pendingContentFocusTransfer) {
+        if (!pendingContentFocusTransfer || isLegacySidebarOpen) {
             return@LaunchedEffect
         }
+        delay(210L)
+        if (isLegacySidebarOpen) return@LaunchedEffect
         repeat(2) { withFrameNanos { } }
-        runCatching { contentFocusRequester.requestFocus() }
+        val restorer = rowFocusRestorer.value
+        val restoredExactItem =
+            restorer != androidx.compose.ui.focus.FocusRequester.Default &&
+                runCatching { restorer.requestFocus() }.getOrDefault(false)
+        if (!restoredExactItem) {
+            runCatching { contentFocusRequester.requestFocus() }
+        }
         pendingContentFocusTransfer = false
     }
 
-    LaunchedEffect(drawerState.currentValue, selectedDrawerRoute, showSidebar, pendingSidebarFocusRequest) {
-        if (!showSidebar || !pendingSidebarFocusRequest || drawerState.currentValue != DrawerValue.Open) {
+    LaunchedEffect(isLegacySidebarOpen, selectedDrawerRoute, showSidebar, pendingSidebarFocusRequest) {
+        if (!showSidebar || !pendingSidebarFocusRequest || !isLegacySidebarOpen) {
             return@LaunchedEffect
         }
+        withFrameNanos { }
+        if (!isLegacySidebarOpen) return@LaunchedEffect
         val targetRoute = selectedDrawerRoute ?: run {
             pendingSidebarFocusRequest = false
             return@LaunchedEffect
@@ -758,57 +899,152 @@ private fun LegacySidebarScaffold(
             pendingSidebarFocusRequest = false
             return@LaunchedEffect
         }
-        repeat(2) { withFrameNanos { } }
         runCatching { requester.requestFocus() }
         pendingSidebarFocusRequest = false
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        drawerContent = { drawerValue ->
-            if (showSidebar) {
-                val drawerWidth = if (drawerValue == DrawerValue.Open) openDrawerWidth else closedDrawerWidth
-                Column(
+    Box(modifier = Modifier.fillMaxSize()) {
+            if (showSidebar && legacyDrawerVisible) {
+                val isExpanded = legacyDrawerVisible
+                val progress = legacyDrawerProgress.value.coerceIn(0f, 1f)
+                val widthPhase =
+                    FastOutSlowInEasing.transform(
+                        (progress / 0.90f).coerceIn(0f, 1f)
+                    )
+                val heightPhase =
+                    LinearOutSlowInEasing.transform(
+                        ((progress - 0.04f) / 0.96f).coerceIn(0f, 1f)
+                    )
+                val drawerWidth =
+                    22.dp +
+                        (
+                            (openDrawerWidth - 22.dp) *
+                                (0.42f + (0.58f * widthPhase))
+                            )
+                val drawerHeightFraction =
+                    0.065f + (0.935f * heightPhase)
+                val drawerSurfaceAlpha =
+                    LinearOutSlowInEasing.transform(
+                        (progress / 0.92f).coerceIn(0f, 1f)
+                    )
+                val drawerContentProgress =
+                    FastOutSlowInEasing.transform(
+                        ((progress - 0.28f) / 0.62f)
+                            .coerceIn(0f, 1f)
+                    )
+                val drawerBlurModifier = if (legacySidebarHazeCaptureActive && isExpanded) {
+                    Modifier.hazeChild(
+                        state = legacySidebarHazeState,
+                        shape = legacyDrawerShape,
+                        tint = Color.Unspecified,
+                        blurRadius = (1f + (29f * progress)).dp,
+                        noiseFactor = 0.025f * progress
+                    )
+                } else {
+                    Modifier
+                }
+                val drawerSurfaceModifier = if (isExpanded) {
+                    Modifier
+                        .padding(start = 14.dp, top = 16.dp, end = 8.dp, bottom = 16.dp)
+                        .then(drawerBlurModifier)
+                        .graphicsLayer {
+                            shape = legacyDrawerShape
+                            clip = true
+                        }
+                        .clip(legacyDrawerShape)
+                        .background(
+                            brush = legacyDrawerBackgroundBrush,
+                            shape = legacyDrawerShape
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = legacyDrawerBorderColor,
+                            shape = legacyDrawerShape
+                        )
+                } else {
+                    Modifier.background(NuvioColors.Background)
+                }
+                Box(
                     modifier = Modifier
                         .fillMaxHeight()
-                        .width(drawerWidth)
-                        .background(NuvioColors.Background)
-                        .padding(12.dp)
-                        .selectableGroup()
-                        .onPreviewKeyEvent { keyEvent ->
-                            if (keyEvent.key == Key.DirectionRight && keyEvent.type == KeyEventType.KeyDown) {
-                                drawerState.setValue(DrawerValue.Closed)
-                                // Fast path: restore focus to the exact row item
-                                // immediately. But arm (not disable) the delayed
-                                // fallback: when rowFocusRestorer holds a stale or
-                                // Default requester (rare edge states — row swap,
-                                // cache miss), the synchronous requestFocus throws
-                                // and is swallowed, leaving focus in the void. With
-                                // the transfer armed, the 2-frame-delayed effect
-                                // then focuses the always-present content container
-                                // so focus can never fall through. On the common
-                                // path the fast restore already landed and the
-                                // container's focusRestorer sends focus right back
-                                // to the same child — harmless.
-                                val restorer = rowFocusRestorer.value
-                                if (restorer != androidx.compose.ui.focus.FocusRequester.Default && runCatching { restorer.requestFocus() }.getOrDefault(false)) {
-                                    pendingContentFocusTransfer = false
-                                } else {
-                                    pendingContentFocusTransfer = true
-                                }
+                        .width(openDrawerWidth)
+                        .zIndex(1f)
+                ) {
+                    /*
+                     * Animate real layout bounds instead of drawing a
+                     * full-size Haze child behind a visually scaled panel.
+                     * The blur and tinted surface now share one size at every
+                     * frame, so there is never a second window underneath.
+                     */
+                    Box(
+                        modifier = Modifier
+                            .width(drawerWidth)
+                            .fillMaxHeight(drawerHeightFraction)
+                            .graphicsLayer {
+                                alpha = drawerSurfaceAlpha
+                            }
+                            .then(drawerSurfaceModifier)
+                    )
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .width(openDrawerWidth)
+                            .padding(
+                                start = 14.dp,
+                                top = 16.dp,
+                                end = 8.dp,
+                                bottom = 16.dp
+                            )
+                            .padding(12.dp)
+                            .graphicsLayer {
+                                alpha = drawerContentProgress
+                            }
+                            .selectableGroup()
+                            .onPreviewKeyEvent { keyEvent ->
+                            if (
+                                isLegacySidebarOpen &&
+                                keyEvent.key == Key.DirectionRight &&
+                                keyEvent.type == KeyEventType.KeyDown
+                            ) {
+                                isLegacySidebarOpen = false
+                                // Keep focus on the drawer item until the exit is
+                                // fully offscreen. The delayed transfer above then
+                                // restores the exact content item when possible.
+                                pendingContentFocusTransfer = true
                                 true
                             } else {
                                 false
                             }
                         }
-                ) {
-                    val isExpanded = drawerValue == DrawerValue.Open
+                    ) {
                     val itemWidth = if (isExpanded) 156.dp else 48.dp
+                    /*
+                     * The visual focus bubble follows the same continuous
+                     * progress as the panel. Actual Compose focus is still
+                     * managed independently, so D-pad input cannot enter the
+                     * menu before the drawer is ready.
+                     */
+                    val focusPresentationProgress =
+                        FastOutSlowInEasing.transform(
+                            (legacyDrawerProgress.value / 0.94f)
+                                .coerceIn(0f, 1f)
+                        )
+                    val focusScaleReady = legacyDrawerProgress.value >= 0.985f
 
                     if (isExpanded) {
                         Spacer(modifier = Modifier.height(30.dp))
                         if (showProfileSelector && activeProfileName.isNotEmpty()) {
                             var isProfileFocused by remember { mutableStateOf(false) }
+                            val profileFocusScale by animateFloatAsState(
+                                targetValue =
+                                    if (isProfileFocused && focusScaleReady) 1.04f else 1f,
+                                animationSpec = tween(
+                                    durationMillis = 160,
+                                    easing = FastOutSlowInEasing
+                                ),
+                                label = "legacyProfileFocusScale"
+                            )
                             val profileItemShape = RoundedCornerShape(32.dp)
                             val profileLeadingInset = 18.dp
                             val profileAvatarSize = 34.dp
@@ -816,7 +1052,16 @@ private fun LegacySidebarScaffold(
                             val profileGapAfterAvatar =
                                 (profileLabelStart - profileLeadingInset - profileAvatarSize).coerceAtLeast(0.dp)
                             val profileBgColor by animateColorAsState(
-                                targetValue = if (isProfileFocused) NuvioColors.FocusBackground else Color.Transparent,
+                                targetValue =
+                                    if (isProfileFocused) {
+                                        Color.White.copy(
+                                            alpha =
+                                                0.16f *
+                                                    focusPresentationProgress
+                                        )
+                                    } else {
+                                        Color.Transparent
+                                    },
                                 label = "legacyProfileItemBg"
                             )
                             Box(
@@ -829,13 +1074,18 @@ private fun LegacySidebarScaffold(
                                         .height(52.dp)
                                         .clip(profileItemShape)
                                         .background(color = profileBgColor, shape = profileItemShape)
+                                        .graphicsLayer {
+                                            scaleX = profileFocusScale
+                                            scaleY = profileFocusScale
+                                        }
+                                        .focusProperties { canFocus = legacyDrawerVisible }
                                         .onFocusChanged { isProfileFocused = it.isFocused }
                                         .onPreviewKeyEvent { event ->
                                             event.key == Key.DirectionUp
                                         }
                                         .clickable {
                                             onSwitchProfile()
-                                            drawerState.setValue(DrawerValue.Closed)
+                                            isLegacySidebarOpen = false
                                         },
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -849,7 +1099,16 @@ private fun LegacySidebarScaffold(
                                     Spacer(modifier = Modifier.width(profileGapAfterAvatar))
                                     Text(
                                         text = activeProfileName,
-                                        color = if (isProfileFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+                                        color =
+                                            if (
+                                                isProfileFocused &&
+                                                    focusPresentationProgress > 0.01f
+                                            ) {
+                                                NuvioColors.TextPrimary
+                                            } else {
+                                                NuvioColors.TextSecondary
+                                            },
+                                        fontSize = 15.sp,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
                                         textAlign = TextAlign.Start,
@@ -882,6 +1141,10 @@ private fun LegacySidebarScaffold(
                                 icon = item.icon,
                                 selected = selectedDrawerRoute == item.route,
                                 expanded = isExpanded,
+                                focusEnabled = legacyDrawerVisible,
+                                focusPresentationProgress =
+                                    focusPresentationProgress,
+                                focusScaleReady = focusScaleReady,
                                 onClick = {
                                     val stayingOnCurrentRoute = currentRoute == item.route
                                     navigateToDrawerRoute(
@@ -889,7 +1152,7 @@ private fun LegacySidebarScaffold(
                                         currentRoute = currentRoute,
                                         targetRoute = item.route
                                     )
-                                    drawerState.setValue(DrawerValue.Closed)
+                                    isLegacySidebarOpen = false
 
                                     // Only hand focus back to content when the drawer
                                     // closes without leaving this screen. During root
@@ -907,10 +1170,9 @@ private fun LegacySidebarScaffold(
                     }
 
                     Spacer(modifier = Modifier.weight(1f))
+                    }
                 }
             }
-        }
-    ) {
         val contentStartPadding by animateDpAsState(
             targetValue = if (showSidebar) closedDrawerWidth else 0.dp,
             animationSpec = tween(350),
@@ -920,8 +1182,20 @@ private fun LegacySidebarScaffold(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(start = contentStartPadding)
+                .then(
+                    if (legacySidebarHazeCaptureActive) {
+                        Modifier.haze(legacySidebarHazeState)
+                    } else {
+                        Modifier
+                    }
+                )
+                .onPreviewKeyEvent { keyEvent ->
+                    isLegacySidebarOpen &&
+                        keyEvent.type == KeyEventType.KeyDown &&
+                        isBlockedContentKey(keyEvent.key)
+                }
                 .onKeyEvent { keyEvent ->
-                    if (showSidebar && drawerState.currentValue == DrawerValue.Closed) {
+                    if (showSidebar && !isLegacySidebarOpen) {
                         if (keyEvent.key == Key.DirectionLeft && keyEvent.type == KeyEventType.KeyUp) {
                             if (legacyLeftAtEdge) legacyLeftReleasedSinceEdge = true
                         }
@@ -932,8 +1206,7 @@ private fun LegacySidebarScaffold(
                                 true
                             } else {
                                 if (legacyLeftAtEdge && legacyLeftReleasedSinceEdge) {
-                                    pendingSidebarFocusRequest = true
-                                    drawerState.setValue(DrawerValue.Open)
+                                    openLegacySidebar()
                                 }
                                 legacyLeftAtEdge = true
                                 true
@@ -949,10 +1222,13 @@ private fun LegacySidebarScaffold(
             CompositionLocalProvider(
                 LocalAppInForeground provides appInForeground,
                 LocalBackgroundedAtMs provides backgroundedAtMs,
-                LocalSidebarExpanded provides (drawerState.currentValue == DrawerValue.Open),
+                LocalSidebarExpanded provides isLegacySidebarOpen,
                 LocalContentFocusRequester provides contentFocusRequester,
-                LocalSidebarOpenRequest provides { pendingSidebarFocusRequest = true; drawerState.setValue(DrawerValue.Open) },
-                LocalRowFocusRestorer provides rowFocusRestorer
+                LocalSidebarOpenRequest provides {
+                    openLegacySidebar()
+                },
+                LocalRowFocusRestorer provides rowFocusRestorer,
+                LocalSettingsBackdropBitmap provides settingsBackdropBitmap
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -971,47 +1247,89 @@ private fun LegacySidebarButton(
     icon: ImageVector?,
     selected: Boolean,
     expanded: Boolean,
+    focusEnabled: Boolean,
+    focusPresentationProgress: Float,
+    focusScaleReady: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val itemShape = RoundedCornerShape(32.dp)
-    val backgroundColor by animateColorAsState(
+    val bubbleColor by animateColorAsState(
         targetValue = when {
-            isFocused -> NuvioColors.FocusBackground
-            expanded && selected -> NuvioColors.Secondary
+            isFocused -> Color.White.copy(alpha = 0.16f)
+            expanded && selected ->
+                NuvioColors.Secondary.copy(alpha = 0.42f)
             else -> Color.Transparent
         },
         label = "legacySidebarItemBackground"
     )
+    val bubbleProgress =
+        if (expanded && (isFocused || selected)) {
+            focusPresentationProgress.coerceIn(0f, 1f)
+        } else {
+            0f
+        }
     val contentColor by animateColorAsState(
         targetValue = when {
-            isFocused -> NuvioColors.TextPrimary
-            expanded && selected -> NuvioColors.OnSecondary
+            isFocused && focusPresentationProgress > 0.01f -> NuvioColors.TextPrimary
+            expanded && selected -> NuvioColors.TextPrimary
             else -> NuvioColors.TextSecondary
         },
         label = "legacySidebarItemContent"
     )
     val iconTint by animateColorAsState(
         targetValue = when {
-            isFocused -> NuvioColors.TextPrimary
-            expanded && selected -> NuvioColors.OnSecondary
+            isFocused && focusPresentationProgress > 0.01f -> NuvioColors.Secondary
+            expanded && selected -> NuvioColors.Secondary
             selected -> NuvioColors.Secondary
             !expanded -> NuvioColors.TextTertiary
             else -> NuvioColors.TextSecondary
         },
         label = "legacySidebarItemIconTint"
     )
+    val focusScale by animateFloatAsState(
+        targetValue = if (isFocused && focusScaleReady) 1.045f else 1f,
+        animationSpec = tween(
+            durationMillis = 160,
+            easing = FastOutSlowInEasing
+        ),
+        label = "legacySidebarItemScale"
+    )
 
     Box(
         modifier = modifier
             .height(52.dp)
-            .focusProperties { canFocus = expanded }
-            .clip(itemShape)
-            .background(color = backgroundColor, shape = itemShape)
+            .graphicsLayer {
+                scaleX = focusScale
+                scaleY = focusScale
+            }
+            .focusProperties { canFocus = focusEnabled }
             .onFocusChanged { isFocused = it.isFocused }
             .clickable(onClick = onClick),
     ) {
+        /*
+         * Draw the bubble independently from the clickable/content layer. It
+         * can grow from an icon-sized pill to the complete row without the
+         * row's own clip cutting off its horizontal scale.
+         */
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterStart)
+                .width(
+                    52.dp +
+                        (104.dp * bubbleProgress)
+                )
+                .height(52.dp)
+                .graphicsLayer {
+                    alpha = bubbleProgress
+                }
+                .clip(itemShape)
+                .background(
+                    color = bubbleColor,
+                    shape = itemShape
+                )
+        )
         DrawerItemIcon(
             iconRes = iconRes,
             icon = icon,
@@ -1031,6 +1349,7 @@ private fun LegacySidebarButton(
             Text(
                 text = label,
                 color = contentColor,
+                fontSize = 15.sp,
                 maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                 textAlign = TextAlign.Start,
@@ -1082,6 +1401,33 @@ private fun ModernSidebarScaffold(
     var leftAtEdge by remember { mutableStateOf(false) }
     var leftReleasedSinceEdge by remember { mutableStateOf(false) }
     var isFloatingPillIconOnly by remember { mutableStateOf(false) }
+    val modernHostView = LocalView.current
+    val modernActivity = LocalContext.current as? Activity
+    var settingsBackdropBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var settingsCaptureInProgress by remember { mutableStateOf(false) }
+    fun openModernSidebar() {
+        if (settingsCaptureInProgress) return
+        if (currentRoute == Screen.Settings.route) {
+            isSidebarExpanded = true
+            sidebarCollapsePending = false
+            pendingSidebarFocusRequest = true
+            return
+        }
+        settingsCaptureInProgress = true
+        captureSettingsBackdrop(
+            window = modernActivity?.window,
+            view = modernHostView
+        ) { captured ->
+            settingsCaptureInProgress = false
+            if (captured != null) {
+                settingsBackdropBitmap?.takeIf { it !== captured }?.recycle()
+                settingsBackdropBitmap = captured
+            }
+            isSidebarExpanded = true
+            sidebarCollapsePending = false
+            pendingSidebarFocusRequest = true
+        }
+    }
     val keepFloatingPillExpanded = selectedDrawerRoute == Screen.Settings.route
     val keepSidebarFocusDuringCollapse =
         isSidebarExpanded || sidebarCollapsePending || pendingContentFocusTransfer
@@ -1105,9 +1451,7 @@ private fun ModernSidebarScaffold(
     }
 
     BackHandler(enabled = currentRoute in rootRoutes && !isSidebarExpanded && !sidebarCollapsePending) {
-        isSidebarExpanded = true
-        sidebarCollapsePending = false
-        pendingSidebarFocusRequest = true
+        openModernSidebar()
     }
 
     BackHandler(enabled = currentRoute in rootRoutes && isSidebarExpanded && !sidebarCollapsePending) {
@@ -1307,9 +1651,7 @@ private fun ModernSidebarScaffold(
                                     true
                                 } else {
                                     if (leftAtEdge && leftReleasedSinceEdge) {
-                                        isSidebarExpanded = true
-                                        sidebarCollapsePending = false
-                                        pendingSidebarFocusRequest = true
+                                        openModernSidebar()
                                     }
                                     leftAtEdge = true
                                     true
@@ -1332,7 +1674,8 @@ private fun ModernSidebarScaffold(
                 LocalBackgroundedAtMs provides backgroundedAtMs,
                 LocalSidebarExpanded provides isSidebarExpanded,
                 LocalContentFocusRequester provides contentFocusRequester,
-                LocalSidebarOpenRequest provides { isSidebarExpanded = true; sidebarCollapsePending = false; pendingSidebarFocusRequest = true }
+                LocalSidebarOpenRequest provides { openModernSidebar() },
+                LocalSettingsBackdropBitmap provides settingsBackdropBitmap
             ) {
                 NuvioNavHost(
                     navController = navController,
@@ -1450,9 +1793,7 @@ private fun ModernSidebarScaffold(
                             transformOrigin = TransformOrigin(0f, 0f)
                         },
                     onExpand = {
-                        isSidebarExpanded = true
-                        sidebarCollapsePending = false
-                        pendingSidebarFocusRequest = true
+                        openModernSidebar()
                     }
                 )
             }

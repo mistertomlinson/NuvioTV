@@ -889,6 +889,7 @@ private fun DebridTextListDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = title,
         subtitle = stringResource(R.string.debrid_stream_release_groups_input_subtitle),
@@ -899,8 +900,8 @@ private fun DebridTextListDialog(
             onClick = { inputFocusRequester.requestFocus() },
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.BackgroundElevated,
-                focusedContainerColor = NuvioColors.BackgroundElevated
+                containerColor = SettingsGlassRowColor,
+                focusedContainerColor = SettingsGlassRowColor
             ),
             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
             scale = CardDefaults.scale(focusedScale = 1f)
@@ -1287,6 +1288,7 @@ private fun DebridDeviceAuthDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = stringResource(
             if (isConnected) R.string.debrid_disconnect_provider else R.string.debrid_connect_provider,
@@ -1476,6 +1478,7 @@ private fun DebridApiKeyDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = title,
         subtitle = subtitle,
@@ -1488,8 +1491,8 @@ private fun DebridApiKeyDialog(
                 .fillMaxWidth()
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
-                containerColor = NuvioColors.BackgroundElevated,
-                focusedContainerColor = NuvioColors.BackgroundElevated
+                containerColor = SettingsGlassRowColor,
+                focusedContainerColor = SettingsGlassRowColor
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -1662,8 +1665,8 @@ private fun QrCodeOverlay(
                 onClick = onClose,
                 modifier = Modifier.focusRequester(focusRequester),
                 colors = CardDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
-                    focusedContainerColor = NuvioColors.FocusBackground
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor
                 ),
                 shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
                 scale = CardDefaults.scale(focusedScale = 1f)

@@ -305,6 +305,7 @@ private fun AudioLanguageSelectionDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.audio_preferred_lang),
         width = 400.dp,
@@ -335,8 +336,8 @@ private fun AudioLanguageSelectionDialog(
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)
                             .onFocusChanged { isFocused = it.isFocused },
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                            focusedContainerColor = NuvioColors.FocusBackground
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
@@ -388,6 +389,7 @@ private fun DecoderPriorityDialog(
     }
 
     NuvioDialog(
+        glass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.audio_decoder_priority),
         subtitle = stringResource(R.string.audio_decoder_controls),
@@ -416,8 +418,8 @@ private fun DecoderPriorityDialog(
                             .fillMaxWidth()
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                            focusedContainerColor = NuvioColors.FocusBackground
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)

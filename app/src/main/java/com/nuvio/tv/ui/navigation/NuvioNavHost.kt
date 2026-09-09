@@ -31,6 +31,7 @@ import com.nuvio.tv.ui.screens.settings.AboutScreen
 import com.nuvio.tv.ui.screens.settings.LayoutSettingsScreen
 import com.nuvio.tv.ui.screens.settings.PlaybackSettingsScreen
 import com.nuvio.tv.ui.screens.settings.SettingsScreen
+import com.nuvio.tv.ui.screens.settings.SettingsGlassScreen
 import com.nuvio.tv.ui.screens.settings.SimklScreen
 import com.nuvio.tv.ui.screens.settings.SupportersContributorsScreen
 import com.nuvio.tv.ui.screens.settings.ThemeSettingsScreen
@@ -54,6 +55,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import kotlinx.coroutines.launch
+
 @Composable
 fun NuvioNavHost(
     navController: NavHostController,
@@ -1088,32 +1090,38 @@ fun NuvioNavHost(
         }
 
         composable(Screen.Search.route) {
-            SearchScreen(
-                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
-                },
-                onNavigateToSeeAll = { catalogId, addonId, type ->
-                    navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
-                },
-                onOpenDiscover = { navController.navigate(Screen.Discover.route) }
-            )
+            SettingsGlassScreen {
+                SearchScreen(
+                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                        navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                    },
+                    onNavigateToSeeAll = { catalogId, addonId, type ->
+                        navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
+                    },
+                    onOpenDiscover = { navController.navigate(Screen.Discover.route) }
+                )
+            }
         }
 
         composable(Screen.Discover.route) {
-            DiscoverScreen(
-                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
-                }
-            )
+            SettingsGlassScreen {
+                DiscoverScreen(
+                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                        navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                    }
+                )
+            }
         }
 
         composable(Screen.Library.route) {
-            LibraryScreen(
-                showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
-                }
-            )
+            SettingsGlassScreen {
+                LibraryScreen(
+                    showBuiltInHeader = !hideBuiltInHeaders,
+                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                        navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                    }
+                )
+            }
         }
 
         composable(Screen.Settings.route) {
@@ -1198,17 +1206,21 @@ fun NuvioNavHost(
         composable(Screen.AddonManager.route) {
             val homeBackStackEntry = navController.getBackStackEntry(Screen.Home.route)
             val homeViewModel: HomeViewModel = hiltViewModel(homeBackStackEntry)
-            AddonManagerScreen(
-                showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
-                onRefreshCatalogs = { homeViewModel.forceReloadCatalogs() }
-            )
+            SettingsGlassScreen {
+                AddonManagerScreen(
+                    showBuiltInHeader = !hideBuiltInHeaders,
+                    onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
+                    onRefreshCatalogs = { homeViewModel.forceReloadCatalogs() }
+                )
+            }
         }
 
         composable(Screen.CatalogOrder.route) {
-            CatalogOrderScreen(
-                onBackPress = { navController.popBackStack() }
-            )
+            SettingsGlassScreen {
+                CatalogOrderScreen(
+                    onBackPress = { navController.popBackStack() }
+                )
+            }
         }
 
         composable(Screen.Plugins.route) {
