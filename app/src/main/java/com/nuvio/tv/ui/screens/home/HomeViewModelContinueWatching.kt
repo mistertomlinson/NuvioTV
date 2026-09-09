@@ -484,6 +484,12 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
 
                 debug.markPhase("render-in-progress")
                 // Render in-progress items + cached next-up immediately
+                val currentSeedByContentId = nextUpSeeds
+                    .filter { it.season != null && it.episode != null }
+                    .associateBy(
+                        keySelector = { it.contentId },
+                        valueTransform = { it.season!! to it.episode!! }
+                    )
                 val cachedNextUpItems = cachedNextUp.mapNotNull { cached ->
                     // Skip if this show is already in-progress (suppression)
                     if (inProgressOnly.any { it.progress.contentId == cached.contentId }) return@mapNotNull null
@@ -494,6 +500,26 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     // Drop if the series no longer has any watched-episode seeds
                     // (e.g. user unmarked all episodes as watched).
                     if (snapshot.hasLoadedRemoteProgress && cached.contentId !in activeSeedContentIds) return@mapNotNull null
+                    /*
+                     * The cached card was derived from seedSeason/seedEpisode.
+                     * If playback has since completed a later episode, publishing
+                     * this snapshot would briefly resurrect the old Next Up card.
+                     */
+                    val currentSeed = currentSeedByContentId[cached.contentId]
+                    if (
+                        currentSeed != null &&
+                        cached.seedSeason != null &&
+                        cached.seedEpisode != null
+                    ) {
+                        val (currentSeason, currentEpisode) = currentSeed
+                        val seedAdvanced =
+                            currentSeason > cached.seedSeason ||
+                                (
+                                    currentSeason == cached.seedSeason &&
+                                        currentEpisode > cached.seedEpisode
+                                    )
+                        if (seedAdvanced) return@mapNotNull null
+                    }
                     ContinueWatchingItem.NextUp(
                         info = NextUpInfo(
                             contentId = cached.contentId,
@@ -1414,17 +1440,35 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
     val jobs = latestCompletedBySeries.map { progress ->
         launch(Dispatchers.IO) {
             lookupSemaphore.withPermit {
+                /*
+                 * A completed lookup with no successor is still authoritative.
+                 * Mark it as processed so an older cached Next Up card cannot
+                 * be merged back after the series finale.
+                 */
+                processedContentIds.add(progress.contentId)
                 val nextUp = buildNextUpItem(
                     progress = progress,
                     showUnairedNextUp = showUnairedNextUp,
                     debug = debug
                 ) ?: run {
-                    logNextUpDecision("drop contentId=${progress.contentId} name=${progress.name} reason=buildNextUpItem-null")
+                    /*
+                     * A missing metadata response is inconclusive. Preserve the
+                     * cached card in that case and retry on a later pipeline run.
+                     */
+                    val metaResolved = synchronized(cwMetaCache) {
+                        cwMetaCache["${progress.contentType}:${progress.contentId}"]
+                            ?: cwMetaCache["series:${progress.contentId}"]
+                            ?: cwMetaCache["tv:${progress.contentId}"]
+                    } != null
+                    if (!metaResolved) {
+                        processedContentIds.remove(progress.contentId)
+                    }
+                    logNextUpDecision(
+                        "drop contentId=${progress.contentId} name=${progress.name} " +
+                            "reason=buildNextUpItem-null metaResolved=$metaResolved"
+                    )
                     return@withPermit
                 }
-                // Only mark as processed after successful buildNextUpItem so unaired
-                // items aren't incorrectly added to rejectedByFreshPipeline.
-                processedContentIds.add(progress.contentId)
                 val shouldPublish: Boolean
                 val partialItems = mergeMutex.withLock {
                     nextUpByContent[progress.contentId] = nextUp

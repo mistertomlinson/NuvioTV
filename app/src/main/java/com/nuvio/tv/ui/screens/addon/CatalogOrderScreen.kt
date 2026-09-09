@@ -621,13 +621,9 @@ private fun CatalogOrderCard(
                     onClick = onMoveToTop,
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
-                        containerColor =
-                            if (isPickedUp) SettingsGlassRowFocusedColor
-                            else SettingsGlassControlIdleColor,
-                        disabledContainerColor =
-                            if (isPickedUp) SettingsGlassRowFocusedColor
-                            else SettingsGlassControlIdleColor,
-contentColor = NuvioColors.TextSecondary,
+                        containerColor = SettingsGlassControlIdleColor,
+                        disabledContainerColor = SettingsGlassControlIdleColor,
+                        contentColor = NuvioColors.TextSecondary,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -651,13 +647,9 @@ contentColor = NuvioColors.TextSecondary,
                     onClick = onMoveUp,
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
-                        containerColor =
-                            if (isPickedUp) SettingsGlassRowFocusedColor
-                            else SettingsGlassControlIdleColor,
-                        disabledContainerColor =
-                            if (isPickedUp) SettingsGlassRowFocusedColor
-                            else SettingsGlassControlIdleColor,
-contentColor = NuvioColors.TextSecondary,
+                        containerColor = SettingsGlassControlIdleColor,
+                        disabledContainerColor = SettingsGlassControlIdleColor,
+                        contentColor = NuvioColors.TextSecondary,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -681,13 +673,9 @@ contentColor = NuvioColors.TextSecondary,
                     onClick = onMoveDown,
                     enabled = item.canMoveDown,
                     colors = ButtonDefaults.colors(
-                        containerColor =
-                            if (isPickedUp) SettingsGlassRowFocusedColor
-                            else SettingsGlassControlIdleColor,
-                        disabledContainerColor =
-                            if (isPickedUp) SettingsGlassRowFocusedColor
-                            else SettingsGlassControlIdleColor,
-contentColor = NuvioColors.TextSecondary,
+                        containerColor = SettingsGlassControlIdleColor,
+                        disabledContainerColor = SettingsGlassControlIdleColor,
+                        contentColor = NuvioColors.TextSecondary,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -711,9 +699,7 @@ contentColor = NuvioColors.TextSecondary,
                     onClick = onToggleNumbered,
                     colors = ButtonDefaults.colors(
                         containerColor =
-                            if (isPickedUp) {
-                                SettingsGlassRowFocusedColor
-                            } else if (
+                            if (
                                 item.numberStyle !=
                                 com.nuvio.tv.ui.screens.home.NumberStyle.OFF
                             ) {
@@ -753,9 +739,7 @@ contentColor = NuvioColors.TextSecondary,
                     onClick = onToggleLandscape,
                     colors = ButtonDefaults.colors(
                         containerColor =
-                            if (isPickedUp) {
-                                SettingsGlassRowFocusedColor
-                            } else if (item.isLandscape) {
+                            if (item.isLandscape) {
                                 SettingsGlassControlSelectedColor
                             } else {
                                 SettingsGlassControlIdleColor
@@ -784,9 +768,7 @@ contentColor = NuvioColors.TextSecondary,
                     onClick = onToggleShuffle,
                     colors = ButtonDefaults.colors(
                         containerColor =
-                            if (isPickedUp) {
-                                SettingsGlassRowFocusedColor
-                            } else if (item.isShuffled) {
+                            if (item.isShuffled) {
                                 SettingsGlassControlSelectedColor
                             } else {
                                 SettingsGlassControlIdleColor
@@ -814,9 +796,7 @@ contentColor = NuvioColors.TextSecondary,
                 Button(
                     onClick = onToggleEnabled,
                     colors = ButtonDefaults.colors(
-                        containerColor =
-                            if (isPickedUp) SettingsGlassRowFocusedColor
-                            else SettingsGlassControlIdleColor,
+                        containerColor = SettingsGlassControlIdleColor,
                         contentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.TextSecondary,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.Error

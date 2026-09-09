@@ -1254,6 +1254,9 @@ private fun LegacySidebarButton(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val interactionSource = remember {
+        androidx.compose.foundation.interaction.MutableInteractionSource()
+    }
     val itemShape = RoundedCornerShape(32.dp)
     val bubbleColor by animateColorAsState(
         targetValue = when {
@@ -1306,7 +1309,11 @@ private fun LegacySidebarButton(
             }
             .focusProperties { canFocus = focusEnabled }
             .onFocusChanged { isFocused = it.isFocused }
-            .clickable(onClick = onClick),
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onClick
+            ),
     ) {
         /*
          * Draw the bubble independently from the clickable/content layer. It
