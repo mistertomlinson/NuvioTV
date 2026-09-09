@@ -539,6 +539,17 @@ fun ModernHomeContent(
     val landingOverlayFadeAlphaState =
         landingOverlayFadeAlpha.asState()
 
+    /*
+     * Card edge and sheen are subtler than the other restored overlays, so
+     * they use a slower shared draw-only fade after fast-scroll settlement.
+     */
+    val landingCardDepthFadeAlpha = remember {
+        androidx.compose.animation.core.Animatable(1f)
+    }
+
+    val landingCardDepthFadeAlphaState =
+        landingCardDepthFadeAlpha.asState()
+
     val fullyVisibleOverlayAlphaState = remember {
         androidx.compose.runtime.mutableFloatStateOf(1f)
     }
@@ -737,6 +748,9 @@ fun ModernHomeContent(
                 landingOverlayFadeAlpha
                     .snapTo(0f)
 
+                landingCardDepthFadeAlpha
+                    .snapTo(0f)
+
                 landingOverlayFadeRowKeys =
                     landingOverlayRowKeys
 
@@ -746,14 +760,28 @@ fun ModernHomeContent(
                 withFrameNanos { }
 
                 try {
-                    landingOverlayFadeAlpha
-                        .animateTo(
-                            targetValue = 1f,
-                            animationSpec =
-                                androidx.compose.animation.core.tween(
-                                    durationMillis = 150
+                    coroutineScope {
+                        launch {
+                            landingOverlayFadeAlpha
+                                .animateTo(
+                                    targetValue = 1f,
+                                    animationSpec =
+                                        androidx.compose.animation.core.tween(
+                                            durationMillis = 150
+                                        )
                                 )
-                        )
+                        }
+                        launch {
+                            landingCardDepthFadeAlpha
+                                .animateTo(
+                                    targetValue = 1f,
+                                    animationSpec =
+                                        androidx.compose.animation.core.tween(
+                                            durationMillis = 500
+                                        )
+                                )
+                        }
+                    }
                 } finally {
                     if (
                         suppressedOverlayGeneration ==
@@ -4007,6 +4035,15 @@ fun ModernHomeContent(
                             fullyVisibleOverlayAlphaState
                         }
 
+                    val cardDepthAlphaForThisRow =
+                        if (
+                            useLandingOverlayFadeForThisRow
+                        ) {
+                            landingCardDepthFadeAlphaState
+                        } else {
+                            fullyVisibleOverlayAlphaState
+                        }
+
                     ModernRowSection(
                         row = row,
                         renderLightweight = renderLightweight,
@@ -4017,6 +4054,8 @@ fun ModernHomeContent(
                             !suppressHeavyOverlaysForThisRow,
                         heavyOverlayAlpha =
                             heavyOverlayAlphaForThisRow,
+                        cardDepthAlpha =
+                            cardDepthAlphaForThisRow,
                         rowTitleBottom = rowTitleBottom,
                         numberStyle = row.numberStyle,
                         isFirstRow = carouselRows.firstOrNull()?.key == row.key,

@@ -187,6 +187,7 @@ private fun ModernCatalogRowItem(
     isWatched: Boolean,
     showHeavyOverlays: Boolean,
     heavyOverlayAlpha: State<Float>,
+    cardDepthAlpha: State<Float>,
     onFocused: () -> Unit,
     onItemFocus: (MetaPreview) -> Unit,
     onPreloadAdjacentItem: () -> Unit,
@@ -240,6 +241,7 @@ private fun ModernCatalogRowItem(
         isWatched = isWatched,
         showHeavyOverlays = showHeavyOverlays,
         heavyOverlayAlpha = heavyOverlayAlpha,
+        cardDepthAlpha = cardDepthAlpha,
         focusRequester = requester,
         onFocused = remember(focusKey, payload, onFocused, onItemFocus, onPreloadAdjacentItem, onCatalogSelectionFocused) {
             {
@@ -969,6 +971,7 @@ internal fun ModernRowSection(
     forceContinueWatchingRestoreToStart: Boolean = false,
     showHeavyOverlays: Boolean = true,
     heavyOverlayAlpha: State<Float>,
+    cardDepthAlpha: State<Float>,
     rowTitleBottom: Dp,
     defaultBringIntoViewSpec: BringIntoViewSpec,
     focusStateCatalogRowScrollStates: Map<String, Int>,
@@ -1817,6 +1820,7 @@ internal fun ModernRowSection(
                                         isWatched = isWatched,
                                         showHeavyOverlays = showHeavyOverlays,
                                         heavyOverlayAlpha = heavyOverlayAlpha,
+                                        cardDepthAlpha = cardDepthAlpha,
                                         onFocused = onFocused,
                                         onItemFocus = onItemFocus,
                                         onPreloadAdjacentItem = remember(nextCatalogItem) {
@@ -1853,6 +1857,7 @@ internal fun ModernRowSection(
                                     isWatched = isWatched,
                                     showHeavyOverlays = showHeavyOverlays,
                                     heavyOverlayAlpha = heavyOverlayAlpha,
+                                    cardDepthAlpha = cardDepthAlpha,
                                     onFocused = onFocused,
                                     onItemFocus = onItemFocus,
                                     onPreloadAdjacentItem = remember(nextCatalogItem) {
@@ -2092,6 +2097,7 @@ private fun ModernCarouselCard(
     isWatched: Boolean,
     showHeavyOverlays: Boolean,
     heavyOverlayAlpha: State<Float>,
+    cardDepthAlpha: State<Float>,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
     onClick: () -> Unit,
@@ -2107,7 +2113,7 @@ private fun ModernCarouselCard(
 
     /*
      * Card Depth is deliberately cached and attached only to the
-     * complete renderer's poster/backdrop media layer.
+     * complete renderer's dedicated visual layer.
      *
      * It does not participate in focus, expansion, trailer playback,
      * renderer promotion, or lightweight fast-scroll rows.
@@ -2487,7 +2493,6 @@ private fun ModernCarouselCard(
                         .graphicsLayer {
                             alpha = posterAlpha
                         }
-                        .then(posterDepthModifier)
                 ) {
                     if (!hasImage || !posterImageLoaded.value) {
                         MonochromePosterPlaceholder(
@@ -2518,6 +2523,24 @@ private fun ModernCarouselCard(
                             }
                         )
                     }
+                }
+
+                /*
+                 * Keep depth separate from the poster pixels so its slower
+                 * landing fade does not dim the image or other overlays.
+                 * State is read by graphicsLayer, invalidating only drawing.
+                 */
+                if (showHeavyOverlays) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = cardDepthAlpha.value
+                                compositingStrategy =
+                                    androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
+                            }
+                            .then(posterDepthModifier)
+                    )
                 }
 
                 // Layer 2: Black backdrop behind trailer — only once trailer is painting,
