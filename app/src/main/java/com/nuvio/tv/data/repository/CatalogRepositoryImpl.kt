@@ -80,8 +80,14 @@ class CatalogRepositoryImpl @Inject constructor(
             }
             val json = file.readText()
             val cached = cacheAdapter.fromJson(json) ?: emptyMap()
-            // Warm the in-memory cache
-            catalogCache.putAll(cached)
+            /*
+             * Disk entries use the Home-facing addon/type/catalog key, while
+             * catalogCache uses a request key that also includes base URL,
+             * pagination, and extras. Inserting these incompatible keys never
+             * produced getCatalog() hits and could leave duplicate stale/fresh
+             * rows in a later disk snapshot. Home consumes the returned map
+             * directly, so keep the request cache reserved for fresh results.
+             */
             Log.d(TAG, "Loaded ${cached.size} catalog entries from disk for profile $profileId")
             cached
         } catch (e: Exception) {

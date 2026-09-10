@@ -42,6 +42,7 @@ class AddonRepositoryImpl @Inject constructor(
         private const val TAG = "AddonRepository"
         private const val MANIFEST_CACHE_PREFS = "addon_manifest_cache"
         private const val MANIFEST_CACHE_KEY = "manifests_v4"
+        private const val MANIFEST_REFRESH_TIME_KEY = "manifest_refresh_time_v4"
         private const val LEGACY_MANIFEST_CACHE_KEY = "manifests"
         private const val MANIFEST_SUFFIX = "/manifest.json"
         private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L 
@@ -90,9 +91,6 @@ class AddonRepositoryImpl @Inject constructor(
     init {
         syncScope.launch {
             loadManifestCacheFromDisk()
-            // Always trigger a background refresh on startup so catalog names
-            // stay current without waiting for the 6-hour TTL.
-            lastManifestRefreshTime = 0L
         }
     }
 
@@ -110,6 +108,7 @@ class AddonRepositoryImpl @Inject constructor(
             val anyUpdated = refreshed.any { it is NetworkResult.Success }
             if (anyUpdated) {
                 lastManifestRefreshTime = System.currentTimeMillis()
+                persistManifestRefreshTime()
                 Log.d(TAG, "Background manifest refresh completed")
             }
         }
@@ -121,6 +120,7 @@ class AddonRepositoryImpl @Inject constructor(
             if (prefs.contains(LEGACY_MANIFEST_CACHE_KEY)) {
                 prefs.edit().remove(LEGACY_MANIFEST_CACHE_KEY).apply()
             }
+            lastManifestRefreshTime = prefs.getLong(MANIFEST_REFRESH_TIME_KEY, 0L)
             val json = prefs.getString(MANIFEST_CACHE_KEY, null) ?: return@withContext
             val type = object : TypeToken<Map<String, Addon>>() {}.type
             val cached: Map<String, Addon> = gson.fromJson(json, type) ?: return@withContext
@@ -141,6 +141,13 @@ class AddonRepositoryImpl @Inject constructor(
                 Log.w(TAG, "Failed to persist manifest cache to disk", e)
             }
         }
+    }
+
+    private fun persistManifestRefreshTime() {
+        context.getSharedPreferences(MANIFEST_CACHE_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putLong(MANIFEST_REFRESH_TIME_KEY, lastManifestRefreshTime)
+            .apply()
     }
 
     override fun getInstalledAddons(): Flow<List<Addon>> =
@@ -165,6 +172,11 @@ class AddonRepositoryImpl @Inject constructor(
                         }.awaitAll().filterNotNull()
                     }
 
+                    if (cached.isEmpty() && fresh.isNotEmpty() && fresh.size == urls.size) {
+                        lastManifestRefreshTime = System.currentTimeMillis()
+                        persistManifestRefreshTime()
+                    }
+
                     if (fresh != cached) {
                         emit(applyDisplayNames(fresh))
                     }
@@ -180,6 +192,7 @@ class AddonRepositoryImpl @Inject constructor(
                     val anyUpdated = refreshed.any { it is NetworkResult.Success }
                     if (anyUpdated) {
                         lastManifestRefreshTime = System.currentTimeMillis()
+                        persistManifestRefreshTime()
                         val fresh = urls.mapNotNull { manifestCache[canonicalizeUrl(it)] }
                         if (fresh != cached) {
                             emit(applyDisplayNames(fresh))

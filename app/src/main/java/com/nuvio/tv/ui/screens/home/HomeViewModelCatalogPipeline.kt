@@ -423,26 +423,6 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
             return@withLock
         }
 
-        // Load persisted catalog rows from disk and show immediately while network fetches run
-        val diskCached =
-            catalogRepository.loadCatalogsFromDisk(profileId)
-        if (diskCached.isNotEmpty()) {
-            diskCached.forEach { (key, row) ->
-                catalogSourceRows[key] = row
-                val exposedItems = row.items.take(HOME_CATALOG_WINDOW_SIZE)
-                catalogsMap[key] = row.copy(
-                    items = exposedItems,
-                    hasMore = row.items.size > exposedItems.size || row.hasMore
-                )
-            }
-            diskCacheRestored = true
-            val matchedKeys = diskCached.keys.count { it in catalogOrder }
-            // Show cached rows immediately and hide spinner — network fetches refresh in background
-            _uiState.update { it.copy(isLoading = false) }
-            updateCatalogRowsPipeline()
-            Log.d(HomeViewModel.TAG, "Restored ${diskCached.size} catalog rows from disk for profile $profileId")
-        }
-
         val catalogsToLoad = addons.flatMap { addon ->
             addon.catalogs
                 .filterNot {
@@ -486,11 +466,16 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 )
             }
         }
-        _uiState.update { it.copy(skeletonReady = true) }
-        updateCatalogRowsPipeline()
-        // If no platform catalogs exist, release immediately
-        if (pendingPlatformCatalogKeys.isEmpty()) {
-            triggerPlatformPreloadIfReady()
+
+        /*
+         * Disk restoration and fresh catalog loading are independent I/O.
+         * Start both together, but keep skeletonReady behind disk completion
+         * so Home's existing release semantics remain unchanged. A fresh
+         * network row writes catalogSourceRows first; the disk merge below
+         * therefore fills only unresolved keys and can never overwrite it.
+         */
+        val diskCacheDeferred = viewModelScope.async {
+            catalogRepository.loadCatalogsFromDisk(profileId)
         }
         pendingCatalogLoads = catalogsToLoad.size
         catalogsToLoad.forEach { (addon, catalog) ->
@@ -498,8 +483,35 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 addon = addon,
                 catalog = catalog,
                 generation = generation,
-                profileId = profileId
+                profileId = profileId,
+                diskRestoreJob = diskCacheDeferred
             )
+        }
+
+        val diskCached = diskCacheDeferred.await()
+        if (diskCached.isNotEmpty()) {
+            diskCached.forEach { (key, row) ->
+                if (!catalogSourceRows.containsKey(key)) {
+                    catalogSourceRows[key] = row
+                    val exposedItems = row.items.take(HOME_CATALOG_WINDOW_SIZE)
+                    catalogsMap[key] = row.copy(
+                        items = exposedItems,
+                        hasMore = row.items.size > exposedItems.size || row.hasMore
+                    )
+                }
+            }
+            diskCacheRestored = true
+            // Show cached/fresh rows immediately while remaining requests continue.
+            _uiState.update { it.copy(isLoading = false) }
+            updateCatalogRowsPipeline()
+            Log.d(HomeViewModel.TAG, "Restored ${diskCached.size} catalog rows from disk for profile $profileId")
+        }
+
+        _uiState.update { it.copy(skeletonReady = true) }
+        updateCatalogRowsPipeline()
+        // If no platform catalogs exist (or they completed during disk restore), release immediately.
+        if (pendingPlatformCatalogKeys.isEmpty()) {
+            triggerPlatformPreloadIfReady()
         }
     } catch (e: Exception) {
         catalogsLoadInProgress = false
@@ -512,7 +524,8 @@ internal fun HomeViewModel.loadCatalogPipeline(
     addon: Addon,
     catalog: CatalogDescriptor,
     generation: Long,
-    profileId: Int
+    profileId: Int,
+    diskRestoreJob: kotlinx.coroutines.Job? = null
 ) {
     val loadJob = viewModelScope.launch {
         var hasCountedCompletion = false
@@ -639,6 +652,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                             viewModelScope.launch {
                                 // Small delay to let the final scheduleUpdateCatalogRows settle
                                 kotlinx.coroutines.delay(500)
+                                diskRestoreJob?.join()
                                 if (
                                     generation == catalogLoadGeneration &&
                                     saveProfileId == profileManager.activeProfileId.value &&
@@ -679,6 +693,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
                              */
                             viewModelScope.launch {
                                 kotlinx.coroutines.delay(500)
+                                diskRestoreJob?.join()
                                 if (
                                     generation == catalogLoadGeneration &&
                                     saveProfileId == profileManager.activeProfileId.value &&
@@ -2109,4 +2124,3 @@ internal fun normalizeHomeMovieWatchedIds(ids: Iterable<String>): Set<String> = 
         }
     }
 }
-
