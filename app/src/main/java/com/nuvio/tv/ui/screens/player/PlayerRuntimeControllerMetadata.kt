@@ -196,7 +196,11 @@ internal fun PlayerRuntimeController.evaluateNextEpisodeCardVisibility(positionM
     if (state.showNextEpisodeCard || state.nextEpisodeCardDismissed) return
 
     val effectiveDuration = durationMs.takeIf { it > 0L } ?: lastKnownDuration
-    val shouldShow = isEndActionTriggerReached(positionMs, effectiveDuration)
+    val shouldShow = isEndActionTriggerReached(
+        positionMs = positionMs,
+        durationMs = effectiveDuration,
+        authoritativeLeadTimeMs = NEXT_EPISODE_CREDIT_LEAD_MS
+    )
 
     if (shouldShow) {
         _uiState.update { it.copy(showNextEpisodeCard = true) }

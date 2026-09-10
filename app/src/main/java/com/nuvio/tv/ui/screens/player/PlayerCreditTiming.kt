@@ -226,11 +226,16 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
 
 internal fun PlayerRuntimeController.isEndActionTriggerReached(
     positionMs: Long,
-    durationMs: Long
+    durationMs: Long,
+    authoritativeLeadTimeMs: Long = 0L
 ): Boolean {
     if (_uiState.value.manualEndActionRequested) return true
     val timing = _uiState.value.creditTiming
-    authoritativeEndActionDecision(timing, positionMs)?.let { return it }
+    authoritativeEndActionDecision(
+        timing = timing,
+        positionMs = positionMs,
+        leadTimeMs = authoritativeLeadTimeMs
+    )?.let { return it }
 
     val effectiveDuration = durationMs.takeIf { it > 0L } ?: lastKnownDuration
     if (contentType.equals("movie", ignoreCase = true)) {

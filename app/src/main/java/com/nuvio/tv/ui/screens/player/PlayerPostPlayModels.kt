@@ -6,7 +6,7 @@ import com.nuvio.tv.domain.model.Video
 
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
 internal const val MANUAL_END_ACTION_THRESHOLD = 0.85
-internal const val FINAL_CREDIT_ACTION_GRACE_MS = 2_000L
+internal const val NEXT_EPISODE_CREDIT_LEAD_MS = 3_000L
 
 enum class CreditTimingStatus {
     NOT_STARTED,
@@ -73,13 +73,17 @@ internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
  */
 internal fun authoritativeEndActionDecision(
     timing: CreditTimingUiState,
-    positionMs: Long
+    positionMs: Long,
+    leadTimeMs: Long = 0L
 ): Boolean? {
     if (timing.status == CreditTimingStatus.RUNNING && timing.finalCreditsStartMs == null) {
         return false
     }
     return timing.finalCreditsStartMs?.let { finalCreditsStartMs ->
-        positionMs >= finalCreditsStartMs + FINAL_CREDIT_ACTION_GRACE_MS
+        val triggerPositionMs =
+            (finalCreditsStartMs - leadTimeMs.coerceAtLeast(0L))
+                .coerceAtLeast(0L)
+        positionMs >= triggerPositionMs
     }
 }
 
@@ -123,7 +127,7 @@ internal fun shouldShowCreditRatingPrompt(
         return false
     }
     val finalCreditsStartMs = state.creditTiming.finalCreditsStartMs ?: return false
-    return positionMs >= finalCreditsStartMs + FINAL_CREDIT_ACTION_GRACE_MS
+    return positionMs >= finalCreditsStartMs
 }
 
 internal fun shouldStartManualEndAction(
