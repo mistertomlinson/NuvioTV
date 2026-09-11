@@ -2,11 +2,10 @@
 
 package com.nuvio.tv.ui.components
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -53,11 +52,51 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.player.rememberRawSvgPainter
 import com.nuvio.tv.ui.theme.NuvioColors
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
 import android.view.KeyEvent as AndroidKeyEvent
+
+private val WatchedRatingGlassBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
+    colors = listOf(
+        Color(0xAD2A3038),
+        Color(0x9E20252C),
+        Color(0xA824292F)
+    )
+)
+private val WatchedRatingGlassRowColor = Color.White.copy(alpha = 0.065f)
+private val WatchedRatingGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
+private val WatchedRatingGlassBorderColor = Color.White.copy(alpha = 0.09f)
+private val WatchedRatingGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
+
+/**
+ * Compatibility path for screens that still present the rating UI in a
+ * platform dialog. Home supplies a real Haze source through the overload
+ * below, while existing callers keep their previous API and window behavior.
+ */
+@Composable
+fun WatchedRatingOverlay(
+    visible: Boolean,
+    onRate: (Int) -> Unit,
+    onDismiss: () -> Unit
+) {
+    if (visible) {
+        Dialog(onDismissRequest = onDismiss) {
+            WatchedRatingOverlay(
+                visible = true,
+                hazeState = remember { HazeState() },
+                blurEnabled = false,
+                onRate = onRate,
+                onDismiss = onDismiss
+            )
+        }
+    }
+}
 
 @Composable
 fun WatchedRatingOverlay(
     visible: Boolean,
+    hazeState: HazeState,
+    blurEnabled: Boolean,
     onRate: (Int) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -69,27 +108,65 @@ fun WatchedRatingOverlay(
     var ratingButtonsCanFocus by remember(visible) {
         mutableStateOf(false)
     }
+    val appearanceProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) 220 else 180,
+            easing = androidx.compose.animation.core.FastOutSlowInEasing
+        ),
+        label = "watchedRatingGlassAppearance"
+    )
 
     LaunchedEffect(visible) {
         if (visible) {
             consumed = false
-            kotlinx.coroutines.delay(80)
+            androidx.compose.runtime.withFrameNanos { }
             runCatching { dismissFocusRequester.requestFocus() }
+            kotlinx.coroutines.delay(64)
             ratingButtonsCanFocus = true
+        }
+    }
+
+    BackHandler(enabled = visible) {
+        if (!consumed) {
+            consumed = true
+            onDismiss()
         }
     }
 
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(200)) + scaleIn(tween(220), initialScale = 0.95f),
+        enter = androidx.compose.animation.EnterTransition.None,
         exit = fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.95f)
     ) {
-        Dialog(onDismissRequest = { if (!consumed) { consumed = true; onDismiss() } }) {
+        androidx.compose.foundation.layout.Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            val panelShape = RoundedCornerShape(24.dp)
+            val blurModifier = if (blurEnabled) {
+                Modifier.hazeChild(
+                    state = hazeState,
+                    shape = panelShape,
+                    tint = Color.Unspecified,
+                    blurRadius = (1f + (29f * appearanceProgress)).dp,
+                    noiseFactor = 0.025f * appearanceProgress
+                )
+            } else {
+                Modifier
+            }
             Column(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(NuvioColors.BackgroundElevated, RoundedCornerShape(20.dp))
-                    .border(1.dp, NuvioColors.Border, RoundedCornerShape(20.dp))
+                    .graphicsLayer {
+                        alpha = appearanceProgress
+                        val animatedScale = 0.96f + (0.04f * appearanceProgress)
+                        scaleX = animatedScale
+                        scaleY = animatedScale
+                    }
+                    .then(blurModifier)
+                    .clip(panelShape)
+                    .background(WatchedRatingGlassBrush, panelShape)
+                    .border(1.dp, WatchedRatingGlassBorderColor, panelShape)
                     .padding(horizontal = 40.dp, vertical = 32.dp)
                     .onPreviewKeyEvent { keyEvent ->
                         when (keyEvent.nativeKeyEvent.keyCode) {
@@ -177,8 +254,8 @@ fun WatchedRatingOverlay(
                             } else false
                         },
                     colors = ButtonDefaults.colors(
-                        containerColor = NuvioColors.BackgroundCard,
-                        focusedContainerColor = Color.White.copy(alpha = 0.28f),
+                        containerColor = WatchedRatingGlassRowColor,
+                        focusedContainerColor = WatchedRatingGlassRowFocusedColor,
                         contentColor = NuvioColors.TextSecondary,
                         focusedContentColor = Color.White
                     )
@@ -245,10 +322,19 @@ private fun WatchedRatingButton(
                 } else false
             },
         colors = IconButtonDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = Color.White,
+            containerColor = WatchedRatingGlassRowColor,
+            focusedContainerColor = WatchedRatingGlassRowFocusedColor,
             contentColor = NuvioColors.TextPrimary,
-            focusedContentColor = Color.Black
+            focusedContentColor = Color.White
+        ),
+        border = IconButtonDefaults.border(
+            focusedBorder = androidx.tv.material3.Border(
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    WatchedRatingGlassFocusBorderColor
+                ),
+                shape = CircleShape
+            )
         ),
         shape = IconButtonDefaults.shape(shape = CircleShape)
     ) {

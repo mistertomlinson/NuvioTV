@@ -1,11 +1,15 @@
 package com.nuvio.tv.ui.screens.home
 
+import android.view.KeyEvent as AndroidKeyEvent
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -14,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Divider
@@ -31,7 +36,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -60,12 +67,26 @@ import com.nuvio.tv.LocalCarouselFocusRequester
 import com.nuvio.tv.LocalContentFocusRequester
 import kotlin.math.roundToInt
 import androidx.compose.animation.fadeOut
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeChild
 
 private data class HomePosterOptionsTarget(
     val item: MetaPreview,
     val addonBaseUrl: String,
     val isFromMyList: Boolean = false
 )
+
+private val HomeDialogGlassRowColor = Color.White.copy(alpha = 0.065f)
+private val HomeDialogGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
+private val HomeDialogGlassBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xAD2A3038),
+        Color(0x9E20252C),
+        Color(0xA824292F)
+    )
+)
+private val HomeDialogGlassBorderColor = Color.White.copy(alpha = 0.09f)
 
 private const val HOME_COLD_REVEAL_SENTINEL = "home_cold_reveal_seen"
 private var coldHomeRevealClaimedInProcess = false
@@ -172,6 +193,23 @@ fun HomeScreen(
     var posterOptionsTarget by remember(uiState.homeLoadSessionId) {
         mutableStateOf<HomePosterOptionsTarget?>(null)
     }
+    val homePopupHazeState = remember { HazeState() }
+    val homePopupBlurEnabled =
+        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+    val homePopupVisible =
+        posterOptionsTarget != null || uiState.showWatchedRatingOverlay
+    val homeContentFocusRequester = LocalContentFocusRequester.current
+    var homePopupWasVisible by remember { mutableStateOf(false) }
+
+    LaunchedEffect(homePopupVisible) {
+        if (homePopupVisible) {
+            homePopupWasVisible = true
+        } else if (homePopupWasVisible) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { homeContentFocusRequester.requestFocus() }
+            homePopupWasVisible = false
+        }
+    }
 
     val posterCardStyle = remember(
         uiState.posterCardWidthDp,
@@ -190,6 +228,13 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(
+                if (homePopupBlurEnabled && homePopupVisible) {
+                    Modifier.haze(homePopupHazeState)
+                } else {
+                    Modifier
+                }
+            )
     ) {
         val hasAnyContent = uiState.catalogRows.isNotEmpty() ||
             uiState.continueWatchingItems.isNotEmpty() ||
@@ -601,6 +646,8 @@ fun HomeScreen(
         val isMovie = item.apiType.equals("movie", ignoreCase = true)
         HomePosterOptionsDialog(
             title = item.name,
+            hazeState = homePopupHazeState,
+            blurEnabled = homePopupBlurEnabled,
             isInLibrary = selectedPoster.isFromMyList || uiState.posterLibraryMembership[statusKey] == true,
             isLibraryPending = statusKey in uiState.posterLibraryPending,
             showManageLists = uiState.librarySourceMode == LibrarySourceMode.TRAKT &&
@@ -627,6 +674,8 @@ fun HomeScreen(
 
     WatchedRatingOverlay(
         visible = uiState.showWatchedRatingOverlay,
+        hazeState = homePopupHazeState,
+        blurEnabled = homePopupBlurEnabled,
         onRate = { rating -> viewModel.submitWatchedRating(rating) },
         onDismiss = { viewModel.dismissWatchedRating() }
     )
@@ -1036,6 +1085,8 @@ private fun ModernHomeRoute(
 @Composable
 private fun HomePosterOptionsDialog(
     title: String,
+    hazeState: HazeState,
+    blurEnabled: Boolean,
     isInLibrary: Boolean,
     isLibraryPending: Boolean,
     showManageLists: Boolean,
@@ -1049,24 +1100,104 @@ private fun HomePosterOptionsDialog(
     onToggleWatched: () -> Unit
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
-
-    LaunchedEffect(Unit) {
-        primaryFocusRequester.requestFocus()
+    var suppressNextKeyUp by remember { mutableStateOf(true) }
+    val appearanceProgress = remember {
+        androidx.compose.animation.core.Animatable(0f)
     }
 
-    NuvioDialog(
-        onDismiss = onDismiss,
-        title = title,
-        subtitle = stringResource(R.string.home_poster_dialog_subtitle)
+    LaunchedEffect(Unit) {
+        runCatching { primaryFocusRequester.requestFocus() }
+        appearanceProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 220,
+                easing = androidx.compose.animation.core.FastOutSlowInEasing
+            )
+        )
+    }
+
+    BackHandler(onBack = onDismiss)
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
+        val panelShape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+        val blurModifier = if (blurEnabled) {
+            Modifier.hazeChild(
+                state = hazeState,
+                shape = panelShape,
+                tint = Color.Unspecified,
+                blurRadius = (1f + (29f * appearanceProgress.value)).dp,
+                noiseFactor = 0.025f * appearanceProgress.value
+            )
+        } else {
+            Modifier
+        }
+
+        Box(
+            modifier = Modifier
+                .width(520.dp)
+                .graphicsLayer {
+                    alpha = appearanceProgress.value
+                    val animatedScale = 0.96f + (0.04f * appearanceProgress.value)
+                    scaleX = animatedScale
+                    scaleY = animatedScale
+                }
+                .then(blurModifier)
+                .clip(panelShape)
+                .background(HomeDialogGlassBrush, panelShape)
+                .border(1.dp, HomeDialogGlassBorderColor, panelShape)
+                .padding(24.dp)
+                .onPreviewKeyEvent { event ->
+                    val native = event.nativeKeyEvent
+                    if (
+                        suppressNextKeyUp &&
+                        native.action == AndroidKeyEvent.ACTION_UP &&
+                        (
+                            native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                                native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                                native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                native.keyCode == AndroidKeyEvent.KEYCODE_MENU
+                            )
+                    ) {
+                        suppressNextKeyUp = false
+                        true
+                    } else {
+                        false
+                    }
+                }
+        ) {
+            androidx.compose.foundation.layout.Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = NuvioColors.TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = stringResource(R.string.home_poster_dialog_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = NuvioColors.TextSecondary
+                )
+
         Button(
             onClick = onDetails,
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(primaryFocusRequester),
             colors = ButtonDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                contentColor = NuvioColors.TextPrimary
+                containerColor = HomeDialogGlassRowColor,
+                focusedContainerColor = HomeDialogGlassRowFocusedColor,
+                contentColor = NuvioColors.TextPrimary,
+                focusedContentColor = Color.White
+            ),
+            scale = ButtonDefaults.scale(
+                focusedScale = 1.018f,
+                pressedScale = 0.99f
             )
         ) {
             Text(stringResource(R.string.cw_action_go_to_details))
@@ -1077,8 +1208,14 @@ private fun HomePosterOptionsDialog(
             enabled = !isLibraryPending,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                contentColor = NuvioColors.TextPrimary
+                containerColor = HomeDialogGlassRowColor,
+                focusedContainerColor = HomeDialogGlassRowFocusedColor,
+                contentColor = NuvioColors.TextPrimary,
+                focusedContentColor = Color.White
+            ),
+            scale = ButtonDefaults.scale(
+                focusedScale = 1.018f,
+                pressedScale = 0.99f
             )
         ) {
             Text(
@@ -1096,8 +1233,14 @@ private fun HomePosterOptionsDialog(
                 enabled = !isWatchedPending,
                 modifier = Modifier.fillMaxWidth(),
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
-                    contentColor = NuvioColors.TextPrimary
+                    containerColor = HomeDialogGlassRowColor,
+                    focusedContainerColor = HomeDialogGlassRowFocusedColor,
+                    contentColor = NuvioColors.TextPrimary,
+                    focusedContentColor = Color.White
+                ),
+                scale = ButtonDefaults.scale(
+                    focusedScale = 1.018f,
+                    pressedScale = 0.99f
                 )
             ) {
                 Text(
@@ -1107,6 +1250,8 @@ private fun HomePosterOptionsDialog(
                         stringResource(R.string.hero_mark_watched)
                     }
                 )
+            }
+        }
             }
         }
     }
