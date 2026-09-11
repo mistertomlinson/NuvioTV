@@ -23,6 +23,7 @@ internal data class SimklScrobbleResult(
     val mediaType: SimklMediaType,
     val media: SimklMedia,
     val episode: SimklPlaybackEpisode?,
+    val localPosterUrl: String? = null,
     val watchedAt: String? = null,
     val requiresHistoryRecovery: Boolean = false
 )
@@ -61,6 +62,7 @@ internal fun SimklApiResponse.toSimklScrobbleResult(
         mediaType = mediaType,
         media = responseMedia?.mergeMissing(fallbackMedia) ?: fallbackMedia,
         episode = episode,
+        localPosterUrl = event.media.posterUrl?.trim()?.takeIf(String::isNotBlank),
         watchedAt = payload.stringValue("watched_at")
             ?.takeIf { value -> parseSimklUtcEpochMs(value) != null },
         requiresHistoryRecovery = requiresHistoryRecovery

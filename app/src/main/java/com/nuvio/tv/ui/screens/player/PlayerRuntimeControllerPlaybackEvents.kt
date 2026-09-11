@@ -230,7 +230,8 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TrackingMediaReference
         releaseInfo = year,
         seasonNumber = currentSeason,
         episodeNumber = currentEpisode,
-        episodeTitle = currentEpisodeTitle
+        episodeTitle = currentEpisodeTitle,
+        posterUrl = poster
     )
 
     return reference.takeIf { media ->

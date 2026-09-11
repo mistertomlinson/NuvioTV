@@ -61,7 +61,7 @@ class SimklSyncEngine internal constructor(
             isInitialized = true,
             watermark = activities.all,
             activities = activities,
-            entries = entries.distinctBy(SimklLibraryEntry::stableKey),
+            entries = entries.coalesceSharedIdentity(),
             playback = playback,
             lastSyncedAtEpochMs = now,
             lastCheckedAtEpochMs = now
@@ -73,15 +73,92 @@ fun mergeSimklDelta(
     current: List<SimklLibraryEntry>,
     delta: SimklAllItemsResponse
 ): List<SimklLibraryEntry> {
-    val merged = current.mapNotNull { entry -> entry.stableKey()?.let { key -> key to entry } }
-        .toMap()
-        .toMutableMap()
+    val merged = current.coalesceSharedIdentity().toMutableList()
     delta.presentTypes().forEach { type ->
         delta.entriesFor(type).forEach { entry ->
-            entry.stableKey()?.let { key -> merged[key] = entry }
+            if (entry.stableKey() != null) {
+                val matches = merged.filter { existing ->
+                    existing.sharesIdentityWith(entry)
+                }
+                merged.removeAll(matches.toSet())
+                merged += matches.fold(entry) { incoming, fallback ->
+                    incoming.withPresentationFallback(fallback)
+                }
+            }
         }
     }
-    return merged.values.sortedWith(simklEntryComparator)
+    return merged.coalesceSharedIdentity().sortedWith(simklEntryComparator)
+}
+
+private fun List<SimklLibraryEntry>.coalesceSharedIdentity(): List<SimklLibraryEntry> {
+    val result = mutableListOf<SimklLibraryEntry>()
+    for (candidate in this) {
+        val existingIndex = result.indexOfFirst { existing ->
+            existing.sharesIdentityWith(candidate)
+        }
+        if (existingIndex < 0) {
+            result += candidate
+        } else {
+            val existing = result[existingIndex]
+            val preferred = if (candidate.presentationRichness > existing.presentationRichness) {
+                candidate.withPresentationFallback(existing)
+            } else {
+                existing.withPresentationFallback(candidate)
+            }
+            result[existingIndex] = preferred
+        }
+    }
+    return result
+}
+
+private fun SimklLibraryEntry.sharesIdentityWith(other: SimklLibraryEntry): Boolean {
+    if (mediaType != other.mediaType) return false
+    val candidateMedia = media ?: return false
+    val otherMedia = other.media ?: return false
+    return candidateMedia.sharesExternalIdentityWith(otherMedia)
+}
+
+private fun SimklMedia.sharesExternalIdentityWith(other: SimklMedia): Boolean {
+    ids.simklIdValue()?.let { id ->
+        other.ids.simklIdValue()?.let { return id == it }
+    }
+    val prioritizedKeys = listOf("mal", "anidb", "anilist", "kitsu", "tvdb", "imdb", "tmdb")
+    prioritizedKeys.forEach { key ->
+        val id = ids.idValue(key)
+        val otherId = other.ids.idValue(key)
+        if (id != null && otherId != null) return id.equals(otherId, ignoreCase = true)
+    }
+    return false
+}
+
+private val SimklLibraryEntry.presentationRichness: Int
+    get() =
+        (if (media?.ids?.simklIdValue() != null) 8 else 0) +
+            (if (!media?.ids?.idValue("imdb").isNullOrBlank()) 4 else 0) +
+            (if (!media?.ids?.idValue("tmdb").isNullOrBlank()) 2 else 0) +
+            (if (!resolvedPosterUrl().isNullOrBlank()) 2 else 0) +
+            (if (media?.year != null) 1 else 0)
+
+/**
+ * Simkl delta responses can omit presentation fields. Keep richer cached artwork
+ * until the delta supplies canonical Simkl artwork of its own.
+ */
+private fun SimklLibraryEntry.withPresentationFallback(
+    fallback: SimklLibraryEntry
+): SimklLibraryEntry {
+    val incomingMedia = media
+    val mergedMedia = incomingMedia?.mergeMissing(fallback.media) ?: fallback.media
+    val hasCanonicalPoster = !incomingMedia?.poster.isNullOrBlank()
+    return copy(
+        animeType = animeType ?: fallback.animeType,
+        localPosterUrl = if (hasCanonicalPoster) {
+            localPosterUrl
+        } else {
+            localPosterUrl?.takeIf(String::isNotBlank) ?: fallback.localPosterUrl
+        },
+        show = mergedMedia.takeIf { mediaType != SimklMediaType.MOVIES },
+        movie = mergedMedia.takeIf { mediaType == SimklMediaType.MOVIES }
+    )
 }
 
 fun reconcileRemovedSimklEntries(

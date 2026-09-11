@@ -782,7 +782,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
                     title = completed.name,
                     seasonNumber = completed.season,
                     episodeNumber = completed.episode,
-                    episodeTitle = completed.episodeTitle
+                    episodeTitle = completed.episodeTitle,
+                    posterUrl = completed.poster
                 )
 
                 runCatching {

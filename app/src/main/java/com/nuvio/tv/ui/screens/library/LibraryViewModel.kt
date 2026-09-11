@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.library
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.data.repository.TraktLibraryService
 import com.nuvio.tv.domain.model.LibraryEntry
@@ -9,6 +10,7 @@ import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.TraktListPrivacy
 import com.nuvio.tv.domain.repository.LibraryRepository
+import com.nuvio.tv.domain.repository.MetaRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -17,8 +19,12 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.withTimeoutOrNull
 import com.nuvio.tv.R
 import java.util.Locale
 import javax.inject.Inject
@@ -88,6 +94,7 @@ data class LibraryUiState(
 @HiltViewModel
 class LibraryViewModel @Inject constructor(
     private val libraryRepository: LibraryRepository,
+    private val metaRepository: MetaRepository,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore
 ) : ViewModel() {
 
@@ -95,6 +102,20 @@ class LibraryViewModel @Inject constructor(
     val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
 
     private var messageClearJob: Job? = null
+    private val simklMetadata = mutableMapOf<String, LibraryMetadata>()
+    private val attemptedSimklMetadataKeys = mutableSetOf<String>()
+    private val simklMetadataSemaphore = Semaphore(4)
+
+    private data class LibraryMetadata(
+        val name: String?,
+        val poster: String?,
+        val background: String?,
+        val logo: String?,
+        val description: String?,
+        val releaseInfo: String?,
+        val imdbRating: Float?,
+        val genres: List<String>
+    )
 
     init {
         observeLayoutPreferences()
@@ -308,6 +329,11 @@ class LibraryViewModel @Inject constructor(
                     listTabs = listTabs
                 )
             }.collectLatest { (sourceMode, isSyncing, items, listTabs) ->
+                val presentedItems = if (sourceMode == LibrarySourceMode.SIMKL) {
+                    items.map(::applySimklMetadata)
+                } else {
+                    items
+                }
                 _uiState.update { current ->
                     val nextSelectedList = when {
                         sourceMode == LibrarySourceMode.TRAKT -> {
@@ -328,9 +354,9 @@ class LibraryViewModel @Inject constructor(
 
                     val itemsForTypeTabs = if (sourceMode == LibrarySourceMode.TRAKT) {
                         val listKey = nextSelectedList
-                        if (listKey.isNullOrBlank()) items else items.filter { it.listKeys.contains(listKey) }
+                        if (listKey.isNullOrBlank()) presentedItems else presentedItems.filter { it.listKeys.contains(listKey) }
                     } else {
-                        items
+                        presentedItems
                     }
                     val typeTabs = buildTypeTabs(itemsForTypeTabs)
                     val nextSelectedType = current.selectedTypeTab
@@ -347,7 +373,7 @@ class LibraryViewModel @Inject constructor(
 
                     val updated = current.copy(
                         sourceMode = sourceMode,
-                        allItems = items,
+                        allItems = presentedItems,
                         listTabs = listTabs,
                         availableTypeTabs = typeTabs,
                         availableSortOptions = sortOptions,
@@ -363,9 +389,128 @@ class LibraryViewModel @Inject constructor(
                     )
                     updated.withVisibleItems()
                 }
+
+                if (sourceMode == LibrarySourceMode.SIMKL) {
+                    hydrateMissingSimklMetadata(items)
+                }
             }
         }
     }
+
+    /**
+     * Simkl owns list membership and stable IDs, but its sync projection does not
+     * guarantee presentation metadata. Resolve missing artwork only while the
+     * Library screen's ViewModel exists so Home launch and scrolling remain untouched.
+     */
+    private fun hydrateMissingSimklMetadata(items: List<LibraryEntry>) {
+        items.asSequence()
+            .filter { item -> item.poster.isNullOrBlank() }
+            .forEach { item ->
+                val key = libraryItemKey(item)
+                if (simklMetadata.containsKey(key) || !attemptedSimklMetadataKeys.add(key)) {
+                    return@forEach
+                }
+
+                viewModelScope.launch {
+                    val metadata = simklMetadataSemaphore.withPermit {
+                        resolveSimklMetadata(item)
+                    } ?: return@launch
+
+                    simklMetadata[key] = metadata
+                    _uiState.update { current ->
+                        val updatedItems = current.allItems.map { currentItem ->
+                            if (libraryItemKey(currentItem) == key) {
+                                currentItem.withMetadata(metadata)
+                            } else {
+                                currentItem
+                            }
+                        }
+                        current.copy(allItems = updatedItems).withVisibleItems()
+                    }
+                }
+            }
+    }
+
+    private suspend fun resolveSimklMetadata(item: LibraryEntry): LibraryMetadata? {
+        val typeCandidates = if (item.type.equals("movie", ignoreCase = true)) {
+            listOf("movie")
+        } else {
+            listOf("series", "tv")
+        }
+        val idCandidates = buildList {
+            item.imdbId?.takeIf { it.isNotBlank() }?.let(::add)
+            item.tmdbId?.let { add("tmdb:$it") }
+            add(item.id)
+            item.simklId?.let { add("simkl:$it") }
+        }.distinct()
+
+        var best: LibraryMetadata? = null
+        for (type in typeCandidates) {
+            for (id in idCandidates) {
+                val result = withTimeoutOrNull(3_500L) {
+                    metaRepository.getMetaFromAllAddons(type = type, id = id)
+                        .first { it !is NetworkResult.Loading }
+                } ?: continue
+                val meta = (result as? NetworkResult.Success)?.data ?: continue
+                val candidate = LibraryMetadata(
+                    name = meta.name,
+                    poster = meta.poster,
+                    background = meta.background,
+                    logo = meta.logo,
+                    description = meta.description,
+                    releaseInfo = meta.releaseInfo,
+                    imdbRating = meta.imdbRating,
+                    genres = meta.genres
+                )
+                best = best?.withFallback(candidate) ?: candidate
+                if (!best.poster.isNullOrBlank()) return best
+            }
+        }
+        return null
+    }
+
+    private fun applySimklMetadata(item: LibraryEntry): LibraryEntry =
+        simklMetadata[libraryItemKey(item)]?.let { metadata ->
+            item.withMetadata(metadata)
+        } ?: item
+
+    private fun LibraryEntry.withMetadata(metadata: LibraryMetadata): LibraryEntry = copy(
+        name = name.takeIf { it.isNotBlank() && it != id }
+            ?: metadata.name?.takeIf { it.isNotBlank() }
+            ?: name,
+        poster = poster?.takeIf { it.isNotBlank() }
+            ?: metadata.poster?.takeIf { it.isNotBlank() },
+        background = background?.takeIf { it.isNotBlank() }
+            ?: metadata.background?.takeIf { it.isNotBlank() },
+        logo = logo?.takeIf { it.isNotBlank() }
+            ?: metadata.logo?.takeIf { it.isNotBlank() },
+        description = description?.takeIf { it.isNotBlank() }
+            ?: metadata.description?.takeIf { it.isNotBlank() },
+        releaseInfo = releaseInfo?.takeIf { it.isNotBlank() }
+            ?: metadata.releaseInfo?.takeIf { it.isNotBlank() },
+        imdbRating = imdbRating ?: metadata.imdbRating,
+        genres = genres.ifEmpty { metadata.genres }
+    )
+
+    private fun LibraryMetadata.withFallback(fallback: LibraryMetadata): LibraryMetadata = copy(
+        name = name?.takeIf { it.isNotBlank() }
+            ?: fallback.name?.takeIf { it.isNotBlank() },
+        poster = poster?.takeIf { it.isNotBlank() }
+            ?: fallback.poster?.takeIf { it.isNotBlank() },
+        background = background?.takeIf { it.isNotBlank() }
+            ?: fallback.background?.takeIf { it.isNotBlank() },
+        logo = logo?.takeIf { it.isNotBlank() }
+            ?: fallback.logo?.takeIf { it.isNotBlank() },
+        description = description?.takeIf { it.isNotBlank() }
+            ?: fallback.description?.takeIf { it.isNotBlank() },
+        releaseInfo = releaseInfo?.takeIf { it.isNotBlank() }
+            ?: fallback.releaseInfo?.takeIf { it.isNotBlank() },
+        imdbRating = imdbRating ?: fallback.imdbRating,
+        genres = genres.ifEmpty { fallback.genres }
+    )
+
+    private fun libraryItemKey(item: LibraryEntry): String =
+        "${item.type.lowercase(Locale.ROOT)}:${item.id}"
 
     private fun observeLayoutPreferences() {
         viewModelScope.launch {

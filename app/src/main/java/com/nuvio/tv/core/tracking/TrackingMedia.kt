@@ -122,7 +122,8 @@ fun buildTrackingMediaReference(
     releaseInfo: String? = null,
     seasonNumber: Int? = null,
     episodeNumber: Int? = null,
-    episodeTitle: String? = null
+    episodeTitle: String? = null,
+    posterUrl: String? = null
 ): TrackingMediaReference {
     val ids = parseTrackingExternalIds(parentMetaId).mergeMissing(parseTrackingExternalIds(videoId))
     return TrackingMediaReference(
@@ -137,7 +138,8 @@ fun buildTrackingMediaReference(
             contentId = parentMetaId.trim(),
             contentType = contentType.trim(),
             videoId = videoId?.trim()?.takeIf(String::isNotBlank)
-        )
+        ),
+        posterUrl = posterUrl?.trim()?.takeIf(String::isNotBlank)
     )
 }
 

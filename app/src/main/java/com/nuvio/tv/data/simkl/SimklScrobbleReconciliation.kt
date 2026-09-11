@@ -82,6 +82,7 @@ private fun SimklLibraryEntry.withWatchedMovie(
     committedAt: String
 ): SimklLibraryEntry = copy(
     mediaType = SimklMediaType.MOVIES,
+    localPosterUrl = localPosterUrl ?: result.localPosterUrl,
     lastWatchedAt = committedAt,
     status = SimklListStatus.COMPLETED,
     movie = result.media.mergeMissing(media),
@@ -91,6 +92,7 @@ private fun SimklLibraryEntry.withWatchedMovie(
 private fun SimklScrobbleResult.toWatchedMovieEntry(committedAt: String): SimklLibraryEntry =
     SimklLibraryEntry(
         mediaType = SimklMediaType.MOVIES,
+        localPosterUrl = localPosterUrl,
         lastWatchedAt = committedAt,
         status = SimklListStatus.COMPLETED,
         movie = media
@@ -103,6 +105,7 @@ private fun SimklLibraryEntry.withWatchedEpisode(
     val target = result.episode ?: return this
     val update = seasons.withWatchedEpisode(target, committedAt)
     return copy(
+        localPosterUrl = localPosterUrl ?: result.localPosterUrl,
         lastWatchedAt = committedAt,
         watchedEpisodesCount = watchedEpisodesCount + if (update.wasAlreadyWatched) 0 else 1,
         show = result.media.mergeMissing(media),
@@ -120,6 +123,7 @@ private fun SimklScrobbleResult.toWatchedSeriesEntry(committedAt: String): Simkl
     }
     return SimklLibraryEntry(
         mediaType = mediaType,
+        localPosterUrl = localPosterUrl,
         lastWatchedAt = committedAt,
         status = SimklListStatus.WATCHING,
         watchedEpisodesCount = if (target == null) 0 else 1,

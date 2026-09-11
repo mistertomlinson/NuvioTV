@@ -64,6 +64,7 @@ private fun SimklSyncSnapshot.withHistoryMutations(
                 progress = 100.0,
                 mediaType = mediaType,
                 media = request.media.toSimklMedia(),
+                localPosterUrl = request.media.posterUrl?.trim()?.takeIf(String::isNotBlank),
                 episode = request.media.episode?.let { episode ->
                     SimklPlaybackEpisode(
                         season = episode.season,

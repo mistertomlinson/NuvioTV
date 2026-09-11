@@ -76,9 +76,9 @@ fun SimklSyncSnapshot.toSimklLibraryProjection(): SimklLibraryProjection {
                     } == true
             }
             .mapNotNull { entry -> entry.toLibraryEntry(definition.key, lastSyncedAtEpochMs) }
-            .distinctBy { item -> "${item.type}:${item.id}" }
-            .sortedByDescending(LibraryEntry::listedAt)
             .toList()
+            .coalesceSharedExternalIdentity()
+            .sortedByDescending(LibraryEntry::listedAt)
     }
     val tabs = simklLibraryStatusDefinitions.map { definition ->
         LibraryListTab(
@@ -95,14 +95,81 @@ fun SimklSyncSnapshot.toSimklLibraryProjection(): SimklLibraryProjection {
             isMembershipDestination = definition.isMembershipDestination
         )
     }
+    val projectedItems = itemsByStatus.values.flatten()
+        .coalesceSharedExternalIdentity()
+        .sortedByDescending(LibraryEntry::listedAt)
     return SimklLibraryProjection(
-        items = itemsByStatus.values.flatten()
-            .distinctBy { item -> "${item.type}:${item.id}" }
-            .sortedByDescending(LibraryEntry::listedAt),
+        items = projectedItems,
         itemsByStatus = itemsByStatus,
         tabs = tabs
     )
 }
+
+/**
+ * A locally-created Simkl entry can initially be keyed by TMDB and later return
+ * from Simkl with IMDb/Simkl IDs. Collapse those aliases without relying on a
+ * title match, which could incorrectly merge remakes or similarly named media.
+ */
+private fun List<LibraryEntry>.coalesceSharedExternalIdentity(): List<LibraryEntry> {
+    val result = mutableListOf<LibraryEntry>()
+    for (candidate in this) {
+        val existingIndex = result.indexOfFirst { existing ->
+            existing.sharesExternalIdentityWith(candidate)
+        }
+        if (existingIndex < 0) {
+            result += candidate
+        } else {
+            result[existingIndex] = result[existingIndex].mergeDuplicate(candidate)
+        }
+    }
+    return result
+}
+
+private fun LibraryEntry.sharesExternalIdentityWith(other: LibraryEntry): Boolean {
+    if (!type.equals(other.type, ignoreCase = true)) return false
+    if (simklId != null && other.simklId != null) return simklId == other.simklId
+    if (!imdbId.isNullOrBlank() && !other.imdbId.isNullOrBlank()) {
+        return imdbId.equals(other.imdbId, ignoreCase = true)
+    }
+    if (tmdbId != null && other.tmdbId != null) return tmdbId == other.tmdbId
+    return id == other.id
+}
+
+private fun LibraryEntry.mergeDuplicate(other: LibraryEntry): LibraryEntry {
+    val (preferred, fallback) = if (identityRichness >= other.identityRichness) {
+        this to other
+    } else {
+        other to this
+    }
+    return preferred.copy(
+        poster = preferred.poster?.takeIf(String::isNotBlank) ?: fallback.poster,
+        background = preferred.background?.takeIf(String::isNotBlank) ?: fallback.background,
+        logo = preferred.logo?.takeIf(String::isNotBlank) ?: fallback.logo,
+        description = preferred.description?.takeIf(String::isNotBlank) ?: fallback.description,
+        releaseInfo = preferred.releaseInfo?.takeIf(String::isNotBlank) ?: fallback.releaseInfo,
+        imdbRating = preferred.imdbRating ?: fallback.imdbRating,
+        genres = preferred.genres.takeIf { it.isNotEmpty() } ?: fallback.genres,
+        addonBaseUrl = preferred.addonBaseUrl?.takeIf(String::isNotBlank) ?: fallback.addonBaseUrl,
+        listKeys = preferred.listKeys + fallback.listKeys,
+        listedAt = maxOf(preferred.listedAt, fallback.listedAt),
+        imdbId = preferred.imdbId?.takeIf(String::isNotBlank) ?: fallback.imdbId,
+        tmdbId = preferred.tmdbId ?: fallback.tmdbId,
+        traktId = preferred.traktId ?: fallback.traktId,
+        simklId = preferred.simklId ?: fallback.simklId,
+        trackingProviderItemId = preferred.trackingProviderItemId
+            ?.takeIf(String::isNotBlank) ?: fallback.trackingProviderItemId,
+        trackingSourceUrl = preferred.trackingSourceUrl
+            ?.takeIf(String::isNotBlank) ?: fallback.trackingSourceUrl
+    )
+}
+
+private val LibraryEntry.identityRichness: Int
+    get() =
+        (if (simklId != null) 8 else 0) +
+            (if (!imdbId.isNullOrBlank()) 4 else 0) +
+            (if (tmdbId != null) 2 else 0) +
+            (if (!poster.isNullOrBlank()) 2 else 0) +
+            (if (!releaseInfo.isNullOrBlank()) 1 else 0)
 
 fun simklLibraryStatusDefinition(key: String): SimklLibraryStatusDefinition? =
     simklLibraryStatusDefinitions.firstOrNull { definition -> definition.key == key }
