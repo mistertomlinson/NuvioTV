@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Logout
 import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,6 +53,7 @@ import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import kotlinx.coroutines.delay
 
 @Composable
 fun AccountSettingsContent(
@@ -59,6 +61,30 @@ fun AccountSettingsContent(
     viewModel: AccountViewModel,
     onNavigateToAuthQrSignIn: () -> Unit = {}
 ) {
+    var showSyncOverviewLoading by remember { mutableStateOf(false) }
+
+    LaunchedEffect(
+        uiState.authState,
+        uiState.syncOverview,
+        uiState.isSyncOverviewLoading
+    ) {
+        if (
+            uiState.authState is AuthState.FullAccount &&
+            uiState.syncOverview == null &&
+            uiState.isSyncOverviewLoading
+        ) {
+            /*
+             * Do not expose the one-frame provisional state created while the
+             * Settings destination initializes. A genuine sync load still
+             * receives feedback if it lasts longer than this brief debounce.
+             */
+            delay(120L)
+            showSyncOverviewLoading = true
+        } else {
+            showSyncOverviewLoading = false
+        }
+    }
+
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 8.dp),
@@ -107,7 +133,7 @@ fun AccountSettingsContent(
                 val overview = uiState.syncOverview
                 if (overview != null) {
                     item(key = "account_sync_overview") { SyncOverviewCard(overview) }
-                } else if (uiState.isSyncOverviewLoading) {
+                } else if (showSyncOverviewLoading) {
                     item(key = "account_sync_overview_loading") { SyncOverviewLoadingCard() }
                 }
 

@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.navigation
 
+import android.util.Log
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -56,12 +59,105 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import kotlinx.coroutines.launch
 
+private fun rootDestinationPopExit(
+    destinationName: String,
+    targetRoute: String?
+): ExitTransition {
+    if (targetRoute != Screen.Home.route) {
+        return fadeOut(animationSpec = tween(350))
+    }
+
+    Log.d("RootDissolve", "$destinationName cross-dissolve -> home")
+    return fadeOut(
+        targetAlpha = 0f,
+        animationSpec = tween(
+            durationMillis = 300,
+            easing = LinearEasing
+        )
+    )
+}
+
+/*
+ * Navigation's own BackHandler is registered after the sidebar scaffold, so a
+ * remote Back press on a full-screen sidebar destination otherwise pops Home
+ * without first suppressing Home's dark return curtain. Register this inside
+ * each destination, before the screen's own handlers: a screen can still
+ * consume Back internally, while root-level Back restores Home cleanly.
+ */
+@Composable
+private fun SidebarRootBackToHome(
+    onBackToHome: () -> Unit
+) {
+    BackHandler(onBack = onBackToHome)
+}
+
+@Composable
+private fun RecordSidebarRootFrame(
+    layer: androidx.compose.ui.graphics.layer.GraphicsLayer,
+    content: @Composable () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .drawWithContent {
+                layer.record {
+                    this@drawWithContent.drawContent()
+                }
+                drawLayer(layer)
+            }
+    ) {
+        content()
+    }
+}
+
 @Composable
 fun NuvioNavHost(
     navController: NavHostController,
     startDestination: String = Screen.Home.route,
     hideBuiltInHeaders: Boolean = false
 ) {
+    /*
+     * Unlike SavedStateHandle, this value invalidates the active NavHost
+     * immediately before a root pop. Home therefore receives the suppression
+     * on its first returning composition instead of restoring a stale value.
+     */
+    val suppressHomeCurtainForRootReturn =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    /*
+     * Root destinations use the same retained Compose display-list strategy as
+     * Details -> Home below. Navigation Compose can dispose a popped root
+     * before its popExit pixels remain visible on some builds; this layer keeps
+     * the exact final rendered frame above Home for the dissolve.
+     */
+    val sidebarRootReturnLayer = rememberGraphicsLayer()
+    val sidebarRootReturnOverlayAlpha =
+        androidx.compose.runtime.remember {
+            androidx.compose.animation.core.Animatable(1f)
+        }
+    val showSidebarRootReturnOverlay =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+    val sidebarRootReturnRunning =
+        androidx.compose.runtime.remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+    val sidebarRootReturnScope =
+        androidx.compose.runtime.rememberCoroutineScope()
+    val sidebarRootReturnHomeDrawSignal =
+        androidx.compose.runtime.remember {
+            kotlinx.coroutines.channels.Channel<Unit>(
+                capacity = kotlinx.coroutines.channels.Channel.CONFLATED
+            )
+        }
+    val sidebarRootReturnAwaitingHomeDraw =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
     // DETAIL_RETURN_FROZEN_LAYER
     //
     // The Details destination continuously records its current Compose
@@ -159,12 +255,87 @@ fun NuvioNavHost(
         }
     }
 
+    fun runFrozenSidebarRootReturn(
+        navigateHome: () -> Unit
+    ) {
+        if (!sidebarRootReturnRunning.compareAndSet(false, true)) return
+
+        sidebarRootReturnScope.launch {
+            try {
+                sidebarRootReturnOverlayAlpha.snapTo(1f)
+                showSidebarRootReturnOverlay.value = true
+
+                /* Commit the already-recorded live root frame as an overlay. */
+                androidx.compose.runtime.withFrameNanos { }
+
+                while (sidebarRootReturnHomeDrawSignal.tryReceive().isSuccess) {
+                    // Drain a stale one-shot signal from an earlier return.
+                }
+                sidebarRootReturnAwaitingHomeDraw.value = true
+
+                navigateHome()
+
+                /* Begin only when the returning Home has produced real pixels. */
+                kotlinx.coroutines.withTimeoutOrNull(250L) {
+                    sidebarRootReturnHomeDrawSignal.receive()
+                }
+                sidebarRootReturnAwaitingHomeDraw.value = false
+
+                sidebarRootReturnOverlayAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = 300,
+                            easing = LinearEasing
+                        )
+                )
+            } finally {
+                sidebarRootReturnAwaitingHomeDraw.value = false
+                showSidebarRootReturnOverlay.value = false
+                sidebarRootReturnOverlayAlpha.snapTo(1f)
+                sidebarRootReturnRunning.set(false)
+            }
+        }
+    }
+
+    fun popSidebarRootToHome() {
+        suppressHomeCurtainForRootReturn.value = true
+        runCatching {
+            navController.getBackStackEntry(Screen.Home.route)
+        }.getOrNull()
+            ?.savedStateHandle
+            ?.set("skipHomeReturnCurtainOnce", true)
+
+        runFrozenSidebarRootReturn {
+            if (!navController.popBackStack(Screen.Home.route, inclusive = false)) {
+                navController.navigate(Screen.Home.route) {
+                    popUpTo(navController.graph.startDestinationId) {
+                        inclusive = false
+                    }
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+
     fun isStreamToPlayer(from: String, to: String): Boolean {
         return from.startsWith("stream/") && to.startsWith("player/")
     }
 
     fun isPlayerToStream(from: String, to: String): Boolean {
         return from.startsWith("player/") && to.startsWith("stream/")
+    }
+
+    fun isSidebarRoot(route: String): Boolean {
+        return route == Screen.Home.route ||
+            route == Screen.Search.route ||
+            route == Screen.Library.route ||
+            route == Screen.AddonManager.route ||
+            route == Screen.Settings.route
+    }
+
+    fun isSidebarRootTransition(from: String, to: String): Boolean {
+        return from != to && isSidebarRoot(from) && isSidebarRoot(to)
     }
 
     Box(
@@ -179,10 +350,28 @@ fun NuvioNavHost(
             val isAutoPlayNav = targetState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
-            if (isStreamToPlayer(from, to) && isAutoPlayNav) {
-                EnterTransition.None
-            } else {
-                fadeIn(animationSpec = tween(350))
+            when {
+                isStreamToPlayer(from, to) && isAutoPlayNav ->
+                    EnterTransition.None
+
+                /*
+                 * Sidebar destinations dissolve over the still-opaque screen
+                 * beneath them. This gives the glass workspace a deliberate
+                 * entrance without exposing the NavHost background.
+                 */
+                isSidebarRootTransition(from, to) ->
+                    if (to == Screen.Home.route) {
+                        EnterTransition.None
+                    } else {
+                        fadeIn(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                easing = LinearEasing
+                            )
+                        )
+                    }
+
+                else -> fadeIn(animationSpec = tween(350))
             }
         },
         exitTransition = {
@@ -191,10 +380,29 @@ fun NuvioNavHost(
             val isAutoPlayNav = targetState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
-            if (isStreamToPlayer(from, to) && isAutoPlayNav) {
-                ExitTransition.None
-            } else {
-                fadeOut(animationSpec = tween(350))
+            when {
+                isStreamToPlayer(from, to) && isAutoPlayNav ->
+                    ExitTransition.None
+
+                /*
+                 * Opening keeps the outgoing root opaque while the glass screen
+                 * fades over it. Returning keeps Home opaque underneath and
+                 * dissolves the outgoing glass screen away. Fading both layers
+                 * at once can expose the NavHost background between them.
+                 */
+                isSidebarRootTransition(from, to) ->
+                    if (to == Screen.Home.route) {
+                        fadeOut(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                easing = LinearEasing
+                            )
+                        )
+                    } else {
+                        ExitTransition.None
+                    }
+
+                else -> fadeOut(animationSpec = tween(350))
             }
         },
         popEnterTransition = {
@@ -203,13 +411,25 @@ fun NuvioNavHost(
             val isAutoPlayNav = initialState.arguments
                 ?.getString("autoPlayNav")
                 ?.toBooleanStrictOrNull() == true
-            if (
+            when {
                 (isPlayerToStream(from, to) && isAutoPlayNav) ||
-                (from.startsWith("detail/") && to == Screen.Home.route)
-            ) {
-                EnterTransition.None
-            } else {
-                fadeIn(animationSpec = tween(350))
+                    (from.startsWith("detail/") && to == Screen.Home.route) ->
+                    EnterTransition.None
+
+                isSidebarRootTransition(from, to) ->
+                    if (to == Screen.Home.route) {
+                        /* Home's outer layer owns the visible return dissolve. */
+                        EnterTransition.None
+                    } else {
+                        fadeIn(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                easing = LinearEasing
+                            )
+                        )
+                    }
+
+                else -> fadeIn(animationSpec = tween(350))
             }
         },
         popExitTransition = {
@@ -229,6 +449,20 @@ fun NuvioNavHost(
                 from.startsWith("detail/") &&
                     to == Screen.Home.route -> ExitTransition.None
 
+                // Preserve the same direction-aware layer ownership when state
+                // restoration turns sidebar navigation into a pop.
+                isSidebarRootTransition(from, to) ->
+                    if (to == Screen.Home.route) {
+                        fadeOut(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                easing = LinearEasing
+                            )
+                        )
+                    } else {
+                        ExitTransition.None
+                    }
+
                 else -> fadeOut(animationSpec = tween(350))
             }
         }
@@ -244,11 +478,14 @@ fun NuvioNavHost(
         }
 
         composable(Screen.Home.route) { backStackEntry ->
-            val skipHomeReturnCurtain =
+            val savedSkipHomeReturnCurtain =
                 androidx.compose.runtime.remember(backStackEntry) {
                     backStackEntry.savedStateHandle
                         .get<Boolean>("skipHomeReturnCurtainOnce") == true
                 }
+            val skipHomeReturnCurtain =
+                savedSkipHomeReturnCurtain ||
+                    suppressHomeCurtainForRootReturn.value
 
             androidx.compose.runtime.LaunchedEffect(skipHomeReturnCurtain) {
                 if (skipHomeReturnCurtain) {
@@ -305,33 +542,57 @@ fun NuvioNavHost(
                 }
             }
 
-            HomeScreen(
-                skipReturnCurtain = skipHomeReturnCurtain,
-                returnFrameSignalActive =
-                    detailReturnAwaitingHomeDraw.value,
-                onReturnFrameDrawn = {
-                    detailReturnHomeDrawSignal.trySend(Unit)
-                },
-                onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                    navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
-                },
-                onContinueWatchingClick = { item ->
-                    navController.navigate(createContinueWatchingRoute(item))
-                },
-                onContinueWatchingStartFromBeginning = { item ->
-                    navController.navigate(
-                        createContinueWatchingRoute(item, startFromBeginning = true)
-                    )
-                },
-                onContinueWatchingPlayManually = { item ->
-                    navController.navigate(
-                        createContinueWatchingRoute(item, manualSelection = true)
-                    )
-                },
-                onNavigateToCatalogSeeAll = { catalogId, addonId, type ->
-                    navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
+            val isRootReturnDissolve = suppressHomeCurtainForRootReturn.value
+
+            androidx.compose.runtime.LaunchedEffect(isRootReturnDissolve) {
+                if (isRootReturnDissolve) {
+                    /*
+                     * Home is the fully opaque destination underneath the
+                     * retained root frame. The overlay alone dissolves away,
+                     * matching the one-sided Home -> root transition.
+                     */
+                    androidx.compose.runtime.withFrameNanos { }
+                    suppressHomeCurtainForRootReturn.value = false
                 }
-            )
+            }
+
+            Box(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                HomeScreen(
+                    skipReturnCurtain = skipHomeReturnCurtain,
+                    returnFrameSignalActive =
+                        detailReturnAwaitingHomeDraw.value ||
+                            sidebarRootReturnAwaitingHomeDraw.value,
+                    onReturnFrameDrawn = {
+                        if (detailReturnAwaitingHomeDraw.value) {
+                            detailReturnHomeDrawSignal.trySend(Unit)
+                        }
+                        if (sidebarRootReturnAwaitingHomeDraw.value) {
+                            sidebarRootReturnHomeDrawSignal.trySend(Unit)
+                        }
+                    },
+                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                        navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                    },
+                    onContinueWatchingClick = { item ->
+                        navController.navigate(createContinueWatchingRoute(item))
+                    },
+                    onContinueWatchingStartFromBeginning = { item ->
+                        navController.navigate(
+                            createContinueWatchingRoute(item, startFromBeginning = true)
+                        )
+                    },
+                    onContinueWatchingPlayManually = { item ->
+                        navController.navigate(
+                            createContinueWatchingRoute(item, manualSelection = true)
+                        )
+                    },
+                    onNavigateToCatalogSeeAll = { catalogId, addonId, type ->
+                        navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
+                    }
+                )
+            }
         }
 
         composable(
@@ -1089,17 +1350,28 @@ fun NuvioNavHost(
             )
         }
 
-        composable(Screen.Search.route) {
-            SettingsGlassScreen {
-                SearchScreen(
-                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                        navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
-                    },
-                    onNavigateToSeeAll = { catalogId, addonId, type ->
-                        navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
-                    },
-                    onOpenDiscover = { navController.navigate(Screen.Discover.route) }
+        composable(
+            route = Screen.Search.route,
+            popExitTransition = {
+                rootDestinationPopExit(
+                    destinationName = "search",
+                    targetRoute = targetState.destination.route
                 )
+            }
+        ) {
+            SidebarRootBackToHome { popSidebarRootToHome() }
+            RecordSidebarRootFrame(sidebarRootReturnLayer) {
+                SettingsGlassScreen {
+                    SearchScreen(
+                        onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                            navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                        },
+                        onNavigateToSeeAll = { catalogId, addonId, type ->
+                            navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
+                        },
+                        onOpenDiscover = { navController.navigate(Screen.Discover.route) }
+                    )
+                }
             }
         }
 
@@ -1113,29 +1385,51 @@ fun NuvioNavHost(
             }
         }
 
-        composable(Screen.Library.route) {
-            SettingsGlassScreen {
-                LibraryScreen(
-                    showBuiltInHeader = !hideBuiltInHeaders,
-                    onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
-                        navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
-                    }
+        composable(
+            route = Screen.Library.route,
+            popExitTransition = {
+                rootDestinationPopExit(
+                    destinationName = "library",
+                    targetRoute = targetState.destination.route
                 )
+            }
+        ) {
+            SidebarRootBackToHome { popSidebarRootToHome() }
+            RecordSidebarRootFrame(sidebarRootReturnLayer) {
+                SettingsGlassScreen {
+                    LibraryScreen(
+                        showBuiltInHeader = !hideBuiltInHeaders,
+                        onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
+                            navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
+                        }
+                    )
+                }
             }
         }
 
-        composable(Screen.Settings.route) {
-            SettingsScreen(
-                showBuiltInHeader = !hideBuiltInHeaders,
-                onNavigateToTracking = {
-                    navController.navigate(Screen.Tracking.route)
-                },
-                onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
-                onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
-                onNavigateToSupportersContributors = {
-                    navController.navigate(Screen.SupportersContributors.route)
-                }
-            )
+        composable(
+            route = Screen.Settings.route,
+            popExitTransition = {
+                rootDestinationPopExit(
+                    destinationName = "settings",
+                    targetRoute = targetState.destination.route
+                )
+            }
+        ) {
+            SidebarRootBackToHome { popSidebarRootToHome() }
+            RecordSidebarRootFrame(sidebarRootReturnLayer) {
+                SettingsScreen(
+                    showBuiltInHeader = !hideBuiltInHeaders,
+                    onNavigateToTracking = {
+                        navController.navigate(Screen.Tracking.route)
+                    },
+                    onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
+                    onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
+                    onNavigateToSupportersContributors = {
+                        navController.navigate(Screen.SupportersContributors.route)
+                    }
+                )
+            }
         }
 
         composable(Screen.ManageProfiles.route) {
@@ -1203,15 +1497,26 @@ fun NuvioNavHost(
             )
         }
 
-        composable(Screen.AddonManager.route) {
+        composable(
+            route = Screen.AddonManager.route,
+            popExitTransition = {
+                rootDestinationPopExit(
+                    destinationName = "addons",
+                    targetRoute = targetState.destination.route
+                )
+            }
+        ) {
+            SidebarRootBackToHome { popSidebarRootToHome() }
             val homeBackStackEntry = navController.getBackStackEntry(Screen.Home.route)
             val homeViewModel: HomeViewModel = hiltViewModel(homeBackStackEntry)
-            SettingsGlassScreen {
-                AddonManagerScreen(
-                    showBuiltInHeader = !hideBuiltInHeaders,
-                    onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
-                    onRefreshCatalogs = { homeViewModel.forceReloadCatalogs() }
-                )
+            RecordSidebarRootFrame(sidebarRootReturnLayer) {
+                SettingsGlassScreen {
+                    AddonManagerScreen(
+                        showBuiltInHeader = !hideBuiltInHeaders,
+                        onNavigateToCatalogOrder = { navController.navigate(Screen.CatalogOrder.route) },
+                        onRefreshCatalogs = { homeViewModel.forceReloadCatalogs() }
+                    )
+                }
             }
         }
 
@@ -1296,6 +1601,18 @@ fun NuvioNavHost(
             )
         }
     }
+
+        if (showSidebarRootReturnOverlay.value) {
+            Canvas(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = sidebarRootReturnOverlayAlpha.value
+                    }
+            ) {
+                drawLayer(sidebarRootReturnLayer)
+            }
+        }
 
         if (showDetailReturnOverlay.value) {
             Canvas(

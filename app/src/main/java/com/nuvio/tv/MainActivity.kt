@@ -775,10 +775,6 @@ private fun LegacySidebarScaffold(
     }
     val showSidebar = currentRoute in rootRoutes
 
-    LaunchedEffect(currentRoute) {
-        isLegacySidebarOpen = false
-    }
-
     val closedDrawerWidth = if (sidebarCollapsed) 0.dp else 72.dp
     val openDrawerWidth = 202.dp
 
@@ -1157,7 +1153,7 @@ private fun LegacySidebarScaffold(
                                     // Only hand focus back to content when the drawer
                                     // closes without leaving this screen. During root
                                     // navigation the outgoing destination remains
-                                    // composed for the 350 ms fade; requesting content
+                                    // composed for the layered dissolve; requesting content
                                     // focus there can move its rows before it disappears
                                     // and corrupt the focus position we return to later.
                                     pendingContentFocusTransfer = stayingOnCurrentRoute
@@ -1408,6 +1404,7 @@ private fun ModernSidebarScaffold(
     var leftAtEdge by remember { mutableStateOf(false) }
     var leftReleasedSinceEdge by remember { mutableStateOf(false) }
     var isFloatingPillIconOnly by remember { mutableStateOf(false) }
+    var sidebarRootNavigationInProgress by remember { mutableStateOf(false) }
     val modernHostView = LocalView.current
     val modernActivity = LocalContext.current as? Activity
     var settingsBackdropBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -1448,6 +1445,17 @@ private fun ModernSidebarScaffold(
             pendingContentFocusTransfer = false
             pendingSidebarFocusRequest = false
             isFloatingPillIconOnly = false
+        }
+    }
+
+    LaunchedEffect(currentRoute) {
+        if (sidebarRootNavigationInProgress) {
+            /*
+             * Keep sidebar rendering suppressed until its longest 395ms
+             * collapse channel has settled offscreen.
+             */
+            delay(400L)
+            sidebarRootNavigationInProgress = false
         }
     }
 
@@ -1692,7 +1700,11 @@ private fun ModernSidebarScaffold(
             }
         }
 
-        if (showSidebar && (sidebarVisible || sidebarWidth > 0.dp)) {
+        if (
+            showSidebar &&
+            !sidebarRootNavigationInProgress &&
+            (sidebarVisible || sidebarWidth > 0.dp)
+        ) {
             val panelShape = RoundedCornerShape(30.dp)
             val showExpandedPanel = isSidebarExpanded || sidebarShowExpandedPanel
 
@@ -1753,15 +1765,19 @@ private fun ModernSidebarScaffold(
                         drawerItemFocusRequesters = drawerItemFocusRequesters,
                         onDrawerItemFocused = { focusedDrawerIndex = it },
                         onDrawerItemClick = { targetRoute ->
+                            val stayingOnCurrentRoute = currentRoute == targetRoute
+                            pendingSidebarFocusRequest = false
+                            isSidebarExpanded = false
+                            sidebarCollapsePending = false
+                            pendingContentFocusTransfer = stayingOnCurrentRoute
+                            if (!stayingOnCurrentRoute) {
+                                sidebarRootNavigationInProgress = true
+                            }
                             navigateToDrawerRoute(
                                 navController = navController,
                                 currentRoute = currentRoute,
                                 targetRoute = targetRoute
                             )
-                            pendingSidebarFocusRequest = false
-                            isSidebarExpanded = false
-                            sidebarCollapsePending = false
-                            pendingContentFocusTransfer = true
                         },
                         activeProfileName = activeProfileName,
                         activeProfileColorHex = activeProfileColorHex,
@@ -1914,6 +1930,30 @@ private fun navigateToDrawerRoute(
     if (currentRoute == targetRoute) {
         return
     }
+
+    if (targetRoute == Screen.Home.route) {
+        /*
+         * Root navigation already keeps the outgoing destination visible until
+         * Home has drawn underneath it. Do not stack Home's separate dark
+         * return curtain on top of that dissolve.
+         */
+        runCatching {
+            navController.getBackStackEntry(Screen.Home.route)
+        }.getOrNull()
+            ?.savedStateHandle
+            ?.set("skipHomeReturnCurtainOnce", true)
+
+        /*
+         * Home is the root entry already sitting underneath every sidebar
+         * destination. Restore it with a real pop so Navigation Compose runs
+         * the root pop transition instead of replacing both destinations as
+         * part of a navigate + popUpTo transaction.
+         */
+        if (navController.popBackStack(Screen.Home.route, inclusive = false)) {
+            return
+        }
+    }
+
     navController.navigate(targetRoute) {
         popUpTo(navController.graph.startDestinationId) {
             saveState = true
