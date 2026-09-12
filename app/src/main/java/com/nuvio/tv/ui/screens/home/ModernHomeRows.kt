@@ -103,11 +103,14 @@ import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
+import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.rememberPosterShimmerTranslateState
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalSidebarOpenRequest
+import com.nuvio.tv.LocalHomeHeroTrailerPlaying
+import com.nuvio.tv.LocalPreserveSidebarTrailerPlayback
 import com.nuvio.tv.LocalNoBackdropImage
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.abs
@@ -215,9 +218,11 @@ private fun ModernCatalogRowItem(
             expandedCatalogFocusKey == focusKey &&
             !suppressCardExpansionForHeroTrailer
     val isSidebarExpanded = LocalSidebarExpanded.current
+    val preserveSidebarTrailerPlayback =
+        LocalPreserveSidebarTrailerPlayback.current
     val playTrailerInExpandedCard =
         effectiveAutoplayEnabled &&
-            !isSidebarExpanded &&
+            (!isSidebarExpanded || preserveSidebarTrailerPlayback) &&
             trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
             isBackdropExpanded
     val trailerPreviewUrl = if (playTrailerInExpandedCard) expandedTrailerPreviewUrl else null
@@ -302,7 +307,7 @@ private fun ModernLightweightPosterStrip(
     useThemeColorForNumbers: Boolean,
     uiCaches: ModernHomeUiCaches,
     pendingRowFocus: PendingRowFocusHolder,
-    onRowItemFocused: (String, Int, Boolean) -> Unit,
+    onRowItemFocused: (String, Int, Boolean, Boolean) -> Unit,
     retainForHandoff: Boolean,
     onFocusProxyChanged: (Int, Boolean) -> Unit,
     isFirstRow: Boolean,
@@ -677,7 +682,8 @@ private fun ModernLightweightPosterStrip(
                                         onRowItemFocused(
                                             row.key,
                                             absoluteIndex,
-                                            false
+                                            false,
+                                            true
                                         )
                                     }
                                 }
@@ -725,9 +731,13 @@ private fun ModernLightweightPosterStrip(
 
                                         val current =
                                             uiCaches
-                                                .lastActuallyFocusedIndexByRow[
+                                                .focusedItemByRow[
                                                     row.key
                                                 ]
+                                                ?: uiCaches
+                                                    .lastActuallyFocusedIndexByRow[
+                                                        row.key
+                                                    ]
                                                 ?: absoluteIndex
 
                                         val next =
@@ -740,11 +750,6 @@ private fun ModernLightweightPosterStrip(
 
                                         if (next != current) {
                                             uiCaches
-                                                .lastActuallyFocusedIndexByRow[
-                                                    row.key
-                                                ] = next
-
-                                            uiCaches
                                                 .focusedItemByRow[
                                                     row.key
                                                 ] = next
@@ -752,6 +757,7 @@ private fun ModernLightweightPosterStrip(
                                             onRowItemFocused(
                                                 row.key,
                                                 next,
+                                                false,
                                                 false
                                             )
                                         }
@@ -978,7 +984,7 @@ internal fun ModernRowSection(
     uiCaches: ModernHomeUiCaches,
     pendingRowFocus: PendingRowFocusHolder,
     onPendingRowFocusCleared: () -> Unit,
-    onRowItemFocused: (String, Int, Boolean) -> Unit,
+    onRowItemFocused: (String, Int, Boolean, Boolean) -> Unit,
     useLandscapePosters: Boolean,
     perCatalogLandscape: Boolean = false,
     showLabels: Boolean,
@@ -1743,7 +1749,8 @@ internal fun ModernRowSection(
                                 onRowItemFocused(
                                     row.key,
                                     index,
-                                    isContinueWatchingRow
+                                    isContinueWatchingRow,
+                                    true
                                 )
                             }
                         }
@@ -1894,7 +1901,7 @@ private fun ModernSkeletonRow(
     isContinueWatchingRow: Boolean,
     uiCaches: ModernHomeUiCaches,
     pendingRowFocus: PendingRowFocusHolder,
-    onRowItemFocused: (String, Int, Boolean) -> Unit,
+    onRowItemFocused: (String, Int, Boolean, Boolean) -> Unit,
     retainForHandoff: Boolean,
     onFocusProxyChanged: (Int, Boolean) -> Unit,
     onRequestCarouselFocus: () -> Unit
@@ -2061,7 +2068,8 @@ private fun ModernSkeletonRow(
                             onRowItemFocused(
                                 rowKey,
                                 index,
-                                isContinueWatchingRow
+                                isContinueWatchingRow,
+                                true
                             )
                         }
                     }
@@ -2132,7 +2140,12 @@ private fun ModernCarouselCard(
     val density = LocalDensity.current
     val expandedCardWidth = remember(cardHeight) { cardHeight * (16f / 9f) }
     val isSidebarExpanded = LocalSidebarExpanded.current
+    val preserveSidebarTrailerPlayback =
+        LocalPreserveSidebarTrailerPlayback.current
+    val homeTrailerPlayingState =
+        LocalHomeHeroTrailerPlaying.current
     val noBackdropImage = LocalNoBackdropImage.current
+    val homePopupGlassEnvironment = LocalHomePopupGlassEnvironment.current
     var isFocused by remember { mutableStateOf(false) }
 
     // In noBackdropImage mode: card expansion is gated on trailer first frame.
@@ -2147,9 +2160,12 @@ private fun ModernCarouselCard(
     // Otherwise use original behavior — playTrailerInExpandedCard already has !isSidebarExpanded
     // baked in, so effectiveIsExpanded collapses instantly when sidebar opens.
     val effectiveIsExpanded = if (noBackdropImage && playTrailerInExpandedCard) {
-        isBackdropExpanded && trailerFirstFrameRendered && !isSidebarExpanded
+        isBackdropExpanded &&
+            trailerFirstFrameRendered &&
+            (!isSidebarExpanded || preserveSidebarTrailerPlayback)
     } else {
-        isBackdropExpanded && !isSidebarExpanded
+        isBackdropExpanded &&
+            (!isSidebarExpanded || preserveSidebarTrailerPlayback)
     }
 
     val targetCardWidth = if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded) {
@@ -2357,8 +2373,13 @@ private fun ModernCarouselCard(
         }
     }
 
-    LaunchedEffect(isSidebarExpanded) {
-        if (noBackdropImage && isSidebarExpanded && trailerFirstFrameRendered) {
+    LaunchedEffect(isSidebarExpanded, preserveSidebarTrailerPlayback) {
+        if (
+            noBackdropImage &&
+            isSidebarExpanded &&
+            !preserveSidebarTrailerPlayback &&
+            trailerFirstFrameRendered
+        ) {
             triggerCollapseOverlay(300L)
         }
     }
@@ -2367,7 +2388,9 @@ private fun ModernCarouselCard(
 
     val topOverlayAlpha = if (noBackdropImage) {
         when {
-            isSidebarExpanded && trailerFirstFrameRendered -> 1f
+            isSidebarExpanded &&
+                !preserveSidebarTrailerPlayback &&
+                trailerFirstFrameRendered -> 1f
             collapseOverlayVisible -> 1f
             else -> 0f
         }
@@ -2406,15 +2429,30 @@ private fun ModernCarouselCard(
                     val native = event.nativeKeyEvent
                     if (native.action == AndroidKeyEvent.ACTION_DOWN) {
                         val selectKey = isSelectKey(native.keyCode)
+                        val optionsKey =
+                            selectKey ||
+                                native.keyCode == AndroidKeyEvent.KEYCODE_MENU
+                        val preservePlayingTrailer =
+                            homeTrailerPlayingState.value ||
+                                shouldPreserveExpandedTrailerForPopup(
+                                    playTrailerInExpandedCard =
+                                        playTrailerInExpandedCard,
+                                    trailerFirstFrameRendered =
+                                        trailerFirstFrameRendered
+                                )
                         if (
                             focusedPosterBackdropExpandEnabled &&
                             shouldResetBackdropTimer(event.key) &&
-                            !(suppressSelectBackdropTimerReset && selectKey)
+                            !(suppressSelectBackdropTimerReset && selectKey) &&
+                            !(preservePlayingTrailer && optionsKey)
                         ) {
                             onBackdropInteraction()
                         }
                         if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
                             longPressTriggered = true
+                            homePopupGlassEnvironment.onCatalogOptionsOpening(
+                                preservePlayingTrailer
+                            )
                             onLongPress()
                             return@onPreviewKeyEvent true
                         }
@@ -2422,11 +2460,15 @@ private fun ModernCarouselCard(
                         if (isLongPress && selectKey) {
                             if (
                                 focusedPosterBackdropExpandEnabled &&
-                                suppressSelectBackdropTimerReset
+                                suppressSelectBackdropTimerReset &&
+                                !preservePlayingTrailer
                             ) {
                                 onBackdropInteraction()
                             }
                             longPressTriggered = true
+                            homePopupGlassEnvironment.onCatalogOptionsOpening(
+                                preservePlayingTrailer
+                            )
                             onLongPress()
                             return@onPreviewKeyEvent true
                         }
@@ -2558,15 +2600,19 @@ private fun ModernCarouselCard(
                     TrailerPlayer(
                         trailerUrl = trailerPreviewUrl,
                         trailerAudioUrl = trailerPreviewAudioUrl,
-                        isPlaying = !isSidebarExpanded,
+                        isPlaying =
+                            !isSidebarExpanded ||
+                                preserveSidebarTrailerPlayback,
                         onEnded = {
                             trailerFirstFrameRendered = false
+                            homeTrailerPlayingState.value = false
                             blackOverlayPhase = 0
                             onTrailerEnded()
                         },
                         muted = focusedPosterBackdropTrailerMuted,
                         onFirstFrameRendered = {
                             trailerFirstFrameRendered = true
+                            homeTrailerPlayingState.value = true
                         },
                         cropToFill = true,
                         modifier = Modifier.fillMaxSize()
@@ -2877,8 +2923,8 @@ private fun shouldResetBackdropTimer(key: Key): Boolean {
         Key.DirectionRight,
         Key.DirectionCenter,
         Key.Enter,
-        Key.NumPadEnter,
-        Key.Back -> true
+        Key.NumPadEnter -> true
+        Key.Back -> false
         else -> false
     }
 }

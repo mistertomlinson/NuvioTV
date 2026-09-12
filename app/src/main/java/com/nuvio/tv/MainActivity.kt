@@ -160,6 +160,11 @@ val LocalNoBackdropImage = compositionLocalOf { false }
 val LocalContentFocusRequester = compositionLocalOf { FocusRequester.Default }
 val LocalCarouselFocusRequester = compositionLocalOf { FocusRequester.Default }
 val LocalSidebarOpenRequest = compositionLocalOf<() -> Unit> { {} }
+val LocalHomeHeroTrailerPlaying =
+    compositionLocalOf<androidx.compose.runtime.MutableState<Boolean>> {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+val LocalPreserveSidebarTrailerPlayback = compositionLocalOf { false }
 val LocalRowFocusRestorer = compositionLocalOf<androidx.compose.runtime.MutableState<FocusRequester>> { androidx.compose.runtime.mutableStateOf(FocusRequester.Default) }
 val LocalSettingsBackdropBitmap = compositionLocalOf<Bitmap?> { null }
 
@@ -781,6 +786,12 @@ private fun LegacySidebarScaffold(
     val focusManager = LocalFocusManager.current
     val contentFocusRequester = remember { FocusRequester() }
     val rowFocusRestorer = remember { androidx.compose.runtime.mutableStateOf(FocusRequester.Default) }
+    val homeHeroTrailerPlaying = remember {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    var preserveSidebarTrailerPlayback by remember {
+        mutableStateOf(false)
+    }
     var pendingContentFocusTransfer by remember { mutableStateOf(false) }
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
     var legacyLeftAtEdge by remember { mutableStateOf(false) }
@@ -791,6 +802,14 @@ private fun LegacySidebarScaffold(
     var settingsCaptureInProgress by remember { mutableStateOf(false) }
     fun openLegacySidebar() {
         if (settingsCaptureInProgress) return
+
+        /*
+         * Snapshot Home's playing state before opening the sidebar steals
+         * focus. This is intentionally decided at the open request rather
+         * than after isLegacySidebarOpen changes.
+         */
+        preserveSidebarTrailerPlayback =
+            homeHeroTrailerPlaying.value
         if (currentRoute == Screen.Settings.route) {
             pendingSidebarFocusRequest = true
             isLegacySidebarOpen = true
@@ -878,6 +897,7 @@ private fun LegacySidebarScaffold(
         if (!restoredExactItem) {
             runCatching { contentFocusRequester.requestFocus() }
         }
+        preserveSidebarTrailerPlayback = false
         pendingContentFocusTransfer = false
     }
 
@@ -1223,6 +1243,9 @@ private fun LegacySidebarScaffold(
                 LocalSidebarOpenRequest provides {
                     openLegacySidebar()
                 },
+                LocalHomeHeroTrailerPlaying provides homeHeroTrailerPlaying,
+                LocalPreserveSidebarTrailerPlayback provides
+                    preserveSidebarTrailerPlayback,
                 LocalRowFocusRestorer provides rowFocusRestorer,
                 LocalSettingsBackdropBitmap provides settingsBackdropBitmap
             ) {

@@ -59,6 +59,9 @@ import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Text
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogWindowProvider
+import androidx.compose.ui.platform.LocalView
+import android.view.WindowManager
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -97,7 +100,10 @@ private val CwDialogGlassBorderColor = Color.White.copy(alpha = 0.09f)
 internal data class HomePopupGlassEnvironment(
     val hazeState: HazeState? = null,
     val blurEnabled: Boolean = false,
-    val onPopupVisibilityChanged: (Boolean) -> Unit = {}
+    val onPopupVisibilityChanged: (Boolean) -> Unit = {},
+    val catalogOptionsVisible: Boolean = false,
+    val preserveCatalogTrailerPlayback: Boolean = false,
+    val onCatalogOptionsOpening: (preserveTrailerPlayback: Boolean) -> Unit = {}
 )
 
 internal val LocalHomePopupGlassEnvironment =
@@ -570,6 +576,19 @@ fun ContinueWatchingOptionsDialog(
     }
 
     Dialog(onDismissRequest = onDismiss) {
+        val dialogView = LocalView.current
+
+        DisposableEffect(dialogView) {
+            val window =
+                (dialogView.parent as? DialogWindowProvider)?.window
+
+            window?.clearFlags(
+                WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            )
+
+            onDispose { }
+        }
+
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center

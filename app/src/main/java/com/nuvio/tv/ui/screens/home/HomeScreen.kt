@@ -67,6 +67,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.LocalCarouselFocusRequester
 import com.nuvio.tv.LocalContentFocusRequester
+import com.nuvio.tv.LocalRowFocusRestorer
 import kotlin.math.roundToInt
 import androidx.compose.animation.fadeOut
 import dev.chrisbanes.haze.HazeState
@@ -199,19 +200,56 @@ fun HomeScreen(
     val homePopupBlurEnabled =
         android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
     var continueWatchingPopupVisible by remember { mutableStateOf(false) }
+    var preserveCatalogTrailerPlayback by remember { mutableStateOf(false) }
     val homePopupVisible =
         posterOptionsTarget != null ||
             uiState.showWatchedRatingOverlay ||
             continueWatchingPopupVisible
     val homeContentFocusRequester = LocalContentFocusRequester.current
+    val homeRowFocusRestorer = LocalRowFocusRestorer.current
     var homePopupWasVisible by remember { mutableStateOf(false) }
+    var homePopupReturnFocusRequester by remember {
+        mutableStateOf<androidx.compose.ui.focus.FocusRequester?>(null)
+    }
 
     LaunchedEffect(homePopupVisible) {
         if (homePopupVisible) {
+            if (!homePopupWasVisible) {
+                homePopupReturnFocusRequester =
+                    homeRowFocusRestorer.value
+                        .takeUnless {
+                            it == androidx.compose.ui.focus.FocusRequester.Default
+                        }
+            }
             homePopupWasVisible = true
         } else if (homePopupWasVisible) {
-            androidx.compose.runtime.withFrameNanos { }
-            runCatching { homeContentFocusRequester.requestFocus() }
+            val returnRequester = homePopupReturnFocusRequester
+            var restoredExactItem = false
+
+            /*
+             * The popup has just left composition. Give its focus owner time to
+             * detach, then retry the requester captured when the popup opened.
+             * Do not recalculate the target here: Home state may have changed
+             * while the popup was visible.
+             */
+            repeat(3) {
+                androidx.compose.runtime.withFrameNanos { }
+
+                if (!restoredExactItem && returnRequester != null) {
+                    restoredExactItem =
+                        runCatching {
+                            returnRequester.requestFocus()
+                        }.getOrDefault(false)
+                }
+            }
+
+            if (!restoredExactItem) {
+                runCatching {
+                    homeContentFocusRequester.requestFocus()
+                }
+            }
+
+            homePopupReturnFocusRequester = null
             homePopupWasVisible = false
         }
     }
@@ -236,6 +274,15 @@ fun HomeScreen(
             blurEnabled = homePopupBlurEnabled,
             onPopupVisibilityChanged = { visible ->
                 continueWatchingPopupVisible = visible
+            },
+            // Keep the same trailer policy through the rating prompt
+            // launched by Mark Watched.
+            catalogOptionsVisible =
+                posterOptionsTarget != null ||
+                    uiState.showWatchedRatingOverlay,
+            preserveCatalogTrailerPlayback = preserveCatalogTrailerPlayback,
+            onCatalogOptionsOpening = { preservePlayback ->
+                preserveCatalogTrailerPlayback = preservePlayback
             }
         )
     ) {

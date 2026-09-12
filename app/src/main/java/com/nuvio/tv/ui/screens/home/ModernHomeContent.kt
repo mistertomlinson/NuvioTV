@@ -106,10 +106,13 @@ import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
+import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.LocalSidebarExpanded
+import com.nuvio.tv.LocalHomeHeroTrailerPlaying
+import com.nuvio.tv.LocalPreserveSidebarTrailerPlayback
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalCarouselFocusRequester
 import com.nuvio.tv.LocalIsScrolling
@@ -193,6 +196,17 @@ fun ModernHomeContent(
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
     val isSidebarExpanded = LocalSidebarExpanded.current
+    val homeHeroTrailerPlayingState =
+        LocalHomeHeroTrailerPlaying.current
+    val preserveSidebarTrailerPlayback =
+        LocalPreserveSidebarTrailerPlayback.current
+    val homePopupGlassEnvironment = LocalHomePopupGlassEnvironment.current
+    val suppressFocusedPosterAutoplayForOptions =
+        shouldSuppressFocusedPosterAutoplayForPopup(
+            popupVisible = homePopupGlassEnvironment.catalogOptionsVisible,
+            preservePlayingTrailer =
+                homePopupGlassEnvironment.preserveCatalogTrailerPlayback
+        )
     val useLandscapePosters = uiState.modernLandscapePostersEnabled
     val showCatalogTypeSuffixInModern = uiState.catalogTypeSuffixEnabled
     val hidePlatformNameInModern = uiState.hidePlatformNameInCatalogTitleEnabled
@@ -1136,15 +1150,31 @@ fun ModernHomeContent(
         trailerPlaybackTarget,
         uiState.focusedPosterBackdropExpandDelaySeconds,
         isVerticalRowsScrolling,
-        isSidebarExpanded
+        isSidebarExpanded,
+        suppressFocusedPosterAutoplayForOptions
     ) {
+
         /*
-         * Sidebar time must not count toward the trailer delay. Clear the
-         * retained activation while the sidebar is open. When it closes,
-         * isSidebarExpanded changes and this effect starts the full delay
-         * again for the still-focused poster.
+         * Sidebar time must not count toward the trailer delay. If a trailer
+         * was already actively playing when the translucent sidebar opened,
+         * leave the expanded card/player untouched so playback remains visible
+         * beneath it. Otherwise retain the old behavior: suppress activation
+         * for the sidebar's entire lifetime and restart the full delay after
+         * focus returns to Home.
          */
+        if (
+            !isSidebarExpanded &&
+            preserveSidebarTrailerPlayback &&
+            expandedCatalogFocusKey != null
+        ) {
+            return@LaunchedEffect
+        }
+
         if (isSidebarExpanded) {
+            if (preserveSidebarTrailerPlayback) {
+                return@LaunchedEffect
+            }
+
             expandedCatalogFocusKey = null
             retainedHeroTrailerSelection = null
             trailerExitBackdropOverride = null
@@ -1157,6 +1187,16 @@ fun ModernHomeContent(
                 player.volume = 0f
             }
 
+            return@LaunchedEffect
+        }
+
+        /*
+         * If options opened before the trailer painted its first frame, keep
+         * autoplay dormant for the popup's entire lifetime. Closing the popup
+         * relaunches this effect and starts the full configured delay again.
+         */
+        if (suppressFocusedPosterAutoplayForOptions) {
+            expandedCatalogFocusKey = null
             return@LaunchedEffect
         }
 
@@ -1287,7 +1327,6 @@ fun ModernHomeContent(
                 heroTrailerHoldMuted = false
             }
         }
-
         expandedCatalogFocusKey = null
         if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
         if (isVerticalRowsScrolling) return@LaunchedEffect
@@ -2340,10 +2379,11 @@ fun ModernHomeContent(
             effectiveAutoplayEnabled,
             trailerPlaybackTarget,
             heroTrailerUrl,
-            isSidebarExpanded
+            isSidebarExpanded,
+            preserveSidebarTrailerPlayback
         ) {
             effectiveAutoplayEnabled &&
-                !isSidebarExpanded &&
+                (!isSidebarExpanded || preserveSidebarTrailerPlayback) &&
                 trailerPlaybackTarget ==
                     FocusedPosterTrailerPlaybackTarget.HERO_MEDIA &&
                 !heroTrailerUrl.isNullOrBlank()
@@ -2351,9 +2391,9 @@ fun ModernHomeContent(
         /*
          * Single source of truth for whether the player should be RUNNING.
          * shouldPlayHeroTrailer controls visibility; this controls playback.
-         * They differ during a hold (visible, paused) and when the sidebar
-         * or a scroll hides the trailer (hidden, must stop - otherwise audio
-         * keeps playing under the restored backdrop).
+         * They differ during a hold (visible, paused) and when scrolling or
+         * a non-preserving sidebar state hides the trailer. An already-playing
+         * trailer may intentionally remain visible/running beneath the sidebar.
          */
         val heroTrailerShouldRun =
             shouldPlayHeroTrailer &&
@@ -2361,7 +2401,11 @@ fun ModernHomeContent(
         var heroTrailerFirstFrameRendered by remember(heroTrailerUrl) { mutableStateOf(false) }
         val isHeroTrailerActivelyPlaying = shouldPlayHeroTrailer && heroTrailerFirstFrameRendered
         LaunchedEffect(isHeroTrailerActivelyPlaying) {
-            onHeroTrailerPlayingChanged(isHeroTrailerActivelyPlaying)
+            homeHeroTrailerPlayingState.value =
+                isHeroTrailerActivelyPlaying
+            onHeroTrailerPlayingChanged(
+                isHeroTrailerActivelyPlaying
+            )
         }
         LaunchedEffect(shouldPlayHeroTrailer) {
             if (!shouldPlayHeroTrailer) heroTrailerFirstFrameRendered = false
@@ -2621,12 +2665,18 @@ fun ModernHomeContent(
                         ) {
                             0
                         } else {
-                            uiCaches.focusedItemByRow[rowKey] ?: 0
+                            uiCaches.lastActuallyFocusedIndexByRow[rowKey]
+                            ?: uiCaches.focusedItemByRow[rowKey]
+                            ?: 0
                         }
                     val safeIndex = focusedIndex.coerceIn(0, ((row?.items?.size ?: 1) - 1).coerceAtLeast(0))
                     val itemKey = row?.items?.getOrNull(safeIndex)?.key
                     if (itemKey != null) {
-                        uiCaches.itemFocusRequesters[rowKey]?.get(itemKey) ?: FocusRequester.Default
+                        val requester =
+                            uiCaches.itemFocusRequesters[rowKey]?.get(itemKey)
+                                ?: FocusRequester.Default
+
+                        requester
                     } else FocusRequester.Default
                 } else FocusRequester.Default
             }
@@ -3860,15 +3910,46 @@ fun ModernHomeContent(
                      * latest row ordering through rememberUpdatedState.
                      */
                     val stableOnRowItemFocused = remember(Unit) {
-                        { rowKey: String, index: Int, isContinueWatchingRow: Boolean ->
+                        { rowKey: String, index: Int, isContinueWatchingRow: Boolean, confirmedFocus: Boolean ->
                             /*
-                             * Authoritative horizontal position for the
-                             * lightweight renderer. This callback runs only
-                             * when a real card actually owns focus.
+                             * Logical row focus updates also pass through this
+                             * callback so hero/navigation state can stay fast.
+                             * Only confirmedFocus may update state that is
+                             * specifically used as confirmed restoration focus.
                              */
-                            uiCaches.lastActuallyFocusedIndexByRow[
-                                rowKey
-                            ] = index
+
+                            if (confirmedFocus) {
+                                uiCaches.lastActuallyFocusedIndexByRow[
+                                    rowKey
+                                ] = index
+
+                                /*
+                                 * Publish the exact requester synchronously with
+                                 * confirmed focus. The row-position cache maps
+                                 * are not Compose snapshot state, so relying on
+                                 * the derived global restorer alone can leave it
+                                 * pointing at an older card in the same row.
+                                 */
+                                val confirmedRow =
+                                    currentCarouselRows.firstOrNull {
+                                        it.key == rowKey
+                                    }
+                                val confirmedItemKey =
+                                    confirmedRow?.items
+                                        ?.getOrNull(index)
+                                        ?.key
+
+                                if (confirmedItemKey != null) {
+                                    val confirmedRequester =
+                                        uiCaches.requesterFor(
+                                            rowKey,
+                                            confirmedItemKey
+                                        )
+
+                                    rowFocusRestorerState.value =
+                                        confirmedRequester
+                                }
+                            }
                             /*
                              * This is the real item-focus callback, not merely
                              * the earlier requestFocus call. It gives the
@@ -3876,6 +3957,7 @@ fun ModernHomeContent(
                              * stable layout frames.
                              */
                             if (
+                                confirmedFocus &&
                                 rowKey ==
                                     landingRequestedRowKeyRef
                                         .get()
@@ -4136,3 +4218,15 @@ fun ModernHomeContent(
         )
     }
 }
+
+internal fun shouldPreserveExpandedTrailerForPopup(
+    playTrailerInExpandedCard: Boolean,
+    trailerFirstFrameRendered: Boolean
+): Boolean =
+    playTrailerInExpandedCard && trailerFirstFrameRendered
+
+internal fun shouldSuppressFocusedPosterAutoplayForPopup(
+    popupVisible: Boolean,
+    preservePlayingTrailer: Boolean
+): Boolean =
+    popupVisible && !preservePlayingTrailer
