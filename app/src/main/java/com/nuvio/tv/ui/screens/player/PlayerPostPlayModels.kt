@@ -99,12 +99,27 @@ internal fun isRatingPromptEligibleContent(
             if (currentSeason == null || currentEpisode == null || episodes.isEmpty()) {
                 false
             } else {
-                val finalEpisodeInSeason = episodes
+                // A series is rateable only after the final episode of the highest
+                // season that has actually started airing. A wholly future season
+                // must not block the prompt, while future episodes in the current
+                // season keep that season from being treated as complete.
+                val highestAiredSeason = episodes
+                    .asSequence()
+                    .filter { PlayerNextEpisodeRules.hasEpisodeAired(it.released) }
+                    .mapNotNull { it.season }
+                    .filter { it > 0 }
+                    .maxOrNull()
+
+                val finalEpisodeInCurrentSeason = episodes
                     .asSequence()
                     .filter { it.season == currentSeason }
                     .mapNotNull { it.episode }
                     .maxOrNull()
-                finalEpisodeInSeason != null && currentEpisode >= finalEpisodeInSeason
+
+                highestAiredSeason != null &&
+                    currentSeason == highestAiredSeason &&
+                    finalEpisodeInCurrentSeason != null &&
+                    currentEpisode >= finalEpisodeInCurrentSeason
             }
         }
         else -> false
@@ -137,14 +152,26 @@ internal fun shouldStartManualEndAction(
 ): Boolean {
     if (durationMs <= 0L || positionMs < 0L) return false
     if (state.creditRatingPromptHandled || state.postPlayRecommendationDismissed) return false
-    if (!isRatingPromptEligibleContent(
-            contentType = state.contentType,
-            currentSeason = state.currentSeason,
-            currentEpisode = state.currentEpisode,
-            episodes = state.episodesAll
-        )
-    ) {
-        return false
+    if (positionMs.toDouble() / durationMs.toDouble() < MANUAL_END_ACTION_THRESHOLD) return false
+
+    return when (state.contentType?.trim()?.lowercase()) {
+        "movie" -> true
+        "series", "tv" -> {
+            val ratingEligible = isRatingPromptEligibleContent(
+                contentType = state.contentType,
+                currentSeason = state.currentSeason,
+                currentEpisode = state.currentEpisode,
+                episodes = state.episodesAll
+            )
+            val analyzedCreditsStart = state.creditTiming.finalCreditsStartMs
+            val analyzerLooksLate =
+                state.nextEpisode?.hasAired == true &&
+                    state.creditTiming.status == CreditTimingStatus.COMPLETE &&
+                    analyzedCreditsStart != null &&
+                    positionMs < analyzedCreditsStart
+
+            ratingEligible || analyzerLooksLate
+        }
+        else -> false
     }
-    return positionMs.toDouble() / durationMs.toDouble() >= MANUAL_END_ACTION_THRESHOLD
 }

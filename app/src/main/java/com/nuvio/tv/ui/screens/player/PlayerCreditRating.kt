@@ -44,7 +44,13 @@ internal fun PlayerRuntimeController.requestManualEndAction() {
 
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
-    val showRating = state.isRatingProviderConnected
+    val ratingEligible = isRatingPromptEligibleContent(
+        contentType = state.contentType,
+        currentSeason = state.currentSeason,
+        currentEpisode = state.currentEpisode,
+        episodes = state.episodesAll
+    )
+    val showRating = state.isRatingProviderConnected && ratingEligible
     Log.i(
         PlayerRuntimeController.TAG,
         "Manual near-end exit requested post-play positionMs=${state.currentPosition}"
@@ -68,5 +74,9 @@ internal fun PlayerRuntimeController.requestManualEndAction() {
             nextEpisodeAutoPlayCountdownSec = null
         )
     }
-    preparePostPlayRecommendationsForManualEndAction()
+    if (showRating || state.nextEpisode?.hasAired != true) {
+        preparePostPlayRecommendationsForManualEndAction()
+    } else {
+        playNextEpisode(userInitiated = false)
+    }
 }

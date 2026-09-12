@@ -24,8 +24,8 @@ class PlayerPostPlayModelsTest {
             hasPostCreditScenes = true
         )
 
-        assertFalse(authoritativeEndActionDecision(timing, 6_701_999L)!!)
-        assertTrue(authoritativeEndActionDecision(timing, 6_702_000L)!!)
+        assertFalse(authoritativeEndActionDecision(timing, 6_699_999L)!!)
+        assertTrue(authoritativeEndActionDecision(timing, 6_700_000L)!!)
     }
 
     @Test
@@ -38,8 +38,8 @@ class PlayerPostPlayModelsTest {
         )
 
         assertFalse(authoritativeEndActionDecision(timing, 6_297_575L)!!)
-        assertFalse(authoritativeEndActionDecision(timing, 6_697_574L)!!)
-        assertTrue(authoritativeEndActionDecision(timing, 6_697_575L)!!)
+        assertFalse(authoritativeEndActionDecision(timing, 6_695_574L)!!)
+        assertTrue(authoritativeEndActionDecision(timing, 6_695_575L)!!)
     }
 
     @Test
@@ -56,8 +56,8 @@ class PlayerPostPlayModelsTest {
             finalCreditsStartMs = 6_700_000L
         )
 
-        assertFalse(authoritativeEndActionDecision(timing, 6_701_999L)!!)
-        assertTrue(authoritativeEndActionDecision(timing, 6_702_000L)!!)
+        assertFalse(authoritativeEndActionDecision(timing, 6_699_999L)!!)
+        assertTrue(authoritativeEndActionDecision(timing, 6_700_000L)!!)
     }
 
     @Test
@@ -112,12 +112,12 @@ class PlayerPostPlayModelsTest {
             )
         )
 
-        assertFalse(shouldShowCreditRatingPrompt(state, 6_701_999L))
-        assertTrue(shouldShowCreditRatingPrompt(state, 6_702_000L))
+        assertFalse(shouldShowCreditRatingPrompt(state, 6_699_999L))
+        assertTrue(shouldShowCreditRatingPrompt(state, 6_700_000L))
     }
 
     @Test
-    fun `credit rating prompt starts only on final episode of season`() {
+    fun `credit rating prompt starts only on final episode of latest aired season`() {
         val episodes = listOf(episode(season = 1, number = 1), episode(season = 1, number = 2))
         val base = PlayerUiState(
             contentType = "series",
@@ -136,6 +136,60 @@ class PlayerPostPlayModelsTest {
             shouldShowCreditRatingPrompt(
                 base.copy(currentEpisode = 2),
                 2_402_000L
+            )
+        )
+    }
+
+    @Test
+    fun `older season finale is not rating eligible when a later season has aired`() {
+        val episodes = listOf(
+            episode(season = 1, number = 1),
+            episode(season = 1, number = 2),
+            episode(season = 2, number = 1)
+        )
+
+        assertFalse(
+            isRatingPromptEligibleContent(
+                contentType = "series",
+                currentSeason = 1,
+                currentEpisode = 2,
+                episodes = episodes
+            )
+        )
+    }
+
+    @Test
+    fun `future announced season does not block rating current completed season`() {
+        val episodes = listOf(
+            episode(season = 2, number = 1, released = "2026-01-01"),
+            episode(season = 2, number = 2, released = "2026-01-08"),
+            episode(season = 3, number = 1, released = "2099-01-01")
+        )
+
+        assertTrue(
+            isRatingPromptEligibleContent(
+                contentType = "series",
+                currentSeason = 2,
+                currentEpisode = 2,
+                episodes = episodes
+            )
+        )
+    }
+
+    @Test
+    fun `unfinished current season is not rating eligible`() {
+        val episodes = listOf(
+            episode(season = 2, number = 1, released = "2026-01-01"),
+            episode(season = 2, number = 2, released = "2026-01-08"),
+            episode(season = 2, number = 3, released = "2099-01-01")
+        )
+
+        assertFalse(
+            isRatingPromptEligibleContent(
+                contentType = "series",
+                currentSeason = 2,
+                currentEpisode = 2,
+                episodes = episodes
             )
         )
     }
@@ -185,6 +239,68 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
+    fun `manual near end exit overrides late analyzer for ordinary episode`() {
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 1,
+            nextEpisode = NextEpisodeInfo(
+                videoId = "episode-1-2",
+                season = 1,
+                episode = 2,
+                title = "Episode 2",
+                thumbnail = null,
+                overview = null,
+                released = "2026-01-01",
+                hasAired = true,
+                unairedMessage = null
+            ),
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE,
+                finalCreditsStartMs = 96_000L
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 84_999L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 95_000L, 100_000L))
+    }
+
+    @Test
+    fun `ordinary episode near end does not override without a late analyzer timestamp`() {
+        val base = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 1,
+            nextEpisode = NextEpisodeInfo(
+                videoId = "episode-1-2",
+                season = 1,
+                episode = 2,
+                title = "Episode 2",
+                thumbnail = null,
+                overview = null,
+                released = "2026-01-01",
+                hasAired = true,
+                unairedMessage = null
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(base, 95_000L, 100_000L))
+
+        assertFalse(
+            shouldStartManualEndAction(
+                base.copy(
+                    creditTiming = CreditTimingUiState(
+                        status = CreditTimingStatus.COMPLETE,
+                        finalCreditsStartMs = 94_000L
+                    )
+                ),
+                95_000L,
+                100_000L
+            )
+        )
+    }
+
+    @Test
     fun `manual near end exit is limited to final season episode`() {
         val episodes = listOf(episode(season = 1, number = 1), episode(season = 1, number = 2))
         val state = PlayerUiState(
@@ -204,10 +320,14 @@ class PlayerPostPlayModelsTest {
         )
     }
 
-    private fun episode(season: Int, number: Int): Video = Video(
+    private fun episode(
+        season: Int,
+        number: Int,
+        released: String? = null
+    ): Video = Video(
         id = "episode-$season-$number",
         title = "Episode $number",
-        released = null,
+        released = released,
         thumbnail = null,
         season = season,
         episode = number,
