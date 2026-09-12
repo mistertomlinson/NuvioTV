@@ -101,6 +101,8 @@ class MetaDetailsViewModel @Inject constructor(
     private var nextToWatchJob: Job? = null
     private val authoritativeWatchedEpisodes =
         MutableStateFlow<Set<Pair<Int, Int>>>(emptySet())
+    private val optimisticWatchedEpisodeOverrides =
+        MutableStateFlow<Map<Pair<Int, Int>, Boolean>>(emptyMap())
 
     private var trailerDelayMs = 7000L
     private var trailerAutoplayEnabled = false
@@ -353,8 +355,9 @@ class MetaDetailsViewModel @Inject constructor(
                         state.meta?.videos.orEmpty() to
                             state.episodeProgressMap
                     }
-                    .distinctUntilChanged()
-            ) { localWatched, remoteWatched, detailsSnapshot ->
+                    .distinctUntilChanged(),
+                optimisticWatchedEpisodeOverrides
+            ) { localWatched, remoteWatched, detailsSnapshot, optimisticOverrides ->
                 val videos = detailsSnapshot.first
                 val merged = (localWatched + remoteWatched).toMutableSet()
 
@@ -373,6 +376,14 @@ class MetaDetailsViewModel @Inject constructor(
                         )
                     ) {
                         merged += key
+                    }
+                }
+
+                optimisticOverrides.forEach { (key, watched) ->
+                    if (watched) {
+                        merged += key
+                    } else {
+                        merged -= key
                     }
                 }
 
@@ -1597,17 +1608,37 @@ class MetaDetailsViewModel @Inject constructor(
                 it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys + pendingKey)
             }
 
-            val isWatched = _uiState.value.episodeProgressMap[season to episode]?.isCompleted() == true
-                || _uiState.value.watchedEpisodes.contains(season to episode)
+            val coordinates = season to episode
+            val isWatched =
+                _uiState.value.episodeProgressMap[coordinates]?.isCompleted() == true ||
+                    _uiState.value.watchedEpisodes.contains(coordinates)
+            val targetWatched = !isWatched
+
+            // Apply after the local/authoritative union so a stale authoritative
+            // snapshot cannot resurrect a just-unwatched episode.
+            optimisticWatchedEpisodeOverrides.update { current ->
+                current + (coordinates to targetWatched)
+            }
+
             runCatching {
                 if (isWatched) {
-                    watchProgressRepository.removeFromHistory(itemId, videoId = resolveFallbackVideoId(), season = season, episode = episode)
+                    watchProgressRepository.removeFromHistory(
+                        itemId,
+                        videoId = resolveFallbackVideoId(),
+                        season = season,
+                        episode = episode
+                    )
                     showMessage(context.getString(R.string.detail_episode_marked_unwatched))
                 } else {
-                    watchProgressRepository.markAsCompleted(buildCompletedEpisodeProgress(meta, video))
+                    watchProgressRepository.markAsCompleted(
+                        buildCompletedEpisodeProgress(meta, video)
+                    )
                     showMessage(context.getString(R.string.detail_episode_marked_watched))
                 }
             }.onFailure { error ->
+                optimisticWatchedEpisodeOverrides.update { current ->
+                    current - coordinates
+                }
                 showMessage(
                     message = error.message ?: "Failed to update episode watched status",
                     isError = true

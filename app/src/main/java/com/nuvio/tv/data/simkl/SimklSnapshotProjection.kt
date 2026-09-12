@@ -187,7 +187,7 @@ private fun SimklMedia.simklTrackingContentIds(): Set<String> = buildSet {
     ids.simklIdValue()?.let { add("simkl:$it") }
 }
 
-private fun WatchedItem.toSimklCompletedProgress(): WatchProgress = WatchProgress(
+internal fun WatchedItem.toSimklCompletedProgress(): WatchProgress = WatchProgress(
     contentId = contentId,
     contentType = contentType,
     name = title,

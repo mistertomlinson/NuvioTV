@@ -1,7 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.os.SystemClock
-import android.util.Log
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -147,6 +146,42 @@ internal data class CwVideoSummary(
     val overview: String?,
     val available: Boolean? = null
 )
+
+/**
+ * A nullable next-up result is authoritative only when metadata contains the
+ * completed seed episode. Missing, empty, or mismatched metadata is
+ * inconclusive and must be retried.
+ */
+internal fun hasResolvedNextUpSeed(
+    meta: CwMetaSummary?,
+    seedSeason: Int?,
+    seedEpisode: Int?
+): Boolean {
+    if (meta == null || seedSeason == null || seedEpisode == null || seedSeason == 0) {
+        return false
+    }
+    return meta.videos.any { video ->
+        video.season == seedSeason && video.episode == seedEpisode
+    }
+}
+
+private fun HomeViewModel.hasResolvedNextUpSeed(progress: WatchProgress): Boolean {
+    val meta = synchronized(cwMetaCache) {
+        cwMetaCache["${progress.contentType}:${progress.contentId}"]
+            ?: cwMetaCache["series:${progress.contentId}"]
+            ?: cwMetaCache["tv:${progress.contentId}"]
+    }
+    return hasResolvedNextUpSeed(meta, progress.season, progress.episode)
+}
+
+internal fun canReuseCachedNextUpEpisodeFields(
+    cachedSeason: Int?,
+    cachedEpisode: Int?,
+    freshSeason: Int,
+    freshEpisode: Int
+): Boolean {
+    return cachedSeason == freshSeason && cachedEpisode == freshEpisode
+}
 
 private fun Meta.toCwSummary(): CwMetaSummary = CwMetaSummary(
     id = id,
@@ -615,22 +650,44 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 val cachedPartialNextUp = partialNextUpItems.map { nextUp ->
                                     val cached = cachedEnrichmentFromNextUp[nextUp.info.contentId]
                                     if (cached != null) {
+                                        val sameEpisode = canReuseCachedNextUpEpisodeFields(
+                                            cachedSeason = cached.season,
+                                            cachedEpisode = cached.episode,
+                                            freshSeason = nextUp.info.season,
+                                            freshEpisode = nextUp.info.episode
+                                        )
                                         nextUp.copy(info = nextUp.info.copy(
-                                            thumbnail = cached.thumbnail ?: nextUp.info.thumbnail,
+                                            // Show-level presentation may safely come from cache.
                                             backdrop = cached.backdrop ?: nextUp.info.backdrop,
                                             poster = cached.poster ?: nextUp.info.poster,
                                             logo = cached.logo ?: nextUp.info.logo,
                                             name = cached.name.takeIf { it.isNotBlank() } ?: nextUp.info.name,
                                             contentLanguage = cached.contentLanguage ?: nextUp.info.contentLanguage,
-                                            airDateLabel = cached.airDateLabel ?: nextUp.info.airDateLabel,
-                                            hasAired = cached.airDateLabel?.let { nextUp.info.hasAired } ?: nextUp.info.hasAired,
-                                            released = cached.airDateLabel?.let { nextUp.info.released } ?: nextUp.info.released,
-                                            // Preserve cached episode/season during partial updates to prevent
-                                            // brief flash of wrong episode number before full resolution completes
-                                            season = cached.season ?: nextUp.info.season,
-                                            episode = cached.episode ?: nextUp.info.episode,
-                                            episodeTitle = cached.episodeTitle ?: nextUp.info.episodeTitle,
-                                            sortTimestamp = cached.sortTimestamp.takeIf { it > 0L } ?: nextUp.info.sortTimestamp
+                                            // Episode-specific presentation is reusable only for
+                                            // the exact same season and episode.
+                                            thumbnail = if (sameEpisode) {
+                                                cached.thumbnail ?: nextUp.info.thumbnail
+                                            } else {
+                                                nextUp.info.thumbnail
+                                            },
+                                            airDateLabel = if (sameEpisode) {
+                                                cached.airDateLabel ?: nextUp.info.airDateLabel
+                                            } else {
+                                                nextUp.info.airDateLabel
+                                            },
+                                            released = if (sameEpisode) {
+                                                cached.released ?: nextUp.info.released
+                                            } else {
+                                                nextUp.info.released
+                                            },
+                                            season = nextUp.info.season,
+                                            episode = nextUp.info.episode,
+                                            episodeTitle = if (sameEpisode) {
+                                                cached.episodeTitle ?: nextUp.info.episodeTitle
+                                            } else {
+                                                nextUp.info.episodeTitle
+                                            },
+                                            sortTimestamp = nextUp.info.sortTimestamp
                                         ))
                                     } else nextUp
                                 }
@@ -881,9 +938,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                                 }
                                             }
                                         }
-                                    } else {
-                                        // No next-up — mark as validated with smart deadline:
-                                        // use upcoming season date if known, otherwise permanent.
+                                    } else if (hasResolvedNextUpSeed(seed)) {
+                                        // No next-up — validate only when metadata contains
+                                        // the completed seed episode.
                                         val nextSeasonMs = cwBadgeNextSeasonMs[seed.contentId]
                                         val deadline = nextSeasonMs
                                             ?: (System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
@@ -1215,7 +1272,22 @@ private fun HomeViewModel.shouldUseAsCompletedSeed(
     )
 }
 
-private fun shouldTreatAsActiveInProgressForNextUpSuppression(
+internal fun latestCompletedAtByContentForSuppression(
+    allProgress: List<WatchProgress>,
+    nextUpSeeds: List<WatchProgress>,
+    isCompletedSeed: (WatchProgress) -> Boolean
+): Map<String, Long> {
+    return (allProgress.asSequence() + nextUpSeeds.asSequence())
+        .filter { isSeriesTypeCW(it.contentType) }
+        .filter { it.contentId.isNotBlank() }
+        .filter(isCompletedSeed)
+        .groupBy { it.contentId }
+        .mapValues { (_, items) ->
+            items.maxOfOrNull { it.lastWatched } ?: Long.MIN_VALUE
+        }
+}
+
+internal fun shouldTreatAsActiveInProgressForNextUpSuppression(
     progress: WatchProgress,
     latestCompletedAt: Long?
 ): Boolean {
@@ -1224,31 +1296,7 @@ private fun shouldTreatAsActiveInProgressForNextUpSuppression(
     return progress.lastWatched >= latestCompletedAt
 }
 
-private fun logNextUpDecision(message: String) {
-    Unit
-}
-
-private fun shouldTraceNextUpSeries(progress: WatchProgress): Boolean = false
-
-private fun WatchProgress.toNextUpTraceString(): String {
-    return buildString {
-        append(name)
-        append("(")
-        append(contentId)
-        append(") s=")
-        append(season)
-        append(" e=")
-        append(episode)
-        append(" src=")
-        append(source)
-        append(" last=")
-        append(lastWatched)
-        append(" pct=")
-        append(progressPercent)
-        append(" videoId=")
-        append(videoId)
-    }
-}
+private fun logNextUpDecision(message: String) = Unit
 
 private fun nextUpSeedSourceRank(progress: WatchProgress): Int {
     return when (progress.source) {
@@ -1347,15 +1395,11 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
     debug: CwDebugSession? = null,
     onPartialUpdate: suspend (List<ContinueWatchingItem.NextUp>) -> Unit = {}
 ): List<ContinueWatchingItem.NextUp> = coroutineScope {
-    val latestCompletedByContent = allProgress
-        .asSequence()
-        .filter { isSeriesTypeCW(it.contentType) }
-        .filter { it.contentId.isNotBlank() }
-        .filter { shouldUseAsCompletedSeed(it) }
-        .groupBy { it.contentId }
-        .mapValues { (_, items) ->
-            items.maxOfOrNull { it.lastWatched } ?: Long.MIN_VALUE
-        }
+    val latestCompletedByContent = latestCompletedAtByContentForSuppression(
+        allProgress = allProgress,
+        nextUpSeeds = nextUpSeeds,
+        isCompletedSeed = ::shouldUseAsCompletedSeed
+    )
 
     val inProgressIds = inProgressItems
         .map { it.progress }
@@ -1378,24 +1422,7 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
         }
         .groupBy { it.contentId }
         .mapNotNull { (_, items) ->
-            if (items.any(::shouldTraceNextUpSeries)) {
-                val candidates = items
-                    .sortedWith(
-                        compareBy<WatchProgress> { nextUpSeedSourceRank(it) }
-                            .thenByDescending { it.season ?: -1 }
-                            .thenByDescending { it.episode ?: -1 }
-                            .thenByDescending { it.lastWatched }
-                    )
-                    .joinToString(" || ") { it.toNextUpTraceString() }
-                logNextUpDecision("seed-group contentId=${items.first().contentId} candidates=$candidates")
-            }
-            val chosen = choosePreferredNextUpSeed(items)
-            if (chosen != null && shouldTraceNextUpSeries(chosen)) {
-                logNextUpDecision(
-                    "seed-picked ${chosen.toNextUpTraceString()} rank=${nextUpSeedSourceRank(chosen)}"
-                )
-            }
-            chosen
+            choosePreferredNextUpSeed(items)
         }
         .filter { it.contentId !in inProgressIds }
         .filter { progress ->
@@ -1419,11 +1446,6 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
             !fullyWatchedSeriesIds.isSeriesValidationFresh(progress.contentId)
         }
         .take(CW_MAX_NEXT_UP_LOOKUPS)
-
-    logNextUpDecision(
-        "seed candidates=${latestCompletedBySeries.joinToString { "${it.name}(${it.contentId}) s=${it.season} e=${it.episode}" }} " +
-            "suppressedInProgress=${inProgressIds.joinToString()}"
-    )
 
     if (latestCompletedBySeries.isEmpty()) {
         return@coroutineScope emptyList()
@@ -1451,21 +1473,13 @@ private suspend fun HomeViewModel.buildLightweightNextUpItems(
                     showUnairedNextUp = showUnairedNextUp,
                     debug = debug
                 ) ?: run {
-                    /*
-                     * A missing metadata response is inconclusive. Preserve the
-                     * cached card in that case and retry on a later pipeline run.
-                     */
-                    val metaResolved = synchronized(cwMetaCache) {
-                        cwMetaCache["${progress.contentType}:${progress.contentId}"]
-                            ?: cwMetaCache["series:${progress.contentId}"]
-                            ?: cwMetaCache["tv:${progress.contentId}"]
-                    } != null
-                    if (!metaResolved) {
+                    val seedResolved = hasResolvedNextUpSeed(progress)
+                    if (!seedResolved) {
                         processedContentIds.remove(progress.contentId)
                     }
                     logNextUpDecision(
                         "drop contentId=${progress.contentId} name=${progress.name} " +
-                            "reason=buildNextUpItem-null metaResolved=$metaResolved"
+                            "reason=buildNextUpItem-null seedResolved=$seedResolved"
                     )
                     return@withPermit
                 }
@@ -1597,11 +1611,6 @@ private suspend fun HomeViewModel.buildNextUpItem(
     debug: CwDebugSession? = null
 ): ContinueWatchingItem.NextUp? {
     debug?.recordNextUpAttempt(progress)
-    if (shouldTraceNextUpSeries(progress)) {
-        logNextUpDecision(
-            "build-start ${progress.toNextUpTraceString()} showUnaired=$showUnairedNextUp"
-        )
-    }
     val nextUp = findNextUpEpisodeFromMetaSeed(
         progress = progress,
         showUnairedNextUp = showUnairedNextUp,
@@ -1614,6 +1623,11 @@ private suspend fun HomeViewModel.buildNextUpItem(
                 ?: cwMetaCache["series:${progress.contentId}"]
                 ?: cwMetaCache["tv:${progress.contentId}"]
         }
+        val seedResolved = hasResolvedNextUpSeed(
+            cachedMeta,
+            progress.season,
+            progress.episode
+        )
         if (cachedMeta != null) {
             val episodes = cachedMeta.watchableEpisodes()
                 .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
@@ -1628,16 +1642,18 @@ private suspend fun HomeViewModel.buildNextUpItem(
                 cwBadgeNextSeasonMs[progress.contentId] = ms
             }
         }
-        // Mark as validated so this seed is skipped on subsequent launches.
-        // Uses upcoming season date if known, otherwise 7-day default TTL.
-        val nextSeasonMs = cwBadgeNextSeasonMs[progress.contentId]
-        val deadline = nextSeasonMs
-            ?: (System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
-        fullyWatchedSeriesIds.updateWithValidation(
-            fullyWatchedSeriesIds.fullyWatchedSeriesIds.value,
-            setOf(progress.contentId),
-            mapOf(progress.contentId to deadline)
-        )
+        if (seedResolved) {
+            // The seed exists in resolved metadata, so no eligible successor is
+            // authoritative. Missing or mismatched metadata remains retryable.
+            val nextSeasonMs = cwBadgeNextSeasonMs[progress.contentId]
+            val deadline = nextSeasonMs
+                ?: (System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
+            fullyWatchedSeriesIds.updateWithValidation(
+                fullyWatchedSeriesIds.fullyWatchedSeriesIds.value,
+                setOf(progress.contentId),
+                mapOf(progress.contentId to deadline)
+            )
+        }
         return null
     }
     val seedMeta = resolveMetaForProgress(progress, cwMetaCache, debug)
@@ -1868,13 +1884,6 @@ private suspend fun HomeViewModel.enrichNextUpItem(
             ?: countryToLanguageCode(meta.country)
             ?: item.info.contentLanguage
     )
-    if (shouldTraceNextUpSeries(progressSeed)) {
-        logNextUpDecision(
-            "enrich-result contentId=${item.info.contentId} seed=${item.info.seedSeason}x${item.info.seedEpisode} " +
-                "initial=${item.info.season}x${item.info.episode} final=${enrichedInfo.season}x${enrichedInfo.episode} " +
-                "released=${enrichedInfo.released} hasAired=${enrichedInfo.hasAired} title=${enrichedInfo.episodeTitle}"
-        )
-    }
     item.copy(info = enrichedInfo)
 }
 
@@ -1928,8 +1937,8 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
                 "seed=${progress.season}x${progress.episode}"
         )
         synchronized(cwNextUpResolutionCache) {
-            cwNextUpResolutionCache[cacheKey] = null
-            cwNextUpNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
+            cwNextUpResolutionCache.remove(cacheKey)
+            cwNextUpNegativeCacheTimestamps.remove(cacheKey)
         }
         return null
     }
@@ -1943,8 +1952,8 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
         )
         logNextUpDecision("drop contentId=$contentId name=${progress.name} reason=no-meta-for-seed")
         synchronized(cwNextUpResolutionCache) {
-            cwNextUpResolutionCache[cacheKey] = null
-            cwNextUpNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
+            cwNextUpResolutionCache.remove(cacheKey)
+            cwNextUpNegativeCacheTimestamps.remove(cacheKey)
         }
         return null
     }
@@ -1955,17 +1964,17 @@ private suspend fun HomeViewModel.findNextUpEpisodeFromMetaSeed(
             elapsedMs = SystemClock.elapsedRealtime() - startedAtMs,
             resolved = false
         )
+        val seedResolved = hasResolvedNextUpSeed(meta, season, episode)
         synchronized(cwNextUpResolutionCache) {
-            cwNextUpResolutionCache[cacheKey] = null
-            cwNextUpNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
+            if (seedResolved) {
+                cwNextUpResolutionCache[cacheKey] = null
+                cwNextUpNegativeCacheTimestamps[cacheKey] = SystemClock.elapsedRealtime()
+            } else {
+                cwNextUpResolutionCache.remove(cacheKey)
+                cwNextUpNegativeCacheTimestamps.remove(cacheKey)
+            }
         }
         return null
-    }
-    if (shouldTraceNextUpSeries(progress)) {
-        logNextUpDecision(
-            "next-video contentId=$contentId name=${progress.name} seed=${season}x${episode} src=${progress.source} " +
-                "showUnaired=$showUnairedNextUp next=${nextVideo.season}x${nextVideo.episode} released=${nextVideo.released} title=${nextVideo.title}"
-        )
     }
 
     val nextSeason = nextVideo.season ?: return null

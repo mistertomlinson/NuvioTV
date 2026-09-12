@@ -701,16 +701,26 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 episodeNumber = episode
             )
 
-            writer.removeFromHistory(
-                profileId = profileManager.activeProfileId.value,
-                items = listOf(media)
-            )
             provider.applyOptimisticRemoval(
                 contentId = contentId,
                 videoId = videoId,
                 season = season,
                 episode = episode
             )
+            try {
+                writer.removeFromHistory(
+                    profileId = profileManager.activeProfileId.value,
+                    items = listOf(media)
+                )
+            } catch (error: Throwable) {
+                provider.clearOptimisticRemoval(
+                    contentId = contentId,
+                    videoId = videoId,
+                    season = season,
+                    episode = episode
+                )
+                throw error
+            }
         }
 
         watchProgressPreferences.removeProgress(

@@ -41,6 +41,12 @@ interface TrackingProgressProvider {
         season: Int?,
         episode: Int?
     )
+    fun clearOptimisticRemoval(
+        contentId: String,
+        videoId: String?,
+        season: Int?,
+        episode: Int?
+    ) = Unit
     fun clearOptimistic()
     fun retainsLocalProgress(contentId: String): Boolean = false
     fun retainsLocalWatchedEpisode(item: WatchedItem): Boolean = false

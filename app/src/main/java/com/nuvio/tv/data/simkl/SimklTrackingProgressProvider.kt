@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.simkl
 
 import com.nuvio.tv.core.tracking.TrackingProgressProvider
+import com.nuvio.tv.core.tracking.selectPreferredTrackingNextUpSeeds
 import com.nuvio.tv.core.tracking.TrackingProviderId
 import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -29,6 +30,10 @@ class SimklTrackingProgressProvider @Inject constructor(
     override val providerId = TrackingProviderId.SIMKL
     private val optimisticMovieWatchedOverrides =
         MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    private val optimisticEpisodeWatchedOverrides =
+        MutableStateFlow<Map<SimklOptimisticEpisodeKey, SimklOptimisticEpisodeOverride>>(
+            emptyMap()
+        )
     override val isAuthenticated = authStorage.state.map { state -> state.isAuthenticated }
         .distinctUntilChanged()
     override val allProgress = combine(
@@ -59,10 +64,24 @@ class SimklTrackingProgressProvider @Inject constructor(
     override val nextUpSeeds = combine(
         syncRepository.projection,
         layoutPreferences.nextUpFromFurthestEpisode,
-        progressDismissalStore.dismissedAtByKey
-    ) { projection, preferFurthestEpisode, dismissedAtByKey ->
+        progressDismissalStore.dismissedAtByKey,
+        optimisticEpisodeWatchedOverrides
+    ) { projection, preferFurthestEpisode, dismissedAtByKey, episodeOverrides ->
         filterSimklDismissedProgress(
-            entries = projection.nextUp(preferFurthestEpisode),
+            entries = buildSimklNextUpWithEpisodeOverrides(
+                remoteEntries = projection.watched.items
+                    .asSequence()
+                    .filter { item ->
+                        item.season != null &&
+                            item.episode != null &&
+                            item.season != 0 &&
+                            !projection.isHidden(item.contentId)
+                    }
+                    .map { item -> item.toSimklCompletedProgress() }
+                    .toList(),
+                overrides = episodeOverrides.values,
+                preferFurthestEpisode = preferFurthestEpisode
+            ),
             dismissedAtByKey = dismissedAtByKey
         )
     }.distinctUntilChanged()
@@ -85,9 +104,10 @@ class SimklTrackingProgressProvider @Inject constructor(
     ): Flow<Map<Pair<Int, Int>, WatchProgress>> = combine(
         syncRepository.projection,
         durableProgressStore.episodeProgress(contentId),
-        progressDismissalStore.dismissedAtByKey
-    ) { projection, durableEntries, dismissedAtByKey ->
-        mergeSimklEpisodeProgressWithDurable(
+        progressDismissalStore.dismissedAtByKey,
+        optimisticEpisodeWatchedOverrides
+    ) { projection, durableEntries, dismissedAtByKey, episodeOverrides ->
+        val resolved = mergeSimklEpisodeProgressWithDurable(
             remoteEntries = projection.episodeProgress(contentId),
             durableEntries = durableEntries,
             isWatched = { progress ->
@@ -104,6 +124,12 @@ class SimklTrackingProgressProvider @Inject constructor(
                 dismissedAtByKey = dismissedAtByKey
             )
         }
+
+        applySimklEpisodeOverridesToProgress(
+            contentId = contentId,
+            remoteEntries = resolved,
+            overrides = episodeOverrides.values
+        )
     }.onStart { syncRepository.refresh(TrackingRefreshIntent.AUTOMATIC) }
         .distinctUntilChanged()
 
@@ -114,14 +140,31 @@ class SimklTrackingProgressProvider @Inject constructor(
         videoId: String?,
         season: Int?,
         episode: Int?
-    ): Flow<Boolean> = syncRepository.projection.map { projection ->
-        projection.isWatched(contentId, videoId, season, episode)
+    ): Flow<Boolean> = combine(
+        syncRepository.projection,
+        optimisticEpisodeWatchedOverrides
+    ) { projection, episodeOverrides ->
+        if (season != null && episode != null) {
+            episodeOverrides[
+                simklOptimisticEpisodeKey(contentId, season, episode)
+            ]?.watched ?: projection.isWatched(
+                contentId,
+                videoId,
+                season,
+                episode
+            )
+        } else {
+            projection.isWatched(contentId, videoId, season, episode)
+        }
     }.onStart { syncRepository.refresh(TrackingRefreshIntent.AUTOMATIC) }
         .distinctUntilChanged()
 
     override suspend fun watchedShowEpisodes(): Map<String, Set<Pair<Int, Int>>> {
         syncRepository.refresh(TrackingRefreshIntent.AUTOMATIC)
-        return syncRepository.projection.value.watchedShowEpisodes
+        return applySimklEpisodeOverridesToWatchedEpisodes(
+            remoteEntries = syncRepository.projection.value.watchedShowEpisodes,
+            overrides = optimisticEpisodeWatchedOverrides.value.values
+        )
     }
 
     override suspend fun showIdSiblings(): Map<String, Set<String>> {
@@ -134,12 +177,9 @@ class SimklTrackingProgressProvider @Inject constructor(
 
     override suspend fun persistDurableProgress(progress: WatchProgress) {
         if (progress.isCompleted()) {
-            progressDismissalStore.dismiss(
-                contentId = progress.contentId,
-                season = progress.season,
-                episode = progress.episode,
-                dismissedAtEpochMs = progress.lastWatched
-            )
+            // Completion removes the stale playback record, but must not dismiss
+            // the completed episode as a Next Up seed. Doing both suppresses the
+            // successor until a later Simkl refresh returns a newer timestamp.
             durableProgressStore.removeProgress(
                 contentId = progress.contentId,
                 season = progress.season,
@@ -203,13 +243,29 @@ class SimklTrackingProgressProvider @Inject constructor(
     }
 
     override fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean) {
-        if (
-            progress.season != null ||
-            progress.episode != null ||
-            !progress.isCompleted()
-        ) {
+        if (!progress.isCompleted()) return
+
+        val season = progress.season
+        val episode = progress.episode
+        if (season != null && episode != null) {
+            val key = simklOptimisticEpisodeKey(
+                progress.contentId,
+                season,
+                episode
+            )
+            optimisticEpisodeWatchedOverrides.update { current ->
+                current + (
+                    key to SimklOptimisticEpisodeOverride(
+                        key = key,
+                        watched = true,
+                        progress = progress,
+                        updatedAtEpochMs = System.currentTimeMillis()
+                    )
+                )
+            }
             return
         }
+
         val watchedIds = optimisticSimklMovieIds(progress.contentId, progress.videoId)
         optimisticMovieWatchedOverrides.update { current ->
             current + watchedIds.associateWith { true }
@@ -222,6 +278,21 @@ class SimklTrackingProgressProvider @Inject constructor(
         season: Int?,
         episode: Int?
     ) {
+        if (season != null && episode != null) {
+            val key = simklOptimisticEpisodeKey(contentId, season, episode)
+            optimisticEpisodeWatchedOverrides.update { current ->
+                current + (
+                    key to SimklOptimisticEpisodeOverride(
+                        key = key,
+                        watched = false,
+                        progress = null,
+                        updatedAtEpochMs = System.currentTimeMillis()
+                    )
+                )
+            }
+            return
+        }
+
         if (season != null || episode != null) return
         val watchedIds = optimisticSimklMovieIds(contentId, videoId)
         optimisticMovieWatchedOverrides.update { current ->
@@ -229,8 +300,29 @@ class SimklTrackingProgressProvider @Inject constructor(
         }
     }
 
+    override fun clearOptimisticRemoval(
+        contentId: String,
+        videoId: String?,
+        season: Int?,
+        episode: Int?
+    ) {
+        if (season != null && episode != null) {
+            val key = simklOptimisticEpisodeKey(contentId, season, episode)
+            optimisticEpisodeWatchedOverrides.update { current ->
+                current - key
+            }
+            return
+        }
+
+        val watchedIds = optimisticSimklMovieIds(contentId, videoId)
+        optimisticMovieWatchedOverrides.update { current ->
+            current - watchedIds
+        }
+    }
+
     override fun clearOptimistic() {
         optimisticMovieWatchedOverrides.value = emptyMap()
+        optimisticEpisodeWatchedOverrides.value = emptyMap()
     }
 
     override fun isHiddenFromProgress(contentId: String): Boolean =
@@ -240,6 +332,138 @@ class SimklTrackingProgressProvider @Inject constructor(
         syncRepository.projection.value.isWatchedByVideoId(videoId, episode)
 
     override suspend fun prepareNextUpSeed(progress: WatchProgress): WatchProgress = progress
+}
+
+internal data class SimklOptimisticEpisodeKey(
+    val contentId: String,
+    val season: Int,
+    val episode: Int
+)
+
+internal data class SimklOptimisticEpisodeOverride(
+    val key: SimklOptimisticEpisodeKey,
+    val watched: Boolean,
+    val progress: WatchProgress?,
+    val updatedAtEpochMs: Long
+)
+
+internal fun simklOptimisticEpisodeKey(
+    contentId: String,
+    season: Int,
+    episode: Int
+): SimklOptimisticEpisodeKey = SimklOptimisticEpisodeKey(
+    contentId = contentId.trim().lowercase(),
+    season = season,
+    episode = episode
+)
+
+internal fun buildSimklNextUpWithEpisodeOverrides(
+    remoteEntries: List<WatchProgress>,
+    overrides: Collection<SimklOptimisticEpisodeOverride>,
+    preferFurthestEpisode: Boolean
+): List<WatchProgress> {
+    val merged = linkedMapOf<SimklOptimisticEpisodeKey, WatchProgress>()
+
+    remoteEntries.forEach { progress ->
+            val season = progress.season ?: return@forEach
+            val episode = progress.episode ?: return@forEach
+            merged[
+                simklOptimisticEpisodeKey(
+                    progress.contentId,
+                    season,
+                    episode
+                )
+            ] = progress
+        }
+
+    overrides.sortedBy(SimklOptimisticEpisodeOverride::updatedAtEpochMs)
+        .forEach { override ->
+            if (override.watched) {
+                override.progress?.let { progress ->
+                    merged[override.key] = progress
+                }
+            } else {
+                merged.remove(override.key)
+            }
+        }
+
+    val selected = selectPreferredTrackingNextUpSeeds(
+        merged.values.toList(),
+        preferFurthestEpisode
+    )
+
+    // An explicit unwatch is a recent interaction. Give the promoted fallback
+    // seed the mutation time so Home's Continue Watching age cap retains it.
+    val latestMutationByContent = overrides
+        .groupBy { override -> override.key.contentId }
+        .mapValues { (_, values) ->
+            values.maxOf(SimklOptimisticEpisodeOverride::updatedAtEpochMs)
+        }
+
+    return selected.map { progress ->
+        val mutationAt = latestMutationByContent[
+            progress.contentId.trim().lowercase()
+        ]
+        if (mutationAt != null && mutationAt > progress.lastWatched) {
+            progress.copy(lastWatched = mutationAt)
+        } else {
+            progress
+        }
+    }
+}
+
+internal fun applySimklEpisodeOverridesToProgress(
+    contentId: String,
+    remoteEntries: Map<Pair<Int, Int>, WatchProgress>,
+    overrides: Collection<SimklOptimisticEpisodeOverride>
+): Map<Pair<Int, Int>, WatchProgress> {
+    val normalizedContentId = contentId.trim().lowercase()
+    return remoteEntries.toMutableMap().apply {
+        overrides
+            .filter { override ->
+                override.key.contentId == normalizedContentId
+            }
+            .sortedBy(SimklOptimisticEpisodeOverride::updatedAtEpochMs)
+            .forEach { override ->
+                val coordinates = override.key.season to override.key.episode
+                if (override.watched) {
+                    override.progress?.let { progress ->
+                        this[coordinates] = progress
+                    }
+                } else {
+                    remove(coordinates)
+                }
+            }
+    }
+}
+
+internal fun applySimklEpisodeOverridesToWatchedEpisodes(
+    remoteEntries: Map<String, Set<Pair<Int, Int>>>,
+    overrides: Collection<SimklOptimisticEpisodeOverride>
+): Map<String, Set<Pair<Int, Int>>> {
+    val merged = remoteEntries
+        .mapValues { (_, episodes) -> episodes.toMutableSet() }
+        .toMutableMap()
+
+    overrides.sortedBy(SimklOptimisticEpisodeOverride::updatedAtEpochMs)
+        .forEach { override ->
+            val existingKey = merged.keys.firstOrNull { contentId ->
+                contentId.equals(override.key.contentId, ignoreCase = true)
+            }
+            val contentKey = existingKey
+                ?: override.progress?.contentId
+                ?: override.key.contentId
+            val episodes = merged.getOrPut(contentKey) { linkedSetOf() }
+            val coordinates = override.key.season to override.key.episode
+            if (override.watched) {
+                episodes.add(coordinates)
+            } else {
+                episodes.remove(coordinates)
+            }
+            if (episodes.isEmpty()) merged.remove(contentKey)
+        }
+
+    return merged.mapValues { (_, episodes) -> episodes.toSet() }
 }
 
 internal fun applySimklWatchedMovieOverrides(
