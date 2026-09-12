@@ -57,6 +57,8 @@ import com.nuvio.tv.ui.components.ErrorState
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.components.PulsingLogoIndicator
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
+import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
@@ -196,8 +198,11 @@ fun HomeScreen(
     val homePopupHazeState = remember { HazeState() }
     val homePopupBlurEnabled =
         android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+    var continueWatchingPopupVisible by remember { mutableStateOf(false) }
     val homePopupVisible =
-        posterOptionsTarget != null || uiState.showWatchedRatingOverlay
+        posterOptionsTarget != null ||
+            uiState.showWatchedRatingOverlay ||
+            continueWatchingPopupVisible
     val homeContentFocusRequester = LocalContentFocusRequester.current
     var homePopupWasVisible by remember { mutableStateOf(false) }
 
@@ -225,12 +230,21 @@ fun HomeScreen(
         )
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .then(
-                if (homePopupBlurEnabled && homePopupVisible) {
-                    Modifier.haze(homePopupHazeState)
+    CompositionLocalProvider(
+        LocalHomePopupGlassEnvironment provides HomePopupGlassEnvironment(
+            hazeState = homePopupHazeState,
+            blurEnabled = homePopupBlurEnabled,
+            onPopupVisibilityChanged = { visible ->
+                continueWatchingPopupVisible = visible
+            }
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (homePopupBlurEnabled && homePopupVisible) {
+                        Modifier.haze(homePopupHazeState)
                 } else {
                     Modifier
                 }
@@ -611,6 +625,7 @@ fun HomeScreen(
                 }
                 }
             }
+        }
         }
     }
 

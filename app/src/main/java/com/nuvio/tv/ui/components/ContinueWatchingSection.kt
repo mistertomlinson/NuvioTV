@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.components
 
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.drawWithCache
@@ -17,17 +20,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
@@ -65,6 +71,8 @@ import java.util.concurrent.TimeUnit
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import com.nuvio.tv.ui.util.computeAirDateBadgeText
 import com.nuvio.tv.domain.model.CardDepthSurface
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
 
 internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -74,6 +82,26 @@ private val CwClipShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
 private val BadgeShape = RoundedCornerShape(4.dp)
 private val CwNewEpisodeBadgeColor = Color(0xFF1D4ED8)
 private val CwNewSeasonBadgeColor = Color(0xFFB45309)
+
+private val CwDialogGlassRowColor = Color.White.copy(alpha = 0.065f)
+private val CwDialogGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
+private val CwDialogGlassBrush = Brush.verticalGradient(
+    colors = listOf(
+        Color(0xAD2A3038),
+        Color(0x9E20252C),
+        Color(0xA824292F)
+    )
+)
+private val CwDialogGlassBorderColor = Color.White.copy(alpha = 0.09f)
+
+internal data class HomePopupGlassEnvironment(
+    val hazeState: HazeState? = null,
+    val blurEnabled: Boolean = false,
+    val onPopupVisibilityChanged: (Boolean) -> Unit = {}
+)
+
+internal val LocalHomePopupGlassEnvironment =
+    staticCompositionLocalOf { HomePopupGlassEnvironment() }
 
 @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
@@ -518,65 +546,179 @@ fun ContinueWatchingOptionsDialog(
         is ContinueWatchingItem.NextUp -> item.info.name
     }
 
+    val glassEnvironment = LocalHomePopupGlassEnvironment.current
     val detailsFocusRequester = remember { FocusRequester() }
+    var suppressNextKeyUp by remember { mutableStateOf(true) }
+    val appearanceProgress = remember { Animatable(0f) }
 
-    LaunchedEffect(Unit) {
-        detailsFocusRequester.requestFocus()
+    DisposableEffect(Unit) {
+        glassEnvironment.onPopupVisibilityChanged(true)
+        onDispose {
+            glassEnvironment.onPopupVisibilityChanged(false)
+        }
     }
 
-    NuvioDialog(
-        onDismiss = onDismiss,
-        title = title,
-        subtitle = stringResource(R.string.cw_dialog_subtitle)
-    ) {
-        Button(
-            onClick = onDetails,
-            modifier = Modifier
-                .fillMaxWidth()
-                .focusRequester(detailsFocusRequester),
-            colors = ButtonDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                contentColor = NuvioColors.TextPrimary
+    LaunchedEffect(Unit) {
+        runCatching { detailsFocusRequester.requestFocus() }
+        appearanceProgress.animateTo(
+            targetValue = 1f,
+            animationSpec = tween(
+                durationMillis = 220,
+                easing = FastOutSlowInEasing
             )
+        )
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
-            Text(stringResource(R.string.cw_action_go_to_details))
-        }
+            val panelShape = RoundedCornerShape(24.dp)
+            val hazeState = glassEnvironment.hazeState
+            val blurModifier =
+                if (glassEnvironment.blurEnabled && hazeState != null) {
+                    Modifier.hazeChild(
+                        state = hazeState,
+                        shape = panelShape,
+                        tint = Color.Unspecified,
+                        blurRadius = (1f + (29f * appearanceProgress.value)).dp,
+                        noiseFactor = 0.025f * appearanceProgress.value
+                    )
+                } else {
+                    Modifier
+                }
 
-        if (showPlayManually) {
-            Button(
-                onClick = onPlayManually,
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
-                    contentColor = NuvioColors.TextPrimary
-                ),
-                modifier = Modifier.fillMaxWidth()
+            Box(
+                modifier = Modifier
+                    .width(520.dp)
+                    .graphicsLayer {
+                        alpha = appearanceProgress.value
+                        val animatedScale =
+                            0.96f + (0.04f * appearanceProgress.value)
+                        scaleX = animatedScale
+                        scaleY = animatedScale
+                    }
+                    .then(blurModifier)
+                    .clip(panelShape)
+                    .background(CwDialogGlassBrush, panelShape)
+                    .border(1.dp, CwDialogGlassBorderColor, panelShape)
+                    .padding(24.dp)
+                    .onPreviewKeyEvent { event ->
+                        val native = event.nativeKeyEvent
+                        if (
+                            suppressNextKeyUp &&
+                            native.action == AndroidKeyEvent.ACTION_UP &&
+                            (
+                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                                    native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
+                                    native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                    native.keyCode == AndroidKeyEvent.KEYCODE_MENU
+                                )
+                        ) {
+                            suppressNextKeyUp = false
+                            true
+                        } else {
+                            false
+                        }
+                    }
             ) {
-                Text(stringResource(R.string.play_manually))
-            }
-        }
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleLarge,
+                        color = NuvioColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
 
-        if (item is ContinueWatchingItem.InProgress) {
-            Button(
-                onClick = onStartFromBeginning,
-                colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
-                    contentColor = NuvioColors.TextPrimary
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(stringResource(R.string.cw_action_start_from_beginning))
-            }
-        }
+                    Text(
+                        text = stringResource(R.string.cw_dialog_subtitle),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuvioColors.TextSecondary
+                    )
 
-        Button(
-            onClick = onRemove,
-            colors = ButtonDefaults.colors(
-                containerColor = NuvioColors.BackgroundCard,
-                contentColor = NuvioColors.TextPrimary
-            ),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(stringResource(R.string.cw_action_remove))
+                    Button(
+                        onClick = onDetails,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(detailsFocusRequester),
+                        colors = ButtonDefaults.colors(
+                            containerColor = CwDialogGlassRowColor,
+                            focusedContainerColor = CwDialogGlassRowFocusedColor,
+                            contentColor = NuvioColors.TextPrimary,
+                            focusedContentColor = Color.White
+                        ),
+                        scale = ButtonDefaults.scale(
+                            focusedScale = 1.018f,
+                            pressedScale = 0.99f
+                        )
+                    ) {
+                        Text(stringResource(R.string.cw_action_go_to_details))
+                    }
+
+                    if (showPlayManually) {
+                        Button(
+                            onClick = onPlayManually,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.colors(
+                                containerColor = CwDialogGlassRowColor,
+                                focusedContainerColor = CwDialogGlassRowFocusedColor,
+                                contentColor = NuvioColors.TextPrimary,
+                                focusedContentColor = Color.White
+                            ),
+                            scale = ButtonDefaults.scale(
+                                focusedScale = 1.018f,
+                                pressedScale = 0.99f
+                            )
+                        ) {
+                            Text(stringResource(R.string.play_manually))
+                        }
+                    }
+
+                    if (item is ContinueWatchingItem.InProgress) {
+                        Button(
+                            onClick = onStartFromBeginning,
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.colors(
+                                containerColor = CwDialogGlassRowColor,
+                                focusedContainerColor = CwDialogGlassRowFocusedColor,
+                                contentColor = NuvioColors.TextPrimary,
+                                focusedContentColor = Color.White
+                            ),
+                            scale = ButtonDefaults.scale(
+                                focusedScale = 1.018f,
+                                pressedScale = 0.99f
+                            )
+                        ) {
+                            Text(
+                                stringResource(
+                                    R.string.cw_action_start_from_beginning
+                                )
+                            )
+                        }
+                    }
+
+                    Button(
+                        onClick = onRemove,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.colors(
+                            containerColor = CwDialogGlassRowColor,
+                            focusedContainerColor = CwDialogGlassRowFocusedColor,
+                            contentColor = NuvioColors.TextPrimary,
+                            focusedContentColor = Color.White
+                        ),
+                        scale = ButtonDefaults.scale(
+                            focusedScale = 1.018f,
+                            pressedScale = 0.99f
+                        )
+                    ) {
+                        Text(stringResource(R.string.cw_action_remove))
+                    }
+                }
+            }
         }
     }
 }
