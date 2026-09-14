@@ -107,82 +107,44 @@ internal fun ModernHeroMediaLayer(
     requestHeightPx: Int,
     parallaxOffsetX: Float = 0f,
     cinematicMode: Boolean = false,
-    backdropCrossfadeDuration: Int = 350,
-    cinematicScale: Float = 1.1f,
-    onBackdropFrameReady: (String?) -> Unit = {}
+    backdropCrossfadeDuration: Int = 400,
+    cinematicScale: Float = 1.1f
 ) {
     val localContext = LocalContext.current
-    val imageLoader = remember(localContext) { coil.Coil.imageLoader(localContext) }
-    val latestOnBackdropFrameReady =
-        androidx.compose.runtime.rememberUpdatedState(onBackdropFrameReady)
 
-    suspend fun reportBackdropFrameReadyAfterCommit(backdrop: String?) {
-        /*
-         * displayedFrame invalidates composition before this callback. Crossing
-         * two frame boundaries guarantees the new frame has had a complete draw
-         * opportunity before its covering trailer begins fading away.
-         */
-        androidx.compose.runtime.withFrameNanos { }
-        androidx.compose.runtime.withFrameNanos { }
-        latestOnBackdropFrameReady.value(backdrop)
-    }
-
-    // Pair URL, scale, and crop alignment so Crossfade captures them atomically.
-    // The outgoing image keeps its original presentation for the full crossfade.
+    /*
+     * Match official beta semantics:
+     *
+     * changing focus changes Crossfade's TARGET immediately. Do not wait for
+     * Coil to preload Backdrop B before releasing Backdrop A.
+     *
+     * The outgoing frame may survive briefly inside Crossfade, but the whole
+     * backdrop layer is still near-zero opacity while Trailer A is exiting.
+     * That produces the characteristic black handoff with, at most, a tiny
+     * flash of A.
+     */
     data class BackdropFrame(
         val url: String?,
         val scale: Float,
         val isPosterFallback: Boolean
     )
-    var displayedFrame by remember {
-        mutableStateOf(
-            BackdropFrame(
-                heroBackdrop,
-                cinematicScale,
-                heroBackdropIsPosterFallback
-            )
-        )
-    }
 
-    // URL loading: re-run when either URL or its fallback identity changes.
-    // Scale/alignment are captured when the URL is ready.
-    LaunchedEffect(heroBackdrop, heroBackdropIsPosterFallback) {
-        val target = heroBackdrop
-        val scale = cinematicScale
-        val isPosterFallback = heroBackdropIsPosterFallback
-        if (target == null) {
-            displayedFrame = BackdropFrame(null, scale, isPosterFallback)
-            reportBackdropFrameReadyAfterCommit(null)
-            return@LaunchedEffect
+    val targetBackdropFrame =
+        remember(
+            heroBackdrop,
+            cinematicScale,
+            heroBackdropIsPosterFallback
+        ) {
+            BackdropFrame(
+                url = heroBackdrop,
+                scale = cinematicScale,
+                isPosterFallback = heroBackdropIsPosterFallback
+            )
         }
-        // If already memory-cached, flip immediately — no visible delay.
-        val cacheKey = coil.memory.MemoryCache.Key(target)
-        if (imageLoader.memoryCache?.get(cacheKey) != null) {
-            displayedFrame =
-                BackdropFrame(target, scale, isPosterFallback)
-            reportBackdropFrameReadyAfterCommit(target)
-            return@LaunchedEffect
-        }
-        // Pre-load into memory cache, then flip.  2 s timeout so a slow
-        // network still eventually shows the image rather than being stuck.
-        val preload = ImageRequest.Builder(localContext)
-            .data(target)
-            .size(width = requestWidthPx, height = requestHeightPx)
-            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-            .build()
-        kotlinx.coroutines.withTimeoutOrNull(2_000L) {
-            imageLoader.execute(preload)
-        }
-        // Whether it succeeded or timed out, show it now — at worst we get
-        // the old snap behaviour on a very slow connection, never a hang.
-        displayedFrame =
-            BackdropFrame(target, scale, isPosterFallback)
-        reportBackdropFrameReadyAfterCommit(target)
-    }
 
     Box(modifier = modifier.clipToBounds()) {
         Crossfade(
-            targetState = displayedFrame,
+            targetState = targetBackdropFrame,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = heroBackdropAlpha },
@@ -337,14 +299,51 @@ internal fun ModernHeroGradientLayer(
             0.99f to bgColor.copy(alpha = 0.92f),
             1.0f to bgColor
         ) else null
-        val defaultAlpha = if (allowLetterboxing) 1f - trailerTransitionProgress else 1f
-        val lbAlpha = if (allowLetterboxing) trailerTransitionProgress else 0f
+        /*
+         * Keep the incoming gradient fully available before fading away the
+         * outgoing gradient.
+         *
+         * Trailer start:
+         * - trailer gradient is immediately full-strength
+         * - backdrop gradient smoothly leaves during the first ~35% of the
+         *   media transition
+         *
+         * Trailer exit:
+         * - backdrop gradient is immediately full-strength
+         * - trailer gradient smoothly leaves during the last ~35% of the
+         *   returning media transition
+         *
+         * This prevents both the uncovered bright frame and the long period
+         * where two full-strength gradients stack and make the left edge dark.
+         */
+        val defaultAlpha =
+            if (!allowLetterboxing || !shouldPlayHeroTrailer) {
+                1f
+            } else {
+                val t =
+                    (trailerTransitionProgress / 0.35f)
+                        .coerceIn(0f, 1f)
+                val eased = t * t * (3f - 2f * t)
+                1f - eased
+            }
+
+        val lbAlpha =
+            if (!allowLetterboxing) {
+                0f
+            } else if (shouldPlayHeroTrailer) {
+                1f
+            } else {
+                val t =
+                    ((trailerTransitionProgress - 0.65f) / 0.35f)
+                        .coerceIn(0f, 1f)
+                t * t * (3f - 2f * t)
+            }
 
         // Default gradient — fades out as trailer fades in
         if (defaultAlpha > 0f) {
             val horizontalGradient = Brush.horizontalGradient(
                 colorStops = arrayOf(
-                    0.0f  to bgColor,
+                    0.0f  to bgColor.copy(alpha = defaultAlpha),
                     0.10f to bgColor.copy(alpha = 0.97f * defaultAlpha),
                     0.22f to bgColor.copy(alpha = 0.88f * defaultAlpha),
                     0.36f to bgColor.copy(alpha = 0.76f * defaultAlpha),
@@ -357,11 +356,24 @@ internal fun ModernHeroGradientLayer(
                 startX = horizontalGradientStartX,
                 endX = horizontalFadeEndX
             )
-            if (cinematicMode) drawRect(color = bgColor.copy(alpha = 0.18f), size = size)
+            if (cinematicMode) {
+                drawRect(
+                    color = bgColor.copy(alpha = 0.18f * defaultAlpha),
+                    size = size
+                )
+            }
             drawRect(color = bgColor.copy(alpha = defaultAlpha), size = Size(leftBlendSolidWidth, size.height))
             drawRect(brush = horizontalGradient, size = size)
-            drawRect(brush = topContourGradient, size = size)
-            drawRect(brush = bottomContourGradient, size = size)
+            drawRect(
+                brush = topContourGradient,
+                alpha = defaultAlpha,
+                size = size
+            )
+            drawRect(
+                brush = bottomContourGradient,
+                alpha = defaultAlpha,
+                size = size
+            )
         }
 
         // Letterboxing gradient — fades in as trailer fades in
@@ -442,6 +454,7 @@ internal fun ModernHeroGradientLayer(
             verticalGradient?.let {
                 drawRect(
                     brush = it,
+                    alpha = defaultAlpha,
                     size = size
                 )
             }

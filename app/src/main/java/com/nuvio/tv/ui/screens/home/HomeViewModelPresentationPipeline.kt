@@ -283,6 +283,24 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
         }
     }
 
+    /*
+     * A repeated request for the SAME title while its resolution is already
+     * in flight must be a no-op.
+     *
+     * Do this before advancing trailerPreviewRequestVersion. Otherwise the
+     * duplicate request invalidates the existing job, then returns below
+     * because trailerPreviewLoadingIds already contains this item. The
+     * original job can successfully resolve a source but will discard it as
+     * stale, leaving Home without a trailer URL until another screen warms
+     * TrailerService's shared cache.
+     */
+    if (
+        activeTrailerPreviewItemId == itemId &&
+        trailerPreviewLoadingIds.contains(itemId)
+    ) {
+        return
+    }
+
     val previousActiveItemId = activeTrailerPreviewItemId
     activeTrailerPreviewItemId = itemId
 

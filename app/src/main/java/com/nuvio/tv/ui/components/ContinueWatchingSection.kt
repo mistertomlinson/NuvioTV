@@ -103,6 +103,17 @@ internal data class HomePopupGlassEnvironment(
     val onPopupVisibilityChanged: (Boolean) -> Unit = {},
     val catalogOptionsVisible: Boolean = false,
     val preserveCatalogTrailerPlayback: Boolean = false,
+
+    /*
+     * True only while a just-dismissed Home catalog popup is returning
+     * focus to the poster that opened it.
+     *
+     * Expanded-card trailers use this tiny handoff window to avoid being
+     * torn down by the row's temporary isScrollInProgress state near the
+     * right edge of a LazyRow.
+     */
+    val catalogOptionsFocusRestoreActive: Boolean = false,
+
     val onCatalogOptionsOpening: (preserveTrailerPlayback: Boolean) -> Unit = {}
 )
 
@@ -265,7 +276,8 @@ fun ContinueWatchingCard(
     onLongPress: () -> Unit,
     modifier: Modifier = Modifier,
     cardWidth: Dp = 288.dp,
-    imageHeight: Dp = 162.dp
+    imageHeight: Dp = 162.dp,
+    retainFocusOutline: Boolean = false
 ) {
     var longPressTriggered by remember { mutableStateOf(false) }
 
@@ -368,6 +380,15 @@ fun ContinueWatchingCard(
     }
 
     val bgColor = NuvioColors.Background
+    val cwFocusRingColor = NuvioColors.FocusRing
+
+    val cwFocusedBorder = remember(cwFocusRingColor) {
+        Border(
+            border = BorderStroke(2.dp, cwFocusRingColor),
+            shape = CwCardShape
+        )
+    }
+
     val badgeBackground = remember(bgColor, nextUp?.isReleaseAlert, nextUp?.isNewSeasonRelease) {
         when {
             nextUp?.isNewSeasonRelease == true -> CwNewSeasonBadgeColor
@@ -413,10 +434,13 @@ fun ContinueWatchingCard(
             focusedContainerColor = NuvioColors.FocusBackground
         ),
         border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = CwCardShape
-            )
+            border =
+                if (retainFocusOutline) {
+                    cwFocusedBorder
+                } else {
+                    Border.None
+                },
+            focusedBorder = cwFocusedBorder
         ),
         scale = CardDefaults.scale(focusedScale = 1f)
     ) {

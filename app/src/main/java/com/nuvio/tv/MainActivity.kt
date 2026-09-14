@@ -165,6 +165,12 @@ val LocalHomeHeroTrailerPlaying =
         androidx.compose.runtime.mutableStateOf(false)
     }
 val LocalPreserveSidebarTrailerPlayback = compositionLocalOf { false }
+
+/*
+ * Visual-only Home focus retention while the LEGACY sidebar is handing
+ * actual focus back to the exact poster/CW card.
+ */
+val LocalSidebarFocusRestoreActive = compositionLocalOf { false }
 val LocalRowFocusRestorer = compositionLocalOf<androidx.compose.runtime.MutableState<FocusRequester>> { androidx.compose.runtime.mutableStateOf(FocusRequester.Default) }
 val LocalSettingsBackdropBitmap = compositionLocalOf<Bitmap?> { null }
 
@@ -1246,6 +1252,11 @@ private fun LegacySidebarScaffold(
                 LocalHomeHeroTrailerPlaying provides homeHeroTrailerPlaying,
                 LocalPreserveSidebarTrailerPlayback provides
                     preserveSidebarTrailerPlayback,
+                LocalSidebarFocusRestoreActive provides
+                    (
+                        legacyDrawerVisible ||
+                            pendingContentFocusTransfer
+                    ),
                 LocalRowFocusRestorer provides rowFocusRestorer,
                 LocalSettingsBackdropBitmap provides settingsBackdropBitmap
             ) {

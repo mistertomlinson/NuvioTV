@@ -201,19 +201,94 @@ fun HomeScreen(
         android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
     var continueWatchingPopupVisible by remember { mutableStateOf(false) }
     var preserveCatalogTrailerPlayback by remember { mutableStateOf(false) }
+
+    /*
+     * Mark Watched is asynchronous. The options Dialog disappears before the
+     * ViewModel may publish showWatchedRatingOverlay=true.
+     *
+     * Keep that interval inside the SAME popup session so an already-playing
+     * expanded-card trailer is not collapsed between the two Dialogs.
+     */
+    var watchedRatingHandoffStatusKey by remember {
+        mutableStateOf<String?>(null)
+    }
+    var watchedRatingHandoffObservedPending by remember {
+        mutableStateOf(false)
+    }
+
+    val watchedRatingHandoffActive =
+        watchedRatingHandoffStatusKey != null
+
     val homePopupVisible =
         posterOptionsTarget != null ||
             uiState.showWatchedRatingOverlay ||
+            watchedRatingHandoffActive ||
             continueWatchingPopupVisible
     val homeContentFocusRequester = LocalContentFocusRequester.current
     val homeRowFocusRestorer = LocalRowFocusRestorer.current
     var homePopupWasVisible by remember { mutableStateOf(false) }
+
+    /*
+     * Keeps an already-running catalog trailer protected only while the
+     * modal popup is handing focus back to its originating poster.
+     */
+    var catalogOptionsFocusRestoreActive by remember {
+        mutableStateOf(false)
+    }
+
     var homePopupReturnFocusRequester by remember {
         mutableStateOf<androidx.compose.ui.focus.FocusRequester?>(null)
     }
 
+    LaunchedEffect(
+        watchedRatingHandoffStatusKey,
+        uiState.showWatchedRatingOverlay,
+        uiState.movieWatchedPending,
+        uiState.movieWatchedStatus
+    ) {
+        val handoffKey =
+            watchedRatingHandoffStatusKey
+                ?: return@LaunchedEffect
+
+        /*
+         * Rating Dialog has appeared. It now keeps homePopupVisible /
+         * catalogOptionsVisible true itself, so the temporary bridge can drop.
+         */
+        if (uiState.showWatchedRatingOverlay) {
+            watchedRatingHandoffStatusKey = null
+            watchedRatingHandoffObservedPending = false
+            return@LaunchedEffect
+        }
+
+        /*
+         * Wait until Home has actually observed the ViewModel's watched job.
+         * This prevents the bridge from clearing in the tiny interval between
+         * arming it locally and StateFlow delivering movieWatchedPending.
+         */
+        if (handoffKey in uiState.movieWatchedPending) {
+            watchedRatingHandoffObservedPending = true
+            return@LaunchedEffect
+        }
+
+        /*
+         * The watched job has finished.
+         *
+         * If no rating Dialog was produced (no connected rating provider,
+         * failure, etc.), end the popup session normally.
+         */
+        if (
+            watchedRatingHandoffObservedPending ||
+            uiState.movieWatchedStatus[handoffKey] == true
+        ) {
+            watchedRatingHandoffStatusKey = null
+            watchedRatingHandoffObservedPending = false
+        }
+    }
+
     LaunchedEffect(homePopupVisible) {
         if (homePopupVisible) {
+            catalogOptionsFocusRestoreActive = false
+
             if (!homePopupWasVisible) {
                 homePopupReturnFocusRequester =
                     homeRowFocusRestorer.value
@@ -223,15 +298,17 @@ fun HomeScreen(
             }
             homePopupWasVisible = true
         } else if (homePopupWasVisible) {
+            /*
+             * A preserved expanded-card trailer must survive the few frames
+             * needed to detach the Dialog focus owner and return exact focus.
+             */
+            catalogOptionsFocusRestoreActive =
+                preserveCatalogTrailerPlayback
+
             val returnRequester = homePopupReturnFocusRequester
+
             var restoredExactItem = false
 
-            /*
-             * The popup has just left composition. Give its focus owner time to
-             * detach, then retry the requester captured when the popup opened.
-             * Do not recalculate the target here: Home state may have changed
-             * while the popup was visible.
-             */
             repeat(3) {
                 androidx.compose.runtime.withFrameNanos { }
 
@@ -251,6 +328,20 @@ fun HomeScreen(
 
             homePopupReturnFocusRequester = null
             homePopupWasVisible = false
+            catalogOptionsFocusRestoreActive = false
+
+            /*
+             * Preservation is per popup SESSION.
+             *
+             * Without resetting this here, opening options once while a
+             * trailer is already playing leaves preserve=true indefinitely,
+             * causing future pre-autoplay popups to incorrectly preserve
+             * trailers instead of suppressing them.
+             *
+             * Do this only after the complete popup/rating chain has closed
+             * and exact Home focus restoration has finished.
+             */
+            preserveCatalogTrailerPlayback = false
         }
     }
 
@@ -279,8 +370,11 @@ fun HomeScreen(
             // launched by Mark Watched.
             catalogOptionsVisible =
                 posterOptionsTarget != null ||
-                    uiState.showWatchedRatingOverlay,
+                    uiState.showWatchedRatingOverlay ||
+                    watchedRatingHandoffActive,
             preserveCatalogTrailerPlayback = preserveCatalogTrailerPlayback,
+            catalogOptionsFocusRestoreActive =
+                catalogOptionsFocusRestoreActive,
             onCatalogOptionsOpening = { preservePlayback ->
                 preserveCatalogTrailerPlayback = preservePlayback
             }
@@ -728,6 +822,19 @@ fun HomeScreen(
                 posterOptionsTarget = null
             },
             onToggleWatched = {
+                val wasAlreadyWatched =
+                    uiState.movieWatchedStatus[statusKey] == true
+
+                if (!wasAlreadyWatched) {
+                    /*
+                     * Arm this synchronously before removing the options Dialog.
+                     * The ViewModel's rating overlay is published later from its
+                     * asynchronous watched-status job.
+                     */
+                    watchedRatingHandoffStatusKey = statusKey
+                    watchedRatingHandoffObservedPending = false
+                }
+
                 viewModel.togglePosterMovieWatched(item)
                 posterOptionsTarget = null
             }
@@ -1178,12 +1285,37 @@ private fun HomePosterOptionsDialog(
         )
     }
 
-    BackHandler(onBack = onDismiss)
-
-    Box(
-        modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center
+    /*
+     * Use a real Dialog window so TV focus cannot escape back into Home,
+     * posters, or the sidebar while the options bubble remains visible.
+     *
+     * Keep Android's default DIM_BEHIND disabled because the existing
+     * haze/glass presentation provides its own background treatment.
+     */
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss
     ) {
+        val dialogView =
+            androidx.compose.ui.platform.LocalView.current
+
+        androidx.compose.runtime.DisposableEffect(dialogView) {
+            val window =
+                (
+                    dialogView.parent as?
+                        androidx.compose.ui.window.DialogWindowProvider
+                    )?.window
+
+            window?.clearFlags(
+                android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND
+            )
+
+            onDispose { }
+        }
+
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
         val panelShape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
         val blurModifier = if (blurEnabled) {
             Modifier.hazeChild(
@@ -1316,6 +1448,7 @@ private fun HomePosterOptionsDialog(
         }
             }
         }
+    }
     }
 }
 

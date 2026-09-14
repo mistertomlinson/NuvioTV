@@ -111,6 +111,8 @@ import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalSidebarOpenRequest
 import com.nuvio.tv.LocalHomeHeroTrailerPlaying
 import com.nuvio.tv.LocalPreserveSidebarTrailerPlayback
+import com.nuvio.tv.LocalRowFocusRestorer
+import com.nuvio.tv.LocalSidebarFocusRestoreActive
 import com.nuvio.tv.LocalNoBackdropImage
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.abs
@@ -144,12 +146,26 @@ private fun ModernContinueWatchingRowItem(
     onShowOptions: (ContinueWatchingItem) -> Unit,
     onUpPressed: (() -> Unit)? = null
 ) {
+    val isSidebarExpanded = LocalSidebarExpanded.current
+    val rowFocusRestorer = LocalRowFocusRestorer.current
+    val sidebarFocusRestoreActive =
+        LocalSidebarFocusRestoreActive.current
+
+    val retainSidebarFocusOutline =
+        (
+            isSidebarExpanded ||
+                sidebarFocusRestoreActive
+        ) &&
+            rowFocusRestorer.value !== FocusRequester.Default &&
+            rowFocusRestorer.value === requester
+
     ContinueWatchingCard(
         item = payload.item,
         onClick = { onContinueWatchingClick(payload.item) },
         onLongPress = { onShowOptions(payload.item) },
         cardWidth = cardWidth,
         imageHeight = imageHeight,
+        retainFocusOutline = retainSidebarFocusOutline,
         modifier = Modifier
             .focusRequester(requester)
             .onFocusChanged {
@@ -203,6 +219,28 @@ private fun ModernCatalogRowItem(
     onUpPressed: (() -> Unit)? = null
 ) {
     val focusKey = payload.focusKey
+    val homePopupGlassEnvironment =
+        LocalHomePopupGlassEnvironment.current
+
+    val preserveExpandedCardForPopupHandoff =
+        trailerPlaybackTarget ==
+            FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+            expandedCatalogFocusKey == focusKey &&
+            homePopupGlassEnvironment
+                .preserveCatalogTrailerPlayback &&
+            (
+                homePopupGlassEnvironment.catalogOptionsVisible ||
+                    homePopupGlassEnvironment
+                        .catalogOptionsFocusRestoreActive
+            )
+
+    val suppressExpandedCardForPopup =
+        trailerPlaybackTarget ==
+            FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+            homePopupGlassEnvironment.catalogOptionsVisible &&
+            !homePopupGlassEnvironment
+                .preserveCatalogTrailerPlayback
+
     val upPressedModifier = if (onUpPressed != null) modifier.then(Modifier.onPreviewKeyEvent { event ->
         if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
             event.key == androidx.compose.ui.input.key.Key.DirectionUp) {
@@ -213,18 +251,52 @@ private fun ModernCatalogRowItem(
     val suppressCardExpansionForHeroTrailer =
         effectiveAutoplayEnabled &&
             trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
-    val isBackdropExpanded =
-        effectiveExpandEnabled &&
-            expandedCatalogFocusKey == focusKey &&
-            !suppressCardExpansionForHeroTrailer
     val isSidebarExpanded = LocalSidebarExpanded.current
     val preserveSidebarTrailerPlayback =
         LocalPreserveSidebarTrailerPlayback.current
+    val sidebarFocusRestoreActive =
+        LocalSidebarFocusRestoreActive.current
+
+    /*
+     * If this exact expanded card was ALREADY playing when the Legacy sidebar
+     * opened, preserve its expansion/player ownership through both the visible
+     * drawer close animation and the exact-focus restoration.
+     *
+     * Focus return can briefly put the LazyRow into isScrollInProgress, which
+     * makes effectiveExpandEnabled/effectiveAutoplayEnabled false. That must
+     * not tear down a trailer we explicitly promised to preserve.
+     */
+    val preserveExpandedCardForSidebarHandoff =
+        trailerPlaybackTarget ==
+            FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+            expandedCatalogFocusKey == focusKey &&
+            preserveSidebarTrailerPlayback &&
+            (
+                isSidebarExpanded ||
+                    sidebarFocusRestoreActive
+            )
+
+    val isBackdropExpanded =
+        (
+            effectiveExpandEnabled ||
+                preserveExpandedCardForPopupHandoff ||
+                preserveExpandedCardForSidebarHandoff
+        ) &&
+            expandedCatalogFocusKey == focusKey &&
+            !suppressCardExpansionForHeroTrailer &&
+            !suppressExpandedCardForPopup
+
     val playTrailerInExpandedCard =
-        effectiveAutoplayEnabled &&
+        (
+            effectiveAutoplayEnabled ||
+                preserveExpandedCardForPopupHandoff ||
+                preserveExpandedCardForSidebarHandoff
+        ) &&
             (!isSidebarExpanded || preserveSidebarTrailerPlayback) &&
-            trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
-            isBackdropExpanded
+            trailerPlaybackTarget ==
+                FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+            isBackdropExpanded &&
+            !suppressExpandedCardForPopup
     val trailerPreviewUrl = if (playTrailerInExpandedCard) expandedTrailerPreviewUrl else null
     val trailerPreviewAudioUrl = if (playTrailerInExpandedCard) expandedTrailerPreviewAudioUrl else null
 
@@ -240,6 +312,7 @@ private fun ModernCatalogRowItem(
         focusedPosterBackdropExpandEnabled = effectiveExpandEnabled && !useLandscapePosters,
         isBackdropExpanded = isBackdropExpanded,
         playTrailerInExpandedCard = playTrailerInExpandedCard,
+        trailerPlaybackTarget = trailerPlaybackTarget,
         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
         trailerPreviewUrl = trailerPreviewUrl,
         trailerPreviewAudioUrl = trailerPreviewAudioUrl,
@@ -2099,6 +2172,7 @@ private fun ModernCarouselCard(
     focusedPosterBackdropExpandEnabled: Boolean,
     isBackdropExpanded: Boolean,
     playTrailerInExpandedCard: Boolean,
+    trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     focusedPosterBackdropTrailerMuted: Boolean,
     trailerPreviewUrl: String?,
     trailerPreviewAudioUrl: String?,
@@ -2146,7 +2220,23 @@ private fun ModernCarouselCard(
         LocalHomeHeroTrailerPlaying.current
     val noBackdropImage = LocalNoBackdropImage.current
     val homePopupGlassEnvironment = LocalHomePopupGlassEnvironment.current
+    val rowFocusRestorer = LocalRowFocusRestorer.current
+    val sidebarFocusRestoreActive =
+        LocalSidebarFocusRestoreActive.current
     var isFocused by remember { mutableStateOf(false) }
+
+    /*
+     * Sidebar and Home share one focus window, so actual focus must leave this
+     * card. Preserve only its VISUAL focus ring by reusing the exact same
+     * CardDefaults border when this card is the authoritative restore target.
+     */
+    val retainSidebarFocusOutline =
+        (
+            isSidebarExpanded ||
+                sidebarFocusRestoreActive
+        ) &&
+            rowFocusRestorer.value !== FocusRequester.Default &&
+            rowFocusRestorer.value === focusRequester
 
     // In noBackdropImage mode: card expansion is gated on trailer first frame.
     // When off: simple boolean, no extra state.
@@ -2337,6 +2427,14 @@ private fun ModernCarouselCard(
     val hasLandscapeLogo = frozenHasLandscapeLogo.value && !landscapeLogoLoadFailed
     var longPressTriggered by remember { mutableStateOf(false) }
 
+    /*
+     * Long-press preservation is decided by playback state at the ORIGINAL
+     * Select-down, not by state observed on later key-repeat events.
+     */
+    var trailerWasPlayingAtOptionsPressStart by remember(item.key) {
+        mutableStateOf(false)
+    }
+
     val backgroundCardColor = NuvioColors.BackgroundCard
     val focusRingColor = NuvioColors.FocusRing
     val titleMedium = MaterialTheme.typography.titleMedium
@@ -2418,6 +2516,20 @@ private fun ModernCarouselCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(cardHeight)
+                .then(
+                    if (
+                        isFocused ||
+                            retainSidebarFocusOutline
+                    ) {
+                        Modifier.border(
+                            width = 2.dp,
+                            color = focusRingColor,
+                            shape = cardShape
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
                 .focusRequester(focusRequester)
                 .onFocusChanged {
                     isFocused = it.isFocused
@@ -2432,42 +2544,113 @@ private fun ModernCarouselCard(
                         val optionsKey =
                             selectKey ||
                                 native.keyCode == AndroidKeyEvent.KEYCODE_MENU
-                        val preservePlayingTrailer =
-                            homeTrailerPlayingState.value ||
+
+                        /*
+                         * Preservation belongs to the active playback target.
+                         *
+                         * EXPANDED_CARD must not inherit the shared Hero player
+                         * state, otherwise an unrelated Hero trailer can cause
+                         * this popup to preserve a card trailer that never
+                         * actually started.
+                         */
+                        val preservePlayingTrailerNow =
+                            if (
+                                trailerPlaybackTarget ==
+                                    FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+                            ) {
                                 shouldPreserveExpandedTrailerForPopup(
                                     playTrailerInExpandedCard =
                                         playTrailerInExpandedCard,
                                     trailerFirstFrameRendered =
                                         trailerFirstFrameRendered
                                 )
+                            } else {
+                                homeTrailerPlayingState.value
+                            }
+
+                        /*
+                         * Freeze the decision on the ORIGINAL Select-down.
+                         *
+                         * Key-repeat events arrive while Select is held. A
+                         * trailer that starts during that hold must NOT turn a
+                         * suppress case into a preserve case.
+                         */
+                        if (
+                            selectKey &&
+                            native.repeatCount == 0
+                        ) {
+                            trailerWasPlayingAtOptionsPressStart =
+                                preservePlayingTrailerNow
+                        }
+
                         if (
                             focusedPosterBackdropExpandEnabled &&
                             shouldResetBackdropTimer(event.key) &&
                             !(suppressSelectBackdropTimerReset && selectKey) &&
-                            !(preservePlayingTrailer && optionsKey)
+                            !(preservePlayingTrailerNow && optionsKey)
                         ) {
                             onBackdropInteraction()
                         }
+
                         if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
                             longPressTriggered = true
+
+                            /*
+                             * MENU is immediate, so current playback state is
+                             * authoritative.
+                             */
+                            if (
+                                trailerPlaybackTarget ==
+                                    FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+                                !preservePlayingTrailerNow
+                            ) {
+                                trailerFirstFrameRendered = false
+                                homeTrailerPlayingState.value = false
+                                onTrailerEnded()
+                            }
+
                             homePopupGlassEnvironment.onCatalogOptionsOpening(
-                                preservePlayingTrailer
+                                preservePlayingTrailerNow
                             )
                             onLongPress()
                             return@onPreviewKeyEvent true
                         }
-                        val isLongPress = native.isLongPress || native.repeatCount > 0
+
+                        val isLongPress =
+                            native.isLongPress ||
+                                native.repeatCount > 0
+
                         if (isLongPress && selectKey) {
+                            val preserveForPopup =
+                                trailerWasPlayingAtOptionsPressStart
+
                             if (
                                 focusedPosterBackdropExpandEnabled &&
                                 suppressSelectBackdropTimerReset &&
-                                !preservePlayingTrailer
+                                !preserveForPopup
                             ) {
                                 onBackdropInteraction()
                             }
+
+                            /*
+                             * Autoplay may have fired while Select was held.
+                             * Because playback was NOT active when the user
+                             * began opening options, tear down that late start
+                             * before mounting the Dialog.
+                             */
+                            if (
+                                trailerPlaybackTarget ==
+                                    FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+                                !preserveForPopup
+                            ) {
+                                trailerFirstFrameRendered = false
+                                homeTrailerPlayingState.value = false
+                                onTrailerEnded()
+                            }
+
                             longPressTriggered = true
                             homePopupGlassEnvironment.onCatalogOptionsOpening(
-                                preservePlayingTrailer
+                                preserveForPopup
                             )
                             onLongPress()
                             return@onPreviewKeyEvent true
@@ -2478,6 +2661,7 @@ private fun ModernCarouselCard(
                         isSelectKey(native.keyCode)
                     ) {
                         longPressTriggered = false
+                        trailerWasPlayingAtOptionsPressStart = false
                         return@onPreviewKeyEvent true
                     }
                     if (native.action == AndroidKeyEvent.ACTION_DOWN &&
@@ -2494,8 +2678,16 @@ private fun ModernCarouselCard(
                 containerColor = posterContainerColor,
                 focusedContainerColor = posterContainerColor
             ),
+            /*
+             * The visible focus ring is drawn by the Modifier above from the
+             * actual Compose focus callback. Keep TV Material's own interaction-
+             * driven border disabled so repeated Dialog window focus cycles
+             * cannot leave a second stale outline behind.
+             */
             border = CardDefaults.border(
-                focusedBorder = focusedBorder
+                border = Border.None,
+                focusedBorder = Border.None,
+                pressedBorder = Border.None
             ),
             scale = CardDefaults.scale(focusedScale = 1f)
         ) {

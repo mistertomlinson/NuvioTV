@@ -133,8 +133,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.onEach
 import androidx.compose.ui.draw.drawWithCache
 
-private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 250L
-private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 250L
+private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 130L
+private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 400L
+private const val MODERN_HERO_NORMAL_SETTLE_MS = 450L
 private const val KEY_REPEAT_THROTTLE_MS = 140L
 
 private val TMDB_BACKDROP_SIZE_SEGMENT = Regex("""(/t/p/)[^/]+/""")
@@ -207,6 +208,25 @@ fun ModernHomeContent(
             preservePlayingTrailer =
                 homePopupGlassEnvironment.preserveCatalogTrailerPlayback
         )
+
+    /*
+     * A LaunchedEffect that is already inside the user's autoplay delay must
+     * consult the CURRENT popup state immediately before promotion. This
+     * closes the race where options open near the end of that delay.
+     */
+    val latestSuppressFocusedPosterAutoplayForOptions =
+        androidx.compose.runtime.rememberUpdatedState(
+            suppressFocusedPosterAutoplayForOptions
+        )
+
+    val preserveFocusedPosterPlaybackForOptions =
+        homePopupGlassEnvironment.preserveCatalogTrailerPlayback &&
+            (
+                homePopupGlassEnvironment.catalogOptionsVisible ||
+                    homePopupGlassEnvironment
+                        .catalogOptionsFocusRestoreActive
+            )
+
     val useLandscapePosters = uiState.modernLandscapePostersEnabled
     val showCatalogTypeSuffixInModern = uiState.catalogTypeSuffixEnabled
     val hidePlatformNameInModern = uiState.hidePlatformNameInCatalogTitleEnabled
@@ -998,38 +1018,12 @@ fun ModernHomeContent(
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
 
     /*
-     * Hero trailer playback is retained independently from the currently
-     * focused poster while the incoming title's backdrop is being decoded.
+     * Trailer ownership remains separate from current focus so an
+     * already-playing trailer can survive popup/sidebar overlays.
      */
     var retainedHeroTrailerSelection by remember {
         mutableStateOf<FocusedCatalogSelection?>(null)
     }
-    var trailerExitBackdropOverride by remember { mutableStateOf<String?>(null) }
-    var trailerExitAwaitingBackdrop by remember { mutableStateOf(false) }
-    var trailerExitBackdropReady by remember { mutableStateOf(false) }
-
-    /*
-     * Becomes true only after the incoming backdrop has rendered. While true,
-     * Trailer A stays composed and playing while its alpha crossfades to zero.
-     */
-    var trailerExitFadeInProgress by remember {
-        mutableStateOf(false)
-    }
-
-    /*
-     * Mutes Trailer A at the exact instant Backdrop B begins becoming visible.
-     * Video keeps playing during the visual fade; only its audio is suppressed.
-     */
-    var trailerExitAudioMuted by remember {
-        mutableStateOf(false)
-    }
-
-    /*
-     * True while an outgoing trailer is held on screen purely so its pixels
-     * can't be uncovered. The retain needs the last decoded frame, NOT
-     * playback - without this the old trailer's audio keeps running under
-     * the new backdrop until the next trailer replaces it.
-     */
     var heroTrailerHoldMuted by remember { mutableStateOf(false) }
 
     // Patch 8: gate per-landing work (enrichment, preload, selection) during fast scroll.
@@ -1177,10 +1171,6 @@ fun ModernHomeContent(
 
             expandedCatalogFocusKey = null
             retainedHeroTrailerSelection = null
-            trailerExitBackdropOverride = null
-            trailerExitAwaitingBackdrop = false
-            trailerExitFadeInProgress = false
-            trailerExitAudioMuted = true
             heroTrailerHoldMuted = false
 
             sharedTrailerPlayer?.let { player ->
@@ -1191,9 +1181,29 @@ fun ModernHomeContent(
         }
 
         /*
-         * If options opened before the trailer painted its first frame, keep
-         * autoplay dormant for the popup's entire lifetime. Closing the popup
-         * relaunches this effect and starts the full configured delay again.
+         * Already-playing trailer:
+         *
+         * Popup focus is temporarily owned by a separate Dialog window. Keep
+         * the existing expansion/trailer owner intact while that popup is open
+         * and through exact-focus restoration.
+         *
+         * This check is deliberately NOT a LaunchedEffect key. Ending the tiny
+         * restore phase must not itself restart the autoplay lifecycle.
+         */
+        if (
+            preserveFocusedPosterPlaybackForOptions &&
+            expandedCatalogFocusKey != null
+        ) {
+            return@LaunchedEffect
+        }
+
+        /*
+         * Popup opened BEFORE playback:
+         *
+         * Collapse/suppress immediately. Because
+         * suppressFocusedPosterAutoplayForOptions is already an effect key,
+         * closing the popup relaunches this effect and starts the user's FULL
+         * configured delay again.
          */
         if (suppressFocusedPosterAutoplayForOptions) {
             expandedCatalogFocusKey = null
@@ -1206,8 +1216,16 @@ fun ModernHomeContent(
             focusedCatalogSelection
 
         /*
-         * Vertical scrolling starts before focus necessarily reaches the next
-         * row. If focus still reports A, preserve Trailer A exactly as-is.
+         * Official-beta-style trailer ownership:
+         *
+         * Destination backdrop changes are handled by the normal settled Hero
+         * pipeline. Do not preload Backdrop B underneath Trailer A and do not
+         * wait for a backdrop-ready callback before releasing A.
+         *
+         * Retained ownership remains only for:
+         * - overlay preservation
+         * - vertical focus movement before the destination has actually landed
+         * - same-title ownership transfer between rows
          */
         val verticalMoveHasNotLanded =
             isVerticalRowsScrolling &&
@@ -1226,16 +1244,6 @@ fun ModernHomeContent(
                 outgoingTrailerSelection.focusKey !=
                     incomingSelection.focusKey
 
-        /*
-         * The same title may legitimately appear in adjacent catalogs (for
-         * example Top 10 and New Movies). Its row-scoped focusKey changes even
-         * though the underlying item does not.
-         *
-         * Do not start an A -> B backdrop handoff for A -> A. The incoming
-         * backdrop can be the exact URL already displayed, so there is no new
-         * backdrop-load event to satisfy trailerExitAwaitingBackdrop. Transfer
-         * trailer ownership to the newly focused card and keep playback intact.
-         */
         val navigationReachedSameItem =
             navigationReachedNewSelection &&
                 outgoingTrailerSelection?.payload?.itemId ==
@@ -1243,96 +1251,41 @@ fun ModernHomeContent(
 
         when {
             verticalMoveHasNotLanded -> {
-                /*
-                 * Trailer A remains visible and continues playing. Do not
-                 * expose Backdrop A while waiting for focus to land on B.
-                 */
                 heroTrailerHoldMuted = false
             }
 
             navigationReachedSameItem -> {
                 retainedHeroTrailerSelection = incomingSelection
-                trailerExitBackdropOverride = null
-                trailerExitAwaitingBackdrop = false
-                trailerExitAudioMuted = false
-                trailerExitFadeInProgress = false
                 heroTrailerHoldMuted = false
             }
 
             navigationReachedNewSelection -> {
-                val incomingBackdrop = carouselRows
-                    .asSequence()
-                    .flatMap { row ->
-                        row.items.asSequence()
-                    }
-                    .firstOrNull { item ->
-                        (item.payload as? ModernPayload.Catalog)
-                            ?.focusKey ==
-                            incomingSelection?.focusKey
-                    }
-                    ?.heroPreview
-                    ?.let { preview ->
-                        firstNonBlank(
-                            preview.backdrop,
-                            preview.imageUrl
-                        )
-                    }
-
-                if (incomingBackdrop != null) {
-                    /*
-                     * Do not restart an already-established B handoff when the
-                     * vertical scroll changes from moving to settled.
-                     */
-                    val samePendingHandoff =
-                        trailerExitBackdropOverride ==
-                            incomingBackdrop &&
-                            (
-                                trailerExitAwaitingBackdrop ||
-                                    trailerExitBackdropReady ||
-                                    trailerExitFadeInProgress
-                                )
-
-                    if (!samePendingHandoff) {
-                        trailerExitBackdropOverride =
-                            incomingBackdrop
-                        trailerExitAwaitingBackdrop = true
-                        trailerExitBackdropReady = false
-                        trailerExitAudioMuted = false
-                        trailerExitFadeInProgress = false
-                    }
-
-                    /*
-                     * Trailer A continues playing normally while Backdrop B
-                     * decodes invisibly underneath it.
-                     */
-                    heroTrailerHoldMuted = false
-                } else {
-                    retainedHeroTrailerSelection = null
-                    trailerExitBackdropOverride = null
-                    trailerExitAwaitingBackdrop = false
-                    trailerExitAudioMuted = true
-                    sharedTrailerPlayer?.let { player ->
-                        player.volume = 0f
-                    }
-                    trailerExitFadeInProgress = false
-                    heroTrailerHoldMuted = false
-                }
+                retainedHeroTrailerSelection = null
+                heroTrailerHoldMuted = false
             }
 
-            !trailerExitAwaitingBackdrop &&
-                !trailerExitBackdropReady &&
-                !trailerExitFadeInProgress -> {
+            outgoingTrailerSelection != null &&
+                incomingSelection == null -> {
                 retainedHeroTrailerSelection = null
-                trailerExitBackdropOverride = null
                 heroTrailerHoldMuted = false
             }
         }
+
         expandedCatalogFocusKey = null
         if (!shouldActivateFocusedPosterFlow) return@LaunchedEffect
         if (isVerticalRowsScrolling) return@LaunchedEffect
 
         val selection = focusedCatalogSelection ?: return@LaunchedEffect
         delay(uiState.focusedPosterBackdropExpandDelaySeconds.coerceAtLeast(0) * 1000L)
+
+        /*
+         * Do not trust only the value captured when this coroutine launched.
+         * The popup may have opened while delay() was in progress.
+         */
+        if (latestSuppressFocusedPosterAutoplayForOptions.value) {
+            expandedCatalogFocusKey = null
+            return@LaunchedEffect
+        }
 
         if (shouldActivateFocusedPosterFlow &&
             !isVerticalRowsScrolling &&
@@ -1345,7 +1298,6 @@ fun ModernHomeContent(
                     FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
             ) {
                 retainedHeroTrailerSelection = selection
-                trailerExitAudioMuted = false
                 sharedTrailerPlayer?.let { player ->
                     player.volume =
                         if (
@@ -1887,7 +1839,9 @@ fun ModernHomeContent(
             snapshotFlow { Pair(activeRowKey, activeItemIndex) },
             isFastScrollingRef
         ) { pair, scrolling -> Pair(pair, scrolling) }
-            .debounce(80L)
+            .debounce {
+                heroFocusSettleDelayMsRef.get()
+            }
             .collect { (pair, isScrolling) ->
                 // collect, NOT collectLatest: with collectLatest, enrichment rebuilds
                 // (which churn activeRow's identity) cancel the body mid-execution and
@@ -2039,12 +1993,24 @@ fun ModernHomeContent(
     // fires after input settles. Single deliberate presses stay instant.
     val lastHeroFocusChangeAtMsRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     LaunchedEffect(heroFrozenForRapidNav) {
-        if (!heroFrozenForRapidNav) return@LaunchedEffect
-        while (true) {
-            val since = System.currentTimeMillis() - lastHeroFocusChangeAtMsRef.get()
-            if (since >= MODERN_HERO_RAPID_NAV_SETTLE_MS) break
-            delay(MODERN_HERO_RAPID_NAV_SETTLE_MS - since)
+        if (!heroFrozenForRapidNav) {
+            return@LaunchedEffect
         }
+
+        while (true) {
+            val settleDelayMs =
+                heroFocusSettleDelayMsRef.get()
+            val since =
+                System.currentTimeMillis() -
+                    lastHeroFocusChangeAtMsRef.get()
+
+            if (since >= settleDelayMs) {
+                break
+            }
+
+            delay(settleDelayMs - since)
+        }
+
         heroFrozenForRapidNav = false
     }
 
@@ -2179,36 +2145,47 @@ fun ModernHomeContent(
         }
         val activeItemId = activeCarouselItem?.metaPreview?.id
         val enrichmentActive = enrichingItemId != null && enrichingItemId == activeItemId
-        // When enrichment is active use heroItem (frozen), when done use activeCarouselItem
-        // which already has the enriched data from uiState update
-        // Always use debounced heroItem so fast scrolling doesn't flash metadata.
-        // Only fall back to activeCarouselItem when heroItem is null (cold start).
-        val heroItemMatchesRow = heroItemRowKey == effectiveActiveRow?.key
         /*
-         * Prefer the latest focused-row preview when enrichment added badge
-         * data after heroItem was captured.
+         * Visible Hero presentation follows normal horizontal focus immediately,
+         * matching the backdrop path and current official beta behavior.
          *
-         * IMDb must be checked independently from age rating. Per-catalog
-         * landscape rows are preloaded/enriched asynchronously, and titles
-         * without a logo may otherwise retain the earlier no-IMDb preview.
+         * The settled/debounced heroItem remains useful for navigation protection,
+         * but it must not delay metadata/logo changes after a deliberate left/right
+         * move.
+         *
+         * Existing freeze modes remain authoritative:
+         * - rapid / held horizontal D-pad
+         * - fast vertical scrolling / landing
+         * - normal vertical row slide
+         *
+         * During those states the previous stable Hero may remain on screen until
+         * navigation settles, preserving the no-jank behavior.
          */
-        val activeHasRicher =
-            activeCarouselItem?.heroPreview?.let { active ->
-                val current = heroItem
+        val resolvedHero =
+            if (
+                isFastScrolling ||
+                fastScrollLandingVisualPending ||
+                heroFrozenForSlide ||
+                heroFrozenForRapidNav
+            ) {
+                frozenHeroItem
+                    ?: heroItem
+                    ?: activeCarouselItem?.heroPreview
+            } else {
+                activeCarouselItem?.heroPreview
+                    ?: heroItem
+            }
 
-                (
-                    active.ageRatingText != null &&
-                        current?.ageRatingText == null
-                    ) ||
-                    (
-                        !active.imdbText.isNullOrBlank() &&
-                            current?.imdbText.isNullOrBlank()
-                        )
-            } == true
-        val resolvedHero = if (isFastScrolling ||
-            fastScrollLandingVisualPending ||
-            heroFrozenForSlide ||
-            heroFrozenForRapidNav) frozenHeroItem ?: heroItem else if (heroItemMatchesRow) (if (activeHasRicher) activeCarouselItem?.heroPreview else heroItem) ?: activeCarouselItem?.heroPreview else activeCarouselItem?.heroPreview
+        /*
+         * Backdrop and visible Hero metadata intentionally share the same
+         * presentation source:
+         *
+         * - normal horizontal focus -> current item immediately
+         * - rapid/held D-pad        -> frozen Hero
+         * - vertical movement       -> frozen Hero
+         */
+        val visualHero = resolvedHero
+
         // transitionHero: non-null during platform transition, blocks live resolvedHero updates.
         var isPlatformTransitioning by remember { mutableStateOf(false) }
         LaunchedEffect(isPlatformTransitioning) {
@@ -2237,56 +2214,57 @@ fun ModernHomeContent(
          * row scan, or other work is added to the focus/scroll path.
          */
         val heroBackdropSelection = remember(
-            trailerExitBackdropOverride,
-            resolvedHero,
+            visualHero,
             activeRowFallbackBackdrop,
-            heroItem,
             carouselRows,
             lastGoodBackdrop.value,
             lastGoodBackdropIsPosterFallback.value
         ) {
             when {
-                !trailerExitBackdropOverride.isNullOrBlank() -> {
-                    val poster = firstNonBlank(resolvedHero?.poster, heroItem?.poster)
-                    trailerExitBackdropOverride to
-                        (poster != null && trailerExitBackdropOverride == poster)
-                }
-
-                !resolvedHero?.backdrop.isNullOrBlank() -> {
-                    val url = resolvedHero?.backdrop
+                !visualHero?.backdrop.isNullOrBlank() -> {
+                    val url = visualHero?.backdrop
                     url to
-                        (!resolvedHero?.poster.isNullOrBlank() &&
-                            url == resolvedHero?.poster)
+                        (!visualHero?.poster.isNullOrBlank() &&
+                            url == visualHero?.poster)
                 }
 
-                !resolvedHero?.imageUrl.isNullOrBlank() -> {
-                    val url = resolvedHero?.imageUrl
+                !visualHero?.imageUrl.isNullOrBlank() -> {
+                    val url = visualHero?.imageUrl
                     url to
-                        (!resolvedHero?.poster.isNullOrBlank() &&
-                            url == resolvedHero?.poster)
+                        (!visualHero?.poster.isNullOrBlank() &&
+                            url == visualHero?.poster)
                 }
 
-                heroItem == null && !activeRowFallbackBackdrop.isNullOrBlank() ->
+                visualHero == null &&
+                    !activeRowFallbackBackdrop.isNullOrBlank() ->
                     activeRowFallbackBackdrop to false
 
-                resolvedHero == null &&
-                    heroItem == null &&
+                visualHero == null &&
                     !lastGoodBackdrop.value.isNullOrBlank() ->
-                    lastGoodBackdrop.value to lastGoodBackdropIsPosterFallback.value
+                    lastGoodBackdrop.value to
+                        lastGoodBackdropIsPosterFallback.value
 
-                resolvedHero == null &&
-                    heroItem == null &&
+                visualHero == null &&
                     lastGoodBackdrop.value == null -> {
                     val firstPreview =
-                        carouselRows.firstOrNull { it.items.isNotEmpty() }
-                            ?.items?.firstOrNull()?.heroPreview
-                    val url = firstPreview?.let {
-                        firstNonBlank(it.backdrop, it.imageUrl)
-                    }
+                        carouselRows.firstOrNull {
+                            it.items.isNotEmpty()
+                        }?.items?.firstOrNull()?.heroPreview
+
+                    val url =
+                        firstPreview?.let {
+                            firstNonBlank(
+                                it.backdrop,
+                                it.imageUrl
+                            )
+                        }
+
                     url to
-                        (url != null &&
-                            !firstPreview?.poster.isNullOrBlank() &&
-                            url == firstPreview?.poster)
+                        (
+                            url != null &&
+                                !firstPreview?.poster.isNullOrBlank() &&
+                                url == firstPreview?.poster
+                            )
                 }
 
                 else -> null to false
@@ -2299,47 +2277,24 @@ fun ModernHomeContent(
         // Record the last non-blank resolved backdrop (only from a REAL focused
         // item, not the fallback itself, to avoid latching the first-item value).
         LaunchedEffect(
-            resolvedHero?.backdrop,
-            resolvedHero?.imageUrl,
-            resolvedHero?.poster
+            visualHero?.backdrop,
+            visualHero?.imageUrl,
+            visualHero?.poster
         ) {
-            val real = firstNonBlank(resolvedHero?.backdrop, resolvedHero?.imageUrl)
+            val real =
+                firstNonBlank(
+                    visualHero?.backdrop,
+                    visualHero?.imageUrl
+                )
+
             if (real != null) {
                 lastGoodBackdrop.value = real
                 lastGoodBackdropIsPosterFallback.value =
-                    !resolvedHero?.poster.isNullOrBlank() &&
-                        real == resolvedHero?.poster
+                    !visualHero?.poster.isNullOrBlank() &&
+                        real == visualHero?.poster
             }
         }
 
-        /*
-         * Once the delayed hero pipeline catches up to the same URL, the
-         * temporary override is no longer needed.
-         */
-        LaunchedEffect(
-            resolvedHero?.backdrop,
-            resolvedHero?.imageUrl,
-            trailerExitBackdropOverride,
-            trailerExitAwaitingBackdrop,
-            trailerExitBackdropReady,
-            trailerExitFadeInProgress
-        ) {
-            val override = trailerExitBackdropOverride
-            val resolved = firstNonBlank(
-                resolvedHero?.backdrop,
-                resolvedHero?.imageUrl
-            )
-
-            if (
-                !trailerExitAwaitingBackdrop &&
-                !trailerExitBackdropReady &&
-                !trailerExitFadeInProgress &&
-                override != null &&
-                resolved == override
-            ) {
-                trailerExitBackdropOverride = null
-            }
-        }
         val expandedFocusedSelection = remember(
             focusedCatalogSelection,
             expandedCatalogFocusKey
@@ -2419,44 +2374,10 @@ fun ModernHomeContent(
          * Driven off first-frame so the trailer never appears as a paused
          * still, and never bleeds through a backdrop that is still opaque.
          */
-        /*
-         * Long enough to show a real trailer-to-backdrop crossfade while still
-         * remaining quick during D-pad navigation.
-         */
-        val heroTrailerExitDurationMillis = 220
-
-        /*
-         * Backdrop readiness and row settlement are independent. Keep Trailer A
-         * fully visible and playing until B is committed and the vertical list
-         * has finished its visual scroll, then begin the existing exit fade.
-         */
-        androidx.compose.runtime.LaunchedEffect(
-            isVerticalRowsScrolling,
-            trailerExitBackdropReady,
-            trailerExitBackdropOverride,
-            retainedHeroTrailerSelection?.focusKey
-        ) {
-            if (
-                !isVerticalRowsScrolling &&
-                trailerExitBackdropReady &&
-                trailerExitBackdropOverride != null &&
-                retainedHeroTrailerSelection != null
-            ) {
-                trailerExitBackdropReady = false
-                trailerExitAudioMuted = true
-                sharedTrailerPlayer?.let { player ->
-                    player.volume = 0f
-                }
-                trailerExitFadeInProgress = true
-                heroTrailerHoldMuted = false
-            }
-        }
-
         val heroTransitionTarget =
             if (
                 shouldPlayHeroTrailer &&
-                heroTrailerFirstFrameRendered &&
-                !trailerExitFadeInProgress
+                heroTrailerFirstFrameRendered
             ) {
                 1f
             } else {
@@ -2465,132 +2386,32 @@ fun ModernHomeContent(
 
         val heroTransitionProgress by animateFloatAsState(
             targetValue = heroTransitionTarget,
-            animationSpec =
-                if (heroTransitionTarget == 1f) {
-                    tween(durationMillis = 480)
-                } else {
-                    tween(
-                        durationMillis =
-                            heroTrailerExitDurationMillis
-                    )
-                },
+            animationSpec = tween(durationMillis = 480),
             label = "heroBackdropTrailerCrossfadeProgress"
         )
+
         val heroBackdropAlpha =
             1f - heroTransitionProgress
         val heroTrailerAlpha =
             heroTransitionProgress
 
         /*
-         * Export the exact backdrop crossfade value to the platform icon row.
-         * The gradient below consumes this value locally in the same frame.
+         * This is the one backdrop-side presentation clock:
+         *
+         * backdrop + normal gradient + platform icons
+         *
+         * all return together as the trailer leaves.
          */
         androidx.compose.runtime.SideEffect {
             onHeroBackdropAlphaChanged(heroBackdropAlpha)
         }
 
-        /*
-         * Deferred trailer release: wait two frames after B is decoded so the
-         * backdrop Crossfade has committed B before A's trailer is torn down.
-         * Two frames is imperceptible and costs nothing when idle.
-         */
-
-        var lbGradientVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
-        var lbTrailerVisible by remember(heroTrailerUrl) { mutableStateOf(false) }
-        LaunchedEffect(heroTrailerFirstFrameRendered, uiState.heroTrailerAllowLetterboxing) {
-            if (heroTrailerFirstFrameRendered && uiState.heroTrailerAllowLetterboxing) {
-                delay(480)
-                lbGradientVisible = true
-                lbTrailerVisible = true
-            } else {
-                lbGradientVisible = false
-                lbTrailerVisible = false
-            }
-        }
-        /*
-         * Wait for the ACTUAL animated value instead of assuming the animation
-         * completed after a fixed delay.
-         *
-         * While trailerExitFadeInProgress remains true, heroGradientProgress
-         * continues using heroTransitionProgress. At zero, force both
-         * letterboxed visibility states off before releasing that override.
-         * This prevents one frame where the new backdrop is visible without
-         * its normal stationary backdrop gradient.
-         */
-        LaunchedEffect(
-            trailerExitFadeInProgress,
-            heroTransitionProgress
-        ) {
-            if (
-                !trailerExitFadeInProgress ||
-                heroTransitionProgress > 0.001f
-            ) {
-                return@LaunchedEffect
-            }
-
-            /*
-             * These may still be true for one composition after the retained
-             * trailer is removed. Reset them while exit progress is still
-             * latched at zero.
-             */
-            lbGradientVisible = false
-            lbTrailerVisible = false
-
-            retainedHeroTrailerSelection = null
-            heroTrailerHoldMuted = false
-
-            /*
-             * Keep heroGradientProgress pinned to zero through one complete
-             * rendered frame. The normal backdrop gradient is therefore
-             * already drawn before the exit override is released.
-             */
-            androidx.compose.runtime.withFrameNanos { }
-
-            if (
-                trailerExitFadeInProgress &&
-                heroTransitionProgress <= 0.001f
-            ) {
-                trailerExitFadeInProgress = false
-            }
-        }
-
         val heroGradientProgress =
-            if (uiState.heroTrailerAllowLetterboxing) {
-                if (trailerExitFadeInProgress) {
-                    /*
-                     * Keep the upper layer in trailer mode while any trailer
-                     * pixels remain. At actual zero, atomically switch this
-                     * upper layer to the normal backdrop gradient.
-                     */
-                    if (heroTransitionProgress > 0.001f) {
-                        1f
-                    } else {
-                        0f
-                    }
-                } else if (lbGradientVisible) {
-                    1f
-                } else {
-                    0f
-                }
-            } else {
-                heroTransitionProgress
-            }
-        val lbTrailerProgress by animateFloatAsState(
-            targetValue = if (uiState.heroTrailerAllowLetterboxing && lbTrailerVisible) 1f else 0f,
-            animationSpec = if (lbTrailerVisible) tween(durationMillis = 150) else snap(),
-            label = "lbTrailerProgress"
-        )
+            heroTransitionProgress
+
         val lbTrailerAlpha =
-            if (uiState.heroTrailerAllowLetterboxing) {
-                lbTrailerProgress *
-                    if (trailerExitFadeInProgress) {
-                        heroTransitionProgress
-                    } else {
-                        1f
-                    }
-            } else {
-                heroTrailerAlpha
-            }
+            heroTransitionProgress
+
         val catalogBottomPadding = 0.dp
         val heroToCatalogGap = 16.dp
         val rowTitleBottom = 14.dp
@@ -2839,92 +2660,234 @@ fun ModernHomeContent(
             }
         }
 
-        ModernHeroMediaLayer(
-            heroBackdrop = heroBackdrop,
-            heroBackdropIsPosterFallback = heroBackdropIsPosterFallback,
-            backdropCrossfadeDuration =
-                if (
-                    isPlatformTransitioning ||
-                    trailerExitBackdropOverride != null
-                ) 0
-                else 350,
-            onBackdropFrameReady = { readyBackdrop ->
-                val pendingBackdrop =
-                    trailerExitBackdropOverride
+        val compactHeroGradientLeftExtension =
+            maxWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f +
+                8.dp
 
-                if (
-                    trailerExitAwaitingBackdrop &&
-                    pendingBackdrop != null &&
-                    readyBackdrop == pendingBackdrop
-                ) {
-                    /*
-                     * B is committed underneath Trailer A. Row settlement now
-                     * owns the start of the visual and audio exit.
-                     */
-                    trailerExitAwaitingBackdrop = false
-                    trailerExitBackdropReady = true
-                }
-            },
-            heroBackdropAlpha = heroBackdropAlpha,
-            parallaxOffsetX = backdropParallaxOffset.value,
-            cinematicMode = cinematicHeroMode,
-            shouldPlayHeroTrailer = shouldPlayHeroTrailer && !uiState.heroTrailerAllowLetterboxing,
-            heroTrailerUrl = heroTrailerUrl,
-            heroTrailerAudioUrl = heroTrailerAudioUrl,
-            heroTrailerAlpha = heroTrailerAlpha,
-            muted =
-                    uiState.focusedPosterBackdropTrailerMuted ||
-                        trailerExitAudioMuted,
-            isTrailerPlaying = heroTrailerShouldRun,
-            externalPlayer = sharedTrailerPlayer,
-            onTrailerEnded = {
-                expandedCatalogFocusKey = null
-                retainedHeroTrailerSelection = null
-                trailerExitBackdropOverride = null
-                trailerExitAwaitingBackdrop = false
-            },
-            onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
-            modifier = heroMediaModifier
-                .drawWithContent {
-                    // While the ghost is showing, it fully REPLACES the live content
-                    // in this node — drawing both stacked double-composites any
-                    // semi-transparent pixels for a frame (visible brightness pop).
-                    if (!(ghostVisible && heroGhostBitmap != null)) drawContent()
-                    if (ghostCaptureTick != heroGhostCapturedTick.get()) {
-                        heroGhostLayer.record { this@drawWithContent.drawContent() }
-                        heroGhostCapturedTick.set(ghostCaptureTick)
-                    }
-                    val hBmp = heroGhostBitmap
-                    if (ghostVisible && hBmp != null) {
-                        // Full alpha: fading each ghost layer independently
-                        // weakens the scrim's dimming mid-fade (a*g instead of g)
-                        // and brightens the gradient region. Instead both ghosts
-                        // stay pixel-correct and a black overlay in the catalog
-                        // node (topmost) performs the fade-to-black.
-                        drawImage(
-                            image = hBmp,
-                            dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostParallax.value), 0),
-                            dstSize = androidx.compose.ui.unit.IntSize(hBmp.width, hBmp.height),
-                            alpha = 1f,
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.None
-                        )
-                    }
-                }
-                .graphicsLayer {
-                    // Full alpha: the enter fade is done by a single black
-                    // overlay over the whole composite (catalog node, topmost),
-                    // so backdrop and catalog never fade independently and you
-                    // never see through one layer to the next. translationX
-                    // (parallax motion) is unaffected.
-                    alpha = 1f
-                    translationX = backdropParallaxOffset.value
+        // Capture the outer BoxWithConstraints width before entering nested
+        // Box scopes, where Compose's DSL marker hides the implicit receiver.
+        val compactHeroAvailableWidth = maxWidth
+
+        if (
+            cinematicHeroMode ||
+            !uiState.heroTrailerAllowLetterboxing
+        ) {
+            ModernHeroMediaLayer(
+                heroBackdrop = heroBackdrop,
+                heroBackdropIsPosterFallback = heroBackdropIsPosterFallback,
+                backdropCrossfadeDuration =
+                    if (isPlatformTransitioning) 0 else 400,
+                heroBackdropAlpha = heroBackdropAlpha,
+                parallaxOffsetX = backdropParallaxOffset.value,
+                cinematicMode = cinematicHeroMode,
+                shouldPlayHeroTrailer = shouldPlayHeroTrailer && !uiState.heroTrailerAllowLetterboxing,
+                heroTrailerUrl = heroTrailerUrl,
+                heroTrailerAudioUrl = heroTrailerAudioUrl,
+                heroTrailerAlpha = heroTrailerAlpha,
+                muted =
+                        uiState.focusedPosterBackdropTrailerMuted,
+                isTrailerPlaying = heroTrailerShouldRun,
+                externalPlayer = sharedTrailerPlayer,
+                onTrailerEnded = {
+                    expandedCatalogFocusKey = null
+                    retainedHeroTrailerSelection = null
                 },
-            cinematicScale =
-                if (shouldOverscanCinematicBackdrop) 1.0f
-                else (1.0f / 1.1f),
-            requestWidthPx = heroMediaWidthPx,
-            requestHeightPx = heroMediaHeightPx
-        )
+                onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
+                modifier = heroMediaModifier
+                    .drawWithContent {
+                        // While the ghost is showing, it fully REPLACES the live content
+                        // in this node — drawing both stacked double-composites any
+                        // semi-transparent pixels for a frame (visible brightness pop).
+                        if (!(ghostVisible && heroGhostBitmap != null)) drawContent()
+                        if (ghostCaptureTick != heroGhostCapturedTick.get()) {
+                            heroGhostLayer.record { this@drawWithContent.drawContent() }
+                            heroGhostCapturedTick.set(ghostCaptureTick)
+                        }
+                        val hBmp = heroGhostBitmap
+                        if (ghostVisible && hBmp != null) {
+                            // Full alpha: fading each ghost layer independently
+                            // weakens the scrim's dimming mid-fade (a*g instead of g)
+                            // and brightens the gradient region. Instead both ghosts
+                            // stay pixel-correct and a black overlay in the catalog
+                            // node (topmost) performs the fade-to-black.
+                            drawImage(
+                                image = hBmp,
+                                dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostParallax.value), 0),
+                                dstSize = androidx.compose.ui.unit.IntSize(hBmp.width, hBmp.height),
+                                alpha = 1f,
+                                filterQuality = androidx.compose.ui.graphics.FilterQuality.None
+                            )
+                        }
+                    }
+                    .graphicsLayer {
+                        // Full alpha: the enter fade is done by a single black
+                        // overlay over the whole composite (catalog node, topmost),
+                        // so backdrop and catalog never fade independently and you
+                        // never see through one layer to the next. translationX
+                        // (parallax motion) is unaffected.
+                        alpha = 1f
+                        translationX = backdropParallaxOffset.value
+                    },
+                cinematicScale =
+                    if (shouldOverscanCinematicBackdrop) 1.0f
+                    else (1.0f / 1.1f),
+                requestWidthPx = heroMediaWidthPx,
+                requestHeightPx = heroMediaHeightPx
+            )
+        } else {
+            /*
+             * Compact HERO_MEDIA backdrop composite.
+             *
+             * Backdrop pixels + the normal backdrop gradient live under one
+             * parent alpha. The media itself stays at alpha 1 internally.
+             *
+             * Therefore during trailer start:
+             *
+             *   [backdrop + backdrop gradient] * heroBackdropAlpha
+             *
+             * They cannot fade independently.
+             *
+             * Parallax remains on the backdrop child only so the stationary
+             * gradient geometry does not move.
+             */
+            val backdropGradientInsideComposite =
+                (
+                    shouldPlayHeroTrailer &&
+                        heroTransitionProgress < 0.999f
+                ) ||
+                    (
+                        !shouldPlayHeroTrailer &&
+                            heroTransitionProgress <= 0.001f
+                    )
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .offset(x = 56.dp)
+                    .width(
+                        compactHeroAvailableWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION +
+                            compactHeroGradientLeftExtension
+                    )
+                    .height(heroBackdropHeight)
+                    .graphicsLayer {
+                        alpha = heroBackdropAlpha
+                        compositingStrategy =
+                            androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+                    }
+            ) {
+                ModernHeroMediaLayer(
+                    heroBackdrop = heroBackdrop,
+                    heroBackdropIsPosterFallback =
+                        heroBackdropIsPosterFallback,
+                    backdropCrossfadeDuration =
+                        if (isPlatformTransitioning) 0 else 400,
+
+                    // The parent owns the backdrop + gradient fade.
+                    heroBackdropAlpha = 1f,
+
+                    parallaxOffsetX =
+                        backdropParallaxOffset.value,
+                    cinematicMode = false,
+
+                    // Letterboxed trailer remains in its dedicated path below.
+                    shouldPlayHeroTrailer = false,
+
+                    heroTrailerUrl = heroTrailerUrl,
+                    heroTrailerAudioUrl = heroTrailerAudioUrl,
+                    heroTrailerAlpha = 0f,
+                    muted =
+                        uiState.focusedPosterBackdropTrailerMuted,
+                    isTrailerPlaying = false,
+                    externalPlayer = sharedTrailerPlayer,
+                    onTrailerEnded = {
+                        expandedCatalogFocusKey = null
+                        retainedHeroTrailerSelection = null
+                    },
+                    onFirstFrameRendered = {},
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .width(
+                            compactHeroAvailableWidth *
+                                MODERN_HERO_MEDIA_WIDTH_FRACTION
+                        )
+                        .fillMaxHeight()
+                        .drawWithContent {
+                            if (
+                                !(
+                                    ghostVisible &&
+                                        heroGhostBitmap != null
+                                )
+                            ) {
+                                drawContent()
+                            }
+
+                            if (
+                                ghostCaptureTick !=
+                                    heroGhostCapturedTick.get()
+                            ) {
+                                heroGhostLayer.record {
+                                    this@drawWithContent.drawContent()
+                                }
+                                heroGhostCapturedTick.set(
+                                    ghostCaptureTick
+                                )
+                            }
+
+                            val hBmp = heroGhostBitmap
+
+                            if (
+                                ghostVisible &&
+                                    hBmp != null
+                            ) {
+                                drawImage(
+                                    image = hBmp,
+                                    dstOffset =
+                                        androidx.compose.ui.unit.IntOffset(
+                                            Math.round(
+                                                ghostParallax.value
+                                            ),
+                                            0
+                                        ),
+                                    dstSize =
+                                        androidx.compose.ui.unit.IntSize(
+                                            hBmp.width,
+                                            hBmp.height
+                                        ),
+                                    alpha = 1f,
+                                    filterQuality =
+                                        androidx.compose.ui.graphics.FilterQuality.None
+                                )
+                            }
+                        }
+                        .graphicsLayer {
+                            alpha = 1f
+                            translationX =
+                                backdropParallaxOffset.value
+                        },
+                    cinematicScale =
+                        if (shouldOverscanCinematicBackdrop) {
+                            1.0f
+                        } else {
+                            1.0f / 1.1f
+                        },
+                    requestWidthPx = heroMediaWidthPx,
+                    requestHeightPx = heroMediaHeightPx
+                )
+
+                if (backdropGradientInsideComposite) {
+                    ModernHeroGradientLayer(
+                        bgColor = bgColor,
+                        allowLetterboxing = false,
+                        trailerTransitionProgress = 0f,
+                        modifier = Modifier.fillMaxSize(),
+                        cinematicMode = false,
+                        shouldPlayHeroTrailer = false,
+                        compactContentStartOffset =
+                            compactHeroGradientLeftExtension
+                    )
+                }
+            }
+        }
         /*
          * The fixed-seed dither pattern is generated once for the mask's
          * physical dimensions. Title changes, bgColor changes, and draw-cache
@@ -3008,62 +2971,6 @@ fun ModernHomeContent(
                 buckets
             }
 
-        /*
-         * Exit-only backdrop gradient UNDER the letterboxed trailer.
-         *
-         * This protects the incoming backdrop from a bright frame without
-         * placing the normal backdrop gradient over the still-visible trailer.
-         * At zero trailer opacity, this layer disappears in the same
-         * composition where the upper gradient switches to backdrop mode.
-         */
-        if (
-            uiState.heroTrailerAllowLetterboxing &&
-            trailerExitFadeInProgress &&
-            heroTransitionProgress > 0.001f
-        ) {
-            ModernHeroGradientLayer(
-                bgColor = bgColor,
-                allowLetterboxing = false,
-                trailerTransitionProgress = 0f,
-                modifier =
-                    if (cinematicHeroMode) {
-                        heroMediaModifier.graphicsLayer {
-                            translationX =
-                                if (ghostVisible) {
-                                    0f
-                                } else {
-                                    backdropParallaxOffset.value
-                                }
-                        }
-                    } else {
-                        Modifier
-                            .align(Alignment.TopEnd)
-                            .offset(x = 56.dp)
-                            .width(
-                                maxWidth *
-                                    MODERN_HERO_MEDIA_WIDTH_FRACTION +
-                                    maxWidth *
-                                        MODERN_HERO_MEDIA_WIDTH_FRACTION *
-                                        0.04f +
-                                    8.dp
-                            )
-                            .height(heroBackdropHeight)
-                    },
-                cinematicMode = cinematicHeroMode,
-                shouldPlayHeroTrailer = false,
-                drawVerticalBottomGradient = false,
-                compactContentStartOffset =
-                    if (cinematicHeroMode) {
-                        0.dp
-                    } else {
-                        maxWidth *
-                            MODERN_HERO_MEDIA_WIDTH_FRACTION *
-                            0.04f +
-                            8.dp
-                    }
-            )
-        }
-
         if (shouldPlayHeroTrailer && uiState.heroTrailerAllowLetterboxing) {
             Box(
                 modifier = Modifier
@@ -3078,13 +2985,10 @@ fun ModernHomeContent(
                     onEnded = {
                         expandedCatalogFocusKey = null
                         retainedHeroTrailerSelection = null
-                        trailerExitBackdropOverride = null
-                        trailerExitAwaitingBackdrop = false
                     },
                     onFirstFrameRendered = { heroTrailerFirstFrameRendered = true },
                     muted =
-                    uiState.focusedPosterBackdropTrailerMuted ||
-                        trailerExitAudioMuted,
+                    uiState.focusedPosterBackdropTrailerMuted,
                     isPlaying = heroTrailerShouldRun,
                     cropToFill = true,
                     overscanZoom = 1f,
@@ -3164,45 +3068,181 @@ fun ModernHomeContent(
                 )
 }
         }
-        val compactHeroGradientLeftExtension =
-            maxWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f +
-                8.dp
-
-        ModernHeroGradientLayer(
-            bgColor = bgColor,
-            allowLetterboxing = uiState.heroTrailerAllowLetterboxing,
-            trailerTransitionProgress = heroGradientProgress,
-            modifier = if (cinematicHeroMode) {
-                heroMediaModifier.graphicsLayer {
-                    // Full-screen cinematic gradient remains part of the
-                    // moving cinematic composition.
-                    translationX =
-                        if (ghostVisible) 0f
-                        else backdropParallaxOffset.value
+        if (
+            cinematicHeroMode ||
+            !uiState.heroTrailerAllowLetterboxing
+        ) {
+            /*
+             * Independent Hero-gradient transition.
+             *
+             * BACKDROP -> TRAILER:
+             * Keep the gradient in BACKDROP MODE for the entire fade. Its opacity
+             * is driven by its own Animatable rather than heroTransitionProgress.
+             * Only after the fade reaches zero do we switch geometry to the
+             * full-strength trailer gradient.
+             *
+             * TRAILER -> BACKDROP:
+             * Cancel any start fade and immediately restore the full-strength
+             * backdrop gradient. This direction already looks correct.
+             */
+            val heroGradientFadeAlpha =
+                remember(heroTrailerUrl) {
+                    androidx.compose.animation.core.Animatable(1f)
                 }
-            } else {
-                // Compact hero-media mask must remain stationary and extend
-                // farther left than the moving backdrop. Otherwise the
-                // backdrop/ghost can slide outside the mask's original bounds
-                // and expose its hard edge.
-                Modifier
-                    .align(Alignment.TopEnd)
-                    .offset(x = 56.dp)
-                    .width(
-                        maxWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION +
+
+            var trailerGradientPresented by
+                remember(heroTrailerUrl) {
+                    mutableStateOf(false)
+                }
+
+            LaunchedEffect(
+                heroTrailerUrl,
+                uiState.heroTrailerAllowLetterboxing,
+                shouldPlayHeroTrailer,
+                heroTrailerFirstFrameRendered
+            ) {
+                if (
+                    !uiState.heroTrailerAllowLetterboxing ||
+                    !shouldPlayHeroTrailer ||
+                    !heroTrailerFirstFrameRendered
+                ) {
+                    heroGradientFadeAlpha.stop()
+                    trailerGradientPresented = false
+                    heroGradientFadeAlpha.snapTo(1f)
+                    return@LaunchedEffect
+                }
+
+                /*
+                 * First rendered trailer frame:
+                 * fade ONLY the still-backdrop gradient.
+                 */
+                trailerGradientPresented = false
+                heroGradientFadeAlpha.snapTo(1f)
+
+                heroGradientFadeAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = 480
+                        )
+                )
+
+                /*
+                 * If this effect reaches completion, trailer presentation is still
+                 * valid. Swap geometry only while invisible, then restore full
+                 * opacity immediately.
+                 */
+                trailerGradientPresented = true
+                heroGradientFadeAlpha.snapTo(1f)
+            }
+
+            ModernHeroGradientLayer(
+                bgColor = bgColor,
+                allowLetterboxing = trailerGradientPresented,
+                trailerTransitionProgress =
+                    if (trailerGradientPresented) 1f else 0f,
+                modifier =
+                    if (cinematicHeroMode) {
+                        heroMediaModifier.graphicsLayer {
+                            translationX =
+                                if (ghostVisible) {
+                                    0f
+                                } else {
+                                    backdropParallaxOffset.value
+                                }
+                            alpha = heroGradientFadeAlpha.value
+                        }
+                    } else {
+                        Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 56.dp)
+                            .width(
+                                maxWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION +
+                                    compactHeroGradientLeftExtension
+                            )
+                            .height(heroBackdropHeight)
+                            .graphicsLayer {
+                                alpha = heroGradientFadeAlpha.value
+                            }
+                    },
+                cinematicMode = cinematicHeroMode,
+                shouldPlayHeroTrailer = trailerGradientPresented,
+                compactContentStartOffset =
+                    if (cinematicHeroMode) {
+                        0.dp
+                    } else {
+                        compactHeroGradientLeftExtension
+                    }
+            )
+        } else {
+            /*
+             * Compact letterboxed gradient presentation.
+             *
+             * ENTRY:
+             * The normal backdrop gradient is INSIDE the backdrop composite
+             * above and therefore fades with the backdrop as one unit.
+             *
+             * PLAYING:
+             * Only the trailer gradient is presented.
+             *
+             * EXIT:
+             * Restore the normal gradient immediately, preserving the
+             * trailer-interruption behavior that already tested correctly.
+             */
+            val compactTrailerGradientPresented =
+                shouldPlayHeroTrailer &&
+                    heroTrailerFirstFrameRendered &&
+                    heroTransitionProgress >= 0.999f
+
+            val compactExitBackdropGradientPresented =
+                !shouldPlayHeroTrailer &&
+                    heroTransitionProgress > 0.001f
+
+            when {
+                compactTrailerGradientPresented -> {
+                    ModernHeroGradientLayer(
+                        bgColor = bgColor,
+                        allowLetterboxing = true,
+                        trailerTransitionProgress = 1f,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 56.dp)
+                            .width(
+                                maxWidth *
+                                    MODERN_HERO_MEDIA_WIDTH_FRACTION +
+                                    compactHeroGradientLeftExtension
+                            )
+                            .height(heroBackdropHeight),
+                        cinematicMode = false,
+                        shouldPlayHeroTrailer = true,
+                        compactContentStartOffset =
                             compactHeroGradientLeftExtension
                     )
-                    .height(heroBackdropHeight)
-            },
-            cinematicMode = cinematicHeroMode,
-            shouldPlayHeroTrailer = shouldPlayHeroTrailer,
-            compactContentStartOffset =
-                if (cinematicHeroMode) {
-                    0.dp
-                } else {
-                    compactHeroGradientLeftExtension
                 }
-        )
+
+                compactExitBackdropGradientPresented -> {
+                    ModernHeroGradientLayer(
+                        bgColor = bgColor,
+                        allowLetterboxing = false,
+                        trailerTransitionProgress = 0f,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .offset(x = 56.dp)
+                            .width(
+                                maxWidth *
+                                    MODERN_HERO_MEDIA_WIDTH_FRACTION +
+                                    compactHeroGradientLeftExtension
+                            )
+                            .height(heroBackdropHeight),
+                        cinematicMode = false,
+                        shouldPlayHeroTrailer = false,
+                        compactContentStartOffset =
+                            compactHeroGradientLeftExtension
+                    )
+                }
+            }
+        }
+
         if (carouselGradientAlpha > 0f) {
             androidx.compose.foundation.layout.Box(
                 modifier = Modifier
@@ -3981,28 +4021,72 @@ fun ModernHomeContent(
                             val itemChanged = focusHolder.activeItemIndex != index
                             if (rowBecameActive || itemChanged) {
                                 val now = System.currentTimeMillis()
-                                val timeSinceLastHeroNav = now - lastHeroNavigationAtMsRef.get()
+                                val previousNavAt =
+                                    lastHeroNavigationAtMsRef.get()
+                                val timeSinceLastHeroNav =
+                                    now - previousNavAt
+
+                                /*
+                                 * Official beta timing:
+                                 *   <130 ms between focus changes -> 400 ms settle
+                                 *   otherwise                       -> 450 ms settle
+                                 */
                                 heroFocusSettleDelayMsRef.set(
-                                    if (lastHeroNavigationAtMsRef.get() != 0L &&
-                                        timeSinceLastHeroNav in 1 until MODERN_HERO_RAPID_NAV_THRESHOLD_MS
-                                    ) MODERN_HERO_RAPID_NAV_SETTLE_MS
-                                    else MODERN_HERO_FOCUS_DEBOUNCE_MS
-                                )
-                                lastHeroNavigationAtMsRef.set(now)
-                                // Synchronous rapid-nav freeze: decide in the same
-                                // snapshot commit as the index change, so no
-                                // intermediate hero update can slip through.
-                                lastHeroFocusChangeAtMsRef.set(now)
-                                if (timeSinceLastHeroNav in 1 until MODERN_HERO_RAPID_NAV_THRESHOLD_MS) {
-                                    if (!heroFrozenForRapidNav && !isFastScrolling && !heroFrozenForSlide) {
-                                        val outgoingRow = currentCarouselRows.firstOrNull { it.key == focusHolder.activeRowKey }
-                                        val outgoingHero = outgoingRow?.items
-                                            ?.getOrNull(focusHolder.activeItemIndex)?.heroPreview
-                                        frozenHeroItem = outgoingHero ?: heroItem
-                                        frozenHeroItemRowKey = focusHolder.activeRowKey ?: heroItemRowKey
+                                    if (
+                                        previousNavAt != 0L &&
+                                        timeSinceLastHeroNav in
+                                            1 until
+                                                MODERN_HERO_RAPID_NAV_THRESHOLD_MS
+                                    ) {
+                                        MODERN_HERO_RAPID_NAV_SETTLE_MS
+                                    } else {
+                                        MODERN_HERO_NORMAL_SETTLE_MS
                                     }
+                                )
+
+                                /*
+                                 * Official beta only treats repeated movement
+                                 * inside the SAME row as rapid horizontal nav.
+                                 * Row changes must not activate this freeze.
+                                 */
+                                val rapidSameRowMove =
+                                    !rowBecameActive &&
+                                        itemChanged &&
+                                        previousNavAt != 0L &&
+                                        timeSinceLastHeroNav in 1..300L
+
+                                if (rapidSameRowMove) {
+                                    if (
+                                        !heroFrozenForRapidNav &&
+                                        !isFastScrolling &&
+                                        !heroFrozenForSlide
+                                    ) {
+                                        val outgoingRow =
+                                            currentCarouselRows.firstOrNull {
+                                                it.key ==
+                                                    focusHolder.activeRowKey
+                                            }
+                                        val outgoingHero =
+                                            outgoingRow?.items
+                                                ?.getOrNull(
+                                                    focusHolder
+                                                        .activeItemIndex
+                                                )
+                                                ?.heroPreview
+
+                                        frozenHeroItem =
+                                            outgoingHero ?: heroItem
+                                        frozenHeroItemRowKey =
+                                            focusHolder.activeRowKey
+                                                ?: heroItemRowKey
+                                    }
+
                                     heroFrozenForRapidNav = true
                                 }
+
+                                lastHeroNavigationAtMsRef.set(now)
+                                lastHeroFocusChangeAtMsRef.set(now)
+
                                 focusHolder.activeRowKey = rowKey
                                 focusHolder.activeItemIndex = index
                                 activeRowKey = rowKey
@@ -4018,45 +4102,10 @@ fun ModernHomeContent(
                                 }
                                 /*
                                  * Continue Watching does not publish a
-                                 * FocusedCatalogSelection. If Trailer A is
-                                 * retained, hand it directly to this focused
-                                 * item's Backdrop B before clearing the
-                                 * outgoing catalog selection.
+                                 * FocusedCatalogSelection. The settled Hero
+                                 * pipeline owns the destination backdrop, so
+                                 * only clear catalog trailer ownership here.
                                  */
-                                val incomingHero =
-                                    activeRow?.items
-                                        ?.getOrNull(index)
-                                        ?.heroPreview
-                                val incomingBackdrop =
-                                    incomingHero?.let { preview ->
-                                        firstNonBlank(
-                                            preview.backdrop,
-                                            preview.imageUrl
-                                        )
-                                    }
-
-                                if (
-                                    retainedHeroTrailerSelection != null &&
-                                    incomingBackdrop != null
-                                ) {
-                                    val samePendingHandoff =
-                                        trailerExitBackdropOverride ==
-                                            incomingBackdrop &&
-                                            (
-                                                trailerExitAwaitingBackdrop ||
-                                                    trailerExitBackdropReady ||
-                                                    trailerExitFadeInProgress
-                                                )
-
-                                    if (!samePendingHandoff) {
-                                        trailerExitBackdropOverride = incomingBackdrop
-                                        trailerExitAwaitingBackdrop = true
-                                        trailerExitBackdropReady = false
-                                        trailerExitAudioMuted = false
-                                        trailerExitFadeInProgress = false
-                                    }
-                                    heroTrailerHoldMuted = false
-                                }
                                 if (focusedCatalogSelection != null) {
                                     focusedCatalogSelection = null
                                 }
