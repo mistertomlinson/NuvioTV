@@ -51,7 +51,8 @@ private const val CW_PROGRESS_DEBOUNCE_MS = 500L
 private data class ProgressSnapshot(
     val items: List<WatchProgress>,
     val nextUpSeeds: List<WatchProgress>,
-    val hasLoadedRemoteProgress: Boolean
+    val hasLoadedRemoteProgress: Boolean,
+    val profileId: Int
 )
 
 private data class ContinueWatchingSettingsSnapshot(
@@ -61,7 +62,8 @@ private data class ContinueWatchingSettingsSnapshot(
     val dismissedNextUp: Set<String>,
     val showUnairedNextUp: Boolean,
     val watchedItemsVersion: Int,  // triggers re-evaluation when watched items change
-    val hasLoadedRemoteProgress: Boolean
+    val hasLoadedRemoteProgress: Boolean,
+    val profileId: Int
 )
 
 /**
@@ -312,12 +314,14 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             combine(
                 watchProgressRepository.allProgress,
                 watchProgressRepository.observeNextUpSeeds(),
-                watchProgressRepository.observeRemoteProgressLoaded()
-            ) { items, nextUpSeeds, hasLoadedRemoteProgress ->
+                watchProgressRepository.observeRemoteProgressLoaded(),
+                profileManager.activeProfileId
+            ) { items, nextUpSeeds, hasLoadedRemoteProgress, profileId ->
                 ProgressSnapshot(
                     items = items,
                     nextUpSeeds = nextUpSeeds,
-                    hasLoadedRemoteProgress = hasLoadedRemoteProgress
+                    hasLoadedRemoteProgress = hasLoadedRemoteProgress,
+                    profileId = profileId
                 )
             },
             combine(
@@ -330,7 +334,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             watchedItemsPreferences.allItems.map { it.size },
             cwPipelineRefreshTrigger
         ) { progressSnapshot, settingsSnapshot, watchedItemsSize, _ ->
-            val (items, nextUpSeeds, hasLoadedRemoteProgress) =
+            val (items, nextUpSeeds, hasLoadedRemoteProgress, profileId) =
                 progressSnapshot
             val (daysCap, dismissedNextUp, showUnairedNextUp) =
                 settingsSnapshot
@@ -341,7 +345,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 dismissedNextUp = dismissedNextUp,
                 showUnairedNextUp = showUnairedNextUp,
                 watchedItemsVersion = watchedItemsSize,
-                hasLoadedRemoteProgress = hasLoadedRemoteProgress
+                hasLoadedRemoteProgress = hasLoadedRemoteProgress,
+                profileId = profileId
             )
         }.debounce(CW_PROGRESS_DEBOUNCE_MS).collectLatest { snapshot ->
             val debug = CwDebugSession()
@@ -355,6 +360,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 val daysCap = snapshot.daysCap
                 val dismissedNextUp = snapshot.dismissedNextUp
                 val showUnairedNextUp = snapshot.showUnairedNextUp
+                val cycleProfileId = snapshot.profileId
                 val cutoffMs =
                     watchProgressRepository.activeProviderContinueWatchingCutoffEpochMs(
                         daysCap = daysCap,
@@ -402,10 +408,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // Load cached CW snapshots for instant render before Trakt responds
                 val (cachedNextUp, cachedInProgress) = coroutineScope {
                     val nextUpDeferred = async(Dispatchers.IO) {
-                        runCatching { cwEnrichmentCache.getNextUpSnapshot(profileManager.activeProfileId.value) }.getOrDefault(emptyList())
+                        runCatching { cwEnrichmentCache.getNextUpSnapshot(cycleProfileId) }.getOrDefault(emptyList())
                     }
                     val inProgressDeferred = async(Dispatchers.IO) {
-                        runCatching { cwEnrichmentCache.getInProgressSnapshot(profileManager.activeProfileId.value) }.getOrDefault(emptyList())
+                        runCatching { cwEnrichmentCache.getInProgressSnapshot(cycleProfileId) }.getOrDefault(emptyList())
                     }
                     nextUpDeferred.await() to inProgressDeferred.await()
                 }
@@ -979,6 +985,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                         discoveredOlderNextUpItems.addAll(itemsToInject)
                                     }
                                     _uiState.update { state ->
+                                        if (profileManager.activeProfileId.value != cycleProfileId) {
+                                            return@update state
+                                        }
                                         val existingContentIds = state.continueWatchingItems
                                             .map {
                                                 when (it) {
@@ -1001,9 +1010,12 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                             }
                                         state.copy(continueWatchingItems = merged.stableCwOrdered())
                                     }
-                                    // Persist updated CW snapshot
-                                    viewModelScope.launch(Dispatchers.IO) {
-                                        val currentItems = _uiState.value.continueWatchingItems
+                                    // Persist only the state owned by this CW cycle.
+                                    val saveProfileId = cycleProfileId
+                                    if (profileManager.activeProfileId.value == saveProfileId) {
+                                        val saveItems = _uiState.value.continueWatchingItems.toList()
+                                        viewModelScope.launch(Dispatchers.IO) {
+                                            val currentItems = saveItems
                                         val brokenUrls = com.nuvio.tv.ui.components.brokenImageUrls
                                         val nextUpSnap = currentItems.mapNotNull { item ->
                                             val nu = item as? ContinueWatchingItem.NextUp ?: return@mapNotNull null
@@ -1022,7 +1034,13 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                                 seedEpisode = info.seedEpisode, contentLanguage = info.contentLanguage
                                             )
                                         }
-                                        runCatching { cwEnrichmentCache.saveNextUpSnapshot(nextUpSnap, profileId = profileManager.activeProfileId.value) }
+                                            runCatching {
+                                                cwEnrichmentCache.saveNextUpSnapshot(
+                                                    nextUpSnap,
+                                                    profileId = saveProfileId
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1155,9 +1173,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
 
                 // Save lightweight CW snapshot to disk immediately so cache stays fresh
                 // even if enrichment is cancelled by collectLatest.
-                val enrichmentSnapshotProfileId = profileManager.activeProfileId.value
-                viewModelScope.launch(Dispatchers.IO) {
-                    val currentItems = _uiState.value.continueWatchingItems
+                val enrichmentSnapshotProfileId = cycleProfileId
+                if (profileManager.activeProfileId.value == enrichmentSnapshotProfileId) {
+                    val enrichmentSnapshotItems = normalItems.toList()
+                    viewModelScope.launch(Dispatchers.IO) {
+                        val currentItems = enrichmentSnapshotItems
                     val brokenUrls = com.nuvio.tv.ui.components.brokenImageUrls
                     val nextUpSnap = currentItems.mapNotNull { item ->
                         val nu = item as? ContinueWatchingItem.NextUp ?: return@mapNotNull null
@@ -1191,8 +1211,21 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             contentLanguage = ip.contentLanguage
                         )
                     }
-                    runCatching { cwEnrichmentCache.saveNextUpSnapshot(nextUpSnap, force = true, profileId = enrichmentSnapshotProfileId) }
-                    runCatching { cwEnrichmentCache.saveInProgressSnapshot(ipSnap, force = true, profileId = enrichmentSnapshotProfileId) }
+                        runCatching {
+                            cwEnrichmentCache.saveNextUpSnapshot(
+                                nextUpSnap,
+                                force = true,
+                                profileId = enrichmentSnapshotProfileId
+                            )
+                        }
+                        runCatching {
+                            cwEnrichmentCache.saveInProgressSnapshot(
+                                ipSnap,
+                                force = true,
+                                profileId = enrichmentSnapshotProfileId
+                            )
+                        }
+                    }
                 }
 
                 // Refresh home screen channel with lightweight data immediately.
