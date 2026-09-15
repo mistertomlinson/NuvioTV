@@ -862,6 +862,25 @@ fun ModernHomeContent(
         }
     }
 
+    /*
+     * Cache the canonical top row's catalog focus keys alongside its backdrop
+     * identities. Horizontal trailer handoff can then identify a same-top-row
+     * move with O(1) set membership instead of scanning row contents on D-pad
+     * focus changes.
+     */
+    val canonicalTopRowFocusKeys = remember(carouselRows) {
+        buildSet {
+            carouselRows
+                .firstOrNull()
+                ?.items
+                ?.forEach { item ->
+                    (item.payload as? ModernPayload.Catalog)
+                        ?.focusKey
+                        ?.let(::add)
+                }
+        }
+    }
+
     val uiCaches = remember(uiState.homeLoadSessionId) { ModernHomeUiCaches() }
     val focusedItemByRow = uiCaches.focusedItemByRow
     val itemFocusRequesters = uiCaches.itemFocusRequesters
@@ -1019,6 +1038,15 @@ fun ModernHomeContent(
     var focusedCatalogSelection by remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     var expandedCatalogFocusKey by remember { mutableStateOf<String?>(null) }
+
+    /*
+     * When Trailer A exits because focus moved horizontally within the
+     * canonical top row, the backdrop underneath should switch directly to B.
+     * The trailer itself still owns the normal 480 ms visual fade.
+     */
+    var instantTopRowBackdropSwapFocusKey by remember {
+        mutableStateOf<String?>(null)
+    }
 
     /*
      * Trailer ownership remains separate from current focus so an
@@ -1311,6 +1339,27 @@ fun ModernHomeContent(
             }
 
             navigationReachedNewSelection -> {
+                val outgoingFocusKey =
+                    outgoingTrailerSelection?.focusKey
+                val incomingFocusKey =
+                    incomingSelection?.focusKey
+
+                val outgoingWasTopRow =
+                    outgoingFocusKey?.let {
+                        it in canonicalTopRowFocusKeys
+                    } == true
+                val incomingIsTopRow =
+                    incomingFocusKey?.let {
+                        it in canonicalTopRowFocusKeys
+                    } == true
+
+                instantTopRowBackdropSwapFocusKey =
+                    if (outgoingWasTopRow && incomingIsTopRow) {
+                        incomingFocusKey
+                    } else {
+                        null
+                    }
+
                 retainedHeroTrailerSelection = null
                 heroTrailerHoldMuted = false
             }
@@ -2438,7 +2487,10 @@ fun ModernHomeContent(
         val heroTransitionProgress by animateFloatAsState(
             targetValue = heroTransitionTarget,
             animationSpec = tween(durationMillis = 480),
-            label = "heroBackdropTrailerCrossfadeProgress"
+            label = "heroBackdropTrailerCrossfadeProgress",
+            finishedListener = {
+                instantTopRowBackdropSwapFocusKey = null
+            }
         )
 
         val heroBackdropAlpha =
@@ -2719,6 +2771,13 @@ fun ModernHomeContent(
         // Box scopes, where Compose's DSL marker hides the implicit receiver.
         val compactHeroAvailableWidth = maxWidth
 
+        val instantTopRowTrailerExitBackdropSwap =
+            instantTopRowBackdropSwapFocusKey != null &&
+                focusedCatalogSelection?.focusKey ==
+                    instantTopRowBackdropSwapFocusKey &&
+                heroTransitionTarget == 0f &&
+                heroTransitionProgress > 0.001f
+
         if (
             cinematicHeroMode ||
             !uiState.heroTrailerAllowLetterboxing
@@ -2727,7 +2786,7 @@ fun ModernHomeContent(
                 heroBackdrop = heroBackdrop,
                 heroBackdropIsPosterFallback = heroBackdropIsPosterFallback,
                 backdropCrossfadeDuration =
-                    if (isPlatformTransitioning) 0 else 400,
+                    if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap) 0 else 400,
                 heroBackdropAlpha = heroBackdropAlpha,
                 parallaxOffsetX = backdropParallaxOffset.value,
                 cinematicMode = cinematicHeroMode,
@@ -2831,7 +2890,7 @@ fun ModernHomeContent(
                     heroBackdropIsPosterFallback =
                         heroBackdropIsPosterFallback,
                     backdropCrossfadeDuration =
-                        if (isPlatformTransitioning) 0 else 400,
+                        if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap) 0 else 400,
 
                     // The parent owns the backdrop + gradient fade.
                     heroBackdropAlpha = 1f,
