@@ -451,10 +451,65 @@ class InAppYouTubeExtractor @Inject constructor() {
             Log.d(TAG, "Dropped " + (adaptiveVideo.size - decodableVideo.size) +
                 " undecodable video candidates of " + adaptiveVideo.size)
         }
-        val bestVideo = pickBestForClient(
-            decodableVideo.ifEmpty { adaptiveVideo },
-            PREFERRED_SEPARATE_CLIENT
-        )
+
+        val selectableVideo =
+            decodableVideo.ifEmpty { adaptiveVideo }
+
+        val preferredVideo =
+            pickBestForClient(
+                selectableVideo,
+                PREFERRED_SEPARATE_CLIENT
+            )
+
+        /*
+         * Preserve the preferred high-quality client, including 4K.
+         *
+         * Exception: some Android hardware decoders advertise support for
+         * high-level AVC streams but silently fail to render them. When the
+         * preferred candidate is AVC Level 5.0+ and another already-decodable
+         * stream exists at the SAME resolution and at least the SAME frame
+         * rate using a different codec, use that equivalent instead.
+         *
+         * This is stream/capability based — no device or chipset exceptions.
+         */
+        val bestVideo =
+            preferredVideo?.let { preferred ->
+                val highLevelAvc =
+                    (preferred.codecs.startsWith("avc1") ||
+                        preferred.codecs.startsWith("avc3")) &&
+                        ((avcLevelConstant(preferred.codecs) ?: 0) >= 16384)
+
+                if (highLevelAvc) {
+                    val equivalentNonAvc =
+                        sortCandidates(selectableVideo)
+                            .firstOrNull { candidate ->
+                                candidate.height == preferred.height &&
+                                    candidate.fps >= preferred.fps &&
+                                    !candidate.codecs.startsWith("avc1") &&
+                                    !candidate.codecs.startsWith("avc3")
+                            }
+
+                    if (equivalentNonAvc != null) {
+                        Log.d(
+                            TAG,
+                            "COMPAT_EQUIVALENT replacing " +
+                                "client=${preferred.client} itag=${preferred.itag} " +
+                                "h=${preferred.height} fps=${preferred.fps} " +
+                                "codecs=${preferred.codecs} with " +
+                                "client=${equivalentNonAvc.client} " +
+                                "itag=${equivalentNonAvc.itag} " +
+                                "h=${equivalentNonAvc.height} " +
+                                "fps=${equivalentNonAvc.fps} " +
+                                "codecs=${equivalentNonAvc.codecs}"
+                        )
+                        equivalentNonAvc
+                    } else {
+                        preferred
+                    }
+                } else {
+                    preferred
+                }
+            }
         val bestAudio = pickBestForClient(adaptiveAudio, PREFERRED_SEPARATE_CLIENT)
         Log.d(TAG, "SELECTED video itag=" + (bestVideo?.itag ?: "none") +
             " h=" + (bestVideo?.height ?: -1) + " codecs=" + (bestVideo?.codecs ?: "none") +
