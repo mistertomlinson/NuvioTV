@@ -258,22 +258,75 @@ private fun ModernCatalogRowItem(
         LocalSidebarFocusRestoreActive.current
 
     /*
-     * If this exact expanded card was ALREADY playing when the Legacy sidebar
-     * opened, preserve its expansion/player ownership through both the visible
-     * drawer close animation and the exact-focus restoration.
+     * The Legacy sidebar's exact-focus restoration can briefly leave the
+     * originating LazyRow scrolling after the parent focus handoff itself has
+     * completed. Right-edge / anchored cards are especially likely to do this
+     * because restoring focus can re-seat the row horizontally.
      *
-     * Focus return can briefly put the LazyRow into isScrollInProgress, which
-     * makes effectiveExpandEnabled/effectiveAutoplayEnabled false. That must
-     * not tear down a trailer we explicitly promised to preserve.
+     * Keep the EXISTING sidebar trailer handoff armed until this row's own
+     * autoplay gate has recovered. effectiveAutoplayEnabled is false while
+     * isRowScrolling, so its return to true is the row-local signal that the
+     * restore-induced scroll has actually settled.
+     */
+    var preserveExpandedCardThroughSidebarSettle by remember(focusKey) {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(
+        isSidebarExpanded,
+        preserveSidebarTrailerPlayback,
+        sidebarFocusRestoreActive,
+        effectiveAutoplayEnabled,
+        expandedCatalogFocusKey
+    ) {
+        if (expandedCatalogFocusKey != focusKey) {
+            preserveExpandedCardThroughSidebarSettle = false
+            return@LaunchedEffect
+        }
+
+        if (
+            preserveSidebarTrailerPlayback &&
+            (
+                isSidebarExpanded ||
+                    sidebarFocusRestoreActive
+            )
+        ) {
+            preserveExpandedCardThroughSidebarSettle = true
+            return@LaunchedEffect
+        }
+
+        /*
+         * Do not release while the row's scroll gate is still suppressing
+         * autoplay. Once it becomes true again, normal playback owns the card
+         * and the temporary sidebar handoff can disappear without a teardown.
+         */
+        if (
+            !isSidebarExpanded &&
+            !sidebarFocusRestoreActive &&
+            effectiveAutoplayEnabled
+        ) {
+            preserveExpandedCardThroughSidebarSettle = false
+        }
+    }
+
+    /*
+     * If this exact expanded card was ALREADY playing when the Legacy sidebar
+     * opened, preserve its expansion/player ownership through the visible
+     * drawer, exact-focus restoration, and any row-local settling that follows.
      */
     val preserveExpandedCardForSidebarHandoff =
         trailerPlaybackTarget ==
             FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
             expandedCatalogFocusKey == focusKey &&
-            preserveSidebarTrailerPlayback &&
             (
-                isSidebarExpanded ||
-                    sidebarFocusRestoreActive
+                (
+                    preserveSidebarTrailerPlayback &&
+                    (
+                        isSidebarExpanded ||
+                            sidebarFocusRestoreActive
+                    )
+                ) ||
+                    preserveExpandedCardThroughSidebarSettle
             )
 
     val isBackdropExpanded =
@@ -312,6 +365,8 @@ private fun ModernCatalogRowItem(
         focusedPosterBackdropExpandEnabled = effectiveExpandEnabled && !useLandscapePosters,
         isBackdropExpanded = isBackdropExpanded,
         playTrailerInExpandedCard = playTrailerInExpandedCard,
+        preserveExpandedCardVisualForSidebarHandoff =
+            preserveExpandedCardForSidebarHandoff,
         trailerPlaybackTarget = trailerPlaybackTarget,
         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
         trailerPreviewUrl = trailerPreviewUrl,
@@ -1648,7 +1703,25 @@ internal fun ModernRowSection(
         } else rowStartPadding
 
         val useCenteredScroll = false
-        val horizontalBringIntoViewSpec = remember(density, defaultBringIntoViewSpec, useCenteredScroll, screenWidthPx, numberedRowStartPadding) {
+
+        /*
+         * The Legacy sidebar restores actual focus directly to the previously
+         * focused poster. That focus event must not reposition an already-
+         * positioned LazyRow. This is the same policy used by the existing
+         * pendingRowFocus suppressBringIntoView handoffs.
+         */
+        val suppressSidebarRestoreBringIntoView =
+            !LocalSidebarExpanded.current &&
+                LocalSidebarFocusRestoreActive.current
+
+        val horizontalBringIntoViewSpec = remember(
+            density,
+            defaultBringIntoViewSpec,
+            useCenteredScroll,
+            screenWidthPx,
+            numberedRowStartPadding,
+            suppressSidebarRestoreBringIntoView
+        ) {
             // Numbered rows include leading space for the overlapping number.
             // Preserve that natural position instead of pulling the poster
             // left to the non-numbered row margin.
@@ -1672,8 +1745,11 @@ internal fun ModernRowSection(
                     containerSize: Float
                 ): Float {
                     if (
-                        pendingRowFocus.suppressBringIntoView &&
-                        pendingRowFocus.key == row.key
+                        suppressSidebarRestoreBringIntoView ||
+                        (
+                            pendingRowFocus.suppressBringIntoView &&
+                            pendingRowFocus.key == row.key
+                        )
                     ) {
                         return 0f
                     }
@@ -1714,11 +1790,34 @@ internal fun ModernRowSection(
         if (canExpand) {
             androidx.compose.runtime.LaunchedEffect(expandedCatalogFocusKey) {
                 val key = expandedCatalogFocusKey ?: return@LaunchedEffect
-                val expandedItem = row.items.firstOrNull {
+                val expandedItemIndex = row.items.indexOfFirst {
                     (it.payload as? ModernPayload.Catalog)?.focusKey == key
-                } ?: return@LaunchedEffect
+                }
+                if (expandedItemIndex < 0) return@LaunchedEffect
+
+                val expandedItem = row.items[expandedItemIndex]
+
+                /*
+                 * Normal catalog rows use item.key as their LazyRow identity,
+                 * so preserve the existing key-based lookup unchanged.
+                 *
+                 * My List intentionally uses generation-scoped slot keys to
+                 * protect dynamic add/remove/reorder behavior. Its LazyRow key
+                 * therefore differs from expandedItem.key, so use the current
+                 * row index only for that row's layout lookup.
+                 *
+                 * This does NOT change My List's LazyRow keys, item identity,
+                 * provider data, focus keys, or Trakt/Simkl synchronization.
+                 */
                 val info = rowListState.layoutInfo.visibleItemsInfo
-                    .firstOrNull { it.key == expandedItem.key } ?: return@LaunchedEffect
+                    .firstOrNull { visibleItem ->
+                        if (row.key == HomeViewModel.MY_LIST_CATALOG_KEY) {
+                            visibleItem.index == expandedItemIndex
+                        } else {
+                            visibleItem.key == expandedItem.key
+                        }
+                    }
+                    ?: return@LaunchedEffect
                 val cardWidthRestPx = with(density) { modernCatalogCardWidth.toPx() }
                 val expandedWidthPx = with(density) { (modernCatalogCardHeight * (16f / 9f)).toPx() }
                 val marginPx = with(density) { rowStartPadding.roundToPx() }.toFloat()
@@ -2172,6 +2271,7 @@ private fun ModernCarouselCard(
     focusedPosterBackdropExpandEnabled: Boolean,
     isBackdropExpanded: Boolean,
     playTrailerInExpandedCard: Boolean,
+    preserveExpandedCardVisualForSidebarHandoff: Boolean,
     trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     focusedPosterBackdropTrailerMuted: Boolean,
     trailerPreviewUrl: String?,
@@ -2258,7 +2358,28 @@ private fun ModernCarouselCard(
             (!isSidebarExpanded || preserveSidebarTrailerPlayback)
     }
 
-    val targetCardWidth = if (focusedPosterBackdropExpandEnabled && effectiveIsExpanded) {
+    /*
+     * Sidebar focus restoration may temporarily disable the row's normal
+     * expansion gate while an already-expanded card is being preserved.
+     *
+     * Keep only the card's existing visual width alive during that handoff.
+     * Do NOT feed this back into focusedPosterBackdropExpandEnabled: that flag
+     * also controls the end-of-row anchored-scroll machinery, and re-enabling
+     * it during focus restoration can reposition the LazyRow.
+     */
+    val preserveExpandedWidthForSidebarHandoff =
+        preserveExpandedCardVisualForSidebarHandoff &&
+            !useLandscapePosters &&
+            isBackdropExpanded &&
+            playTrailerInExpandedCard
+
+    val targetCardWidth = if (
+        (
+            focusedPosterBackdropExpandEnabled ||
+                preserveExpandedWidthForSidebarHandoff
+        ) &&
+        effectiveIsExpanded
+    ) {
         expandedCardWidth
     } else {
         cardWidth
@@ -2268,7 +2389,10 @@ private fun ModernCarouselCard(
     // Unfocused, unexpanded cards snap directly to cardWidth — no animation state,
     // no per-frame Choreographer callback, no row remeasure.
     val animatedCardWidthBase by if (
-        focusedPosterBackdropExpandEnabled &&
+        (
+            focusedPosterBackdropExpandEnabled ||
+                preserveExpandedWidthForSidebarHandoff
+        ) &&
         (isFocused || isBackdropExpanded || effectiveIsExpanded)
     ) {
         animateDpAsState(

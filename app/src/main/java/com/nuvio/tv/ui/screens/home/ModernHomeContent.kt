@@ -113,6 +113,7 @@ import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalHomeHeroTrailerPlaying
 import com.nuvio.tv.LocalPreserveSidebarTrailerPlayback
+import com.nuvio.tv.LocalSidebarFocusRestoreActive
 import com.nuvio.tv.LocalContentFocusRequester
 import com.nuvio.tv.LocalCarouselFocusRequester
 import com.nuvio.tv.LocalIsScrolling
@@ -201,6 +202,8 @@ fun ModernHomeContent(
         LocalHomeHeroTrailerPlaying.current
     val preserveSidebarTrailerPlayback =
         LocalPreserveSidebarTrailerPlayback.current
+    val sidebarFocusRestoreActive =
+        LocalSidebarFocusRestoreActive.current
     val homePopupGlassEnvironment = LocalHomePopupGlassEnvironment.current
     val suppressFocusedPosterAutoplayForOptions =
         shouldSuppressFocusedPosterAutoplayForPopup(
@@ -1124,6 +1127,24 @@ fun ModernHomeContent(
     // change logic already handles starting the trailer on the newly focused item.
     var expansionInteractionNonce by remember { mutableIntStateOf(0) }
 
+    /*
+     * Once a playing trailer elects to survive a sidebar session, retain that
+     * ownership through the complete exact-focus handoff. Do not infer the
+     * handoff from scroll activity: some restores legitimately produce no
+     * scroll at all.
+     */
+    var preserveSidebarTrailerThroughFocusReturn by remember {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(isSidebarExpanded, preserveSidebarTrailerPlayback) {
+        if (preserveSidebarTrailerPlayback) {
+            preserveSidebarTrailerThroughFocusReturn = true
+        } else if (isSidebarExpanded) {
+            preserveSidebarTrailerThroughFocusReturn = false
+        }
+    }
+
     // Collapse expanded card and stop trailer when app goes to background.
     // Delay the state reset slightly so the app has already backgrounded before
     // any recomposition occurs — prevents visible collapse animation on home press.
@@ -1145,9 +1166,10 @@ fun ModernHomeContent(
         uiState.focusedPosterBackdropExpandDelaySeconds,
         isVerticalRowsScrolling,
         isSidebarExpanded,
+        preserveSidebarTrailerPlayback,
+        sidebarFocusRestoreActive,
         suppressFocusedPosterAutoplayForOptions
     ) {
-
         /*
          * Sidebar time must not count toward the trailer delay. If a trailer
          * was already actively playing when the translucent sidebar opened,
@@ -1156,11 +1178,40 @@ fun ModernHomeContent(
          * for the sidebar's entire lifetime and restart the full delay after
          * focus returns to Home.
          */
+        /*
+         * Preserve the exact same expanded trailer through the entire Legacy
+         * sidebar handoff. LocalSidebarFocusRestoreActive is authoritative;
+         * vertical-scroll state is only an additional settle signal, not the
+         * thing that decides whether a restoration happened.
+         */
+        val sameSidebarTrailerOwner =
+            expandedCatalogFocusKey != null &&
+                focusedCatalogSelection?.focusKey ==
+                    expandedCatalogFocusKey
+
         if (
-            !isSidebarExpanded &&
-            preserveSidebarTrailerPlayback &&
-            expandedCatalogFocusKey != null
+            sameSidebarTrailerOwner &&
+            (
+                preserveSidebarTrailerPlayback ||
+                    preserveSidebarTrailerThroughFocusReturn
+            )
         ) {
+            if (
+                isSidebarExpanded ||
+                preserveSidebarTrailerPlayback ||
+                sidebarFocusRestoreActive ||
+                isVerticalRowsScrolling
+            ) {
+                return@LaunchedEffect
+            }
+
+            /*
+             * The drawer is gone, exact focus has returned, and any vertical
+             * layout settlement has finished. Disarm the temporary latch but
+             * preserve this final effect pass too, so ownership transfers back
+             * to normal autoplay without a one-frame teardown.
+             */
+            preserveSidebarTrailerThroughFocusReturn = false
             return@LaunchedEffect
         }
 

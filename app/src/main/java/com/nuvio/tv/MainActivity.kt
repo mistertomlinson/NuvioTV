@@ -903,6 +903,15 @@ private fun LegacySidebarScaffold(
         if (!restoredExactItem) {
             runCatching { contentFocusRequester.requestFocus() }
         }
+
+        /*
+         * requestFocus() completes before LazyRow/LazyColumn bring-into-view
+         * settlement necessarily finishes. Keep the existing restore-active
+         * handoff alive across the following layout frames so Home can suppress
+         * restore-induced scrolling without affecting normal navigation.
+         */
+        repeat(2) { withFrameNanos { } }
+
         preserveSidebarTrailerPlayback = false
         pendingContentFocusTransfer = false
     }
