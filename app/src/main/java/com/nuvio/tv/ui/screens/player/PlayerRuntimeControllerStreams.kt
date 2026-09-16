@@ -5,6 +5,7 @@ import com.nuvio.tv.core.debrid.DirectDebridPlayableResult
 import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
+import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.domain.model.AddonStreams
@@ -857,6 +858,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
             }
 
             val timeoutSeconds = playerSettings.streamAutoPlayTimeoutSeconds
+            val selectionReady = kotlinx.coroutines.CompletableDeferred<Unit>()
 
             val innerJob = scope.launch {
                 streamRepository.getStreamsFromAllAddons(
@@ -869,35 +871,52 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                         is NetworkResult.Success -> {
                             lastSuccessData = result.data
                             if (timeoutElapsed && !autoSelectTriggered) {
-                                autoSelectTriggered = true
-                                selectedStream = trySelectStream(result.data)
+                                val candidate = trySelectStream(result.data)
+                                if (candidate != null) {
+                                    selectedStream = candidate
+                                    autoSelectTriggered = true
+                                    selectionReady.complete(Unit)
+                                }
                             }
                         }
                         is NetworkResult.Error -> lastError = result
                         NetworkResult.Loading -> Unit
                     }
                 }
+
                 if (!autoSelectTriggered) {
-                    autoSelectTriggered = true
-                    lastSuccessData?.let { selectedStream = trySelectStream(it) }
+                    val candidate = lastSuccessData?.let(::trySelectStream)
+                    if (candidate != null) {
+                        selectedStream = candidate
+                        autoSelectTriggered = true
+                    }
                 }
+
+                selectionReady.complete(Unit)
             }
 
             val timeoutMs = timeoutSeconds * 1_000L
-            if (timeoutMs > 0L && timeoutSeconds < 11) {
+            if (PlayerSettings.isBoundedTimeout(timeoutSeconds)) {
                 delay(timeoutMs)
-                timeoutElapsed = true
-                if (!autoSelectTriggered && lastSuccessData != null) {
+            }
+            timeoutElapsed = true
+
+            if (!autoSelectTriggered && lastSuccessData != null) {
+                val candidate = trySelectStream(lastSuccessData)
+                if (candidate != null) {
+                    selectedStream = candidate
                     autoSelectTriggered = true
-                    selectedStream = trySelectStream(lastSuccessData!!)
+                    selectionReady.complete(Unit)
                 }
-                if (selectedStream != null) {
-                    innerJob.cancel()
-                } else {
-                    innerJob.join()
-                }
+            }
+
+            if (selectedStream == null && !innerJob.isCompleted) {
+                selectionReady.await()
+            }
+
+            if (selectedStream != null) {
+                innerJob.cancel()
             } else {
-                timeoutElapsed = true
                 innerJob.join()
             }
 
