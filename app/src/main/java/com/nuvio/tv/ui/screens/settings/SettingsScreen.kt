@@ -236,6 +236,7 @@ fun SettingsScreen(
     var pendingContentFocusCategory by remember { mutableStateOf<SettingsCategory?>(null) }
     var pendingContentFocusRequestId by remember { mutableLongStateOf(0L) }
     var allowDetailAutofocus by remember { mutableStateOf(false) }
+    var detailHasFocus by remember { mutableStateOf(false) }
 
     val focusManager = LocalFocusManager.current
 
@@ -265,6 +266,16 @@ fun SettingsScreen(
             focusManager.moveFocus(FocusDirection.Right)
         }
         pendingContentFocusCategory = null
+    }
+
+    BackHandler(enabled = detailHasFocus) {
+        allowDetailAutofocus = false
+        val requested = railFocusRequesters[railReturnFocusCategory]?.let { requester ->
+            runCatching { requester.requestFocus() }.isSuccess
+        } ?: false
+        if (!requested) {
+            runCatching { railContainerFocusRequester.requestFocus() }
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -381,6 +392,7 @@ fun SettingsScreen(
                             }
                         }
                         .onFocusChanged { state ->
+                            detailHasFocus = state.hasFocus
                             if (state.hasFocus && !allowDetailAutofocus) {
                                 railFocusRequesters[selectedCategory]?.let { requester ->
                                     runCatching { requester.requestFocus() }
