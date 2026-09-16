@@ -236,9 +236,6 @@ private data class MainUiPrefs(
     val theme: AppTheme = AppTheme.WHITE,
     val font: AppFont = AppFont.INTER,
     val hasChosenLayout: Boolean? = null,
-    val sidebarCollapsed: Boolean = false,
-    val modernSidebarEnabled: Boolean = false,
-    val modernSidebarBlurPref: Boolean = false,
     val cardDepthStyle: CardDepthStyle = CardDepthStyle()
 )
 
@@ -397,22 +394,15 @@ class MainActivity : ComponentActivity() {
                     themeDataStore.selectedTheme,
                     themeDataStore.selectedFont,
                     layoutPreferenceDataStore.hasChosenLayout,
-                    layoutPreferenceDataStore.sidebarCollapsedByDefault,
-                    layoutPreferenceDataStore.modernSidebarEnabled,
-                ) { theme, font, hasChosenLayout, sidebarCollapsed, modernSidebarEnabled ->
+                ) { theme, font, hasChosenLayout ->
                     MainUiPrefs(
                         theme = theme,
                         font = font,
                         hasChosenLayout = hasChosenLayout,
-                        sidebarCollapsed = sidebarCollapsed,
-                        modernSidebarEnabled = modernSidebarEnabled,
                     )
-                }.combine(layoutPreferenceDataStore.modernSidebarBlurEnabled) { prefs, modernSidebarBlurPref ->
-                    prefs.copy(modernSidebarBlurPref = modernSidebarBlurPref)
+                }.combine(layoutPreferenceDataStore.cardDepthStyle) { prefs, cardDepthStyle ->
+                    prefs.copy(cardDepthStyle = cardDepthStyle)
                 }
-                  .combine(layoutPreferenceDataStore.cardDepthStyle) { prefs, cardDepthStyle ->
-                      prefs.copy(cardDepthStyle = cardDepthStyle)
-                  }
             }
             val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
 
@@ -551,11 +541,12 @@ class MainActivity : ComponentActivity() {
                         )
                         return@Surface
                     }
-                    val sidebarCollapsed = mainUiPrefs.sidebarCollapsed
-                    val modernSidebarEnabled = mainUiPrefs.modernSidebarEnabled
-                    val modernSidebarBlurEnabled =
-                        mainUiPrefs.modernSidebarBlurPref && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-                    val hideBuiltInHeadersForFloatingPill = modernSidebarEnabled && !sidebarCollapsed
+                    // Nuvio Enhanced uses one supported sidebar configuration:
+                    // the polished collapsed legacy sidebar.
+                    val sidebarCollapsed = true
+                    val modernSidebarEnabled = false
+                    val modernSidebarBlurEnabled = false
+                    val hideBuiltInHeadersForFloatingPill = false
 
                     val startDestination = intentDeepLinkRoute ?: if (layoutChosen) Screen.Home.route else Screen.LayoutSelection.route
 
