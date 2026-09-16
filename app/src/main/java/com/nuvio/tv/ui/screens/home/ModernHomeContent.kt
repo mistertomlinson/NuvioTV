@@ -780,8 +780,8 @@ fun ModernHomeContent(
 
                 /*
                  * Insert all target-neighborhood overlay nodes at alpha zero,
-                 * commit one frame, and fade them with the existing shared
-                 * 150 ms animation.
+                 * commit one frame, and fade them together with Card Depth
+                 * over the shared 500 ms landing interval.
                  */
                 landingOverlayFadeAlpha
                     .snapTo(0f)
@@ -805,7 +805,7 @@ fun ModernHomeContent(
                                     targetValue = 1f,
                                     animationSpec =
                                         androidx.compose.animation.core.tween(
-                                            durationMillis = 150
+                                            durationMillis = 500
                                         )
                                 )
                         }
