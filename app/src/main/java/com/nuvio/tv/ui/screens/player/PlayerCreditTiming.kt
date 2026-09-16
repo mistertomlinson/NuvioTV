@@ -59,22 +59,28 @@ internal fun PlayerRuntimeController.evaluateCreditTiming(
                     val outroStartMs = introDbIntervals
                         .filter { it.type.equals("outro", ignoreCase = true) }
                         .minOfOrNull { (it.startTime * 1_000.0).toLong() }
-                    _uiState.update {
-                        it.copy(
-                            creditTiming = CreditTimingUiState(
-                                status = CreditTimingStatus.INTRO_DB_AVAILABLE,
-                                creditsStartMs = outroStartMs,
-                                finalCreditsStartMs = outroStartMs
+                    if (outroStartMs != null) {
+                        _uiState.update {
+                            it.copy(
+                                creditTiming = CreditTimingUiState(
+                                    status = CreditTimingStatus.INTRO_DB_AVAILABLE,
+                                    creditsStartMs = outroStartMs,
+                                    finalCreditsStartMs = outroStartMs
+                                )
                             )
-                        )
+                        }
+                        if (shouldUsePostPlayRecommendations(_uiState.value) &&
+                            _uiState.value.postPlayRecommendations.isEmpty() &&
+                            !_uiState.value.isPostPlayRecommendationLoading
+                        ) {
+                            loadPostPlayRecommendations()
+                        }
+                        return@launch
                     }
-                    if (shouldUsePostPlayRecommendations(_uiState.value) &&
-                        _uiState.value.postPlayRecommendations.isEmpty() &&
-                        !_uiState.value.isPostPlayRecommendationLoading
-                    ) {
-                        loadPostPlayRecommendations()
-                    }
-                    return@launch
+                    Log.i(
+                        PlayerRuntimeController.TAG,
+                        "IntroDB has no outro timestamp; continuing credit analysis"
+                    )
                 }
             }
         }

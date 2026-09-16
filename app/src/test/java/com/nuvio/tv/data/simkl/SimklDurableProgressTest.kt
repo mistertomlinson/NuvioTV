@@ -12,7 +12,7 @@ import org.junit.Test
 
 class SimklDurableProgressTest {
     @Test
-    fun `completed progress dismisses stale Simkl playback and removes durable resume`() = runTest {
+    fun `completed progress removes durable resume without dismissing next up`() = runTest {
         val durableProgressStore = mockk<SimklDurableProgressStore>(relaxed = true)
         val progressDismissalStore = mockk<SimklProgressDismissalStore>(relaxed = true)
         val provider = SimklTrackingProgressProvider(
@@ -31,13 +31,8 @@ class SimklDurableProgressTest {
 
         provider.persistDurableProgress(completed)
 
-        coVerify(exactly = 1) {
-            progressDismissalStore.dismiss(
-                contentId = "tt0000099",
-                season = null,
-                episode = null,
-                dismissedAtEpochMs = 500L
-            )
+        coVerify(exactly = 0) {
+            progressDismissalStore.dismiss(any(), any(), any(), any())
         }
         coVerify(exactly = 1) {
             durableProgressStore.removeProgress(
