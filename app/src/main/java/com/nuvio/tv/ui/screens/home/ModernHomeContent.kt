@@ -1801,11 +1801,27 @@ fun ModernHomeContent(
     LaunchedEffect(Unit) {
         kotlinx.coroutines.flow.combine(
             snapshotFlow { Pair(activeRowKey, latestCarouselRows) },
-            isFastScrollingRef
-        ) { pair, scrolling -> Pair(pair, scrolling) }
+            isFastScrollingRef,
+            snapshotFlow {
+                verticalRowListState.isScrollInProgress
+            }
+        ) { pair, fastScrolling, verticalScrolling ->
+            Triple(pair, fastScrolling, verticalScrolling)
+        }
             .debounce(80L)
-            .collectLatest { (pair, isScrolling) ->
-                if (isScrolling) return@collectLatest
+            .collectLatest {
+                (pair, fastScrolling, verticalScrolling) ->
+
+                /*
+                 * A normal one-row BringIntoView spring is not part of the
+                 * custom fast-scroll state. Keep nearby poster decoding and
+                 * cache population out of that animation too; the false
+                 * vertical-scrolling emission schedules the same work after
+                 * the existing idle debounce.
+                 */
+                if (fastScrolling || verticalScrolling) {
+                    return@collectLatest
+                }
 
                 val (rowKey, rows) = pair
                 if (rowKey == null) return@collectLatest
