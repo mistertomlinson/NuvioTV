@@ -172,8 +172,10 @@ private fun PauseMetadataView(
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(logo)
-                            .memoryCacheKey(logo)
                             .decoderFactory(coil.decode.SvgDecoder.Factory())
+                            .transformations(
+                                com.nuvio.tv.ui.util.DarkTitleLogoTransformation
+                            )
                             .crossfade(true)
                             .build(),
                         contentDescription = title,

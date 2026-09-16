@@ -34,7 +34,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
 import coil.request.CachePolicy
-import coil.memory.MemoryCache
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -562,6 +561,9 @@ private fun HeroTitleContent(
             val cleanedUrl = if (it.endsWith('.')) it + "png" else it
             ImageRequest.Builder(context)
                 .data(cleanedUrl)
+                .transformations(
+                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
+                )
                 .crossfade(true)
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .build()
@@ -621,13 +623,11 @@ private fun HeroTitleContent(
                 return@LaunchedEffect
             }
             val cleanedUrl = if (target.endsWith('.')) target + "png" else target
-            val cacheKey = coil.memory.MemoryCache.Key(cleanedUrl)
-            if (imageLoader2.memoryCache?.get(cacheKey) != null) {
-                displayedLogo = target
-                return@LaunchedEffect
-            }
             val preload = ImageRequest.Builder(localContext2)
                 .data(cleanedUrl)
+                .transformations(
+                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
+                )
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .build()
@@ -658,6 +658,9 @@ private fun HeroTitleContent(
                     val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
                     ImageRequest.Builder(localContext2)
                         .data(cleanedUrl)
+                .transformations(
+                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
+                )
                         .crossfade(false)
                         .size(width = logoMaxWidthPx, height = logoHeightPx)
                         .build()

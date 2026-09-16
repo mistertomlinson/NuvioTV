@@ -566,6 +566,9 @@ private fun LeftContentSection(
         logo?.let { image ->
             ImageRequest.Builder(context)
                 .data(image)
+                .transformations(
+                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
+                )
                 .crossfade(false)
                 .build()
         }

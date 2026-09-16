@@ -263,7 +263,9 @@ fun RatingOverlay(
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
                                 .data(logo)
-                                .memoryCacheKey(logo)
+                                .transformations(
+                                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
+                                )
                                 .crossfade(true)
                                 .build(),
                             contentDescription = title,
