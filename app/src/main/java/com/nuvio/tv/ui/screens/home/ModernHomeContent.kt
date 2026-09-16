@@ -188,6 +188,7 @@ fun ModernHomeContent(
     isAtTop: Boolean = true,
     sharedTrailerPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
     carouselGradientAlpha: Float = 0f,
+    platformGradientRevealAlpha: () -> Float = { 1f },
     onCarouselOpenRequested: () -> Unit = {},
     isCarouselFocused: Boolean = false,
     onHeroTrailerPlayingChanged: (Boolean) -> Unit = {},
@@ -3362,6 +3363,7 @@ fun ModernHomeContent(
                     .graphicsLayer {
                         alpha =
                             carouselGradientAlpha *
+                                platformGradientRevealAlpha() *
                                 heroBackdropAlpha
                     }
                     .background(
@@ -3720,6 +3722,19 @@ fun ModernHomeContent(
                         )
                         .height(heroRegionHeight)
                         .wrapContentHeight(align = Alignment.CenterVertically)
+                        /*
+                         * Slightly raise the complete centered hero cluster.
+                         * This applies equally to both Small and Large metadata
+                         * modes without changing their internal dimensions.
+                         */
+                        .offset(
+                            y =
+                                if (uiState.hidePlatformIconsOnRowExitEnabled) {
+                                    (-6).dp
+                                } else {
+                                    0.dp
+                                }
+                        )
                         .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
                 } else {
                     Modifier

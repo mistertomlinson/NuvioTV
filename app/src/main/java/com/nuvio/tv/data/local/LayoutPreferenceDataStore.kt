@@ -102,6 +102,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val fastPlatformScrollKey = booleanPreferencesKey("fast_platform_scroll")
     private val fullWidthIconRowKey = booleanPreferencesKey("full_width_icon_row")
     private val dimIconsOnRowExitKey = booleanPreferencesKey("dim_icons_on_row_exit")
+    private val hidePlatformIconsOnRowExitKey = booleanPreferencesKey("hide_platform_icons_on_row_exit")
     private val heroMetadataLargeKey = booleanPreferencesKey("hero_metadata_large")
     private val showAllCatalogsOnHomeKey = booleanPreferencesKey("show_all_catalogs_on_home")
     private val cachedVisiblePlatformIdsKey = stringPreferencesKey("cached_visible_platform_ids")
@@ -327,6 +328,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val dimIconsOnRowExitEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[dimIconsOnRowExitKey] ?: true
+    }
+
+    val hidePlatformIconsOnRowExitEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[hidePlatformIconsOnRowExitKey] ?: false
     }
 
     val heroMetadataLarge: Flow<Boolean> = profileFlow { prefs ->
@@ -693,6 +698,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setDimIconsOnRowExitEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[dimIconsOnRowExitKey] = enabled
+        }
+    }
+
+    suspend fun setHidePlatformIconsOnRowExitEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[hidePlatformIconsOnRowExitKey] = enabled
         }
     }
 

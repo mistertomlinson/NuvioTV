@@ -233,6 +233,13 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleHidePlatformIconsOnRowExit() {
+        val current = _uiState.value.hidePlatformIconsOnRowExitEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setHidePlatformIconsOnRowExitEnabled(!current)
+        }
+    }
+
     private fun moveCatalog(key: String, direction: Int) {
         val item = _uiState.value.items.find { it.key == key } ?: return
         val memberKeys = if (item.isGroup) item.groupMemberKeys else listOf(key)
@@ -301,9 +308,10 @@ class CatalogOrderViewModel @Inject constructor(
             layoutPreferenceDataStore.showAllCatalogsOnHome,
             layoutPreferenceDataStore.fullWidthIconRowEnabled,
             layoutPreferenceDataStore.fastPlatformScrollEnabled,
-            layoutPreferenceDataStore.dimIconsOnRowExitEnabled
+            layoutPreferenceDataStore.dimIconsOnRowExitEnabled,
+            layoutPreferenceDataStore.hidePlatformIconsOnRowExitEnabled
             ) { args ->
-                // args[12] not available in 12-arg combine — shuffledKeys observed separately
+                // shuffledKeys observed separately
                 val addons = args[0] as List<*>
                 val savedOrderKeys = args[1] as List<*>
                 val disabledKeys = args[2] as List<*>
@@ -320,6 +328,7 @@ class CatalogOrderViewModel @Inject constructor(
                 val fullWidthIconRow = args[9] as Boolean
                 val fastPlatformScroll = args[10] as Boolean
                 val dimIconsOnRowExit = args[11] as Boolean
+                val hidePlatformIconsOnRowExit = args[12] as Boolean
 Triple(
                     Triple(
                         buildOrderedCatalogItems(
@@ -339,7 +348,10 @@ Triple(
                         )
                     ),
                     aggregatePlatforms to showAllOnHome,
-                    Triple(fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit)
+                    Pair(
+                        Triple(fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit),
+                        hidePlatformIconsOnRowExit
+                    )
                 )
             }.combine(layoutPreferenceDataStore.modernLandscapePostersEnabled) { inner, globalLandscape ->
                 inner to globalLandscape
@@ -347,8 +359,9 @@ Triple(
                 outer to hidePlatformName
             }.collectLatest { (outerResult, hidePlatformNameInCatalogTitle) ->
             val (innerResult, globalLandscapePosters) = outerResult
-            val (triple, aggregatePair, fullWidthIconRowTriple) = innerResult
+            val (triple, aggregatePair, platformIconPrefs) = innerResult
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
+                val (fullWidthIconRowTriple, hidePlatformIconsOnRowExit) = platformIconPrefs
                 val (fullWidthIconRow, fastPlatformScroll, dimIconsOnRowExit) = fullWidthIconRowTriple
                 val (orderedItems, useThemeColor, preferenceSnapshot) = triple
                 disabledKeysCache = preferenceSnapshot.disabledKeys
@@ -366,6 +379,7 @@ Triple(
                         fullWidthIconRowEnabled = fullWidthIconRow,
                         fastPlatformScrollEnabled = fastPlatformScroll,
                         dimIconsOnRowExitEnabled = dimIconsOnRowExit,
+                        hidePlatformIconsOnRowExitEnabled = hidePlatformIconsOnRowExit,
                         globalLandscapePostersEnabled = globalLandscapePosters,
                         hidePlatformNameInCatalogTitleEnabled = hidePlatformNameInCatalogTitle,
                         shuffledCatalogKeys = shuffleKeysCache
@@ -650,6 +664,7 @@ data class CatalogOrderUiState(
     val fullWidthIconRowEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
     val dimIconsOnRowExitEnabled: Boolean = false,
+    val hidePlatformIconsOnRowExitEnabled: Boolean = false,
     val hidePlatformNameInCatalogTitleEnabled: Boolean = false,
     val shuffledCatalogKeys: Set<String> = emptySet(),
     val heroMetadataLarge: Boolean = false

@@ -77,6 +77,7 @@ fun StreamingPlatformCarousel(
     visiblePlatformIds: Set<String> = emptySet(),
     isCarouselFocused: Boolean,
     onCarouselFocusChanged: (Boolean) -> Unit,
+    onKeepVisibleForSidebarChanged: (Boolean) -> Unit = {},
     onPlatformSelected: (String) -> Unit,
     onNavigationDirection: (Int) -> Unit = {},
     onDpadHeldChanged: (Boolean) -> Unit = {},
@@ -90,6 +91,8 @@ fun StreamingPlatformCarousel(
         streamingPlatforms.filter { it.id == "home" || visiblePlatformIds.isEmpty() || it.id in visiblePlatformIds }
     }
     val contentFocusRequester = com.nuvio.tv.LocalContentFocusRequester.current
+    val rowFocusRestorer = com.nuvio.tv.LocalRowFocusRestorer.current
+    val sidebarOpenRequest = com.nuvio.tv.LocalSidebarOpenRequest.current
     val scope = rememberCoroutineScope()
 
     var focusedIndex by remember { mutableStateOf(activePlatforms.indexOfFirst { it.id == selectedPlatformId }.coerceAtLeast(0)) }
@@ -131,14 +134,27 @@ fun StreamingPlatformCarousel(
     var holdScrollJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var holdDidMove by remember { mutableStateOf(false) }
 
+    /*
+     * The sidebar can own actual Compose focus while the platform row
+     * remains Home's return target. Preserve the exact focused visual
+     * presentation during that temporary handoff.
+     */
+    var retainFocusedAppearanceForSidebar by remember {
+        mutableStateOf(false)
+    }
+    val showFocusedAppearance =
+        isCarouselFocused || retainFocusedAppearanceForSidebar
+
     // Color
-    val displayIndex = if (isCarouselFocused) focusedIndex else
+    val displayIndex = if (showFocusedAppearance) focusedIndex else
         activePlatforms.indexOfFirst { it.id == selectedPlatformId }.coerceAtLeast(0)
     val focusedPlatform = activePlatforms.getOrNull(displayIndex)
     val targetSolidColor = focusedPlatform?.brandColor ?: Color(0xFF5822B4)
     val animatedSelectorColor by animateColorAsState(targetSolidColor, tween(250), label = "selCol")
     val selectorBoxAlpha by animateFloatAsState(
-        if (isCarouselFocused) 1f else 0.5f, tween(250), label = "selAlpha"
+        if (showFocusedAppearance) 1f else 0.5f,
+        tween(250),
+        label = "selAlpha"
     )
 
     val currentSelectorX by selectorXAnim.asState()
@@ -195,8 +211,18 @@ fun StreamingPlatformCarousel(
             .onGloballyPositioned { containerWidthPx = it.size.width.toFloat() }
             .focusRequester(focusRequester)
             .onFocusChanged { state ->
-                if (!state.isFocused && !state.hasFocus) {
-                    // lost focus entirely
+                /*
+                 * Keep logical carousel focus synchronized with actual Compose
+                 * focus. In particular, Back keeps the carousel active until
+                 * the sidebar really receives focus, avoiding an intermediate
+                 * handoff to the first Home row.
+                 */
+                if (state.isFocused) {
+                    retainFocusedAppearanceForSidebar = false
+                    onCarouselFocusChanged(true)
+                    onKeepVisibleForSidebarChanged(false)
+                } else if (!state.hasFocus) {
+                    onCarouselFocusChanged(false)
                 }
             }
             .focusable()
@@ -272,11 +298,23 @@ fun StreamingPlatformCarousel(
                             true
                         }
                         Key.Back -> {
-                            // Do NOT consume: let Back propagate to the activity-level
-                            // BackHandler, which opens the sidebar. Release carousel
-                            // focus state so the drawer takes over cleanly.
-                            onCarouselFocusChanged(false)
-                            false
+                            /*
+                             * Preserve the carousel as the exact Home return
+                             * target, then invoke the same sidebar-open path
+                             * directly. Consuming Back here prevents Compose
+                             * focus from briefly falling into the first Home
+                             * row before the sidebar receives focus.
+                             *
+                             * onFocusChanged above still marks the carousel
+                             * inactive once the sidebar steals actual focus,
+                             * while the separate visibility hold keeps the
+                             * platform row visually down until focus returns.
+                             */
+                            rowFocusRestorer.value = focusRequester
+                            retainFocusedAppearanceForSidebar = true
+                            onKeepVisibleForSidebarChanged(true)
+                            sidebarOpenRequest()
+                            true
                         }
                         else -> false
                     }
@@ -342,8 +380,8 @@ fun StreamingPlatformCarousel(
                         val iconAlpha by animateFloatAsState(
                             targetValue = when {
                                 !dimOnRowExit -> 1f
-                                !isCarouselFocused && platform.id == selectedPlatformId -> 0.75f
-                                !isCarouselFocused -> 0.35f
+                                !showFocusedAppearance && platform.id == selectedPlatformId -> 0.75f
+                                !showFocusedAppearance -> 0.35f
                                 else -> 1f
                             },
                             animationSpec = tween(200),
@@ -426,8 +464,8 @@ fun StreamingPlatformCarousel(
                             val iconAlpha by animateFloatAsState(
                                 targetValue = when {
                                     !dimOnRowExit -> 1f
-                                    !isCarouselFocused && platform.id == selectedPlatformId -> 0.75f
-                                    !isCarouselFocused -> 0.35f
+                                    !showFocusedAppearance && platform.id == selectedPlatformId -> 0.75f
+                                    !showFocusedAppearance -> 0.35f
                                     else -> 1f
                                 },
                                 animationSpec = tween(200),

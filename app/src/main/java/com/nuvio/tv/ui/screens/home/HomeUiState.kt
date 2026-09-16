@@ -70,6 +70,7 @@ data class HomeUiState(
     val fullWidthIconRowEnabled: Boolean = false,
     val heroMetadataLarge: Boolean = false,
     val dimIconsOnRowExitEnabled: Boolean = false,
+    val hidePlatformIconsOnRowExitEnabled: Boolean = false,
     val showAllCatalogsOnHome: Boolean = false,
     val stableVisiblePlatformIds: Set<String> = emptySet(),
     val blurUnwatchedEpisodes: Boolean = false,

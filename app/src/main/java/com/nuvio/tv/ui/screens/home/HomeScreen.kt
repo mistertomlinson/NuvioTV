@@ -1018,6 +1018,9 @@ private fun ModernHomeRoute(
         }
     }
     var isCarouselFocused by remember { mutableStateOf(false) }
+    var keepPlatformRowVisibleForSidebar by remember {
+        mutableStateOf(false)
+    }
     val aggregatePlatformsEnabled = uiState.aggregateStreamingPlatformsEnabled
     val fullWidthIconRowEnabled = uiState.fullWidthIconRowEnabled
     val heroMetadataLarge = uiState.heroMetadataLarge
@@ -1130,6 +1133,78 @@ private fun ModernHomeRoute(
      */
     val carouselAlpha =
         if (stablePlatformIds.isNotEmpty() && aggregatePlatformsEnabled) 1f else 0f
+
+    /*
+     * Optional focus-only platform chrome.
+     *
+     * Hidden state keeps the carousel in layout/focus traversal so D-pad Up can
+     * still enter it normally; only its rendered position moves above the
+     * screen. The top gradient follows the same reveal target with a slightly
+     * slower independent fade.
+     *
+     * Do not fold heroChromeBackdropAlpha into this animation: Hero Media
+     * trailer transitions already own that separate fade.
+     */
+    val platformRowRevealTarget =
+        if (
+            !uiState.hidePlatformIconsOnRowExitEnabled ||
+            isCarouselFocused ||
+            keepPlatformRowVisibleForSidebar
+        ) {
+            1f
+        } else {
+            0f
+        }
+
+    val platformRowRevealProgress =
+        androidx.compose.animation.core.animateFloatAsState(
+            targetValue = platformRowRevealTarget,
+            animationSpec =
+                androidx.compose.animation.core.tween(
+                    durationMillis = 240,
+                    easing =
+                        androidx.compose.animation.core.FastOutSlowInEasing
+                ),
+            label = "platformRowRevealProgress"
+        )
+
+    val platformRowHiddenOffsetPx =
+        with(androidx.compose.ui.platform.LocalDensity.current) {
+            64.dp.toPx()
+        }
+
+    val platformGradientRevealProgress =
+        androidx.compose.animation.core.animateFloatAsState(
+            targetValue = platformRowRevealTarget,
+            animationSpec =
+                androidx.compose.animation.core.tween(
+                    durationMillis = 400,
+                    easing =
+                        androidx.compose.animation.core.FastOutSlowInEasing
+                ),
+            label = "platformGradientRevealProgress"
+        )
+
+    /*
+     * Keep the platform-row animation read in graphics-layer phase so the
+     * icon slide does not trigger unnecessary composition work.
+     */
+    val platformChromeTranslationY =
+        remember(
+            platformRowRevealProgress,
+            platformRowHiddenOffsetPx
+        ) {
+            {
+                -(1f - platformRowRevealProgress.value) *
+                    platformRowHiddenOffsetPx
+            }
+        }
+
+    val platformGradientRevealAlpha =
+        remember(platformGradientRevealProgress) {
+            { platformGradientRevealProgress.value }
+        }
+
     val platformChromeDrawReported = remember(
         uiState.homeLoadSessionId
     ) {
@@ -1178,6 +1253,8 @@ private fun ModernHomeRoute(
         fullWidthIconRowEnabled = fullWidthIconRowEnabled,
         heroMetadataLarge = heroMetadataLarge,
         carouselGradientAlpha = carouselAlpha,
+        platformGradientRevealAlpha =
+            platformGradientRevealAlpha,
         onHeroTrailerPlayingChanged = { playing ->
             viewModel.setHomeHeroTrailerPlaying(playing)
         },
@@ -1202,7 +1279,20 @@ private fun ModernHomeRoute(
         selectedPlatformId = selectedPlatformId,
         visiblePlatformIds = if (aggregatePlatformsEnabled) stablePlatformIds else emptySet(),
         isCarouselFocused = isCarouselFocused,
-        onCarouselFocusChanged = { isCarouselFocused = it },
+        onCarouselFocusChanged = { focused ->
+            isCarouselFocused = focused
+
+            /*
+             * Once actual focus returns to the carousel, normal focused
+             * visibility takes over and the sidebar-only hold can clear.
+             */
+            if (focused) {
+                keepPlatformRowVisibleForSidebar = false
+            }
+        },
+        onKeepVisibleForSidebarChanged = {
+            keepPlatformRowVisibleForSidebar = it
+        },
         onPlatformSelected = {
             selectedPlatformId = it
         },
@@ -1216,7 +1306,9 @@ private fun ModernHomeRoute(
         },
         focusRequester = carouselFocusRequester,
         fullWidthMode = fullWidthIconRowEnabled,
-        dimOnRowExit = uiState.dimIconsOnRowExitEnabled,
+        dimOnRowExit =
+            uiState.dimIconsOnRowExitEnabled &&
+                !uiState.hidePlatformIconsOnRowExitEnabled,
         modifier = Modifier
             .align(Alignment.TopEnd)
             .fillMaxWidth(if (fullWidthIconRowEnabled) 1f else 0.55f)
@@ -1234,6 +1326,8 @@ private fun ModernHomeRoute(
                 alpha =
                     carouselAlpha *
                         heroChromeBackdropAlpha.floatValue
+                translationY =
+                    platformChromeTranslationY()
             }
     )
     if (showHomeReturnCurtain) {
