@@ -235,6 +235,11 @@ fun MetaDetailsScreen(
     val effectiveAutoplayEnabled by viewModel.effectiveAutoplayEnabled.collectAsStateWithLifecycle(
         initialValue = false
     )
+
+    val fallbackTitleLogoLarge by
+        viewModel.fallbackTitleLogoLarge.collectAsStateWithLifecycle(
+            initialValue = true
+        )
     var restorePlayFocusAfterTrailerBackToken by rememberSaveable { mutableIntStateOf(0) }
 
     BackHandler {
@@ -366,6 +371,7 @@ fun MetaDetailsScreen(
 
                 MetaDetailsContent(
                     meta = meta,
+                    fallbackTitleLogoLarge = fallbackTitleLogoLarge,
                     detailReturnEpisodeFocusRequest = DetailReturnEpisodeFocusRequest(
                         season = returnFocusSeason,
                         episode = returnFocusEpisode
@@ -618,6 +624,7 @@ fun MetaDetailsScreen(
 @Composable
 private fun MetaDetailsContent(
     meta: Meta,
+    fallbackTitleLogoLarge: Boolean,
     detailReturnEpisodeFocusRequest: DetailReturnEpisodeFocusRequest? = null,
     seasons: List<Int>,
     selectedSeason: Int,
@@ -1332,6 +1339,7 @@ private fun MetaDetailsContent(
                 Box(modifier = Modifier.bringIntoViewResponder(heroNoScrollResponder)) {
                     HeroContentSection(
                         meta = meta,
+                        fallbackTitleLogoLarge = fallbackTitleLogoLarge,
                         nextEpisode = nextEpisode,
                         nextToWatch = nextToWatch,
                         onPlayClick = heroPlayClick,

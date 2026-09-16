@@ -47,6 +47,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
@@ -90,6 +91,28 @@ class MetaDetailsViewModel @Inject constructor(
     val effectiveAutoplayEnabled = playerSettingsDataStore.playerSettings
         .map(StreamAutoPlayPolicy::isEffectivelyEnabled)
         .distinctUntilChanged()
+
+    /*
+     * Match Home's canonical fallback-logo geometry exactly.
+     *
+     * Small/Large metadata sizing is configurable only in aggregate-platform
+     * + full-width icon-row mode. Every other Home layout uses Large.
+     */
+    val fallbackTitleLogoLarge =
+        combine(
+            layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
+            layoutPreferenceDataStore.fullWidthIconRowEnabled,
+            layoutPreferenceDataStore.heroMetadataLarge
+        ) { aggregatePlatformsEnabled, fullWidthIconRowEnabled, heroMetadataLarge ->
+            if (
+                aggregatePlatformsEnabled &&
+                fullWidthIconRowEnabled
+            ) {
+                heroMetadataLarge
+            } else {
+                true
+            }
+        }.distinctUntilChanged()
 
     private var idleTimerJob: Job? = null
     private var trailerFetchJob: Job? = null

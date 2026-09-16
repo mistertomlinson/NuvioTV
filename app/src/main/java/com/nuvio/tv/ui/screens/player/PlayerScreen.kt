@@ -125,6 +125,10 @@ fun PlayerScreen(
     onPostPlayRecommendationSelected: ((PostPlayRecommendation, Boolean) -> Unit)? = null
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val fallbackTitleLogoLarge by
+        viewModel.fallbackTitleLogoLarge.collectAsState(
+            initial = true
+        )
     val lifecycleOwner = LocalLifecycleOwner.current
     val containerFocusRequester = remember { FocusRequester() }
     val playPauseFocusRequester = remember { FocusRequester() }
@@ -700,6 +704,7 @@ fun PlayerScreen(
             backdropUrl = uiState.backdrop,
             logoUrl = uiState.logo,
             title = uiState.title,
+            fallbackTitleLogoLarge = fallbackTitleLogoLarge,
             message = uiState.loadingMessage,
             modifier = Modifier
                 .fillMaxSize()
@@ -711,6 +716,7 @@ fun PlayerScreen(
             onClose = { viewModel.onEvent(PlayerEvent.OnDismissPauseOverlay) },
             title = uiState.title,
             logo = uiState.logo,
+            fallbackTitleLogoLarge = fallbackTitleLogoLarge,
             episodeTitle = uiState.currentEpisodeTitle,
             season = uiState.currentSeason,
             episode = uiState.currentEpisode,
@@ -1142,6 +1148,7 @@ fun PlayerScreen(
             visible = uiState.showRatingOverlay,
             logo = uiState.logo,
             title = uiState.title,
+            fallbackTitleLogoLarge = fallbackTitleLogoLarge,
             onRate = { rating ->
                 viewModel.onEvent(PlayerEvent.OnSubmitRating(rating))
             },

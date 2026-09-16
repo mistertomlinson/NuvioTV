@@ -121,6 +121,10 @@ fun StreamScreen(
     val playerPreference by viewModel.playerPreference.collectAsStateWithLifecycle(
         initialValue = PlayerPreference.INTERNAL
     )
+    val fallbackTitleLogoLarge by
+        viewModel.fallbackTitleLogoLarge.collectAsStateWithLifecycle(
+            initialValue = true
+        )
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     var focusedStreamKey by rememberSaveable { mutableStateOf<String?>(null) }
@@ -359,6 +363,7 @@ fun StreamScreen(
                 backdropUrl = uiState.backdrop ?: uiState.poster,
                 logoUrl = uiState.logo,
                 title = uiState.title,
+                fallbackTitleLogoLarge = fallbackTitleLogoLarge,
                 message = if (uiState.directAutoPlayMessage != null) {
                     uiState.directAutoPlayMessage
                 } else {
@@ -375,6 +380,7 @@ fun StreamScreen(
                 LeftContentSection(
                     title = uiState.title,
                     logo = uiState.logo,
+                    fallbackTitleLogoLarge = fallbackTitleLogoLarge,
                     isEpisode = uiState.isEpisode,
                     season = uiState.season,
                     episode = uiState.episode,
@@ -550,6 +556,7 @@ private fun StreamGradientLayer(
 private fun LeftContentSection(
     title: String,
     logo: String?,
+    fallbackTitleLogoLarge: Boolean,
     isEpisode: Boolean,
     season: Int?,
     episode: Int?,
@@ -597,76 +604,30 @@ private fun LeftContentSection(
                     alignment = Alignment.Center
                 )
             } else {
-                // Null-logo title: canonical Caslon treatment. Fit computed at the
-                // landscape poster's title-box geometry so line breaks match the
-                // poster/hero/overlay renditions, then scaled into this screen's
-                // logo slot. lineHeight 1.08x matches StaticLayout's measured
-                // spacing (0.9 multiplier on natural ~1.2x line height).
-                val nlConfiguration = androidx.compose.ui.platform.LocalConfiguration.current
-                val nlCaslonFamily = remember(context) { com.nuvio.tv.ui.theme.buildCaslonFamily(context) }
-                val nlCaslonTypeface = remember(context) {
-                    android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
-                        .setFontVariationSettings("'wght' 300")
-                        .setWeight(300)
-                        .build()
-                }
-                val nlPosterCardWidth = remember(nlConfiguration) {
-                    (nlConfiguration.screenWidthDp.dp / 6.4f) * 1.24f * 1.34f
-                }
-                val nlPosterCardHeight = nlPosterCardWidth * (9f / 16f)
-                val nlRefWidthPx = with(density) { ((nlPosterCardWidth * 0.65f) - 20.dp).toPx() * 0.92f }
-                val nlRefHeightPx = with(density) { (nlPosterCardHeight * 0.40f).toPx() } * 0.92f
-                val nlRefBaseSizePx = with(density) { MaterialTheme.typography.titleMedium.fontSize.toPx() }
-                val nlFitted = remember(title, nlRefWidthPx, nlRefHeightPx) {
-                    val paint = android.text.TextPaint().apply {
-                        typeface = nlCaslonTypeface
-                        isAntiAlias = true
-                    }
-                    var size = nlRefBaseSizePx
-                    val minSize = nlRefBaseSizePx * 0.15f
-                    val widthI = nlRefWidthPx.toInt().coerceAtLeast(1)
-                    while (size > minSize) {
-                        paint.textSize = size
-                        val layout = android.text.StaticLayout.Builder
-                            .obtain(title, 0, title.length, paint, widthI)
-                            .setLineSpacing(0f, 0.9f)
-                            .setIncludePad(false)
-                            .setMaxLines(3)
-                            .setEllipsize(null)
-                            .build()
-                        val fits = layout.lineCount <= 3 && layout.height <= nlRefHeightPx.toInt()
-                        val noOverflow = (0 until layout.lineCount).none { layout.getEllipsisCount(it) > 0 }
-                        if (fits && noOverflow) break
-                        size -= nlRefBaseSizePx * 0.04f
-                    }
-                    size.coerceAtLeast(minSize)
-                }
-                androidx.compose.foundation.layout.BoxWithConstraints(
+                com.nuvio.tv.ui.components.FallbackTitleLogo(
+                    title = title,
+                    geometry =
+                        if (fallbackTitleLogoLarge) {
+                            com.nuvio.tv.ui.components
+                                .FallbackTitleLogoGeometry
+                                .LargeMetadata
+                        } else {
+                            com.nuvio.tv.ui.components
+                                .FallbackTitleLogoGeometry
+                                .SmallMetadata
+                        },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(120.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    val nlBoxWidthPx = with(density) { maxWidth.toPx() }
-                    val nlBoxHeightPx = with(density) { 120.dp.toPx() }
-                    // Scale by width for identical breaks; clamp so 3 reference
-                    // lines never overflow the 120dp slot.
-                    val nlWidthScale = nlBoxWidthPx / nlRefWidthPx
-                    val nlHeightScale = (nlBoxHeightPx * 0.92f) / nlRefHeightPx
-                    val nlScale = minOf(nlWidthScale, nlHeightScale)
-                    val nlFontSp = with(density) { (nlFitted * nlScale).toSp() }
-                    Text(
-                        text = title,
-                        fontFamily = nlCaslonFamily,
-                        fontWeight = FontWeight.Light,
-                        fontSize = nlFontSp,
-                        lineHeight = nlFontSp * 1.08f,
-                        color = NuvioColors.TextPrimary,
-                        textAlign = TextAlign.Center,
-                        maxLines = 3,
-                        modifier = Modifier.width(with(density) { (nlRefWidthPx * nlScale).toDp() })
-                    )
-                }
+                    horizontalAlignment =
+                        com.nuvio.tv.ui.components
+                            .FallbackTitleLogoHorizontalAlignment
+                            .Center,
+                    verticalAlignment =
+                        com.nuvio.tv.ui.components
+                            .FallbackTitleLogoVerticalAlignment
+                            .Center
+                )
             }
 
             // Show episode info or movie info

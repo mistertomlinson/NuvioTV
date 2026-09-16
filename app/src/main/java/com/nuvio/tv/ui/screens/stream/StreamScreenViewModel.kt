@@ -64,6 +64,7 @@ class StreamScreenViewModel @Inject constructor(
     private val pluginManager: PluginManager,
     private val metaRepository: MetaRepository,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
+    private val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     private val debridSettingsDataStore: DebridSettingsDataStore,
     private val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     private val streamBadgePresentation: StreamBadgePresentation,
@@ -146,6 +147,29 @@ class StreamScreenViewModel @Inject constructor(
     val playerPreference = playerSettingsDataStore.playerSettings
         .map { it.playerPreference }
         .distinctUntilChanged()
+
+    /*
+     * Canonical generated-logo geometry shared with Home,
+     * Details, Player, and Stream.
+     *
+     * Small geometry is permitted only when aggregate platforms
+     * and the full-width icon row are both active.
+     */
+    val fallbackTitleLogoLarge =
+        kotlinx.coroutines.flow.combine(
+            layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
+            layoutPreferenceDataStore.fullWidthIconRowEnabled,
+            layoutPreferenceDataStore.heroMetadataLarge
+        ) { aggregatePlatformsEnabled, fullWidthIconRowEnabled, heroMetadataLarge ->
+            if (
+                aggregatePlatformsEnabled &&
+                fullWidthIconRowEnabled
+            ) {
+                heroMetadataLarge
+            } else {
+                true
+            }
+        }.distinctUntilChanged()
 
     val p2pEnabled = torrentSettings.settings
         .map { it.p2pEnabled }

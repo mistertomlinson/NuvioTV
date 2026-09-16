@@ -3,7 +3,8 @@ package com.nuvio.tv.ui.screens.home
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.foundation.layout.heightIn
 import androidx.core.content.res.ResourcesCompat
-import com.nuvio.tv.ui.theme.buildCaslonFamily
+import com.nuvio.tv.ui.components.FallbackTitleLogo
+import com.nuvio.tv.ui.components.FallbackTitleLogoGeometry
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -569,16 +570,6 @@ private fun HeroTitleContent(
                 .build()
         }
     }
-    val scaledTitleStyle = remember(headlineLarge, titleScale) {
-        headlineLarge.copy(
-            fontSize = headlineLarge.fontSize * titleScale,
-            lineHeight = headlineLarge.lineHeight * titleScale
-        )
-    }
-    val nullLogoTextStyle = remember(scaledTitleStyle) {
-        scaledTitleStyle.copy(fontFamily = buildCaslonFamily(context))
-    }
-
     val scaledDescriptionStyle = remember(bodyMedium, descriptionScale) {
         bodyMedium.copy(
             fontSize = bodyMedium.fontSize * descriptionScale,
@@ -686,63 +677,15 @@ private fun HeroTitleContent(
                     contentAlignment = Alignment.CenterStart
                 ) {
                     if (!hasLogo) {
-                        val baseSizePx = with(density) { nullLogoTextStyle.fontSize.toPx() }
-                        val heroBoxHeightPx = with(density) { (100.dp * heroScale).toPx() }
-                        val caslonTypeface = remember {
-                            android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
-                                .setFontVariationSettings("'wght' 300")
-                                .setWeight(300)
-                                .build()
-                        }
-                        // Pre-compute the final text size in Compose (StaticLayout-based, same
-                        // technique as the landscape poster) instead of relying on the native
-                        // view's own auto-size, which needs a post-layout measure pass and
-                        // causes a visible resize flash right after the crossfade completes.
-                        val heroComputedSizePx = remember(preview.title, logoMaxWidthPx, heroBoxHeightPx) {
-                            val paint = android.text.TextPaint().apply {
-                                typeface = caslonTypeface
-                                isAntiAlias = true
-                            }
-                            var size = baseSizePx
-                            val minSize = baseSizePx * 0.15f
-                            val widthI = logoMaxWidthPx.coerceAtLeast(1)
-                            while (size > minSize) {
-                                paint.textSize = size
-                                val layout = android.text.StaticLayout.Builder
-                                    .obtain(preview.title, 0, preview.title.length, paint, widthI)
-                                    .setLineSpacing(0f, 0.9f)
-                                    .setIncludePad(false)
-                                    .setMaxLines(3)
-                                    .setEllipsize(null)
-                                    .build()
-                                val fits = layout.lineCount <= 3 && layout.height <= (heroBoxHeightPx * 0.92f).toInt()
-                                val noOverflow = (0 until layout.lineCount).none { layout.getEllipsisCount(it) > 0 }
-                                if (fits && noOverflow) break
-                                size -= baseSizePx * 0.04f
-                            }
-                            size.coerceAtLeast(minSize)
-                        }
-                        androidx.compose.ui.viewinterop.AndroidView(
+                        FallbackTitleLogo(
+                            title = preview.title,
+                            geometry =
+                                if (heroMetadataLarge) {
+                                    FallbackTitleLogoGeometry.LargeMetadata
+                                } else {
+                                    FallbackTitleLogoGeometry.SmallMetadata
+                                },
                             modifier = Modifier.fillMaxSize(),
-                            factory = { ctx ->
-                                android.widget.TextView(ctx).apply {
-                                    layoutParams = android.view.ViewGroup.LayoutParams(
-                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                                    )
-                                    typeface = caslonTypeface
-                                    setTextColor(android.graphics.Color.WHITE)
-                                    maxLines = 3
-                                    ellipsize = android.text.TextUtils.TruncateAt.END
-                                    gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.CENTER_HORIZONTAL
-                                    setLineSpacing(0f, 0.9f)
-                                    includeFontPadding = false
-                                }
-                            },
-                            update = { tv ->
-                                tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, heroComputedSizePx)
-                                tv.text = preview.title
-                            }
                         )
                     }
                     // If hasLogo but not ready yet — empty box holds space, no text flash

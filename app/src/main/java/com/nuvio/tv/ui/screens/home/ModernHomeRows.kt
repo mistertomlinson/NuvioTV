@@ -191,6 +191,7 @@ private fun ModernCatalogRowItem(
     payload: ModernPayload.Catalog,
     requester: FocusRequester,
     useLandscapePosters: Boolean,
+    heroMetadataLarge: Boolean,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
     shimmerTranslateState: State<Float>,
@@ -357,6 +358,7 @@ private fun ModernCatalogRowItem(
     ModernCarouselCard(
         item = item,
         useLandscapePosters = useLandscapePosters,
+        heroMetadataLarge = heroMetadataLarge,
         showLabels = showLabels,
         cardCornerRadius = posterCardCornerRadius,
         shimmerTranslateState = shimmerTranslateState,
@@ -1114,6 +1116,7 @@ internal fun ModernRowSection(
     onPendingRowFocusCleared: () -> Unit,
     onRowItemFocused: (String, Int, Boolean, Boolean) -> Unit,
     useLandscapePosters: Boolean,
+    heroMetadataLarge: Boolean,
     perCatalogLandscape: Boolean = false,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
@@ -1984,6 +1987,7 @@ internal fun ModernRowSection(
                                         payload = payload,
                                         requester = requester,
                                         useLandscapePosters = useLandscapePosters || perCatalogLandscape,
+                                        heroMetadataLarge = heroMetadataLarge,
                                         showLabels = showLabels,
                                         posterCardCornerRadius = posterCardCornerRadius,
                                         shimmerTranslateState = rowShimmerTranslateState,
@@ -2021,6 +2025,7 @@ internal fun ModernRowSection(
                                     payload = payload,
                                     requester = requester,
                                     useLandscapePosters = useLandscapePosters || perCatalogLandscape,
+                                    heroMetadataLarge = heroMetadataLarge,
                                     showLabels = showLabels,
                                     posterCardCornerRadius = posterCardCornerRadius,
                                     shimmerTranslateState = rowShimmerTranslateState,
@@ -2263,6 +2268,7 @@ private fun ModernSkeletonRow(
 private fun ModernCarouselCard(
     item: ModernCarouselItem,
     useLandscapePosters: Boolean,
+    heroMetadataLarge: Boolean,
     showLabels: Boolean,
     cardCornerRadius: Dp,
     shimmerTranslateState: State<Float>,
@@ -2987,43 +2993,14 @@ private fun ModernCarouselCard(
                     useLandscapePosters &&
                     showHeavyOverlays
                 ) {
-                    val posterCaslonTypeface = remember {
-                        android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
-                            .setFontVariationSettings("'wght' 300")
-                            .setWeight(300)
-                            .build()
-                    }
-                    val posterBaseSizePx = with(density) { titleStyle.fontSize.toPx() }
-                    val posterBoxHeightPx = with(density) { (cardHeight * 0.40f).toPx() }
-                    // Safety margin: shrink the measured box slightly so real TextView rendering
-                    // (which can have small padding/metric differences from StaticLayout) never overflows.
-                    val posterAvailWidthPx = with(density) { (cardWidth * 0.65f - 20.dp).toPx() * 0.92f }
-                    val posterAvailHeightPx = posterBoxHeightPx * 0.92f
-                    val posterComputedSizePx = remember(item.title, posterAvailWidthPx, posterAvailHeightPx) {
-                        val paint = android.text.TextPaint().apply {
-                            typeface = posterCaslonTypeface
-                            isAntiAlias = true
-                        }
-                        var size = posterBaseSizePx
-                        val minSize = posterBaseSizePx * 0.15f
-                        val widthI = posterAvailWidthPx.toInt().coerceAtLeast(1)
-                        while (size > minSize) {
-                            paint.textSize = size
-                            val layout = android.text.StaticLayout.Builder
-                                .obtain(item.title, 0, item.title.length, paint, widthI)
-                                .setLineSpacing(0f, 0.9f)
-                                .setIncludePad(false)
-                                .setMaxLines(3)
-                                .setEllipsize(null)
-                                .build()
-                            val fits = layout.lineCount <= 3 && layout.height <= posterAvailHeightPx.toInt()
-                            val noOverflow = (0 until layout.lineCount).none { layout.getEllipsisCount(it) > 0 }
-                            if (fits && noOverflow) break
-                            size -= posterBaseSizePx * 0.04f
-                        }
-                        size.coerceAtLeast(minSize)
-                    }
-                    androidx.compose.ui.viewinterop.AndroidView(
+                    com.nuvio.tv.ui.components.FallbackTitleLogo(
+                        title = item.title,
+                        geometry =
+                            if (heroMetadataLarge) {
+                                com.nuvio.tv.ui.components.FallbackTitleLogoGeometry.LargeMetadata
+                            } else {
+                                com.nuvio.tv.ui.components.FallbackTitleLogoGeometry.SmallMetadata
+                            },
                         modifier = Modifier
                             .align(Alignment.BottomStart)
                             .fillMaxWidth(0.65f)
@@ -3037,26 +3014,10 @@ private fun ModernCarouselCard(
                                 alpha =
                                     heavyOverlayAlpha.value
                             },
-                        factory = { ctx ->
-                            android.widget.TextView(ctx).apply {
-                                layoutParams = android.view.ViewGroup.LayoutParams(
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                typeface = posterCaslonTypeface
-                                setTextColor(android.graphics.Color.WHITE)
-                                maxLines = 3
-                                ellipsize = android.text.TextUtils.TruncateAt.END
-                                gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.CENTER_HORIZONTAL
-                                setLineSpacing(0f, 0.9f)
-                                includeFontPadding = false
-                                setPadding(0, 0, 0, 0)
-                            }
-                        },
-                        update = { tv ->
-                            tv.setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, posterComputedSizePx)
-                            tv.text = item.title
-                        }
+                        horizontalAlignment =
+                            com.nuvio.tv.ui.components.FallbackTitleLogoHorizontalAlignment.Start,
+                        verticalAlignment =
+                            com.nuvio.tv.ui.components.FallbackTitleLogoVerticalAlignment.Center
                     )
                 }
 

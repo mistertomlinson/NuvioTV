@@ -29,6 +29,7 @@ import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import javax.inject.Inject
 
 @HiltViewModel
@@ -93,6 +94,28 @@ class PlayerViewModel @Inject constructor(
 
     val uiState: StateFlow<PlayerUiState>
         get() = controller.uiState
+
+    /*
+     * Canonical generated-logo geometry shared with Home and Details.
+     *
+     * Home permits the Small geometry only when aggregate platforms and the
+     * full-width icon row are both active. Otherwise Home forces Large.
+     */
+    val fallbackTitleLogoLarge =
+        kotlinx.coroutines.flow.combine(
+            layoutPreferenceDataStore.aggregateStreamingPlatformsEnabled,
+            layoutPreferenceDataStore.fullWidthIconRowEnabled,
+            layoutPreferenceDataStore.heroMetadataLarge
+        ) { aggregatePlatformsEnabled, fullWidthIconRowEnabled, heroMetadataLarge ->
+            if (
+                aggregatePlatformsEnabled &&
+                fullWidthIconRowEnabled
+            ) {
+                heroMetadataLarge
+            } else {
+                true
+            }
+        }.distinctUntilChanged()
 
     val exoPlayer: ExoPlayer?
         get() = controller.exoPlayer

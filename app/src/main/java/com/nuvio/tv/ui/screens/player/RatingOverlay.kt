@@ -67,6 +67,7 @@ fun RatingOverlay(
     visible: Boolean,
     logo: String?,
     title: String,
+    fallbackTitleLogoLarge: Boolean,
     onRate: (Int) -> Unit,
     onDismiss: () -> Unit,
     onReturnToVideo: () -> Unit,
@@ -277,22 +278,56 @@ fun RatingOverlay(
                             onError = { logoFailed = true }
                         )
                     } else {
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.headlineLarge,
-                            color = Color.White,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
+                        com.nuvio.tv.ui.components.FallbackTitleLogo(
+                            title = title,
+                            geometry =
+                                if (fallbackTitleLogoLarge) {
+                                    com.nuvio.tv.ui.components
+                                        .FallbackTitleLogoGeometry
+                                        .LargeMetadata
+                                } else {
+                                    com.nuvio.tv.ui.components
+                                        .FallbackTitleLogoGeometry
+                                        .SmallMetadata
+                                },
+                            modifier = Modifier
+                                .fillMaxWidth(1f / 3f)
+                                .height(80.dp),
+                            horizontalAlignment =
+                                com.nuvio.tv.ui.components
+                                    .FallbackTitleLogoHorizontalAlignment
+                                    .Center,
+                            verticalAlignment =
+                                com.nuvio.tv.ui.components
+                                    .FallbackTitleLogoVerticalAlignment
+                                    .Center
                         )
                     }
                 } else {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.headlineLarge,
-                        color = Color.White,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+                    com.nuvio.tv.ui.components.FallbackTitleLogo(
+                            title = title,
+                            geometry =
+                                if (fallbackTitleLogoLarge) {
+                                    com.nuvio.tv.ui.components
+                                        .FallbackTitleLogoGeometry
+                                        .LargeMetadata
+                                } else {
+                                    com.nuvio.tv.ui.components
+                                        .FallbackTitleLogoGeometry
+                                        .SmallMetadata
+                                },
+                            modifier = Modifier
+                                .fillMaxWidth(1f / 3f)
+                                .height(80.dp),
+                            horizontalAlignment =
+                                com.nuvio.tv.ui.components
+                                    .FallbackTitleLogoHorizontalAlignment
+                                    .Center,
+                            verticalAlignment =
+                                com.nuvio.tv.ui.components
+                                    .FallbackTitleLogoVerticalAlignment
+                                    .Center
+                        )
                 }
             }
 

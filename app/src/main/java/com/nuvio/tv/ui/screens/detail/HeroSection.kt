@@ -84,6 +84,7 @@ import coil.request.ImageRequest
 @Composable
 fun HeroContentSection(
     meta: Meta,
+    fallbackTitleLogoLarge: Boolean = true,
     nextEpisode: Video?,
     nextToWatch: NextToWatch?,
     onPlayClick: () -> Unit,
@@ -251,7 +252,7 @@ fun HeroContentSection(
                     alignment = Alignment.CenterStart
                 )
             } else {
-                // Text title hides entirely during trailer
+                // Generated fallback logo hides entirely during trailer.
                 AnimatedVisibility(
                     visible =
                         !isTrailerPlaying ||
@@ -259,20 +260,25 @@ fun HeroContentSection(
                     enter = fadeIn(tween(400)),
                     exit = fadeOut(tween(400))
                 ) {
-                    val detailCaslonTypeface = remember {
-                        android.graphics.Typeface.Builder(context.assets, "fonts/caslon_regular.ttf")
-                            .setFontVariationSettings("'wght' 300")
-                            .setWeight(300)
-                            .build()
-                    }
-                    val detailDensity = LocalDensity.current
-                    val detailMaxSizePx = with(detailDensity) { MaterialTheme.typography.displayMedium.fontSize.toPx() } * 0.85f
-                    val detailMinSizePx = detailMaxSizePx * 0.15f
-                    androidx.compose.ui.viewinterop.AndroidView(
+                    com.nuvio.tv.ui.components.FallbackTitleLogo(
+                        title = meta.name,
+                        geometry =
+                            if (fallbackTitleLogoLarge) {
+                                com.nuvio.tv.ui.components
+                                    .FallbackTitleLogoGeometry
+                                    .LargeMetadata
+                            } else {
+                                com.nuvio.tv.ui.components
+                                    .FallbackTitleLogoGeometry
+                                    .SmallMetadata
+                            },
                         modifier = Modifier
-                            .fillMaxWidth(logoMaxWidth * 0.72f)
                             .height(logoHeight)
-                            .onSizeChanged { manualTrailerLogoHeightPx = it.height }
+                            .fillMaxWidth(logoMaxWidth)
+                            .onSizeChanged {
+                                manualTrailerLogoHeightPx =
+                                    it.height
+                            }
                             .graphicsLayer {
                                 alpha =
                                     if (manualTrailerMode) {
@@ -281,32 +287,17 @@ fun HeroContentSection(
                                         1f
                                     }
                             }
-                            .padding(bottom = 8.dp),
-                        factory = { ctx ->
-                            android.widget.TextView(ctx).apply {
-                                layoutParams = android.view.ViewGroup.LayoutParams(
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                                )
-                                typeface = detailCaslonTypeface
-                                setTextColor(android.graphics.Color.WHITE)
-                                maxLines = 3
-                                ellipsize = android.text.TextUtils.TruncateAt.END
-                                gravity = android.view.Gravity.CENTER_VERTICAL or android.view.Gravity.CENTER_HORIZONTAL
-                                setLineSpacing(0f, 0.9f)
-                                includeFontPadding = false
-                                setPadding(0, 0, 0, 0)
-                                setAutoSizeTextTypeUniformWithConfiguration(
-                                    detailMinSizePx.toInt(),
-                                    detailMaxSizePx.toInt(),
-                                    1,
-                                    android.util.TypedValue.COMPLEX_UNIT_PX
-                                )
-                            }
-                        },
-                        update = { tv ->
-                            tv.text = meta.name
-                        }
+                            .padding(
+                                bottom = logoBottomPadding
+                            ),
+                        horizontalAlignment =
+                            com.nuvio.tv.ui.components
+                                .FallbackTitleLogoHorizontalAlignment
+                                .Start,
+                        verticalAlignment =
+                            com.nuvio.tv.ui.components
+                                .FallbackTitleLogoVerticalAlignment
+                                .Center
                     )
                 }
             }

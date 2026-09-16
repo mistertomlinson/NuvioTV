@@ -4325,6 +4325,12 @@ fun ModernHomeContent(
                         onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
                         onRowItemFocused = stableOnRowItemFocused,
                         useLandscapePosters = useLandscapePosters || row.key in uiState.landscapeCatalogKeys,
+                        heroMetadataLarge =
+                            if (effectiveFullWidthIconRowEnabled) {
+                                heroMetadataLarge
+                            } else {
+                                true
+                            },
                         perCatalogLandscape = !useLandscapePosters && row.key in uiState.landscapeCatalogKeys,
                         showLabels = uiState.posterLabelsEnabled,
                         posterCardCornerRadius = posterCardCornerRadius,
