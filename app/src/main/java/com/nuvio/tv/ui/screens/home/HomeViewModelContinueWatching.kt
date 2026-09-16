@@ -62,6 +62,7 @@ private data class ContinueWatchingSettingsSnapshot(
     val dismissedNextUp: Set<String>,
     val showUnairedNextUp: Boolean,
     val watchedItemsVersion: Int,  // triggers re-evaluation when watched items change
+    val latestWatchedMovieAtByContentId: Map<String, Long>,
     val hasLoadedRemoteProgress: Boolean,
     val profileId: Int
 )
@@ -331,13 +332,32 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
             ) { daysCap, dismissedNextUp, showUnairedNextUp ->
                 Triple(daysCap, dismissedNextUp, showUnairedNextUp)
             },
-            watchedItemsPreferences.allItems.map { it.size },
+            watchedItemsPreferences.allItems.map { watchedItems ->
+                val latestWatchedMovieAtByContentId =
+                    watchedItems
+                        .asSequence()
+                        .filter { item ->
+                            item.season == null &&
+                                item.episode == null
+                        }
+                        .groupBy { it.contentId }
+                        .mapValues { (_, items) ->
+                            items.maxOf { it.watchedAt }
+                        }
+
+                watchedItems.size to latestWatchedMovieAtByContentId
+            },
             cwPipelineRefreshTrigger
-        ) { progressSnapshot, settingsSnapshot, watchedItemsSize, _ ->
+        ) { progressSnapshot, settingsSnapshot, watchedItemsSnapshot, _ ->
             val (items, nextUpSeeds, hasLoadedRemoteProgress, profileId) =
                 progressSnapshot
             val (daysCap, dismissedNextUp, showUnairedNextUp) =
                 settingsSnapshot
+            val (
+                watchedItemsSize,
+                latestWatchedMovieAtByContentId
+            ) = watchedItemsSnapshot
+
             ContinueWatchingSettingsSnapshot(
                 items = items,
                 nextUpSeeds = nextUpSeeds,
@@ -345,6 +365,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 dismissedNextUp = dismissedNextUp,
                 showUnairedNextUp = showUnairedNextUp,
                 watchedItemsVersion = watchedItemsSize,
+                latestWatchedMovieAtByContentId =
+                    latestWatchedMovieAtByContentId,
                 hasLoadedRemoteProgress = hasLoadedRemoteProgress,
                 profileId = profileId
             )
@@ -360,6 +382,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 val daysCap = snapshot.daysCap
                 val dismissedNextUp = snapshot.dismissedNextUp
                 val showUnairedNextUp = snapshot.showUnairedNextUp
+                val latestWatchedMovieAtByContentId =
+                    snapshot.latestWatchedMovieAtByContentId
                 val cycleProfileId = snapshot.profileId
                 val cutoffMs =
                     watchProgressRepository.activeProviderContinueWatchingCutoffEpochMs(
@@ -493,6 +517,37 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         !snapshot.hasLoadedRemoteProgress
                     ) {
                         cachedInProgress.forEach { cached ->
+                            /*
+                             * A provider can still be loading when playback has
+                             * already completed a movie locally. Do not restore
+                             * that stale cached CW card.
+                             *
+                             * Compare timestamps rather than merely checking
+                             * whether the movie has ever been watched. This
+                             * preserves a legitimate rewatch: old watched
+                             * history remains older than the newer cached
+                             * in-progress snapshot until the rewatch itself
+                             * actually completes.
+                             */
+                            val isMovie =
+                                cached.season == null &&
+                                    cached.episode == null
+
+                            val latestWatchedAt =
+                                latestWatchedMovieAtByContentId[
+                                    cached.contentId
+                                ]
+
+                            val completedSinceCachedSnapshot =
+                                isMovie &&
+                                    latestWatchedAt != null &&
+                                    latestWatchedAt >=
+                                        cached.lastWatched
+
+                            if (completedSinceCachedSnapshot) {
+                                return@forEach
+                            }
+
                             add(
                                 ContinueWatchingItem.InProgress(
                                     progress = WatchProgress(
