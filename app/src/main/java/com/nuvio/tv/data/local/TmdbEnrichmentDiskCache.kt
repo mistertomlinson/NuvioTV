@@ -34,9 +34,9 @@ class TmdbEnrichmentDiskCache @Inject constructor(
     private val cacheFile: File get() {
         val dir = File(context.filesDir, "tmdb_enrichment")
         dir.mkdirs()
-        // v2: bumped filename to invalidate stale entries cached before the
-        // fallbackLogoUrl (metahub/meta-addon) field existed on TmdbEnrichment.
-        return File(dir, "cache_v2.json")
+        // v3 also invalidates entries written before TmdbEnrichment's nested
+        // MetaCompany generic types were preserved in minified builds.
+        return File(dir, "cache_v3.json")
     }
 
     suspend fun loadAll(): Map<String, TmdbEnrichment> = withContext(Dispatchers.IO) {
