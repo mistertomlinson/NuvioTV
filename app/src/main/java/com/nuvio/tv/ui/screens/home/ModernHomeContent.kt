@@ -462,6 +462,8 @@ fun ModernHomeContent(
         val rowByKey = LinkedHashMap<String, HeroCarouselRow>(carouselRows.size)
         val activeRowKeys = LinkedHashSet<String>(carouselRows.size)
         val activeItemKeysByRow = LinkedHashMap<String, Set<String>>(carouselRows.size)
+        val orderedItemKeysByRow =
+            LinkedHashMap<String, List<String>>(carouselRows.size)
         val activeCatalogItemIds = LinkedHashSet<String>()
 
         carouselRows.forEachIndexed { index, row ->
@@ -470,14 +472,17 @@ fun ModernHomeContent(
             activeRowKeys += row.key
 
             val itemKeys = LinkedHashSet<String>(row.items.size)
+            val orderedItemKeys = ArrayList<String>(row.items.size)
             row.items.forEach { item ->
                 itemKeys += item.key
+                orderedItemKeys += item.key
                 val payload = item.payload
                 if (payload is ModernPayload.Catalog) {
                     activeCatalogItemIds += payload.itemId
                 }
             }
             activeItemKeysByRow[row.key] = itemKeys
+            orderedItemKeysByRow[row.key] = orderedItemKeys
         }
 
         CarouselRowLookups(
@@ -485,6 +490,7 @@ fun ModernHomeContent(
             rowByKey = rowByKey,
             activeRowKeys = activeRowKeys,
             activeItemKeysByRow = activeItemKeysByRow,
+            orderedItemKeysByRow = orderedItemKeysByRow,
             activeCatalogItemIds = activeCatalogItemIds
         )
     }
@@ -492,6 +498,7 @@ fun ModernHomeContent(
     val rowByKey = carouselLookups.rowByKey
     val activeRowKeys = carouselLookups.activeRowKeys
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
+    val orderedItemKeysByRow = carouselLookups.orderedItemKeysByRow
     val activeCatalogItemIds = carouselLookups.activeCatalogItemIds
     // Retain nearby rows to avoid disposing and recreating their
     // card compositions and image painters during vertical scrolling.
@@ -1506,7 +1513,8 @@ fun ModernHomeContent(
                 focusedItemByRow[row.key] = 0
             }
 
-            val currentItemKeys = row.items.map { it.key }
+            val currentItemKeys =
+                orderedItemKeysByRow[row.key] ?: emptyList()
             val previousItemKeys = uiCaches.previousItemKeysByRow.put(
                 row.key,
                 currentItemKeys
