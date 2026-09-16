@@ -356,12 +356,6 @@ internal fun ModernHeroGradientLayer(
                 startX = horizontalGradientStartX,
                 endX = horizontalFadeEndX
             )
-            if (cinematicMode) {
-                drawRect(
-                    color = bgColor.copy(alpha = 0.18f * defaultAlpha),
-                    size = size
-                )
-            }
             drawRect(color = bgColor.copy(alpha = defaultAlpha), size = Size(leftBlendSolidWidth, size.height))
             drawRect(brush = horizontalGradient, size = size)
             drawRect(
