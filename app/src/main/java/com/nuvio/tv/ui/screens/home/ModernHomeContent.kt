@@ -3658,124 +3658,23 @@ fun ModernHomeContent(
             }
         }
 
-        // Unified slide+fade wrapper — HeroTitleBlock and LazyColumn animate as one
-        // block so recomposition at the flip point is invisible (happens at alpha=0).
-        // Only driven by platform navigation, never by catalog row focus changes.
-        // Expand layout width by max slide distance so LazyRows render the
-        // off-screen card that slides into view during platform parallax transition.
-        // BringIntoViewSpec in ModernHomeRows clamps containerSize to real screen width
-        // so end padding / expansion scroll behavior is unaffected.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .layout { measurable, constraints ->
-                    val extraPx = catalogSlideDistancePx.toInt()
-                    val widened = constraints.copy(
-                        maxWidth = (constraints.maxWidth + extraPx).coerceAtMost(constraints.maxWidth * 2),
-                        minWidth = constraints.minWidth
-                    )
-                    val placeable = measurable.measure(widened)
-                    layout(constraints.maxWidth, placeable.height) {
-                        placeable.placeRelativeWithLayer(0, 0)
-                    }
-                }
-                .drawWithContent {
-                    if (!(ghostVisible && catalogGhostBitmap != null)) drawContent()
-                    if (ghostCaptureTick != catalogGhostCapturedTick.get()) {
-                        catalogGhostLayer.record { this@drawWithContent.drawContent() }
-                        catalogGhostCapturedTick.set(ghostCaptureTick)
-                    }
-                    val cBmp = catalogGhostBitmap
-                    if (ghostVisible && cBmp != null) {
-                        drawImage(
-                            image = cBmp,
-                            dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostOffset.value), 0),
-                            dstSize = androidx.compose.ui.unit.IntSize(cBmp.width, cBmp.height),
-                            alpha = 1f,
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.None
-                        )
-                        // Fade-to-black overlay: (1-f) * correct composite, no
-                        // mid-fade brightening. Icon row sits above this node.
-                        val fade = 1f - ghostAlpha.value
-                        if (fade > 0f) {
-                            drawRect(
-                                color = androidx.compose.ui.graphics.Color.Black,
-                                alpha = fade.coerceIn(0f, 1f)
-                            )
-                        }
-                    }
-                    // ENTER fade-from-black: when the ghost is gone (enter
-                    // phase), the live content is at full alpha; fade a single
-                    // black rect over the whole composite from opaque to clear
-                    // as catalogSlideAlpha ramps 0->1. This replaces the old
-                    // per-node alpha fade so no inter-layer transparency shows.
-                    if (!ghostVisible) {
-                        val enterBlack = 1f - catalogSlideAlpha.value
-                        if (enterBlack > 0f) {
-                            drawRect(
-                                color = androidx.compose.ui.graphics.Color.Black,
-                                alpha = enterBlack.coerceIn(0f, 1f)
-                            )
-                        }
-                    }
-                }
-                .graphicsLayer {
-                    alpha = 1f
-                    translationX = catalogSlideOffset.value
-                }
+        /*
+         * PHASE_1_HOME_ROWS_COMPOSITION_BOUNDARY
+         *
+         * Behavior-preserving extraction only.
+         *
+         * The catalog LazyColumn and all of its existing renderer promotion,
+         * fast-scroll landing, focus handoff, overlay suppression and row logic
+         * remain unchanged. This first checkpoint intentionally captures the
+         * existing Home state rather than stabilizing parameters yet.
+         *
+         * The next phase will replace those captures with the official-beta
+         * style stable State/StableList/StableMap/StableRef inputs.
+         */
+        @Composable
+        fun EnhancedModernHomeRowsListBoundary(
+            modifier: Modifier
         ) {
-            HeroTitleBlock(
-                preview = resolvedHero,
-                enrichmentActive = enrichmentActive,
-                portraitMode = !useLandscapePosters,
-                selectedPlatformId = catalogDisplayedPlatformId,
-                platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive && !isPlatformTransitioning) platformNavDirection else 0,
-                platformTransitionSnap = isPlatformTransitioning,
-                fullWidthIconRowEnabled = effectiveFullWidthIconRowEnabled,
-                heroMetadataLarge =
-                    if (effectiveFullWidthIconRowEnabled) heroMetadataLarge else true,
-                modifier = if (effectiveFullWidthIconRowEnabled) {
-                    Modifier
-                        // Full-width icon mode owns the newer centered hero region
-                        // and its configurable Small/Large metadata scale.
-                        .align(Alignment.TopStart)
-                        .padding(
-                            start = rowHorizontalPadding,
-                            end = 48.dp,
-                            top = heroRegionTopInset
-                        )
-                        .height(heroRegionHeight)
-                        .wrapContentHeight(align = Alignment.CenterVertically)
-                        /*
-                         * Slightly raise the complete centered hero cluster.
-                         * This applies equally to both Small and Large metadata
-                         * modes without changing their internal dimensions.
-                         */
-                        .offset(
-                            y =
-                                if (uiState.hidePlatformIconsOnRowExitEnabled) {
-                                    (-6).dp
-                                } else {
-                                    0.dp
-                                }
-                        )
-                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
-                } else {
-                    Modifier
-                        // Exact 0.4.20 placement: bottom-anchor the unscaled hero
-                        // 16dp above the catalog viewport.
-                        .align(Alignment.BottomStart)
-                        .padding(
-                            start = rowHorizontalPadding,
-                            end = 48.dp,
-                            bottom = catalogBottomPadding +
-                                rowsViewportHeight +
-                                heroToCatalogGap
-                        )
-                        .offset(y = 6.dp)
-                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
-                }
-            )
             /*
              * DIAGNOSTIC_DEFER_NORMAL_RENDERER_ANCHOR
              *
@@ -3849,8 +3748,7 @@ fun ModernHomeContent(
             ) {
             LazyColumn(
                 state = verticalRowListState,
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
+                modifier = modifier
                     .fillMaxWidth()
                     .height(rowsViewportHeight)
                     .padding(bottom = catalogBottomPadding)
@@ -4379,6 +4277,130 @@ fun ModernHomeContent(
                 }
             }
         }
+        }
+
+        // Unified slide+fade wrapper — HeroTitleBlock and LazyColumn animate as one
+        // block so recomposition at the flip point is invisible (happens at alpha=0).
+        // Only driven by platform navigation, never by catalog row focus changes.
+        // Expand layout width by max slide distance so LazyRows render the
+        // off-screen card that slides into view during platform parallax transition.
+        // BringIntoViewSpec in ModernHomeRows clamps containerSize to real screen width
+        // so end padding / expansion scroll behavior is unaffected.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .layout { measurable, constraints ->
+                    val extraPx = catalogSlideDistancePx.toInt()
+                    val widened = constraints.copy(
+                        maxWidth = (constraints.maxWidth + extraPx).coerceAtMost(constraints.maxWidth * 2),
+                        minWidth = constraints.minWidth
+                    )
+                    val placeable = measurable.measure(widened)
+                    layout(constraints.maxWidth, placeable.height) {
+                        placeable.placeRelativeWithLayer(0, 0)
+                    }
+                }
+                .drawWithContent {
+                    if (!(ghostVisible && catalogGhostBitmap != null)) drawContent()
+                    if (ghostCaptureTick != catalogGhostCapturedTick.get()) {
+                        catalogGhostLayer.record { this@drawWithContent.drawContent() }
+                        catalogGhostCapturedTick.set(ghostCaptureTick)
+                    }
+                    val cBmp = catalogGhostBitmap
+                    if (ghostVisible && cBmp != null) {
+                        drawImage(
+                            image = cBmp,
+                            dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostOffset.value), 0),
+                            dstSize = androidx.compose.ui.unit.IntSize(cBmp.width, cBmp.height),
+                            alpha = 1f,
+                            filterQuality = androidx.compose.ui.graphics.FilterQuality.None
+                        )
+                        // Fade-to-black overlay: (1-f) * correct composite, no
+                        // mid-fade brightening. Icon row sits above this node.
+                        val fade = 1f - ghostAlpha.value
+                        if (fade > 0f) {
+                            drawRect(
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                alpha = fade.coerceIn(0f, 1f)
+                            )
+                        }
+                    }
+                    // ENTER fade-from-black: when the ghost is gone (enter
+                    // phase), the live content is at full alpha; fade a single
+                    // black rect over the whole composite from opaque to clear
+                    // as catalogSlideAlpha ramps 0->1. This replaces the old
+                    // per-node alpha fade so no inter-layer transparency shows.
+                    if (!ghostVisible) {
+                        val enterBlack = 1f - catalogSlideAlpha.value
+                        if (enterBlack > 0f) {
+                            drawRect(
+                                color = androidx.compose.ui.graphics.Color.Black,
+                                alpha = enterBlack.coerceIn(0f, 1f)
+                            )
+                        }
+                    }
+                }
+                .graphicsLayer {
+                    alpha = 1f
+                    translationX = catalogSlideOffset.value
+                }
+        ) {
+            HeroTitleBlock(
+                preview = resolvedHero,
+                enrichmentActive = enrichmentActive,
+                portraitMode = !useLandscapePosters,
+                selectedPlatformId = catalogDisplayedPlatformId,
+                platformNavDirection = if (aggregatePlatformsEnabled && !enrichmentActive && !isPlatformTransitioning) platformNavDirection else 0,
+                platformTransitionSnap = isPlatformTransitioning,
+                fullWidthIconRowEnabled = effectiveFullWidthIconRowEnabled,
+                heroMetadataLarge =
+                    if (effectiveFullWidthIconRowEnabled) heroMetadataLarge else true,
+                modifier = if (effectiveFullWidthIconRowEnabled) {
+                    Modifier
+                        // Full-width icon mode owns the newer centered hero region
+                        // and its configurable Small/Large metadata scale.
+                        .align(Alignment.TopStart)
+                        .padding(
+                            start = rowHorizontalPadding,
+                            end = 48.dp,
+                            top = heroRegionTopInset
+                        )
+                        .height(heroRegionHeight)
+                        .wrapContentHeight(align = Alignment.CenterVertically)
+                        /*
+                         * Slightly raise the complete centered hero cluster.
+                         * This applies equally to both Small and Large metadata
+                         * modes without changing their internal dimensions.
+                         */
+                        .offset(
+                            y =
+                                if (uiState.hidePlatformIconsOnRowExitEnabled) {
+                                    (-6).dp
+                                } else {
+                                    0.dp
+                                }
+                        )
+                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                } else {
+                    Modifier
+                        // Exact 0.4.20 placement: bottom-anchor the unscaled hero
+                        // 16dp above the catalog viewport.
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = rowHorizontalPadding,
+                            end = 48.dp,
+                            bottom = catalogBottomPadding +
+                                rowsViewportHeight +
+                                heroToCatalogGap
+                        )
+                        .offset(y = 6.dp)
+                        .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                }
+            )
+            EnhancedModernHomeRowsListBoundary(
+                modifier = Modifier.align(Alignment.BottomStart)
+            )
+
         } // end unified slide+fade Box
     }
 
