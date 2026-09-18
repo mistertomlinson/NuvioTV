@@ -3,7 +3,6 @@ package com.nuvio.tv.ui.screens.addon
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
-import com.nuvio.tv.data.local.TraktAuthDataStore
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.ui.catalog.collapseWatchlyOrderKeys
@@ -23,12 +22,10 @@ import javax.inject.Inject
 @HiltViewModel
 class CatalogOrderViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
-    private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
-    private val traktAuthDataStore: TraktAuthDataStore
+    private val layoutPreferenceDataStore: LayoutPreferenceDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(CatalogOrderUiState())
-    private var isTraktAuthenticated: Boolean = false
     val uiState: StateFlow<CatalogOrderUiState> = _uiState.asStateFlow()
     private var disabledKeysCache: Set<String> = emptySet()
     private var numberedKeysCache: Set<String> = emptySet()
@@ -44,11 +41,6 @@ class CatalogOrderViewModel @Inject constructor(
     )
 
     init {
-        viewModelScope.launch {
-            traktAuthDataStore.isEffectivelyAuthenticated.collect { isAuth ->
-                isTraktAuthenticated = isAuth
-            }
-        }
         observeCatalogs()
     }
 
@@ -503,6 +495,14 @@ Triple(
         // or after the last saved Watchly key of any group, or at the end.
         val effectiveOrder = savedValid.toMutableList()
         missing.forEach { missingKey ->
+            // My List is a stable built-in row. Older saved orders may not
+            // contain it; preserve Home's default position instead of treating
+            // it as a newly discovered catalog and appending it to the bottom.
+            if (missingKey == com.nuvio.tv.ui.screens.home.HomeViewModel.MY_LIST_CATALOG_KEY) {
+                effectiveOrder.add(0, missingKey)
+                return@forEach
+            }
+
             val group = catalogGroup(missingKey)
             android.util.Log.d("WatchlyOrder", "missing key=$missingKey group=$group")
             if (group == null) {
@@ -589,20 +589,20 @@ Triple(
         val entries = mutableListOf<CatalogOrderEntry>()
         val seenKeys = mutableSetOf<String>()
 
-        // Inject My List as the first entry when Trakt is connected
-        if (isTraktAuthenticated) {
-            val myListKey = com.nuvio.tv.ui.screens.home.HomeViewModel.MY_LIST_CATALOG_KEY
-            if (seenKeys.add(myListKey)) {
-                entries.add(
-                    CatalogOrderEntry(
-                        key = myListKey,
-                        disableKey = myListKey,
-                        catalogName = "My List",
-                        addonName = "Built-In",
-                        typeLabel = "mixed"
-                    )
+        // My List is always a valid built-in catalog-management key.
+        // Home independently controls whether the row is actually present
+        // based on the active library source, authentication, and content.
+        val myListKey = com.nuvio.tv.ui.screens.home.HomeViewModel.MY_LIST_CATALOG_KEY
+        if (seenKeys.add(myListKey)) {
+            entries.add(
+                CatalogOrderEntry(
+                    key = myListKey,
+                    disableKey = myListKey,
+                    catalogName = "My List",
+                    addonName = "Built-In",
+                    typeLabel = "mixed"
                 )
-            }
+            )
         }
 
         addons.forEach { addon ->
