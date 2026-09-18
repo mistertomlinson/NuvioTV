@@ -46,12 +46,17 @@ fun Modifier.dpadRepeatThrottle(
                 horizontalGateMs
             }
             val now = SystemClock.uptimeMillis()
-            // Signal throttling active and schedule reset after idle
-            onThrottling?.invoke(true)
-            resetJob[0]?.cancel()
-            resetJob[0] = scope.launch {
-                delay(300L)
-                onThrottling?.invoke(false)
+            // Only manage the idle-reset coroutine when a caller actually
+            // observes throttling. Most navigation surfaces—including Modern
+            // Home—provide no callback, so launching and cancelling a coroutine
+            // for every repeated DPAD event was pure main-thread overhead.
+            if (onThrottling != null) {
+                onThrottling(true)
+                resetJob[0]?.cancel()
+                resetJob[0] = scope.launch {
+                    delay(300L)
+                    onThrottling(false)
+                }
             }
             if (now - lastRepeatTime[0] < gateMs) {
                 return@onPreviewKeyEvent true

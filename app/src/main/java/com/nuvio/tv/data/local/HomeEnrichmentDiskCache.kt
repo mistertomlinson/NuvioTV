@@ -40,7 +40,9 @@ class HomeEnrichmentDiskCache @Inject constructor(
     private val cacheFile: File get() {
         val dir = File(context.filesDir, "home_enrichment")
         dir.mkdirs()
-        return File(dir, "cache.json")
+        // v2 invalidates entries written before TmdbEnrichment's nested
+        // MetaCompany generic types were preserved in minified builds.
+        return File(dir, "cache_v2.json")
     }
 
     suspend fun loadAll(): Map<String, TmdbEnrichment> = withContext(Dispatchers.IO) {

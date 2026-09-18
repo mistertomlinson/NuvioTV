@@ -142,6 +142,7 @@ internal data class CarouselRowLookups(
     val rowByKey: Map<String, HeroCarouselRow>,
     val activeRowKeys: Set<String>,
     val activeItemKeysByRow: Map<String, Set<String>>,
+    val orderedItemKeysByRow: Map<String, List<String>>,
     val activeCatalogItemIds: Set<String>
 )
 

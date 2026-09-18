@@ -19,6 +19,12 @@
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
 
+# These models are persisted reflectively by the Home/TMDB Gson caches.
+# Keep their fields and nested generic element types stable across minified builds.
+-keep class com.nuvio.tv.core.tmdb.TmdbEnrichment { *; }
+-keep class com.nuvio.tv.data.local.HomeEnrichmentEntry { *; }
+-keep class com.nuvio.tv.data.local.TmdbEnrichmentEntry { *; }
+
 # ── Retrofit ───────────────────────────────────────────────────────────────────
 # Keep generic signatures for Retrofit service methods
 -keepattributes Signature

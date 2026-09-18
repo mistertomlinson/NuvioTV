@@ -105,6 +105,12 @@ android {
             buildConfigField("String", "CREDIT_ANALYZER_TOKEN", "\"${devProperties.getProperty("CREDIT_ANALYZER_TOKEN", localProperties.getProperty("CREDIT_ANALYZER_TOKEN", ""))}\"")
         }
         release {
+            // Profile collection can coexist with an installed official release.
+            // Normal builds receive no suffix unless this Gradle property is supplied.
+            providers.gradleProperty("baselineProfileApplicationIdSuffix")
+                .orNull
+                ?.let { applicationIdSuffix = it }
+
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(
@@ -238,7 +244,7 @@ baselineProfile {
     automaticGenerationDuringBuild = false
     saveInSrc = true
     mergeIntoMain = true
-    baselineProfileOutputDir = "src/main"
+    baselineProfileOutputDir = "generated/baselineProfiles"
     filter {
         include("com.nuvio.tv.**")
     }

@@ -1026,27 +1026,16 @@ private fun HomeViewModel.updateCatalogItemWithMeta(itemId: String, meta: Meta) 
         }
     } }
 
-    _uiState.update { state ->
-        var changed = false
-        val updatedRows = state.catalogRows.map { row ->
-            val itemIndex = row.items.indexOfFirst { it.id == itemId }
-            if (itemIndex < 0) {
-                row
-            } else {
-                val mergedItem = mergeItem(row.items[itemIndex])
-                if (mergedItem == row.items[itemIndex]) {
-                    row
-                } else {
-                    changed = true
-                    val mutableItems = row.items.toMutableList()
-                    mutableItems[itemIndex] = mergedItem
-                    row.copy(items = mutableItems)
-                }
-            }
-        }
-        if (changed) state.copy(catalogRows = updatedRows) else state
-    }
-
+    /*
+     * This path is reached only while proactive Home enrichment is still
+     * settling an unreleased title. The backing catalogsMap was updated
+     * above; the terminal row recomputation will publish the completed row
+     * once every item is ready.
+     *
+     * Republishing catalogRows for every individual metadata result scanned
+     * and rebuilt the already-visible Home rows while background enrichment
+     * continued, causing whole-Home recomposition and navigation jank.
+     */
     // If external meta brought new trailerYtIds and the item has no trailer resolved yet, retry.
     // Covers: (a) item was in negative cache, (b) pipeline finished without result but wasn't
     // cached as negative (e.g. focus changed mid-flight), (c) pipeline still in-flight.
