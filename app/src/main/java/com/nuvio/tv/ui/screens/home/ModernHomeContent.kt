@@ -1294,22 +1294,43 @@ fun ModernHomeContent(
             if (
                 sameItemsReordered &&
                 row.key != "continue_watching" &&
-                rowOwnsFocus &&
                 row.items.isNotEmpty()
             ) {
                 val keepIndex = (
                     focusedItemByRow[row.key]
-                        ?: focusHolder.activeItemIndex
+                        ?: if (rowOwnsFocus) {
+                            focusHolder.activeItemIndex
+                        } else {
+                            0
+                        }
                 ).coerceIn(0, row.items.lastIndex)
 
-                focusHolder.activeItemIndex = keepIndex
-                activeItemIndex = keepIndex
-                focusedItemByRow[row.key] = keepIndex
+                if (rowOwnsFocus) {
+                    /*
+                     * If the row currently owns focus, preserve the existing
+                     * atomic focus handoff. Bring-into-view remains suppressed
+                     * so the reorder itself cannot animate the row.
+                     */
+                    focusHolder.activeItemIndex = keepIndex
+                    activeItemIndex = keepIndex
+                    focusedItemByRow[row.key] = keepIndex
 
-                pendingRowFocus.key = row.key
-                pendingRowFocus.index = keepIndex
-                pendingRowFocus.suppressBringIntoView = true
-                pendingRowFocus.nonce++
+                    pendingRowFocus.key = row.key
+                    pendingRowFocus.index = keepIndex
+                    pendingRowFocus.suppressBringIntoView = true
+                    pendingRowFocus.nonce++
+                } else {
+                    /*
+                     * LazyRow normally preserves its visible item by stable key
+                     * when the same items are reordered. Shuffle is
+                     * position-semantic, so keep the remembered numeric index.
+                     *
+                     * Override the old key anchor while the row is inactive so
+                     * it is already positioned correctly before focus enters.
+                     */
+                    rowListStates[row.key]
+                        ?.requestScrollToItem(keepIndex, 0)
+                }
             }
         }
 
