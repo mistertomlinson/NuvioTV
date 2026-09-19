@@ -97,6 +97,7 @@ class HomeViewModel @Inject constructor(
     internal val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
     internal val homeEnrichmentDiskCache: HomeEnrichmentDiskCache,
     internal val myListDiskCache: MyListDiskCache,
+    internal val releaseReminderDataStore: com.nuvio.tv.data.local.ReleaseReminderDataStore,
     internal val trackingRatingCoordinator: TrackingRatingCoordinator,
     internal val homeTrailerPlayerHolder: com.nuvio.tv.ui.components.HomeTrailerPlayerHolder,
 ) : ViewModel() {
@@ -736,6 +737,7 @@ class HomeViewModel @Inject constructor(
         get() = trailerPreviewAudioUrlsState
 
     init {
+        observeReleaseRemindersPipeline()
         homeViewModelActiveInstanceId = instanceId
         observeStartupAuthNotice()
         viewModelScope.launch {

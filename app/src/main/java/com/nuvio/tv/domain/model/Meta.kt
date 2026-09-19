@@ -93,7 +93,17 @@ data class MetaLink(
 @Immutable
 data class MetaBehaviorHints(
     val defaultVideoId: String? = null,
-    val hasScheduledVideos: Boolean? = null
+    val hasScheduledVideos: Boolean? = null,
+    val comingSoon: Boolean? = null,
+    val releaseDate: String? = null,
+    val releasePrecision: String? = null,
+    val releaseLabel: String? = null,
+    val releaseYear: String? = null,
+    val upcomingSeason: Int? = null,
+    val newSeason: Boolean? = null,
+    val newSeasonNumber: Int? = null,
+    val newSeasonReleaseDate: String? = null,
+    val platformId: String? = null
 )
 
 @Immutable

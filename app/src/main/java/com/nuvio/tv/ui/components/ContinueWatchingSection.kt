@@ -84,7 +84,7 @@ private val CwCardShape = RoundedCornerShape(12.dp)
 private val CwClipShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
 private val BadgeShape = RoundedCornerShape(4.dp)
 private val CwNewEpisodeBadgeColor = Color(0xFF1D4ED8)
-private val CwNewSeasonBadgeColor = Color(0xFFB45309)
+internal val CwNewSeasonBadgeColor = Color(0xFFB45309)
 
 private val CwDialogGlassRowColor = Color.White.copy(alpha = 0.065f)
 private val CwDialogGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
@@ -391,8 +391,8 @@ fun ContinueWatchingCard(
 
     val badgeBackground = remember(bgColor, nextUp?.isReleaseAlert, nextUp?.isNewSeasonRelease) {
         when {
-            nextUp?.isNewSeasonRelease == true -> CwNewSeasonBadgeColor
-            nextUp?.isReleaseAlert == true -> CwNewEpisodeBadgeColor
+            nextUp?.isNewSeasonRelease == true -> CwNewSeasonBadgeColor.copy(alpha = 0.8f)
+            nextUp?.isReleaseAlert == true -> CwNewEpisodeBadgeColor.copy(alpha = 0.8f)
             else -> bgColor.copy(alpha = 0.8f)
         }
     }

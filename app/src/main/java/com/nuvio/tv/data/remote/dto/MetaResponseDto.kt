@@ -109,7 +109,17 @@ data class MetaTrailerDto(
 @JsonClass(generateAdapter = true)
 data class MetaBehaviorHintsDto(
     @Json(name = "defaultVideoId") val defaultVideoId: String? = null,
-    @Json(name = "hasScheduledVideos") val hasScheduledVideos: Boolean? = null
+    @Json(name = "hasScheduledVideos") val hasScheduledVideos: Boolean? = null,
+    @Json(name = "comingSoon") val comingSoon: Boolean? = null,
+    @Json(name = "releaseDate") val releaseDate: String? = null,
+    @Json(name = "releasePrecision") val releasePrecision: String? = null,
+    @Json(name = "releaseLabel") val releaseLabel: String? = null,
+    @Json(name = "releaseYear") val releaseYear: String? = null,
+    @Json(name = "upcomingSeason") val upcomingSeason: Int? = null,
+    @Json(name = "newSeason") val newSeason: Boolean? = null,
+    @Json(name = "newSeasonNumber") val newSeasonNumber: Int? = null,
+    @Json(name = "newSeasonReleaseDate") val newSeasonReleaseDate: String? = null,
+    @Json(name = "platformId") val platformId: String? = null
 )
 
 @JsonClass(generateAdapter = true)

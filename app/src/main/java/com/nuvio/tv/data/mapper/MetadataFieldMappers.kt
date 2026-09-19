@@ -51,7 +51,17 @@ internal fun mapBehaviorHints(dto: MetaBehaviorHintsDto?): MetaBehaviorHints? {
     if (dto == null) return null
     return MetaBehaviorHints(
         defaultVideoId = dto.defaultVideoId?.takeIf { it.isNotBlank() },
-        hasScheduledVideos = dto.hasScheduledVideos
+        hasScheduledVideos = dto.hasScheduledVideos,
+        comingSoon = dto.comingSoon,
+        releaseDate = dto.releaseDate?.trim()?.takeIf { it.isNotBlank() },
+        releasePrecision = dto.releasePrecision?.trim()?.takeIf { it.isNotBlank() },
+        releaseLabel = dto.releaseLabel?.trim()?.takeIf { it.isNotBlank() },
+        releaseYear = dto.releaseYear?.trim()?.takeIf { it.isNotBlank() },
+        upcomingSeason = dto.upcomingSeason,
+        newSeason = dto.newSeason,
+        newSeasonNumber = dto.newSeasonNumber,
+        newSeasonReleaseDate = dto.newSeasonReleaseDate?.trim()?.takeIf { it.isNotBlank() },
+        platformId = dto.platformId?.trim()?.takeIf { it.isNotBlank() }
     )
 }
 

@@ -739,7 +739,6 @@ private fun HeroTitleContent(
         val showImdbInPrimaryWithHighlight = showImdbInPrimary && secondaryHighlightText == null
         val showImdbInSecondary = !preview.imdbText.isNullOrBlank() &&
             (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
-            (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -755,10 +754,10 @@ private fun HeroTitleContent(
             val hasLeadingMeta = leadingMetaText.isNotBlank()
 
             val runtimeText = preview.runtimeText
-            val yearText = preview.yearText
+            val releaseText = preview.comingSoonText ?: preview.yearText
             val imdbText = preview.imdbText
             val hasTrailingMeta = !runtimeText.isNullOrBlank() ||
-                !yearText.isNullOrBlank() ||
+                !releaseText.isNullOrBlank() ||
                 showImdbInPrimaryWithHighlight
 
             if (hasLeadingMeta) {
@@ -795,9 +794,9 @@ private fun HeroTitleContent(
                             maxLines = 1
                         )
                     }
-                    if (!yearText.isNullOrBlank()) {
+                    if (!releaseText.isNullOrBlank()) {
                         Text(
-                            text = yearText,
+                            text = releaseText,
                             style = labelMedium,
                             color = NuvioColors.TextSecondary,
                             maxLines = 1

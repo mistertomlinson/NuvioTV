@@ -8,6 +8,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.data.local.ReleaseReminderBadge
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import com.nuvio.tv.ui.util.computeAirDateBadgeText
 import com.nuvio.tv.domain.model.MetaPreview
@@ -86,6 +87,7 @@ internal data class HeroPreview(
     val poster: String?,
     val backdrop: String?,
     val imageUrl: String?,
+    val comingSoonText: String? = null,
     val imdbText: String? = null
 )
 
@@ -117,7 +119,9 @@ internal data class ModernCarouselItem(
     val imageUrl: String?,
     val heroPreview: HeroPreview,
     val payload: ModernPayload,
-    val metaPreview: MetaPreview? = null
+    val metaPreview: MetaPreview? = null,
+    val isNewSeason: Boolean = false,
+    val releaseReminderBadge: ReleaseReminderBadge? = null
 )
 
 @Immutable
@@ -360,13 +364,85 @@ internal fun buildContinueWatchingItem(
     )
 }
 
+private fun formatComingSoonHeroText(item: MetaPreview): String? {
+    val hints = item.behaviorHints ?: return null
+    if (hints.comingSoon != true) return null
+
+    val upcomingSeason = hints.upcomingSeason?.takeIf { it >= 2 }
+
+    val exactDateText = hints.releaseDate
+        ?.trim()
+        ?.takeIf { raw ->
+            raw.length == 10 &&
+                raw[4] == '-' &&
+                raw[7] == '-'
+        }
+        ?.let { raw ->
+            runCatching {
+                val monthNumber = raw.substring(5, 7).toInt()
+                val day = raw.substring(8, 10).toInt()
+
+                val month = listOf(
+                    "January", "February", "March", "April",
+                    "May", "June", "July", "August",
+                    "September", "October", "November", "December"
+                )[monthNumber - 1]
+
+                val suffix = when {
+                    day % 100 in 11..13 -> "th"
+                    day % 10 == 1 -> "st"
+                    day % 10 == 2 -> "nd"
+                    day % 10 == 3 -> "rd"
+                    else -> "th"
+                }
+
+                "$month $day$suffix"
+            }.getOrNull()
+        }
+
+    val releaseYear = hints.releaseYear
+        ?.trim()
+        ?.takeIf { value ->
+            value.length == 4 && value.all(Char::isDigit)
+        }
+        ?: hints.releaseDate
+            ?.take(4)
+            ?.takeIf { value ->
+                value.length == 4 && value.all(Char::isDigit)
+            }
+
+    val comingWhen = exactDateText ?: releaseYear ?: return null
+
+    return if (upcomingSeason != null) {
+        "Season $upcomingSeason Coming $comingWhen"
+    } else {
+        "Coming $comingWhen"
+    }
+}
+
+private fun isReturningSeasonCatalogItem(item: MetaPreview): Boolean {
+    if (!isSeriesType(item.apiType)) return false
+    val hints = item.behaviorHints ?: return false
+    if (hints.comingSoon != true && hints.newSeason != true) return false
+
+    // A season number is mandatory. This deliberately refuses a bare
+    // newSeason=true signal so a first-season premiere can never be mislabeled.
+    val seasonNumber = if (hints.comingSoon == true) {
+        hints.upcomingSeason ?: hints.newSeasonNumber
+    } else {
+        hints.newSeasonNumber ?: hints.upcomingSeason
+    }
+    return seasonNumber != null && seasonNumber >= 2
+}
+
 internal fun buildCatalogItem(
     item: MetaPreview,
     row: CatalogRow,
     useLandscapePosters: Boolean,
     occurrence: Int,
     strTypeMovie: String = "",
-    strTypeSeries: String = ""
+    strTypeSeries: String = "",
+    releaseReminderBadge: ReleaseReminderBadge? = null
 ): ModernCarouselItem {
     val heroPreview = HeroPreview(
         title = item.name,
@@ -392,6 +468,7 @@ internal fun buildCatalogItem(
         } else {
             item.poster ?: item.backdropUrl
         },
+        comingSoonText = formatComingSoonHeroText(item),
         imdbText = item.imdbRating?.takeIf { it > 0f }?.let { "%.1f".format(it) }
     )
 
@@ -414,7 +491,9 @@ internal fun buildCatalogItem(
             trailerReleaseInfo = item.releaseInfo,
             trailerApiType = item.apiType
         ),
-        metaPreview = item
+        metaPreview = item,
+        isNewSeason = isReturningSeasonCatalogItem(item),
+        releaseReminderBadge = releaseReminderBadge
     )
 }
 

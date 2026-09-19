@@ -30,8 +30,10 @@ import com.nuvio.tv.domain.repository.WatchProgressRepository
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
+import com.nuvio.tv.data.local.ReleaseReminderDataStore
 import com.nuvio.tv.data.repository.TraktCommentsService
 import com.nuvio.tv.data.repository.TrackingRatingCoordinator
+import com.nuvio.tv.domain.model.MetaBehaviorHints
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.core.util.isUnreleased
@@ -76,6 +78,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val trailerService: TrailerService,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
     private val traktSettingsDataStore: TraktSettingsDataStore,
+    private val releaseReminderDataStore: ReleaseReminderDataStore,
     private val traktCommentsService: TraktCommentsService,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore,
     private val playerSettingsDataStore: PlayerSettingsDataStore,
@@ -140,6 +143,7 @@ class MetaDetailsViewModel @Inject constructor(
         observeMetaViewSettings()
         observeTrailerAutoplaySettings()
         observeLibraryState()
+        observeReleaseReminder()
         observeWatchProgress()
         observeWatchedEpisodes()
         observeMovieWatched()
@@ -155,6 +159,19 @@ class MetaDetailsViewModel @Inject constructor(
                 .distinctUntilChanged()
                 .collectLatest { enabled ->
                     hideUnreleasedContent = enabled
+                }
+        }
+    }
+
+    private fun observeReleaseReminder() {
+        viewModelScope.launch {
+            releaseReminderDataStore.isReminderSet(itemId, itemType)
+                .distinctUntilChanged()
+                .collectLatest { isSet ->
+                    _uiState.update { state ->
+                        if (state.isReleaseReminderSet == isSet) state
+                        else state.copy(isReleaseReminderSet = isSet)
+                    }
                 }
         }
     }
@@ -258,6 +275,7 @@ class MetaDetailsViewModel @Inject constructor(
             is MetaDetailsEvent.OnEpisodeClick -> { /* Navigate to stream */ }
             MetaDetailsEvent.OnPlayClick -> { /* Start playback */ }
             MetaDetailsEvent.OnToggleLibrary -> toggleLibrary()
+            MetaDetailsEvent.OnToggleReleaseReminder -> toggleReleaseReminder()
             MetaDetailsEvent.OnRetry -> loadMeta()
             MetaDetailsEvent.OnBackPress -> { /* Handle in screen */ }
             MetaDetailsEvent.OnUserInteraction -> handleUserInteraction()
@@ -521,66 +539,178 @@ class MetaDetailsViewModel @Inject constructor(
                 )
             }
 
-            val metaLookupId = resolveMetaLookupId(itemId = itemId, itemType = itemType)
-            val preferExternal = layoutPreferenceDataStore.preferExternalMetaAddonDetail.first()
+            suspend fun fetchPreferredMeta(
+                baseUrl: String,
+                lookupId: String
+            ): Meta? {
+                return try {
+                    when (
+                        val result = metaRepository.getMeta(
+                            addonBaseUrl = baseUrl,
+                            type = itemType,
+                            id = lookupId
+                        ).first { it !is NetworkResult.Loading }
+                    ) {
+                        is NetworkResult.Success -> result.data
+                        else -> null
+                    }
+                } catch (cancellation: CancellationException) {
+                    throw cancellation
+                } catch (_: Throwable) {
+                    null
+                }
+            }
+
+            val preferred = preferredAddonBaseUrl?.takeIf { it.isNotBlank() }
+
+            /*
+             * The originating catalog is queried with its original ID solely
+             * to recover release behavior hints. Its response is never promoted
+             * to the complete Details model: catalog-oriented metadata can omit
+             * episode videos and can contain sections the user's TMDB settings
+             * intentionally disable.
+             */
+            val releaseHintsSourceDeferred = preferred?.let { baseUrl ->
+                async {
+                    fetchPreferredMeta(
+                        baseUrl = baseUrl,
+                        lookupId = itemId
+                    )
+                }
+            }
+
+            suspend fun withReleaseHints(base: Meta): Meta =
+                mergeReleaseBehaviorHints(
+                    base = base,
+                    releaseSource = releaseHintsSourceDeferred?.await()
+                )
+
+            val metaLookupId = resolveMetaLookupId(
+                itemId = itemId,
+                itemType = itemType
+            )
+            val preferExternal =
+                layoutPreferenceDataStore.preferExternalMetaAddonDetail.first()
+
+            suspend fun loadOriginalPreferredPrimary(): Meta? {
+                val baseUrl = preferred ?: return null
+                return if (metaLookupId == itemId) {
+                    releaseHintsSourceDeferred?.await()
+                } else {
+                    fetchPreferredMeta(
+                        baseUrl = baseUrl,
+                        lookupId = metaLookupId
+                    )
+                }
+            }
 
             if (preferExternal) {
-                // 1) Try meta addons first
-                metaRepository.getMetaFromAllAddons(type = itemType, id = metaLookupId).collect { result ->
+                // Preserve Nuvio's external-details preference. The origin
+                // contributes release hints only after the primary model wins.
+                metaRepository.getMetaFromAllAddons(
+                    type = itemType,
+                    id = metaLookupId
+                ).collect { result ->
                     when (result) {
                         is NetworkResult.Success -> {
-                            applyMetaWithEnrichment(result.data)
+                            applyMetaWithEnrichment(
+                                withReleaseHints(result.data)
+                            )
                         }
+
                         is NetworkResult.Error -> {
-                            // 2) Fallback: try originating addon if meta addons failed
-                            val preferred = preferredAddonBaseUrl?.takeIf { it.isNotBlank() }
-                            val preferredMeta: Meta? = preferred?.let { baseUrl ->
-                                when (val fallbackResult = metaRepository.getMeta(addonBaseUrl = baseUrl, type = itemType, id = metaLookupId)
-                                    .first { it !is NetworkResult.Loading }) {
-                                    is NetworkResult.Success -> fallbackResult.data
-                                    else -> null
+                            val preferredPrimary =
+                                loadOriginalPreferredPrimary()
+                            if (preferredPrimary != null) {
+                                applyMetaWithEnrichment(
+                                    withReleaseHints(preferredPrimary)
+                                )
+                            } else {
+                                _uiState.update {
+                                    it.copy(
+                                        isLoading = false,
+                                        error = result.message
+                                    )
                                 }
                             }
-
-                            if (preferredMeta != null) {
-                                applyMetaWithEnrichment(preferredMeta)
-                            } else {
-                                _uiState.update { it.copy(isLoading = false, error = result.message) }
-                            }
                         }
+
                         NetworkResult.Loading -> {
                             _uiState.update { it.copy(isLoading = true) }
                         }
                     }
                 }
             } else {
-                // Original: prefer catalog addon
-                val preferred = preferredAddonBaseUrl?.takeIf { it.isNotBlank() }
-                val preferredMeta: Meta? = preferred?.let { baseUrl ->
-                    when (val result = metaRepository.getMeta(addonBaseUrl = baseUrl, type = itemType, id = metaLookupId)
-                        .first { it !is NetworkResult.Loading }) {
-                        is NetworkResult.Success -> result.data
-                        else -> null
-                    }
-                }
-
-                if (preferredMeta != null) {
-                    applyMetaWithEnrichment(preferredMeta)
+                // Restore the original primary-source lookup behavior. For a
+                // tmdb:* catalog ID this uses the resolved metadata ID, while
+                // the raw origin response remains only the release sidecar.
+                val preferredPrimary = loadOriginalPreferredPrimary()
+                if (preferredPrimary != null) {
+                    applyMetaWithEnrichment(
+                        withReleaseHints(preferredPrimary)
+                    )
                 } else {
-                    metaRepository.getMetaFromAllAddons(type = itemType, id = metaLookupId).collect { result ->
+                    metaRepository.getMetaFromAllAddons(
+                        type = itemType,
+                        id = metaLookupId
+                    ).collect { result ->
                         when (result) {
-                            is NetworkResult.Success -> applyMetaWithEnrichment(result.data)
-                            is NetworkResult.Error -> {
-                                _uiState.update { it.copy(isLoading = false, error = result.message) }
+                            is NetworkResult.Success -> {
+                                applyMetaWithEnrichment(
+                                    withReleaseHints(result.data)
+                                )
                             }
+
+                            is NetworkResult.Error -> {
+                                _uiState.update {
+                                    it.copy(
+                                        isLoading = false,
+                                        error = result.message
+                                    )
+                                }
+                            }
+
                             NetworkResult.Loading -> {
-                                _uiState.update { it.copy(isLoading = true) }
+                                _uiState.update {
+                                    it.copy(isLoading = true)
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    private fun mergeReleaseBehaviorHints(base: Meta, releaseSource: Meta?): Meta {
+        val source = releaseSource?.behaviorHints ?: return base
+        val hasReleaseSignals =
+            source.comingSoon == true ||
+                source.newSeason == true ||
+                !source.releaseDate.isNullOrBlank() ||
+                !source.releaseLabel.isNullOrBlank() ||
+                !source.releaseYear.isNullOrBlank() ||
+                source.upcomingSeason != null ||
+                source.newSeasonNumber != null ||
+                !source.newSeasonReleaseDate.isNullOrBlank()
+        if (!hasReleaseSignals) return base
+
+        val current = base.behaviorHints
+        val merged = (current ?: MetaBehaviorHints()).copy(
+            comingSoon = source.comingSoon ?: current?.comingSoon,
+            releaseDate = source.releaseDate?.takeIf { it.isNotBlank() } ?: current?.releaseDate,
+            releasePrecision = source.releasePrecision?.takeIf { it.isNotBlank() }
+                ?: current?.releasePrecision,
+            releaseLabel = source.releaseLabel?.takeIf { it.isNotBlank() } ?: current?.releaseLabel,
+            releaseYear = source.releaseYear?.takeIf { it.isNotBlank() } ?: current?.releaseYear,
+            upcomingSeason = source.upcomingSeason ?: current?.upcomingSeason,
+            newSeason = source.newSeason ?: current?.newSeason,
+            newSeasonNumber = source.newSeasonNumber ?: current?.newSeasonNumber,
+            newSeasonReleaseDate = source.newSeasonReleaseDate?.takeIf { it.isNotBlank() }
+                ?: current?.newSeasonReleaseDate,
+            platformId = source.platformId?.takeIf { it.isNotBlank() } ?: current?.platformId
+        )
+        return base.copy(behaviorHints = merged)
     }
 
     private suspend fun resolveMetaLookupId(itemId: String, itemType: String): String {
@@ -646,7 +776,10 @@ class MetaDetailsViewModel @Inject constructor(
         android.util.Log.d("BackdropDebug", "name=${meta.name} originalBackground=${metaWithOriginal.originalBackground} background=${meta.background}")
         // Fire all independent async jobs immediately — they run in parallel.
         loadMoreLikeThisAsync(metaWithOriginal)
-        val enriched = enrichMeta(metaWithOriginal)
+        val enriched = mergeReleaseBehaviorHints(
+            base = enrichMeta(metaWithOriginal),
+            releaseSource = metaWithOriginal
+        )
         android.util.Log.d("BackdropDebug", "after enrichment: background=${enriched.background} detailBackdrop=${enriched.detailBackdrop} originalBackground=${enriched.originalBackground}")
         // Resolve MDBList state before Details becomes visible.
         // MDBList-specific layout exists only when the integration is enabled,
@@ -1094,9 +1227,21 @@ class MetaDetailsViewModel @Inject constructor(
 
     private suspend fun enrichMeta(meta: Meta): Meta {
         val settings = tmdbSettingsDataStore.settings.first()
-        if (!settings.enabled) return meta
+        val settingsFilteredMeta = meta.copy(
+            productionCompanies = if (settings.useProductions) {
+                meta.productionCompanies
+            } else {
+                emptyList()
+            },
+            networks = if (settings.useNetworks) {
+                meta.networks
+            } else {
+                emptyList()
+            }
+        )
+        if (!settings.enabled) return settingsFilteredMeta
 
-        val tmdbContentType = resolveTmdbContentType(meta)
+        val tmdbContentType = resolveTmdbContentType(settingsFilteredMeta)
         val tmdbLookupType = tmdbContentType.toApiString()
         val tmdbId = tmdbService.ensureTmdbId(meta.id, tmdbLookupType)
             ?: tmdbService.ensureTmdbId(itemId, itemType)
@@ -1130,7 +1275,7 @@ class MetaDetailsViewModel @Inject constructor(
             main.await() to episodes?.await()
         }
 
-        var updated = meta
+        var updated = settingsFilteredMeta
 
         if (enrichment != null && settings.useArtwork) {
             updated = updated.copy(
@@ -1481,6 +1626,68 @@ class MetaDetailsViewModel @Inject constructor(
         return hasStartedPlayback &&
             progress.source != WatchProgress.SOURCE_TRAKT_HISTORY &&
             progress.source != WatchProgress.SOURCE_TRAKT_SHOW_PROGRESS
+    }
+
+    private fun Meta.toReleaseReminderRecord(): com.nuvio.tv.data.local.ReleaseReminderRecord {
+        val parsedIds = parseContentIds(id)
+        val seasonNumber = behaviorHints?.upcomingSeason
+        return com.nuvio.tv.data.local.ReleaseReminderRecord(
+            itemId = id,
+            itemType = apiType,
+            title = name,
+            year = Regex("(\\d{4})").find(releaseInfo ?: "")
+                ?.groupValues
+                ?.getOrNull(1)
+                ?.toIntOrNull(),
+            traktId = parsedIds.trakt,
+            imdbId = parsedIds.imdb ?: this.imdbId,
+            tmdbId = parsedIds.tmdb ?: _uiState.value.resolvedTmdbId,
+            poster = poster,
+            background = background,
+            logo = logo,
+            description = description,
+            releaseInfo = releaseInfo,
+            imdbRating = imdbRating,
+            genres = genres,
+            addonBaseUrl = preferredAddonBaseUrl,
+            releaseDate = behaviorHints?.releaseDate,
+            seasonNumber = seasonNumber,
+            badge = if ((seasonNumber ?: 0) >= 2) {
+                com.nuvio.tv.data.local.ReleaseReminderBadge.NEW_SEASON
+            } else {
+                com.nuvio.tv.data.local.ReleaseReminderBadge.AVAILABLE_NOW
+            }
+        )
+    }
+
+    private fun toggleReleaseReminder() {
+        val meta = _uiState.value.meta ?: return
+        if (meta.behaviorHints?.comingSoon != true) return
+        val enabled = !_uiState.value.isReleaseReminderSet
+        _uiState.update { it.copy(isReleaseReminderSet = enabled) }
+
+        viewModelScope.launch {
+            runCatching {
+                if (enabled) {
+                    releaseReminderDataStore.setReminder(
+                        meta.toReleaseReminderRecord(),
+                        enabled = true
+                    )
+                } else {
+                    releaseReminderDataStore.remove(meta.id, meta.apiType)
+                }
+            }.onSuccess {
+                showMessage(
+                    context.getString(
+                        if (enabled) R.string.detail_reminder_added
+                        else R.string.detail_reminder_removed
+                    )
+                )
+            }.onFailure { error ->
+                _uiState.update { it.copy(isReleaseReminderSet = !enabled) }
+                showMessage(error.message ?: "Failed to update reminder", isError = true)
+            }
+        }
     }
 
     private fun toggleLibrary() {

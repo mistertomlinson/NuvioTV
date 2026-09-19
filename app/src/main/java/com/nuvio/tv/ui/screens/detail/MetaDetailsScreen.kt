@@ -388,6 +388,7 @@ fun MetaDetailsScreen(
                     blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                     isMovieWatched = uiState.isMovieWatched,
                     isMovieWatchedPending = uiState.isMovieWatchedPending,
+                    isReleaseReminderSet = uiState.isReleaseReminderSet,
                     moreLikeThis = uiState.moreLikeThis,
                     collection = uiState.collection,
                     collectionName = uiState.collectionName,
@@ -477,6 +478,7 @@ fun MetaDetailsScreen(
                     showManualPlayOption = effectiveAutoplayEnabled,
                     onPlayButtonFocused = { viewModel.onEvent(MetaDetailsEvent.OnPlayButtonFocused) },
                     onToggleLibrary = { viewModel.onEvent(MetaDetailsEvent.OnToggleLibrary) },
+                    onToggleReleaseReminder = { viewModel.onEvent(MetaDetailsEvent.OnToggleReleaseReminder) },
                     onLibraryLongPress = { viewModel.onEvent(MetaDetailsEvent.OnLibraryLongPress) },
                     onToggleMovieWatched = { viewModel.onEvent(MetaDetailsEvent.OnToggleMovieWatched) },
                     onToggleEpisodeWatched = { video ->
@@ -638,6 +640,7 @@ private fun MetaDetailsContent(
     blurUnwatchedEpisodes: Boolean,
     isMovieWatched: Boolean,
     isMovieWatchedPending: Boolean,
+    isReleaseReminderSet: Boolean,
     moreLikeThis: List<MetaPreview>,
     collection: List<MetaPreview>,
     collectionName: String?,
@@ -663,6 +666,7 @@ private fun MetaDetailsContent(
     showManualPlayOption: Boolean,
     onPlayButtonFocused: () -> Unit,
     onToggleLibrary: () -> Unit,
+    onToggleReleaseReminder: () -> Unit,
     onLibraryLongPress: () -> Unit,
     onToggleMovieWatched: () -> Unit,
     onToggleEpisodeWatched: (Video) -> Unit,
@@ -700,6 +704,7 @@ private fun MetaDetailsContent(
     val isSeries = remember(meta.type, meta.videos) {
         meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
     }
+    val isComingSoon = meta.behaviorHints?.comingSoon == true
     val defaultSeriesVideo = remember(meta.behaviorHints?.defaultVideoId, meta.videos) {
         val defaultVideoId = meta.behaviorHints?.defaultVideoId
         meta.videos.firstOrNull { it.id == defaultVideoId && it.available != false }
@@ -1164,13 +1169,24 @@ private fun MetaDetailsContent(
     // Pre-compute gradient brushes once
 
     // Stable hero play callback
-    val heroPlayClick = remember(heroVideo, meta.id, onEpisodeClick, onPlayClick) {
+    val heroPlayClick = remember(
+        heroVideo,
+        meta.id,
+        isComingSoon,
+        onEpisodeClick,
+        onPlayClick,
+        onToggleReleaseReminder
+    ) {
         {
-            markHeroRestore()
-            if (heroVideo != null) {
-                onEpisodeClick(heroVideo)
+            if (isComingSoon) {
+                onToggleReleaseReminder()
             } else {
-                onPlayClick(meta.id)
+                markHeroRestore()
+                if (heroVideo != null) {
+                    onEpisodeClick(heroVideo)
+                } else {
+                    onPlayClick(meta.id)
+                }
             }
         }
     }
@@ -1343,13 +1359,15 @@ private fun MetaDetailsContent(
                         nextEpisode = nextEpisode,
                         nextToWatch = nextToWatch,
                         onPlayClick = heroPlayClick,
-                        onPlayLongPress = if (showManualPlayOption) {
+                        onPlayLongPress = if (!isComingSoon && showManualPlayOption) {
                             { showHeroPlayOptionsDialog = true }
                         } else {
                             null
                         },
                         isInLibrary = isInLibrary,
                         onToggleLibrary = onToggleLibrary,
+                        isComingSoon = isComingSoon,
+                        isReleaseReminderSet = isReleaseReminderSet,
                         onLibraryLongPress = {
                             if (librarySourceMode == LibrarySourceMode.TRAKT) {
                                 onLibraryLongPress()

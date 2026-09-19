@@ -89,7 +89,6 @@ private val FALLBACK_FONT_ASSET_PATHS =
     listOf(
         "fonts/28_days_later.ttf",
         "fonts/afton_james.ttf",
-        "fonts/amorye.ttf",
         "fonts/anton.ttf",
         "fonts/bebas_neue.ttf",
         "fonts/cinzel_bold.ttf"
@@ -129,68 +128,11 @@ private fun fallbackTitleLogoFontAsset(title: String): String {
 }
 
 /*
- * Curated generated-logo colors.
- *
- * Keep this ordering stable once released; changing it will reshuffle
- * existing title/color assignments.
+ * Generated fallback logos use the same neutral soft white on every surface.
+ * Font choice remains deterministic; color no longer varies by title.
  */
 private val FALLBACK_TITLE_LOGO_SOFT_WHITE =
     Color(0xFFF4F1EA)
-
-private val FALLBACK_TITLE_LOGO_RED =
-    Color(0xFFE32636)
-
-private val FALLBACK_TITLE_LOGO_YELLOW =
-    Color(0xFFFFD400)
-
-private val FALLBACK_TITLE_LOGO_BLUE =
-    Color(0xFF246BFD)
-
-/*
- * Generated title logos intentionally favor neutral artwork.
- *
- * 60% soft white
- * 15% red
- * 13% yellow
- * 12% blue
- *
- * These are saturated logo colors rather than pastel UI accents.
- */
-private fun fallbackTitleLogoColor(
-    title: String
-): Color {
-    val styleKey =
-        fallbackTitleLogoStyleKey(title)
-
-    /*
-     * Keep color selection independently salted from font selection.
-     */
-    val colorHash =
-        stableFallbackTitleLogoHash(
-            "fallback-logo-color:$styleKey"
-        )
-
-    val bucket =
-        Math.floorMod(
-            colorHash,
-            100
-        )
-
-    return when {
-        bucket < 60 ->
-            FALLBACK_TITLE_LOGO_SOFT_WHITE
-
-        bucket < 75 ->
-            FALLBACK_TITLE_LOGO_RED
-
-        bucket < 88 ->
-            FALLBACK_TITLE_LOGO_YELLOW
-
-        else ->
-            FALLBACK_TITLE_LOGO_BLUE
-    }
-}
-
 /*
  * A long title that technically fits on one line can become visually tiny
  * after the finished generated-logo bounds are ContentScale.Fit into a logo
@@ -650,13 +592,8 @@ internal fun FallbackTitleLogo(
             ).build()
         }
 
-    val deterministicColor =
-        remember(title) {
-            fallbackTitleLogoColor(title)
-        }
-
     val resolvedColor =
-        color ?: deterministicColor
+        color ?: FALLBACK_TITLE_LOGO_SOFT_WHITE
 
     /*
      * This is the only place where the title is ever wrapped.
@@ -809,13 +746,8 @@ internal fun RasterizedFallbackTitleLogo(
             ).build()
         }
 
-    val deterministicColor =
-        remember(title) {
-            fallbackTitleLogoColor(title)
-        }
-
     val resolvedColor =
-        color ?: deterministicColor
+        color ?: FALLBACK_TITLE_LOGO_SOFT_WHITE
 
     val canonicalLayout =
         remember(title, typeface, geometry) {

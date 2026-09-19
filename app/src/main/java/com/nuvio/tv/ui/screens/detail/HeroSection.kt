@@ -71,6 +71,7 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.ui.platform.LocalContext
@@ -92,6 +93,8 @@ fun HeroContentSection(
     isInLibrary: Boolean,
     onToggleLibrary: () -> Unit,
     onLibraryLongPress: () -> Unit,
+    isComingSoon: Boolean = false,
+    isReleaseReminderSet: Boolean = false,
     isMovieWatched: Boolean,
     isMovieWatchedPending: Boolean,
     onToggleMovieWatched: () -> Unit,
@@ -338,6 +341,14 @@ fun HeroContentSection(
                 )
                 val playButtonText = nextToWatch?.displayText
                     ?: if (nextEpisode != null) episodePlayText else genericPlayText
+                val primaryActionText = if (isComingSoon) {
+                    stringResource(
+                        if (isReleaseReminderSet) R.string.hero_reminder_set
+                        else R.string.hero_remind_me
+                    )
+                } else {
+                    playButtonText
+                }
 
                 Column {
                     Row(
@@ -345,7 +356,13 @@ fun HeroContentSection(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         PlayButton(
-                            text = playButtonText,
+                            text = primaryActionText,
+                            icon = if (isComingSoon) {
+                                if (isReleaseReminderSet) Icons.Default.Check
+                                else Icons.Default.Notifications
+                            } else {
+                                null
+                            },
                             onClick = onPlayClick,
                             onLongPress = onPlayLongPress,
                             focusRequester = playButtonFocusRequester,
@@ -356,20 +373,22 @@ fun HeroContentSection(
                             }
                         )
 
-                        ActionIconButton(
-                            icon = if (isInLibrary) Icons.Default.Check else null,
-                            painter = if (!isInLibrary) {
-                                libraryAddPainter
-                            } else {
-                                null
-                            },
-                            contentDescription = if (isInLibrary) stringResource(R.string.hero_remove_from_library) else stringResource(R.string.hero_add_to_library),
-                            onClick = onToggleLibrary,
-                            onLongPress = onLibraryLongPress,
-                            onFocused = onHeroActionFocused
-                        )
+                        if (!isComingSoon) {
+                            ActionIconButton(
+                                icon = if (isInLibrary) Icons.Default.Check else null,
+                                painter = if (!isInLibrary) {
+                                    libraryAddPainter
+                                } else {
+                                    null
+                                },
+                                contentDescription = if (isInLibrary) stringResource(R.string.hero_remove_from_library) else stringResource(R.string.hero_add_to_library),
+                                onClick = onToggleLibrary,
+                                onLongPress = onLibraryLongPress,
+                                onFocused = onHeroActionFocused
+                            )
+                        }
 
-                        if (meta.apiType == "movie") {
+                        if (!isComingSoon && meta.apiType == "movie") {
                             ActionIconButton(
                                 icon = if (isMovieWatched) {
                                     Icons.Default.Visibility
@@ -454,6 +473,7 @@ fun HeroContentSection(
 @Composable
 private fun PlayButton(
     text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onClick: () -> Unit,
     onLongPress: (() -> Unit)? = null,
     focusRequester: FocusRequester? = null,
@@ -541,11 +561,19 @@ private fun PlayButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            Icon(
-                painter = playPainter,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp)
-            )
+            if (icon != null) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            } else {
+                Icon(
+                    painter = playPainter,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
             Text(
                 text = text,
                 style = MaterialTheme.typography.labelLarge

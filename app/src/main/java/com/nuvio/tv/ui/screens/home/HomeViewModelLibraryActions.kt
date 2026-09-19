@@ -138,6 +138,9 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
         }
 
         if (result.isSuccess) {
+            if (wasInDefaultList) {
+                releaseReminderDataStore.remove(item.id, item.apiType)
+            }
             val message = if (wasInDefaultList) {
                 com.nuvio.tv.R.string.detail_removed_from_library
             } else {

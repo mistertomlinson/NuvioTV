@@ -303,7 +303,9 @@ fun ModernHomeContent(
     val strUpcoming = stringResource(R.string.cw_upcoming)
     val strTypeMovie = stringResource(R.string.type_movie)
     val strTypeSeries = stringResource(R.string.type_series)
-    val rowBuildCache = remember { ModernCarouselRowBuildCache() }
+    // Reminder fulfillment is rare; recreating this mapping cache guarantees
+    // that a badge appears or clears atomically without touching scroll paths.
+    val rowBuildCache = remember(uiState.releaseReminderBadges) { ModernCarouselRowBuildCache() }
     val context = LocalContext.current
     val density = LocalDensity.current
     val enrichmentReadyRowKeys: Set<String> = uiState.enrichmentReadyRowKeys
@@ -326,6 +328,7 @@ fun ModernHomeContent(
         numberedCatalogKeys,
         outlineNumberedCatalogKeys,
         uiState.landscapeCatalogKeys,
+        uiState.releaseReminderBadges,
         enrichmentReadyRowKeys,
         continueWatchingEnrichmentReady
     ) {
@@ -439,7 +442,18 @@ fun ModernHomeContent(
                                     useLandscapePosters = rowUseLandscapePosters,
                                     occurrence = occurrence,
                                     strTypeMovie = strTypeMovie,
-                                    strTypeSeries = strTypeSeries
+                                    strTypeSeries = strTypeSeries,
+                                    releaseReminderBadge =
+                                        if (rowKey == HomeViewModel.MY_LIST_CATALOG_KEY) {
+                                            com.nuvio.tv.data.local.releaseReminderKey(
+                                                item.id,
+                                                item.apiType
+                                            )?.let { reminderKey ->
+                                                uiState.releaseReminderBadges[reminderKey]
+                                            }
+                                        } else {
+                                            null
+                                        }
                                 )
                                 rowItemCache[cacheKey] = CachedCarouselItem(
                                     source = item,

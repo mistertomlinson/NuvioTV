@@ -1174,6 +1174,30 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
     }
 }
 
+private fun com.nuvio.tv.domain.model.MetaPreview.hasDatedComingSoonSignal(): Boolean {
+    val hints = behaviorHints ?: return false
+    if (hints.comingSoon != true) return false
+
+    val hasExactDate = hints.releaseDate
+        ?.trim()
+        ?.let { raw ->
+            runCatching { LocalDate.parse(raw) }.isSuccess
+        } == true
+    val hasReleaseYear = hints.releaseYear
+        ?.trim()
+        ?.let { year ->
+            year.length == 4 && year.all(Char::isDigit)
+        } == true
+
+    val hasYearOnlyReleaseDate = hints.releaseDate
+        ?.trim()
+        ?.let { year ->
+            year.length == 4 && year.all(Char::isDigit)
+        } == true
+
+    return hasExactDate || hasReleaseYear || hasYearOnlyReleaseDate
+}
+
 internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     val orderedKeys = catalogOrder.toList()
     val catalogSnapshot = catalogsMap.toMap()
@@ -1186,10 +1210,36 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
     val hideUnreleased = _uiState.value.hideUnreleasedContent
 
     val (displayRows, baseHeroItems, baseGridItems, fullRowsFiltered) = withContext(Dispatchers.Default) {
-        val rawRows = orderedKeys.mapNotNull { key -> catalogSnapshot[key] }
+        val rawRows = orderedKeys
+            .mapNotNull { key -> catalogSnapshot[key] }
+            .map { row ->
+                if (row.catalogId.startsWith("coming_soon_")) {
+                    // Coming Soon is a dated promise. Entries without either a
+                    // valid calendar date or a four-digit release year are not
+                    // allowed into presentation or proactive enrichment.
+                    row.copy(
+                        items = row.items.filter { item ->
+                            item.hasDatedComingSoonSignal()
+                        }
+                    )
+                } else {
+                    row
+                }
+            }
         val filteredRows = if (hideUnreleased) {
             val today = LocalDate.now()
-            rawRows.map { it.filterReleasedItems(today) }
+            rawRows.map { row ->
+                /*
+                 * Coming Soon catalogs intentionally contain future releases.
+                 * Keep them intact even when the global Home setting hides
+                 * unreleased content from ordinary catalogs.
+                 */
+                if (row.catalogId.startsWith("coming_soon_")) {
+                    row
+                } else {
+                    row.filterReleasedItems(today)
+                }
+            }
         } else {
             rawRows
         }

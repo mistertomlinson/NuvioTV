@@ -2,6 +2,8 @@
 
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.data.local.ReleaseReminderBadge
+
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
@@ -30,6 +32,7 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Spacer
@@ -103,6 +106,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
+import com.nuvio.tv.ui.components.CwNewSeasonBadgeColor
 import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.rememberPosterShimmerTranslateState
@@ -374,6 +378,8 @@ private fun ModernCatalogRowItem(
         trailerPreviewUrl = trailerPreviewUrl,
         trailerPreviewAudioUrl = trailerPreviewAudioUrl,
         isWatched = isWatched,
+        isNewSeason = item.isNewSeason,
+        releaseReminderBadge = item.releaseReminderBadge,
         showHeavyOverlays = showHeavyOverlays,
         heavyOverlayAlpha = heavyOverlayAlpha,
         cardDepthAlpha = cardDepthAlpha,
@@ -1439,6 +1445,8 @@ private fun ModernCarouselCard(
     trailerPreviewUrl: String?,
     trailerPreviewAudioUrl: String?,
     isWatched: Boolean,
+    isNewSeason: Boolean,
+    releaseReminderBadge: ReleaseReminderBadge?,
     showHeavyOverlays: Boolean,
     heavyOverlayAlpha: State<Float>,
     cardDepthAlpha: State<Float>,
@@ -2177,30 +2185,64 @@ private fun ModernCarouselCard(
                     )
                 }
 
+                val effectiveReleaseBadge = when {
+                    isNewSeason || releaseReminderBadge == ReleaseReminderBadge.NEW_SEASON ->
+                        ReleaseReminderBadge.NEW_SEASON
+                    else -> releaseReminderBadge
+                }
+
                 if (
-                    isWatched &&
+                    (effectiveReleaseBadge != null || isWatched) &&
                     showHeavyOverlays
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = stringResource(R.string.episodes_cd_watched),
-                        tint = Color.White,
+                    Row(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(end = 8.dp, top = 8.dp)
                             .zIndex(2f)
-                            .size(21.dp)
                             .graphicsLayer {
-                                alpha =
-                                    heavyOverlayAlpha.value
-                            }
-                            .drawBehind {
-                                drawCircle(
-                                    color = androidx.compose.ui.graphics.Color.Black,
-                                    radius = size.minDimension / 2f + 1.5f
-                                )
-                            }
-                    )
+                                alpha = heavyOverlayAlpha.value
+                            },
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (effectiveReleaseBadge != null) {
+                            Text(
+                                text = stringResource(
+                                    if (effectiveReleaseBadge == ReleaseReminderBadge.NEW_SEASON) {
+                                        R.string.cw_new_season
+                                    } else {
+                                        R.string.release_available_now
+                                    }
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White,
+                                maxLines = 1,
+                                modifier = Modifier
+                                    .background(
+                                        color = CwNewSeasonBadgeColor.copy(alpha = 0.8f),
+                                        shape = RoundedCornerShape(5.dp)
+                                    )
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                        if (isWatched) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = stringResource(R.string.episodes_cd_watched),
+                                tint = Color.White,
+                                modifier = Modifier
+                                    .size(21.dp)
+                                    .drawBehind {
+                                        drawCircle(
+                                            color = Color.Black,
+                                            radius = size.minDimension / 2f + 1.5f
+                                        )
+                                    }
+                            )
+                        }
+                    }
                 }
             }
         }

@@ -65,6 +65,7 @@
     <string name="cw_airs_date">Airs %1$s</string>
     <string name="cw_new_episode">New Episode</string>
     <string name="cw_new_season">New Season</string>
+    <string name="release_available_now">Available Now</string>
     <string name="cw_airs_today">Airs today</string>
     <string name="cw_airs_tomorrow">Airs tomorrow</string>
     <string name="cw_action_go_to_details">Go to details</string>
@@ -82,6 +83,10 @@
     <string name="hero_director">Director: %1$s</string>
     <string name="hero_writer">Writer: %1$s</string>
     <string name="hero_play">Play</string>
+    <string name="hero_remind_me">Remind Me</string>
+    <string name="hero_reminder_set">Reminder Set</string>
+    <string name="detail_reminder_added">Reminder set</string>
+    <string name="detail_reminder_removed">Reminder removed</string>
     <string name="hero_play_episode">Play S%1$d, E%2$d</string>
     <string name="hero_add_to_library">Add to My List</string>
     <string name="hero_remove_from_library">Remove from My List</string>

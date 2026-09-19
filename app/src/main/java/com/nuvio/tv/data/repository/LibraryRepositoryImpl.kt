@@ -218,6 +218,22 @@ class LibraryRepositoryImpl @Inject constructor(
         toggleDefaultForSelectedProvider(item, emitTraktSignal = false)
     }
 
+    override suspend fun ensureInDefault(item: LibraryEntryInput) {
+        val mode = sourceMode.first()
+        val alreadyPresent = when (mode) {
+            LibrarySourceMode.SIMKL ->
+                isInLibrary(item.itemId, item.itemType).first()
+
+            LibrarySourceMode.TRAKT,
+            LibrarySourceMode.LOCAL ->
+                isInWatchlist(item.itemId, item.itemType).first()
+        }
+
+        if (!alreadyPresent) {
+            toggleDefaultForSelectedProvider(item, emitTraktSignal = false)
+        }
+    }
+
     override suspend fun toggleDefaultWithSignal(item: LibraryEntryInput) {
         toggleDefaultForSelectedProvider(item, emitTraktSignal = true)
     }
