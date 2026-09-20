@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.core.content.res.ResourcesCompat
 import com.nuvio.tv.ui.components.FallbackTitleLogo
 import com.nuvio.tv.ui.components.FallbackTitleLogoGeometry
+import com.nuvio.tv.ui.components.FallbackTitleLogoHorizontalAlignment
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -686,6 +687,8 @@ private fun HeroTitleContent(
                                     FallbackTitleLogoGeometry.SmallMetadata
                                 },
                             modifier = Modifier.fillMaxSize(),
+                            horizontalAlignment =
+                                FallbackTitleLogoHorizontalAlignment.Start,
                         )
                     }
                     // If hasLogo but not ready yet — empty box holds space, no text flash

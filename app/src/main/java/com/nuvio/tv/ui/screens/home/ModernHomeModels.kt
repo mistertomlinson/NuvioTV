@@ -455,7 +455,11 @@ internal fun buildCatalogItem(
         },
         isSeries = isSeriesType(item.apiType),
         yearText = extractYear(item.releaseInfo),
-        runtimeText = formatHeroRuntime(item.runtime),
+        runtimeText = if (item.behaviorHints?.comingSoon == true) {
+            null
+        } else {
+            formatHeroRuntime(item.runtime)
+        },
         ageRatingText = item.ageRating,
         statusText = item.status,
         countryText = item.country,
