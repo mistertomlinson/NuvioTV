@@ -6,12 +6,16 @@ import com.nuvio.tv.data.local.ReleaseReminderBadge
 import com.nuvio.tv.data.local.ReleaseReminderRecord
 import com.nuvio.tv.data.local.ReleaseReminderStatus
 import com.nuvio.tv.data.local.releaseReminderKey
+import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -19,11 +23,30 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 private const val RELEASE_BADGE_LIFETIME_MS = 30L * 24 * 60 * 60 * 1000
+private const val RELEASE_REMINDER_RECHECK_INTERVAL_MS = 60_000L
+private const val RELEASE_FALLBACK_HOUR_LOCAL = 4
 
 private data class ReleaseReminderHomeSnapshot(
     val continueWatchingItems: List<ContinueWatchingItem>,
+    val catalogRows: List<CatalogRow>
+) {
     val catalogItems: List<MetaPreview>
+        get() = catalogRows.flatMap { it.items }
+}
+
+private data class ReleaseReminderPipelineInput(
+    val reminders: List<ReleaseReminderRecord>,
+    val cwResolved: Boolean,
+    val snapshot: ReleaseReminderHomeSnapshot,
+    val nowMillis: Long
 )
+
+private fun releaseReminderClock() = flow {
+    while (true) {
+        emit(System.currentTimeMillis())
+        delay(RELEASE_REMINDER_RECHECK_INTERVAL_MS)
+    }
+}
 
 internal fun HomeViewModel.observeReleaseRemindersPipeline() {
     viewModelScope.launch {
@@ -34,14 +57,23 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 .map { state ->
                     ReleaseReminderHomeSnapshot(
                         continueWatchingItems = state.continueWatchingItems,
-                        catalogItems = state.catalogRows.flatMap { it.items }
+                        catalogRows = state.catalogRows
                     )
                 }
-                .distinctUntilChanged()
-        ) { reminders, cwResolved, snapshot ->
-            Triple(reminders, cwResolved, snapshot)
-        }.collect { (reminders, cwResolved, snapshot) ->
-            val nowMillis = System.currentTimeMillis()
+                .distinctUntilChanged(),
+            releaseReminderClock()
+        ) { reminders, cwResolved, snapshot, nowMillis ->
+            ReleaseReminderPipelineInput(
+                reminders = reminders,
+                cwResolved = cwResolved,
+                snapshot = snapshot,
+                nowMillis = nowMillis
+            )
+        }.collect { input ->
+            val reminders = input.reminders
+            val cwResolved = input.cwResolved
+            val snapshot = input.snapshot
+            val nowMillis = input.nowMillis
             val liveBadges = buildMap {
                 reminders
                     .asSequence()
@@ -84,6 +116,16 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                     }
                     if (expired || playbackStarted) {
                         releaseReminderDataStore.remove(reminder.key)
+                        continue
+                    }
+
+                    /*
+                     * Records fulfilled by the original implementation were
+                     * marked complete merely because no exception was thrown.
+                     * Re-arm those once so they go through verified insertion.
+                     */
+                    if (!reminder.membershipConfirmed) {
+                        releaseReminderDataStore.markArmed(reminder.key)
                     }
                     continue
                 }
@@ -120,7 +162,13 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 }
 
                 val releaseDate = parseExactReleaseDate(reminder.releaseDate) ?: continue
-                if (releaseDate.isAfter(LocalDate.now())) continue
+                val availabilityConfirmed = snapshot.hasAvailabilityConfirmation(reminder)
+                if (
+                    !availabilityConfirmed &&
+                    !releaseFallbackWindowReached(releaseDate, nowMillis)
+                ) {
+                    continue
+                }
 
                 /* Continue Watching is authoritative and must never be duplicated in My List. */
                 if (snapshot.continueWatchingItems.any(reminder::matchesContinueWatching)) {
@@ -130,11 +178,18 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
 
                 runCatching {
                     libraryRepository.ensureInDefault(reminder.toLibraryEntryInput())
-                }.onSuccess {
-                    releaseReminderDataStore.markFulfilled(
-                        key = reminder.key,
-                        fulfilledAtMillis = System.currentTimeMillis()
-                    )
+                }.onSuccess { membershipConfirmed ->
+                    if (membershipConfirmed) {
+                        releaseReminderDataStore.markFulfilled(
+                            key = reminder.key,
+                            fulfilledAtMillis = System.currentTimeMillis()
+                        )
+                    } else {
+                        Log.w(
+                            HomeViewModel.TAG,
+                            "Release reminder membership was not confirmed for ${reminder.key}"
+                        )
+                    }
                 }.onFailure { error ->
                     Log.w(
                         HomeViewModel.TAG,
@@ -144,6 +199,39 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
             }
         }
     }
+}
+
+private fun ReleaseReminderHomeSnapshot.hasAvailabilityConfirmation(
+    reminder: ReleaseReminderRecord
+): Boolean {
+    val reminderBaseUrl = reminder.addonBaseUrl
+        ?.trim()
+        ?.trimEnd('/')
+        ?.lowercase()
+        ?.takeIf { it.isNotBlank() }
+
+    return catalogRows
+        .asSequence()
+        .filter { row -> row.catalogId.startsWith("latest_", ignoreCase = true) }
+        .filter { row ->
+            reminderBaseUrl == null ||
+                row.addonBaseUrl.trim().trimEnd('/').lowercase() == reminderBaseUrl
+        }
+        .flatMap { row -> row.items.asSequence() }
+        .any { item -> reminder.matches(item.id, item.apiType, item.imdbId) }
+}
+
+private fun releaseFallbackWindowReached(
+    releaseDate: LocalDate,
+    nowMillis: Long
+): Boolean {
+    val fallbackMillis = releaseDate
+        .plusDays(1)
+        .atTime(RELEASE_FALLBACK_HOUR_LOCAL, 0)
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli()
+    return nowMillis >= fallbackMillis
 }
 
 private fun isExactReleaseDate(raw: String): Boolean =

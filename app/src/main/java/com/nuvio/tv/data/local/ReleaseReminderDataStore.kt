@@ -45,7 +45,8 @@ data class ReleaseReminderRecord(
     val seasonNumber: Int? = null,
     val badge: ReleaseReminderBadge = ReleaseReminderBadge.AVAILABLE_NOW,
     val status: ReleaseReminderStatus = ReleaseReminderStatus.ARMED,
-    val fulfilledAtMillis: Long? = null
+    val fulfilledAtMillis: Long? = null,
+    val membershipConfirmed: Boolean = false
 ) {
     val key: String
         get() = checkNotNull(releaseReminderKey(itemId, itemType))
@@ -143,7 +144,8 @@ class ReleaseReminderDataStore @Inject constructor(
                 if (record.key == key) {
                     record.copy(
                         status = ReleaseReminderStatus.FULFILLED,
-                        fulfilledAtMillis = fulfilledAtMillis
+                        fulfilledAtMillis = fulfilledAtMillis,
+                        membershipConfirmed = true
                     )
                 } else {
                     record
@@ -151,6 +153,23 @@ class ReleaseReminderDataStore @Inject constructor(
             }
             preferences[reminderRecords] = updated.map(::encodeRecord).toSet()
             preferences[reminderKeys] = preferences[reminderKeys].orEmpty() - key
+        }
+    }
+
+    suspend fun markArmed(key: String) {
+        store().edit { preferences ->
+            val updated = decodeRecords(preferences[reminderRecords].orEmpty()).map { record ->
+                if (record.key == key) {
+                    record.copy(
+                        status = ReleaseReminderStatus.ARMED,
+                        fulfilledAtMillis = null,
+                        membershipConfirmed = false
+                    )
+                } else {
+                    record
+                }
+            }
+            preferences[reminderRecords] = updated.map(::encodeRecord).toSet()
         }
     }
 
@@ -195,6 +214,7 @@ class ReleaseReminderDataStore @Inject constructor(
             put("badge", record.badge.name)
             put("status", record.status.name)
             putNullable("fulfilledAtMillis", record.fulfilledAtMillis)
+            put("membershipConfirmed", record.membershipConfirmed)
         }.toString()
 
     private fun decodeRecord(raw: String): ReleaseReminderRecord? = runCatching {
@@ -234,7 +254,8 @@ class ReleaseReminderDataStore @Inject constructor(
                 json.stringOrNull("status"),
                 ReleaseReminderStatus.ARMED
             ),
-            fulfilledAtMillis = json.longOrNull("fulfilledAtMillis")
+            fulfilledAtMillis = json.longOrNull("fulfilledAtMillis"),
+            membershipConfirmed = json.optBoolean("membershipConfirmed", false)
         )
     }.getOrNull()
 

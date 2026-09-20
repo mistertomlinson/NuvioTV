@@ -20,7 +20,7 @@ interface LibraryRepository {
     fun isInWatchlist(itemId: String, itemType: String): Flow<Boolean>
 
     suspend fun toggleDefault(item: LibraryEntryInput)
-    suspend fun ensureInDefault(item: LibraryEntryInput)
+    suspend fun ensureInDefault(item: LibraryEntryInput): Boolean
     suspend fun toggleDefaultWithSignal(item: LibraryEntryInput)
     suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot
     suspend fun applyMembershipChanges(item: LibraryEntryInput, changes: ListMembershipChanges)

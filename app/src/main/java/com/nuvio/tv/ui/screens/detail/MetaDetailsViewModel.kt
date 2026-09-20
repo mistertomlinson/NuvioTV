@@ -1347,12 +1347,16 @@ class MetaDetailsViewModel @Inject constructor(
                 videos = meta.videos.map { video ->
                     val key = if (video.season != null && video.episode != null) video.season to video.episode else null
                     val ep = key?.let { episodeMap[it] }
+                    val tmdbAirDate = ep?.airDate
+                    val repairStaleUnavailable =
+                        video.available == false && tmdbAirDateHasPassed(tmdbAirDate)
                     video.copy(
                         title = ep?.title ?: video.title,
                         overview = ep?.overview ?: video.overview,
-                        released = ep?.airDate ?: video.released,
+                        released = tmdbAirDate ?: video.released,
                         thumbnail = ep?.thumbnail ?: video.thumbnail,
-                        runtime = ep?.runtimeMinutes
+                        runtime = ep?.runtimeMinutes,
+                        available = if (repairStaleUnavailable) true else video.available
                     )
                 }
             )
@@ -1363,6 +1367,13 @@ class MetaDetailsViewModel @Inject constructor(
         }
 
         return updated
+    }
+
+    private fun tmdbAirDateHasPassed(raw: String?): Boolean {
+        val airDate = raw?.trim()?.takeIf { it.length == 10 } ?: return false
+        return runCatching {
+            LocalDate.parse(airDate).isBefore(LocalDate.now())
+        }.getOrDefault(false)
     }
 
     private fun resolveTmdbContentType(meta: Meta): ContentType {

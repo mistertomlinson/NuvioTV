@@ -218,7 +218,7 @@ class LibraryRepositoryImpl @Inject constructor(
         toggleDefaultForSelectedProvider(item, emitTraktSignal = false)
     }
 
-    override suspend fun ensureInDefault(item: LibraryEntryInput) {
+    override suspend fun ensureInDefault(item: LibraryEntryInput): Boolean {
         val mode = sourceMode.first()
         val alreadyPresent = when (mode) {
             LibrarySourceMode.SIMKL ->
@@ -229,9 +229,50 @@ class LibraryRepositoryImpl @Inject constructor(
                 isInWatchlist(item.itemId, item.itemType).first()
         }
 
-        if (!alreadyPresent) {
-            toggleDefaultForSelectedProvider(item, emitTraktSignal = false)
+        if (alreadyPresent) return true
+
+        /*
+         * Release reminders must be idempotent. Express the desired provider
+         * membership explicitly instead of calling a toggle that could remove
+         * an item if a retry races a refreshed provider snapshot.
+         */
+        val provider = mode.providerId?.let(trackingProviders::provider)
+        if (provider != null) {
+            val before = provider
+                .getMembershipSnapshot(item)
+                .listMembership
+            val desired = provider.toggledDefaultMembership(before)
+            val newlyEnabledKeys = desired
+                .filter { (key, enabled) -> enabled && before[key] != true }
+                .keys
+
+            if (newlyEnabledKeys.isEmpty()) return false
+
+            provider.applyMembershipChanges(
+                item = item,
+                changes = ListMembershipChanges(desired)
+            )
+
+            /*
+             * Simkl commits the mutation remotely without changing its local
+             * projection in-place. Trakt also benefits from authoritative
+             * confirmation here. This runs only when a reminder matures.
+             */
+            provider.refresh(
+                com.nuvio.tv.core.tracking.TrackingRefreshIntent.INVALIDATED
+            )
+
+            val confirmed = provider
+                .getMembershipSnapshot(item)
+                .listMembership
+            return newlyEnabledKeys.all { key -> confirmed[key] == true }
         }
+
+        if (mode != LibrarySourceMode.LOCAL) return false
+
+        libraryPreferences.addItem(item.toSavedLibraryItem())
+        triggerRemoteSync()
+        return isInLibrary(item.itemId, item.itemType).first()
     }
 
     override suspend fun toggleDefaultWithSignal(item: LibraryEntryInput) {
