@@ -1692,9 +1692,6 @@ private fun ModernCarouselCard(
             effectiveLogoUrl?.let {
                 ImageRequest.Builder(context)
                     .data(it)
-                    .transformations(
-                        com.nuvio.tv.ui.util.DarkTitleLogoTransformation
-                    )
                     .crossfade(false)
                     .size(
                         width = maxLogoWidthPx,

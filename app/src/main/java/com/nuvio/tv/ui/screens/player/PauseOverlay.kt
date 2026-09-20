@@ -176,9 +176,6 @@ private fun PauseMetadataView(
                         model = ImageRequest.Builder(LocalContext.current)
                             .data(logo)
                             .decoderFactory(coil.decode.SvgDecoder.Factory())
-                            .transformations(
-                                com.nuvio.tv.ui.util.DarkTitleLogoTransformation
-                            )
                             .crossfade(true)
                             .build(),
                         contentDescription = title,

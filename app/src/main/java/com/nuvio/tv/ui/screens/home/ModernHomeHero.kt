@@ -563,9 +563,6 @@ private fun HeroTitleContent(
             val cleanedUrl = if (it.endsWith('.')) it + "png" else it
             ImageRequest.Builder(context)
                 .data(cleanedUrl)
-                .transformations(
-                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
-                )
                 .crossfade(true)
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .build()
@@ -617,9 +614,6 @@ private fun HeroTitleContent(
             val cleanedUrl = if (target.endsWith('.')) target + "png" else target
             val preload = ImageRequest.Builder(localContext2)
                 .data(cleanedUrl)
-                .transformations(
-                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
-                )
                 .size(width = logoMaxWidthPx, height = logoHeightPx)
                 .memoryCachePolicy(CachePolicy.ENABLED)
                 .build()
@@ -650,9 +644,6 @@ private fun HeroTitleContent(
                     val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
                     ImageRequest.Builder(localContext2)
                         .data(cleanedUrl)
-                .transformations(
-                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
-                )
                         .crossfade(false)
                         .size(width = logoMaxWidthPx, height = logoHeightPx)
                         .build()

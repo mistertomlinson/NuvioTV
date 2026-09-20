@@ -119,9 +119,6 @@ fun HeroContentSection(
             ImageRequest.Builder(context)
                 .data(logo)
                 .decoderFactory(SvgDecoder.Factory())
-                .transformations(
-                    com.nuvio.tv.ui.util.DarkTitleLogoTransformation
-                )
                 .crossfade(true)
                 .build()
         }

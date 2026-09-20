@@ -86,9 +86,6 @@ fun LoadingOverlay(
                 ImageRequest.Builder(context)
                     .data(url)
                     .decoderFactory(coil.decode.SvgDecoder.Factory())
-                    .transformations(
-                        com.nuvio.tv.ui.util.DarkTitleLogoTransformation
-                    )
                     .crossfade(true)
                     .build()
             }
