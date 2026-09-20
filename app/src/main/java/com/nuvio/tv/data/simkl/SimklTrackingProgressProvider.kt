@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingProgressProvider
 import com.nuvio.tv.core.tracking.selectPreferredTrackingNextUpSeeds
 import com.nuvio.tv.core.tracking.TrackingProviderId
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.update
 
 @Singleton
 class SimklTrackingProgressProvider @Inject constructor(
+    private val profileManager: ProfileManager,
     private val syncRepository: SimklSyncRepository,
     private val apiClient: SimklApiClient,
     private val authStorage: SimklAuthStorage,
@@ -34,16 +36,68 @@ class SimklTrackingProgressProvider @Inject constructor(
         MutableStateFlow<Map<SimklOptimisticEpisodeKey, SimklOptimisticEpisodeOverride>>(
             emptyMap()
         )
+
+    // Current local playback must be visible immediately even before the
+    // durable store or Simkl playback projection settles.
+    // Keep only the latest local playback entry for each title.
+    private val optimisticPlaybackProgress =
+        MutableStateFlow<Map<Int, Map<String, WatchProgress>>>(emptyMap())
     override val isAuthenticated = authStorage.state.map { state -> state.isAuthenticated }
         .distinctUntilChanged()
     override val allProgress = combine(
         syncRepository.projection,
         durableProgressStore.allProgress,
-        progressDismissalStore.dismissedAtByKey
-    ) { projection, durableEntries, dismissedAtByKey ->
+        progressDismissalStore.dismissedAtByKey,
+        optimisticPlaybackProgress,
+        profileManager.activeProfileId
+    ) { projection, durableEntries, dismissedAtByKey, optimisticEntriesByProfile, activeProfileId ->
+        val optimisticEntries =
+            optimisticEntriesByProfile[activeProfileId].orEmpty()
+
+        // Completed local entries act as short-lived tombstones. They are not
+        // rendered as progress, but they prevent stale Simkl playback for the
+        // exact completed episode from briefly resurrecting in Continue Watching.
+        val completedOptimisticEntries =
+            optimisticEntries.values.filter(WatchProgress::isCompleted)
+
+        val effectiveOptimisticEntries =
+            optimisticEntries.values.filter { optimistic ->
+                !optimistic.isCompleted() &&
+                    projection.progress.none { remote ->
+                        remote.contentId.equals(
+                            optimistic.contentId,
+                            ignoreCase = true
+                        ) && remote.lastWatched >= optimistic.lastWatched
+                    }
+            }
+
+        val optimisticContentIds =
+            effectiveOptimisticEntries
+                .mapTo(mutableSetOf()) { progress ->
+                    progress.contentId.trim().lowercase()
+                }
+
+        val effectiveRemoteEntries =
+            projection.progress.filterNot { remote ->
+                val replacedByActivePlayback =
+                    remote.contentId.trim().lowercase() in optimisticContentIds
+
+                val completedLocally =
+                    completedOptimisticEntries.any { completed ->
+                        completed.contentId.equals(
+                            remote.contentId,
+                            ignoreCase = true
+                        ) &&
+                            completed.season == remote.season &&
+                            completed.episode == remote.episode
+                    }
+
+                replacedByActivePlayback || completedLocally
+            } + effectiveOptimisticEntries
+
         filterSimklDismissedProgress(
             entries = mergeSimklProgressWithDurable(
-                remoteEntries = projection.progress,
+                remoteEntries = effectiveRemoteEntries,
                 durableEntries = durableEntries,
                 isWatched = { progress ->
                     projection.isWatched(
@@ -243,7 +297,48 @@ class SimklTrackingProgressProvider @Inject constructor(
     }
 
     override fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean) {
-        if (!progress.isCompleted()) return
+        if (!progress.isCompleted()) {
+            val key =
+                "${progress.contentId.trim()}|${progress.season ?: -1}|${progress.episode ?: -1}"
+
+            val profileId = profileManager.activeProfileId.value
+            optimisticPlaybackProgress.update { current ->
+                val profileEntries = current[profileId].orEmpty()
+                val updatedProfileEntries =
+                    profileEntries
+                        .filterValues { existing ->
+                            !existing.contentId.equals(
+                                progress.contentId,
+                                ignoreCase = true
+                            )
+                        } + (key to progress)
+
+                current + (profileId to updatedProfileEntries)
+            }
+            return
+        }
+
+        // Keep the completed episode as a profile-scoped tombstone until the
+        // provider catches up or another playback for this title replaces it.
+        // This prevents stale Simkl playback (for example "1 min left") from
+        // reappearing after the episode has already been marked watched.
+        val profileId = profileManager.activeProfileId.value
+        val completedKey =
+            "${progress.contentId.trim()}|${progress.season ?: -1}|${progress.episode ?: -1}"
+
+        optimisticPlaybackProgress.update { current ->
+            val profileEntries = current[profileId].orEmpty()
+            val updatedProfileEntries =
+                profileEntries
+                    .filterValues { existing ->
+                        !existing.contentId.equals(
+                            progress.contentId,
+                            ignoreCase = true
+                        )
+                    } + (completedKey to progress)
+
+            current + (profileId to updatedProfileEntries)
+        }
 
         val season = progress.season
         val episode = progress.episode
@@ -278,6 +373,94 @@ class SimklTrackingProgressProvider @Inject constructor(
         season: Int?,
         episode: Int?
     ) {
+        val profileId = profileManager.activeProfileId.value
+
+        // Marking an episode unwatched must also hide any stale Simkl playback
+        // record for that episode. Otherwise an old near-complete playback
+        // session can immediately resurrect as a Resume card.
+        //
+        // Keep a completed local tombstone only for projection suppression.
+        // nextUpSeeds separately sees the watched=false override below, so the
+        // episode can return as Next Up with no stale progress bar.
+        val remoteProgressForRemoval =
+            if (season != null && episode != null) {
+                syncRepository.projection.value.progress.firstOrNull { existing ->
+                    existing.contentId.equals(contentId, ignoreCase = true) &&
+                        existing.season == season &&
+                        existing.episode == episode
+                }
+            } else {
+                null
+            }
+
+        optimisticPlaybackProgress.update { current ->
+            val profileEntries = current[profileId].orEmpty()
+
+            val matchingLocalEntry =
+                profileEntries.values.firstOrNull { existing ->
+                    existing.contentId.equals(contentId, ignoreCase = true) &&
+                        (
+                            season == null ||
+                                episode == null ||
+                                (
+                                    existing.season == season &&
+                                        existing.episode == episode
+                                    )
+                            )
+                }
+
+            val withoutRemovedEntry =
+                profileEntries.filterValues { existing ->
+                    val sameContent =
+                        existing.contentId.equals(contentId, ignoreCase = true)
+                    val sameEpisode =
+                        season == null ||
+                            episode == null ||
+                            (
+                                existing.season == season &&
+                                    existing.episode == episode
+                                )
+
+                    !(sameContent && sameEpisode)
+                }
+
+            val tombstoneSource =
+                if (season != null && episode != null) {
+                    matchingLocalEntry ?: remoteProgressForRemoval
+                } else {
+                    null
+                }
+
+            val updatedProfileEntries =
+                if (tombstoneSource != null) {
+                    val completedDuration =
+                        tombstoneSource.duration
+                            .takeIf { it > 0L }
+                            ?: tombstoneSource.position.coerceAtLeast(1L)
+
+                    val tombstone =
+                        tombstoneSource.copy(
+                            position = completedDuration,
+                            duration = completedDuration,
+                            progressPercent = 100f,
+                            lastWatched = System.currentTimeMillis()
+                        )
+
+                    val tombstoneKey =
+                        "${tombstone.contentId.trim()}|${tombstone.season ?: -1}|${tombstone.episode ?: -1}"
+
+                    withoutRemovedEntry + (tombstoneKey to tombstone)
+                } else {
+                    withoutRemovedEntry
+                }
+
+            if (updatedProfileEntries.isEmpty()) {
+                current - profileId
+            } else {
+                current + (profileId to updatedProfileEntries)
+            }
+        }
+
         if (season != null && episode != null) {
             val key = simklOptimisticEpisodeKey(contentId, season, episode)
             optimisticEpisodeWatchedOverrides.update { current ->
@@ -323,6 +506,7 @@ class SimklTrackingProgressProvider @Inject constructor(
     override fun clearOptimistic() {
         optimisticMovieWatchedOverrides.value = emptyMap()
         optimisticEpisodeWatchedOverrides.value = emptyMap()
+        optimisticPlaybackProgress.value = emptyMap()
     }
 
     override fun isHiddenFromProgress(contentId: String): Boolean =

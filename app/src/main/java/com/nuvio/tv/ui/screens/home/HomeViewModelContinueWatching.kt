@@ -311,6 +311,27 @@ private fun List<ContinueWatchingItem>.stableCwOrdered(): List<ContinueWatchingI
 internal fun HomeViewModel.loadContinueWatchingPipeline() {
     cwPipelineJob?.cancel()
     cwPipelineJob = viewModelScope.launch {
+        var immediatePlaybackRefreshAtMs = Long.MIN_VALUE
+
+        launch {
+            watchProgressRepository
+                .observeOptimisticContinueWatchingUpdates()
+                .collectLatest { progress ->
+                    val ageMs =
+                        System.currentTimeMillis() - progress.lastWatched
+
+                    // SharedFlow has replay=1. Ignore an old replayed event when
+                    // this pipeline is recreated; only a genuinely fresh player
+                    // handoff gets the no-debounce path.
+                    if (ageMs in 0L..2_000L) {
+                        immediatePlaybackRefreshAtMs =
+                            SystemClock.elapsedRealtime()
+                        cwPipelineRefreshTrigger.value =
+                            cwPipelineRefreshTrigger.value + 1
+                    }
+                }
+        }
+
         combine(
             combine(
                 watchProgressRepository.allProgress,
@@ -370,7 +391,16 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 hasLoadedRemoteProgress = hasLoadedRemoteProgress,
                 profileId = profileId
             )
-        }.debounce(CW_PROGRESS_DEBOUNCE_MS).collectLatest { snapshot ->
+        }.debounce {
+            val immediateAgeMs =
+                SystemClock.elapsedRealtime() - immediatePlaybackRefreshAtMs
+
+            if (immediateAgeMs in 0L..2_000L) {
+                0L
+            } else {
+                CW_PROGRESS_DEBOUNCE_MS
+            }
+        }.collectLatest { snapshot ->
             val debug = CwDebugSession()
             try {
                 debug.markPhase("filter-snapshot")
@@ -2547,7 +2577,13 @@ private fun HomeViewModel.applyContinueWatchingEnrichmentOverlay(
         when (item) {
             is ContinueWatchingItem.NextUp -> {
                 val overlay = cwEnrichedNextUpOverlay[item.info.contentId] ?: return@map item
-                if (overlay.season != item.info.season || overlay.episode != item.info.episode) return@map item
+                if (
+                    overlay.season != item.info.season ||
+                    overlay.episode != item.info.episode
+                ) {
+                    cwEnrichedNextUpOverlay.remove(item.info.contentId)
+                    return@map item
+                }
                 item.copy(info = item.info.copy(
                     name = overlay.name.takeIf { it.isNotBlank() } ?: item.info.name,
                     episodeTitle = overlay.episodeTitle ?: item.info.episodeTitle,

@@ -179,7 +179,10 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
         progressPercent = fallbackPercent
     )
 
-    scope.launch(kotlinx.coroutines.NonCancellable) {
+    scope.launch(
+        kotlinx.coroutines.NonCancellable,
+        start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED
+    ) {
         val effectiveContentId =
             watchProgressRepository.normalizeParentContentId(
                 parentContentId = progress.contentId,

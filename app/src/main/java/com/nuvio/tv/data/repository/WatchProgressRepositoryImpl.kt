@@ -533,14 +533,24 @@ class WatchProgressRepositoryImpl @Inject constructor(
         progress: WatchProgress,
         syncRemote: Boolean
     ) {
-        val provider = activeProgressProvider()
+        val provider =
+            activeProgressProviderId
+                ?.let(trackingProgressProviders::provider)
+                ?: activeProgressProvider()
 
         // Always retain a durable local copy. The selected provider receives
         // only its own optimistic projection; no write is broadcast.
         provider?.applyOptimisticProgress(
             progress = progress,
-            quiet = false
+            quiet = !syncRemote
         )
+
+        // Final/switch/exit saves need to wake the CW pipeline immediately.
+        // Periodic in-playback saves remain on the normal debounced path.
+        if (syncRemote) {
+            optimisticContinueWatchingUpdates.tryEmit(progress)
+        }
+
         watchProgressPreferences.saveProgress(progress)
         provider?.persistDurableProgress(progress)
 
@@ -761,7 +771,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
         progress: WatchProgress,
         broadcastTrackingHistory: Boolean
     ) {
-        val provider = activeProgressProvider()
+        val provider =
+            activeProgressProviderId
+                ?.let(trackingProgressProviders::provider)
+                ?: activeProgressProvider()
         val now = System.currentTimeMillis()
         val duration = progress.duration.takeIf { it > 0L } ?: 1L
 
@@ -771,6 +784,9 @@ class WatchProgressRepositoryImpl @Inject constructor(
             progressPercent = 100f,
             lastWatched = now
         )
+
+        // Completion can advance Next Up before persistence/network work finishes.
+        optimisticContinueWatchingUpdates.tryEmit(completed)
 
         if (provider != null) {
             provider.applyOptimisticProgress(
@@ -965,7 +981,12 @@ class WatchProgressRepositoryImpl @Inject constructor(
         parentContentId: String,
         videoId: String?
     ): String {
-        return activeProgressProvider()
+        val provider =
+            activeProgressProviderId
+                ?.let(trackingProgressProviders::provider)
+                ?: activeProgressProvider()
+
+        return provider
             ?.normalizeParentContentId(parentContentId, videoId)
             ?: parentContentId
     }

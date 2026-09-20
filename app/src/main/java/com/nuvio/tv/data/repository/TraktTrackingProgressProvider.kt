@@ -148,7 +148,12 @@ internal fun shouldUseTraktNextUpSeed(progress: WatchProgress, nowEpochMs: Long)
 }
 
 private fun WatchProgress.isRecentCompletedPlaybackSeed(nowEpochMs: Long): Boolean {
-    if (!contentType.equals("series", ignoreCase = true)) return false
+    if (
+        !contentType.equals("series", ignoreCase = true) &&
+        !contentType.equals("tv", ignoreCase = true)
+    ) {
+        return false
+    }
     if (!isCompleted() || source != WatchProgress.SOURCE_TRAKT_PLAYBACK) return false
     if (season == null || episode == null || season == 0) return false
     return nowEpochMs - lastWatched in 0..3 * 60_000L

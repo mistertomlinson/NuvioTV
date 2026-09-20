@@ -1108,9 +1108,10 @@ internal fun ModernRowSection(
 
                         is ModernPayload.Catalog -> {
                             val nextCatalogItem = row.items.getOrNull(index + 1)?.metaPreview
-                            val isWatched = remember(item.key, isCatalogItemWatched) {
+                            // The callback stays stable while its backing watched state changes.
+                            // Re-evaluate on recomposition instead of caching the old result.
+                            val isWatched =
                                 item.metaPreview?.let(isCatalogItemWatched) == true
-                            }
                             val onLongPress: () -> Unit = remember(item.metaPreview, payload.addonBaseUrl) {
                                 {
                                     item.metaPreview?.let { preview ->
