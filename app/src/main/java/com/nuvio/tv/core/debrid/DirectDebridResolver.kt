@@ -34,20 +34,21 @@ class DirectDebridResolver @Inject constructor(
     suspend fun resolve(
         stream: Stream,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
     ): DirectDebridResolveResult {
         if (!shouldResolveToPlayableStream(stream)) {
             return DirectDebridResolveResult.Stale
         }
-        val cacheKey = stream.directDebridResolveCacheKey(season, episode)
+        val cacheKey = stream.directDebridResolveCacheKey(season, episode, selectionContext)
         if (cacheKey == null) {
-            return resolveUncached(stream, season, episode)
+            return resolveUncached(stream, season, episode, selectionContext)
         }
         getCachedResult(cacheKey)?.let { return it }
 
         var ownsResolve = false
         val newResolve = scope.async(start = CoroutineStart.LAZY) {
-            resolveUncached(stream, season, episode)
+            resolveUncached(stream, season, episode, selectionContext)
         }
         val activeResolve = mutex.withLock {
             getCachedResultLocked(cacheKey)?.let { cached ->
@@ -92,21 +93,27 @@ class DirectDebridResolver @Inject constructor(
         }
     }
 
-    suspend fun cachedPlayableStream(stream: Stream, season: Int?, episode: Int?): Stream? {
+    suspend fun cachedPlayableStream(
+        stream: Stream,
+        season: Int?,
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
+    ): Stream? {
         if (!shouldResolveToPlayableStream(stream)) return null
-        val cacheKey = stream.directDebridResolveCacheKey(season, episode) ?: return null
+        val cacheKey = stream.directDebridResolveCacheKey(season, episode, selectionContext) ?: return null
         return getCachedResult(cacheKey)?.let { result -> stream.withResolvedDebridUrl(result) }
     }
 
     suspend fun resolveToPlayableStream(
         stream: Stream,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
     ): DirectDebridPlayableResult {
         if (!shouldResolveToPlayableStream(stream)) {
             return DirectDebridPlayableResult.Success(stream)
         }
-        return when (val result = resolve(stream, season, episode)) {
+        return when (val result = resolve(stream, season, episode, selectionContext)) {
             is DirectDebridResolveResult.Success -> DirectDebridPlayableResult.Success(stream.withResolvedDebridUrl(result))
             DirectDebridResolveResult.MissingApiKey -> DirectDebridPlayableResult.MissingApiKey
             DirectDebridResolveResult.NotCached -> DirectDebridPlayableResult.NotCached
@@ -148,20 +155,25 @@ class DirectDebridResolver @Inject constructor(
     private suspend fun resolveUncached(
         stream: Stream,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext?
     ): DirectDebridResolveResult {
         if (stream.needsLocalDebridResolve()) {
-            return resolveLocalTorrentStream(stream, season, episode)
+            return resolveLocalTorrentStream(stream, season, episode, selectionContext)
         }
         return when (DebridProviders.byId(stream.clientResolve?.service)?.id) {
-            DebridProviders.TORBOX_ID -> torboxResolver.resolve(stream, season, episode)
-            DebridProviders.PREMIUMIZE_ID -> premiumizeResolver.resolve(stream, season, episode)
-            DebridProviders.REAL_DEBRID_ID -> realDebridResolver.resolve(stream, season, episode)
+            DebridProviders.TORBOX_ID -> torboxResolver.resolve(stream, season, episode, selectionContext)
+            DebridProviders.PREMIUMIZE_ID -> premiumizeResolver.resolve(stream, season, episode, selectionContext)
+            DebridProviders.REAL_DEBRID_ID -> realDebridResolver.resolve(stream, season, episode, selectionContext)
             else -> DirectDebridResolveResult.Error
         }
     }
 
-    private suspend fun Stream.directDebridResolveCacheKey(season: Int?, episode: Int?): String? {
+    private suspend fun Stream.directDebridResolveCacheKey(
+        season: Int?,
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext?
+    ): String? {
         if (needsLocalDebridResolve()) {
             val settings = dataStore.settings.first()
             val account = localTorrentResolveCredential(settings) ?: return null
@@ -174,7 +186,8 @@ class DirectDebridResolver @Inject constructor(
                 fileIdx?.toString().orEmpty(),
                 behaviorHints?.filename.orEmpty().trim().lowercase(),
                 season?.toString().orEmpty(),
-                episode?.toString().orEmpty()
+                episode?.toString().orEmpty(),
+                selectionContext?.cacheKeyPart().orEmpty()
             ).joinToString("|")
         }
         val resolve = clientResolve ?: return null
@@ -195,14 +208,16 @@ class DirectDebridResolver @Inject constructor(
             resolve.fileIdx?.toString().orEmpty(),
             (resolve.filename ?: behaviorHints?.filename).orEmpty().trim().lowercase(),
             (season ?: resolve.season)?.toString().orEmpty(),
-            (episode ?: resolve.episode)?.toString().orEmpty()
+            (episode ?: resolve.episode)?.toString().orEmpty(),
+            selectionContext?.cacheKeyPart().orEmpty()
         ).joinToString("|")
     }
 
     private suspend fun resolveLocalTorrentStream(
         stream: Stream,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext?
     ): DirectDebridResolveResult {
         val settings = dataStore.settings.first()
         val account = localTorrentResolveCredential(settings) ?: return DirectDebridResolveResult.MissingApiKey
@@ -247,8 +262,8 @@ class DirectDebridResolver @Inject constructor(
         )
 
         val result = when (account.provider.id) {
-            DebridProviders.TORBOX_ID -> torboxResolver.resolve(resolveStream, season, episode)
-            DebridProviders.PREMIUMIZE_ID -> premiumizeResolver.resolve(resolveStream, season, episode)
+            DebridProviders.TORBOX_ID -> torboxResolver.resolve(resolveStream, season, episode, selectionContext)
+            DebridProviders.PREMIUMIZE_ID -> premiumizeResolver.resolve(resolveStream, season, episode, selectionContext)
             else -> DirectDebridResolveResult.Error
         }
         return result

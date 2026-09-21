@@ -32,6 +32,7 @@ class DirectDebridStreamPreparer @Inject constructor(
         episode: Int?,
         playerSettings: PlayerSettings,
         installedAddonNames: Set<String>,
+        selectionContext: DebridEpisodeSelectionContext? = null,
         onPrepared: (original: Stream, prepared: Stream) -> Unit
     ) {
         val settings = dataStore.settings.first()
@@ -46,7 +47,7 @@ class DirectDebridStreamPreparer @Inject constructor(
         )
         for (stream in candidates) {
             if (!resolver.shouldResolveToPlayableStream(stream)) continue
-            resolver.cachedPlayableStream(stream, season, episode)?.let { cached ->
+            resolver.cachedPlayableStream(stream, season, episode, selectionContext)?.let { cached ->
                 onPrepared(stream, cached)
                 continue
             }
@@ -57,7 +58,7 @@ class DirectDebridStreamPreparer @Inject constructor(
             }
 
             try {
-                when (val result = resolver.resolveToPlayableStream(stream, season, episode)) {
+                when (val result = resolver.resolveToPlayableStream(stream, season, episode, selectionContext)) {
                     is DirectDebridPlayableResult.Success -> {
                         if (result.stream.getStreamUrl() != null) {
                             onPrepared(stream, result.stream)

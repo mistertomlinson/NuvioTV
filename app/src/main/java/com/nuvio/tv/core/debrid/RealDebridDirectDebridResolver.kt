@@ -19,7 +19,8 @@ class RealDebridDirectDebridResolver @Inject constructor(
     suspend fun resolve(
         stream: Stream,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
     ): DirectDebridResolveResult {
         val resolve = stream.clientResolve ?: return DirectDebridResolveResult.Error
         val apiKey = dataStore.settings.first().realDebridApiKey.trim()
@@ -41,7 +42,8 @@ class RealDebridDirectDebridResolver @Inject constructor(
                     files = infoBefore.body()?.files.orEmpty(),
                     resolve = resolve,
                     season = season,
-                    episode = episode
+                    episode = episode,
+                    selectionContext = selectionContext
                 ) ?: return DirectDebridResolveResult.Stale
                 val fileId = file.id ?: return DirectDebridResolveResult.Stale
                 val select = api.selectFiles(

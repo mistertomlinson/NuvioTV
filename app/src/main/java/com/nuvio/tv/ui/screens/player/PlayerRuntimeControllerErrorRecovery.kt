@@ -1,5 +1,9 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
+import com.nuvio.tv.core.debrid.classifyDebridEpisodeFileName
+import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
+
 import android.util.Log
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -389,6 +393,23 @@ private suspend fun PlayerRuntimeController.switchToNextDebridStream(
     nextIndex: Int
 ) {
     val nextStream = streams[nextIndex]
+    val episodeSelectionContext = currentDebridEpisodeSelectionContext()
+
+    if (
+        nextStream.debridEpisodeTitleMatch(episodeSelectionContext) ==
+        DebridEpisodeTitleMatch.CONFLICT
+    ) {
+        android.util.Log.w(
+            "PlayerRecovery",
+            "Skipping stream $nextIndex because its filename matches a different episode"
+        )
+        val furtherIndex = nextIndex + 1
+        if (furtherIndex < streams.size) {
+            switchToNextDebridStream(streams, furtherIndex)
+        }
+        return
+    }
+
     android.util.Log.d("PlayerRecovery", "Debrid: resolving stream $nextIndex: ${nextStream.name ?: nextStream.getStreamUrl()?.take(60)}")
 
     autoAdvanceStreamIndex = nextIndex
@@ -400,11 +421,29 @@ private suspend fun PlayerRuntimeController.switchToNextDebridStream(
     val season = currentSeason
     val episode = currentEpisode
     val resolved = try {
-        val result = directDebridResolver.resolve(nextStream, season, episode)
+        val result = directDebridResolver.resolve(
+            nextStream,
+            season,
+            episode,
+            currentDebridEpisodeSelectionContext()
+        )
         when (result) {
             is com.nuvio.tv.core.debrid.DirectDebridResolveResult.Success -> {
-                android.util.Log.d("PlayerRecovery", "Debrid: resolved to ${result.url?.take(80)}")
-                result.url
+                if (
+                    classifyDebridEpisodeFileName(
+                        result.filename,
+                        episodeSelectionContext
+                    ) == DebridEpisodeTitleMatch.CONFLICT
+                ) {
+                    android.util.Log.w(
+                        "PlayerRecovery",
+                        "Resolved file matches a different episode; skipping stream $nextIndex"
+                    )
+                    null
+                } else {
+                    android.util.Log.d("PlayerRecovery", "Debrid: resolved to ${result.url?.take(80)}")
+                    result.url
+                }
             }
             else -> {
                 android.util.Log.w("PlayerRecovery", "Debrid: resolve failed with $result — trying stream URL directly")

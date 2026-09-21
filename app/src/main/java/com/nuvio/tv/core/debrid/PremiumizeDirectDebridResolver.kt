@@ -18,7 +18,8 @@ class PremiumizeDirectDebridResolver @Inject constructor(
     suspend fun resolve(
         stream: Stream,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
     ): DirectDebridResolveResult {
         val resolve = stream.clientResolve ?: return DirectDebridResolveResult.Error
         val apiKey = dataStore.settings.first().premiumizeApiKey.trim()
@@ -58,7 +59,8 @@ class PremiumizeDirectDebridResolver @Inject constructor(
                 files = body.content.orEmpty(),
                 resolve = resolve,
                 season = season,
-                episode = episode
+                episode = episode,
+                selectionContext = selectionContext
             )
             if (file == null) {
                 android.util.Log.w("NuvioDebrid", "PM fileSelector returned null from ${body.content?.size} files")

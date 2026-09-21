@@ -11,10 +11,17 @@ class RealDebridFileSelector @Inject constructor() {
         files: List<RealDebridTorrentFileDto>,
         resolve: StreamClientResolve,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
     ): RealDebridTorrentFileDto? {
         val playable = files.filter { it.isPlayableVideo() }
         if (playable.isEmpty()) return null
+
+        playable.firstDebridTargetEpisodeTitleMatch(selectionContext) { it.displayName() }
+            ?.let { return it }
+
+        val eligible = playable.withoutDebridEpisodeTitleConflicts(selectionContext) { it.displayName() }
+        if (eligible.isEmpty()) return null
 
         val episodePatterns = buildDebridEpisodePatterns(
             season = season ?: resolve.season,
@@ -22,22 +29,22 @@ class RealDebridFileSelector @Inject constructor() {
         )
         val names = resolve.specificDebridFileNames(episodePatterns)
         if (names.isNotEmpty()) {
-            playable.firstDebridNameMatch(names) { it.displayName() }?.let { return it }
+            eligible.firstDebridNameMatch(names) { it.displayName() }?.let { return it }
         }
 
         if (episodePatterns.isNotEmpty()) {
-            playable.firstOrNull { file ->
+            eligible.firstOrNull { file ->
                 val fileName = file.displayName().lowercase()
                 episodePatterns.any { pattern -> fileName.contains(pattern) }
             }?.let { return it }
         }
 
         resolve.fileIdx?.let { fileIdx ->
-            playable.firstOrNull { it.id == fileIdx }?.let { return it }
-            if (fileIdx > 0) playable.firstOrNull { it.id == fileIdx - 1 }?.let { return it }
+            eligible.firstOrNull { it.id == fileIdx }?.let { return it }
+            if (fileIdx > 0) eligible.firstOrNull { it.id == fileIdx - 1 }?.let { return it }
         }
 
-        return playable.maxByOrNull { it.bytes ?: 0L }
+        return eligible.maxByOrNull { it.bytes ?: 0L }
     }
 
     private fun RealDebridTorrentFileDto.isPlayableVideo(): Boolean {

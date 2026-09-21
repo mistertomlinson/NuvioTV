@@ -6,7 +6,12 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.R
+import com.nuvio.tv.core.debrid.DebridEpisodeSelectionContext
+import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.DirectDebridResolveResult
+import com.nuvio.tv.core.debrid.classifyDebridEpisodeFileName
+import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
+import com.nuvio.tv.core.debrid.orderByDebridEpisodeTitleEvidence
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
 import com.nuvio.tv.core.debrid.DirectDebridStreamPreparer
@@ -109,6 +114,12 @@ class StreamScreenViewModel @Inject constructor(
     private val season: Int? = savedStateHandle.get<String>("season")?.toIntOrNull()
     private val episode: Int? = savedStateHandle.get<String>("episode")?.toIntOrNull()
     private val episodeName: String? = savedStateHandle.getOptionalString("episodeName")
+    private var debridEpisodeSelectionContext = DebridEpisodeSelectionContext(
+        season = season,
+        episode = episode,
+        title = episodeName,
+        seasonEpisodeTitles = emptyList()
+    )
     private val runtime: Int? = savedStateHandle.get<String>("runtime")?.toIntOrNull()
     private val genres: String? = savedStateHandle.getOptionalString("genres")
     private val year: String? = savedStateHandle.getOptionalString("year")
@@ -337,7 +348,13 @@ class StreamScreenViewModel @Inject constructor(
                     contentKey = streamCacheKey,
                     maxAgeMs = playerSettings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
                 )
-                if (cached != null) {
+                if (
+                    cached != null &&
+                    classifyDebridEpisodeFileName(
+                        cached.filename,
+                        ensureDebridEpisodeSelectionContext()
+                    ) != DebridEpisodeTitleMatch.CONFLICT
+                ) {
                     android.util.Log.d("NuvioAutoPlay", "TRIGGER: stream reuse cache hit url=${cached.url?.take(60)}")
                     autoPlayHandledForSession = true
                     resolvedAutoPlayTarget = true
@@ -412,7 +429,7 @@ class StreamScreenViewModel @Inject constructor(
                         },
                         settings = debridSettings
                     )
-                }
+                }.orderByDebridEpisodeTitleEvidence(debridEpisodeSelectionContext)
                 val availableAddons = orderedAddonStreams.map { it.addonName }
                 // Auto-select only after all addons have responded or the
                 // configured timeout has elapsed. This gives slower addons a
@@ -537,6 +554,7 @@ class StreamScreenViewModel @Inject constructor(
                         season = season,
                         episode = episode,
                         playerSettings = playerSettings,
+                        selectionContext = debridEpisodeSelectionContext,
                         installedAddonNames = installedAddonOrder.toSet()
                     ) { original, prepared ->
                         updateUiStateIfChanged { state ->
@@ -967,7 +985,8 @@ class StreamScreenViewModel @Inject constructor(
 
     private fun loadMissingMetaDetailsIfNeeded() {
         val requiresMetadataLookup = genres.isNullOrBlank() || year.isNullOrBlank() || runtime == null
-        if (!requiresMetadataLookup) return
+        val requiresEpisodeSelectionContext = season != null && episode != null
+        if (!requiresMetadataLookup && !requiresEpisodeSelectionContext) return
 
         val metaId = contentId ?: videoId.substringBefore(":")
         if (metaId.isBlank() || contentType.isBlank()) return
@@ -979,6 +998,25 @@ class StreamScreenViewModel @Inject constructor(
             if (result !is NetworkResult.Success) return@launch
 
             val meta = result.data
+
+            if (season != null && episode != null) {
+                val selectedEpisode = meta.videos.firstOrNull {
+                    it.season == season && it.episode == episode
+                }
+                debridEpisodeSelectionContext = DebridEpisodeSelectionContext(
+                    season = season,
+                    episode = episode,
+                    title = episodeName ?: selectedEpisode?.title,
+                    seasonEpisodeTitles = meta.videos
+                        .asSequence()
+                        .filter { it.season == season }
+                        .map { it.title }
+                        .filter { it.isNotBlank() }
+                        .distinct()
+                        .toList()
+                )
+            }
+
             val metaGenres = meta.genres.takeIf { it.isNotEmpty() }?.joinToString(" • ")
             val metaYear = meta.releaseInfo
                 ?.substringBefore("-")
@@ -1053,12 +1091,19 @@ class StreamScreenViewModel @Inject constructor(
 
     suspend fun nextAutoPlayCandidate(failedStream: Stream): Stream? {
         val state = _uiState.value
+        val episodeSelectionContext = ensureDebridEpisodeSelectionContext()
         val playerSettings = playerSettingsDataStore.playerSettings.first()
         val installedAddons = addonRepository.getInstalledAddons().first().enabledAddons()
         val installedAddonOrder = installedAddons.map { it.displayName }
         val failed = failedAutoPlayStreamKeys + failedStream.autoPlayKey()
         return StreamAutoPlaySelector.selectAutoPlayStream(
-            streams = state.allStreams.filter { it.autoPlayKey() !in failed },
+            streams = state.allStreams
+                .orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
+                .filter { it.autoPlayKey() !in failed }
+                .filterNot {
+                    it.debridEpisodeTitleMatch(episodeSelectionContext) ==
+                        DebridEpisodeTitleMatch.CONFLICT
+                },
             mode = playerSettings.streamAutoPlayMode,
             regexPattern = playerSettings.streamAutoPlayRegex,
             source = playerSettings.streamAutoPlaySource,
@@ -1068,7 +1113,54 @@ class StreamScreenViewModel @Inject constructor(
         )
     }
 
+    private suspend fun ensureDebridEpisodeSelectionContext(): DebridEpisodeSelectionContext {
+        val current = debridEpisodeSelectionContext
+        if (season == null || episode == null) return current
+        if (current.seasonEpisodeTitles.isNotEmpty()) return current
+
+        val metaId = contentId ?: videoId.substringBefore(":")
+        if (metaId.isBlank() || contentType.isBlank()) return current
+
+        val result = try {
+            metaRepository.getMetaFromAllAddons(type = contentType, id = metaId)
+                .first { it !is NetworkResult.Loading }
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            return current
+        }
+
+        val meta = (result as? NetworkResult.Success)?.data ?: return current
+        val selectedEpisode = meta.videos.firstOrNull {
+            it.season == season && it.episode == episode
+        }
+
+        return DebridEpisodeSelectionContext(
+            season = season,
+            episode = episode,
+            title = episodeName ?: selectedEpisode?.title,
+            seasonEpisodeTitles = meta.videos
+                .asSequence()
+                .filter { it.season == season }
+                .map { it.title }
+                .filter { it.isNotBlank() }
+                .distinct()
+                .toList()
+        ).also {
+            debridEpisodeSelectionContext = it
+        }
+    }
+
     suspend fun resolveStreamForPlayback(stream: Stream): StreamPlaybackInfo? {
+        val episodeSelectionContext = ensureDebridEpisodeSelectionContext()
+
+        if (
+            stream.debridEpisodeTitleMatch(episodeSelectionContext) ==
+            DebridEpisodeTitleMatch.CONFLICT
+        ) {
+            return null
+        }
+
         if (!directDebridResolver.shouldResolveToPlayableStream(stream)) {
             val info = getStreamForPlayback(stream)
             // Persist binge group for non-debrid streams on successful playback
@@ -1089,8 +1181,17 @@ class StreamScreenViewModel @Inject constructor(
         }
 
         val basePlaybackInfo = getStreamForPlayback(stream)
-        return when (val result = directDebridResolver.resolve(stream, season, episode)) {
+        return when (val result = directDebridResolver.resolve(stream, season, episode, episodeSelectionContext)) {
             is DirectDebridResolveResult.Success -> {
+                if (
+                    classifyDebridEpisodeFileName(
+                        result.filename,
+                        episodeSelectionContext
+                    ) == DebridEpisodeTitleMatch.CONFLICT
+                ) {
+                    return null
+                }
+
                 updateUiStateIfChanged {
                     it.copy(
                         showDirectAutoPlayOverlay = true,

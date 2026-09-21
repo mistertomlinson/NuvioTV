@@ -11,12 +11,19 @@ class TorboxFileSelector @Inject constructor() {
         files: List<TorboxTorrentFileDto>,
         resolve: StreamClientResolve,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
     ): TorboxTorrentFileDto? {
         val fileNames = files.map { it.displayName() }
         val isBluray = fileNames.isBlurayDiscStructure()
         val playable = files.filter { it.isPlayableVideo(isBluray) }.sortedByDescending { it.size ?: 0L }
         if (playable.isEmpty()) return null
+
+        playable.firstDebridTargetEpisodeTitleMatch(selectionContext) { it.displayName() }
+            ?.let { return it }
+
+        val eligible = playable.withoutDebridEpisodeTitleConflicts(selectionContext) { it.displayName() }
+        if (eligible.isEmpty()) return null
 
         val episodePatterns = buildDebridEpisodePatterns(
             season = season ?: resolve.season,
@@ -24,21 +31,21 @@ class TorboxFileSelector @Inject constructor() {
         )
         val names = resolve.specificDebridFileNames(episodePatterns)
         if (names.isNotEmpty()) {
-            playable.firstDebridNameMatch(names) { it.displayName() }?.let { return it }
+            eligible.firstDebridNameMatch(names) { it.displayName() }?.let { return it }
         }
 
         if (episodePatterns.isNotEmpty()) {
-            playable.firstOrNull { file ->
+            eligible.firstOrNull { file ->
                 val fileName = file.displayName().lowercase()
                 episodePatterns.any { pattern -> fileName.contains(pattern) }
             }?.let { return it }
         }
 
         resolve.fileIdx?.let { fileIdx ->
-            playable.firstOrNull { it.id == fileIdx }?.let { return it }
+            eligible.firstOrNull { it.id == fileIdx }?.let { return it }
         }
 
-        return playable.maxByOrNull { it.size ?: 0L }
+        return eligible.maxByOrNull { it.size ?: 0L }
     }
 
     private fun TorboxTorrentFileDto.isPlayableVideo(isBluray: Boolean = false): Boolean {

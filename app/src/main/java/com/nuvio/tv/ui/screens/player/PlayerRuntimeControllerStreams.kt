@@ -1,5 +1,10 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.debrid.DebridEpisodeSelectionContext
+import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
+import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
+import com.nuvio.tv.core.debrid.orderByDebridEpisodeTitleEvidence
+
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.tv.core.debrid.DirectDebridPlayableResult
 import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
@@ -125,11 +130,12 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
             when (result) {
                 is NetworkResult.Success -> {
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
+                    val episodeSelectionContext = currentDebridEpisodeSelectionContext()
                     val allStreams = withContext(Dispatchers.Default) {
                         DirectDebridStreamFilter.sortForSourceList(
                             streams = addonStreams.flatMap { it.streams },
                             settings = debridSettings
-                        )
+                        ).orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
                     }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
@@ -339,13 +345,25 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     stream: Stream,
     sourceStreamKey: String = stream.stableKey()
 ) {
+    val episodeSelectionContext = currentDebridEpisodeSelectionContext()
+    if (
+        stream.debridEpisodeTitleMatch(episodeSelectionContext) ==
+        DebridEpisodeTitleMatch.CONFLICT
+    ) {
+        _uiState.update {
+            it.copy(sourceStreamsError = "Selected stream appears to be for a different episode")
+        }
+        return
+    }
+
     val url = stream.getStreamUrl()
     if (url.isNullOrBlank()) {
         scope.launch(Dispatchers.Default) {
             val resolvedStream = resolveDirectDebridStreamIfNeeded(
                 stream = stream,
                 season = currentSeason,
-                episode = currentEpisode
+                episode = currentEpisode,
+                selectionContext = currentDebridEpisodeSelectionContext()
             )
             withContext(Dispatchers.Main) {
                 if (resolvedStream == null || resolvedStream.getStreamUrl().isNullOrBlank()) {
@@ -568,11 +586,12 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
             when (result) {
                 is NetworkResult.Success -> {
                     val addonStreams = StreamAutoPlaySelector.orderAddonStreams(result.data, installedAddonOrder)
+                    val episodeSelectionContext = debridEpisodeSelectionContextFor(video)
                     val allStreams = withContext(Dispatchers.Default) {
                         DirectDebridStreamFilter.sortForSourceList(
                             streams = addonStreams.flatMap { it.streams },
                             settings = debridSettings
-                        )
+                        ).orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
                     }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
@@ -646,6 +665,14 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     )
     val targetVideo = forcedTargetVideo
         ?: _uiState.value.episodes.firstOrNull { it.id == _uiState.value.episodeStreamsForVideoId }
+
+    val episodeSelectionContext = debridEpisodeSelectionContextFor(targetVideo)
+    if (stream.debridEpisodeTitleMatch(episodeSelectionContext) == DebridEpisodeTitleMatch.CONFLICT) {
+        _uiState.update {
+            it.copy(episodeStreamsError = "Selected stream appears to be for a different episode")
+        }
+        return
+    }
 
     resetLoadingOverlayForNewStream()
     releasePlayer(flushPlaybackState = false)
@@ -743,14 +770,57 @@ internal fun PlayerRuntimeController.showEpisodeStreamPicker(video: Video, force
 }
 
 
+internal fun PlayerRuntimeController.debridEpisodeSelectionContextFor(
+    video: Video?
+): DebridEpisodeSelectionContext? {
+    val targetSeason = video?.season ?: currentSeason
+    val targetEpisode = video?.episode ?: currentEpisode
+    if (targetSeason == null || targetEpisode == null) return null
+
+    val targetTitle = video?.title ?: currentEpisodeTitle
+    val seasonTitles = _uiState.value.episodesAll
+        .asSequence()
+        .filter { it.season == targetSeason }
+        .map { it.title }
+        .filter { it.isNotBlank() }
+        .distinct()
+        .toList()
+
+    return DebridEpisodeSelectionContext(
+        season = targetSeason,
+        episode = targetEpisode,
+        title = targetTitle,
+        seasonEpisodeTitles = seasonTitles
+    )
+}
+
+internal fun PlayerRuntimeController.currentDebridEpisodeSelectionContext():
+    DebridEpisodeSelectionContext? =
+    debridEpisodeSelectionContextFor(video = null)
+
 internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
     stream: Stream,
     season: Int?,
-    episode: Int?
+    episode: Int?,
+    selectionContext: DebridEpisodeSelectionContext? = null
 ): Stream? {
-    if (stream.getStreamUrl() != null) return stream
-    return when (val result = directDebridResolver.resolveToPlayableStream(stream, season, episode)) {
-        is DirectDebridPlayableResult.Success -> result.stream
+    if (stream.getStreamUrl() != null) {
+        return stream.takeUnless {
+            it.debridEpisodeTitleMatch(selectionContext) == DebridEpisodeTitleMatch.CONFLICT
+        }
+    }
+
+    return when (
+        val result = directDebridResolver.resolveToPlayableStream(
+            stream = stream,
+            season = season,
+            episode = episode,
+            selectionContext = selectionContext
+        )
+    ) {
+        is DirectDebridPlayableResult.Success -> result.stream.takeUnless {
+            it.debridEpisodeTitleMatch(selectionContext) == DebridEpisodeTitleMatch.CONFLICT
+        }
         DirectDebridPlayableResult.MissingApiKey,
         DirectDebridPlayableResult.NotCached,
         DirectDebridPlayableResult.Stale,
@@ -761,6 +831,7 @@ internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
 internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = false) {
     val nextVideo = nextEpisodeVideo ?: return
     val type = contentType ?: return
+    val nextEpisodeSelectionContext = debridEpisodeSelectionContextFor(nextVideo)
 
     val state = _uiState.value
     if (state.nextEpisode?.hasAired == false) {
@@ -837,9 +908,20 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
             var timeoutElapsed = false
             var lastError: NetworkResult.Error? = null
 
-            fun trySelectStream(data: List<AddonStreams>): Stream? {
+            fun trySelectStream(
+                data: List<AddonStreams>,
+                excludedStreamKeys: Set<String> = emptySet()
+            ): Stream? {
                 val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
-                val allStreams = orderedStreams.flatMap { it.streams }
+                val allStreams = orderedStreams
+                    .flatMap { it.streams }
+                    .orderByDebridEpisodeTitleEvidence(nextEpisodeSelectionContext)
+                    .filterNot {
+                        it.debridEpisodeTitleMatch(nextEpisodeSelectionContext) ==
+                            DebridEpisodeTitleMatch.CONFLICT
+                    }
+                    .filterNot { it.stableKey() in excludedStreamKeys }
+
                 return StreamAutoPlaySelector.selectAutoPlayStream(
                     streams = allStreams,
                     mode = effectiveMode,
@@ -920,9 +1002,40 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 innerJob.join()
             }
 
-            val streamToPlay = selectedStream?.let {
-                resolveDirectDebridStreamIfNeeded(it, nextVideo.season, nextVideo.episode)
-                    ?: it.takeIf { s -> !s.getStreamUrl().isNullOrBlank() }
+            var streamToPlay: Stream? = null
+            val rejectedStreamKeys = linkedSetOf<String>()
+            var candidate = selectedStream
+
+            while (candidate != null && rejectedStreamKeys.size < 5) {
+                val attempted = candidate
+                val resolvedCandidate = resolveDirectDebridStreamIfNeeded(
+                    stream = attempted,
+                    season = nextVideo.season,
+                    episode = nextVideo.episode,
+                    selectionContext = nextEpisodeSelectionContext
+                ) ?: attempted.takeIf { directCandidate ->
+                    !directCandidate.getStreamUrl().isNullOrBlank() &&
+                        directCandidate.debridEpisodeTitleMatch(nextEpisodeSelectionContext) !=
+                            DebridEpisodeTitleMatch.CONFLICT
+                }
+
+                if (resolvedCandidate != null) {
+                    streamToPlay = resolvedCandidate
+                    break
+                }
+
+                rejectedStreamKeys += attempted.stableKey()
+                android.util.Log.d(
+                    "PlayerRecovery",
+                    "Next episode candidate rejected; trying another source"
+                )
+
+                candidate = lastSuccessData?.let { data ->
+                    trySelectStream(
+                        data = data,
+                        excludedStreamKeys = rejectedStreamKeys
+                    )
+                }
             }
             if (streamToPlay != null) {
                 val sourceName = (streamToPlay.name?.takeIf { it.isNotBlank() } ?: streamToPlay.addonName).trim()

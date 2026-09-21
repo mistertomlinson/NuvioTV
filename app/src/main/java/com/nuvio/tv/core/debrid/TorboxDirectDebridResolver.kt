@@ -23,7 +23,8 @@ class TorboxDirectDebridResolver @Inject constructor(
     suspend fun resolve(
         stream: Stream,
         season: Int?,
-        episode: Int?
+        episode: Int?,
+        selectionContext: DebridEpisodeSelectionContext? = null
     ): DirectDebridResolveResult {
         val resolve = stream.clientResolve ?: return DirectDebridResolveResult.Error
         val apiKey = dataStore.settings.first().torboxApiKey.trim()
@@ -61,7 +62,13 @@ class TorboxDirectDebridResolver @Inject constructor(
                 return DirectDebridResolveResult.Stale
             }
             val files = torrent.body()?.data?.files.orEmpty()
-            val file = fileSelector.selectFile(files, resolve, season, episode)
+            val file = fileSelector.selectFile(
+                files = files,
+                resolve = resolve,
+                season = season,
+                episode = episode,
+                selectionContext = selectionContext
+            )
             if (file == null) {
                 android.util.Log.w("NuvioDebrid", "TB fileSelector returned null from ${files.size} files for season=$season episode=$episode")
                 return DirectDebridResolveResult.Stale
