@@ -650,6 +650,7 @@ private fun PlayerPreferenceDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.playback_player),
         width = 420.dp,

@@ -213,6 +213,7 @@ private fun MDBListApiKeyDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.mdblist_dialog_title),
         subtitle = stringResource(R.string.mdblist_dialog_subtitle),

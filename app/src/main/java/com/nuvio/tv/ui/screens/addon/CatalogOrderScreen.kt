@@ -587,7 +587,10 @@ private fun CatalogOrderCard(
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = if (item.isDisabled) NuvioColors.TextSecondary else NuvioColors.TextPrimary
                     )
-                    if (item.isGroup && item.groupSize > 1) {
+                    if (
+                        item.isGroup &&
+                        (item.groupSize == 0 || item.groupSize > 1)
+                    ) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Box(
                             modifier = Modifier

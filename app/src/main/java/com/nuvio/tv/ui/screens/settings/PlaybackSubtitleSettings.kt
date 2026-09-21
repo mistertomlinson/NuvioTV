@@ -450,40 +450,28 @@ private fun AddonSubtitleStartupModeDialog(
         )
     )
 
-    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
-        androidx.compose.foundation.layout.Box(
-            modifier = androidx.compose.ui.Modifier
-                .clip(androidx.compose.foundation.shape.RoundedCornerShape(16.dp))
-                .background(SettingsGlassRowColor)
+    NuvioDialog(
+        glass = true,
+        enhancedGlass = true,
+        onDismiss = onDismiss,
+        title = stringResource(R.string.sub_startup_mode_title),
+        width = 460.dp
+    ) {
+        androidx.compose.foundation.lazy.LazyColumn(
+            verticalArrangement =
+                androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
         ) {
-            androidx.compose.foundation.layout.Column(
-                modifier = androidx.compose.ui.Modifier
-                    .width(460.dp)
-                    .padding(24.dp)
-            ) {
-                Text(
-                    text = stringResource(R.string.sub_startup_mode_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = NuvioColors.TextPrimary
+            items(
+                items = options,
+                key = { it.first.name }
+            ) { (mode, title, description) ->
+                RenderTypeSettingsItem(
+                    title = title,
+                    subtitle = description,
+                    isSelected = mode == selectedMode,
+                    onClick = { onModeSelected(mode) },
+                    onFocused = {}
                 )
-                Spacer(modifier = androidx.compose.ui.Modifier.height(16.dp))
-
-                androidx.compose.foundation.lazy.LazyColumn(
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-                ) {
-                    items(
-                        items = options,
-                        key = { it.first.name }
-                    ) { (mode, title, description) ->
-                        RenderTypeSettingsItem(
-                            title = title,
-                            subtitle = description,
-                            isSelected = mode == selectedMode,
-                            onClick = { onModeSelected(mode) },
-                            onFocused = {}
-                        )
-                    }
-                }
             }
         }
     }

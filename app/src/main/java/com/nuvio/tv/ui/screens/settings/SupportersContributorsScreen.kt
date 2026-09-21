@@ -1048,6 +1048,7 @@ private fun SupporterDetailsDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = supporter.name,
         subtitle = formatDonationDate(supporter.date),
@@ -1126,6 +1127,7 @@ private fun ContributorDetailsDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = contributor.login,
         subtitle = stringResource(

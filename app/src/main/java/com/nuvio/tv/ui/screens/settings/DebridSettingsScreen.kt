@@ -890,6 +890,7 @@ private fun DebridTextListDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = title,
         subtitle = stringResource(R.string.debrid_stream_release_groups_input_subtitle),
@@ -1289,6 +1290,7 @@ private fun DebridDeviceAuthDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(
             if (isConnected) R.string.debrid_disconnect_provider else R.string.debrid_connect_provider,
@@ -1479,6 +1481,7 @@ private fun DebridApiKeyDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = title,
         subtitle = subtitle,

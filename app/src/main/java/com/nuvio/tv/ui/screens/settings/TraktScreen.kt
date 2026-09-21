@@ -347,8 +347,9 @@ fun TraktScreen(
 
     if (showDaysCapDialog) {
         NuvioDialog(
-        glass = true,
-            onDismiss = { showDaysCapDialog = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showDaysCapDialog = false },
             title = stringResource(R.string.trakt_cw_window_title),
             subtitle = stringResource(R.string.trakt_cw_window_subtitle),
             width = 620.dp,
@@ -402,8 +403,9 @@ fun TraktScreen(
 
     if (showUnairedNextUpDialog) {
         NuvioDialog(
-        glass = true,
-            onDismiss = { showUnairedNextUpDialog = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showUnairedNextUpDialog = false },
             title = stringResource(R.string.trakt_unaired_dialog_title),
             subtitle = stringResource(R.string.trakt_unaired_dialog_subtitle),
             width = 620.dp,
@@ -456,8 +458,9 @@ fun TraktScreen(
 
     if (showCommentsDialog) {
         NuvioDialog(
-        glass = true,
-            onDismiss = { showCommentsDialog = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showCommentsDialog = false },
             title = stringResource(R.string.trakt_comments_dialog_title),
             subtitle = stringResource(R.string.trakt_comments_dialog_subtitle),
             width = 620.dp,
@@ -510,8 +513,9 @@ fun TraktScreen(
 
     if (showDisconnectConfirm) {
         NuvioDialog(
-        glass = true,
-            onDismiss = { showDisconnectConfirm = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showDisconnectConfirm = false },
             title = stringResource(R.string.trakt_disconnect_title),
             subtitle = stringResource(R.string.trakt_disconnect_subtitle),
             width = 520.dp,

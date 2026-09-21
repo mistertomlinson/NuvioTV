@@ -1161,6 +1161,7 @@ private fun CardDepthFineTuneDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(
             R.string.settings_card_depth_fine_tune_title

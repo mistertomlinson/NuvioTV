@@ -1,6 +1,13 @@
 @file:OptIn(ExperimentalTvMaterial3Api::class)
 
 package com.nuvio.tv.ui.screens.settings
+
+import android.os.Build
+import androidx.compose.runtime.CompositionLocalProvider
+import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
+import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import androidx.compose.foundation.layout.RowScope
 import com.nuvio.tv.ui.components.NuvioDialog
 import androidx.compose.ui.unit.Dp
@@ -133,9 +140,37 @@ internal fun SettingsGlassBackdrop(
 internal fun SettingsGlassScreen(
     content: @Composable BoxScope.() -> Unit
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
-        content()
+    val dialogHazeState = remember { HazeState() }
+    val dialogBlurEnabled =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    val dialogGlassEnvironment = remember(
+        dialogHazeState,
+        dialogBlurEnabled
+    ) {
+        HomePopupGlassEnvironment(
+            hazeState = dialogHazeState,
+            blurEnabled = dialogBlurEnabled
+        )
+    }
+
+    CompositionLocalProvider(
+        LocalHomePopupGlassEnvironment provides dialogGlassEnvironment
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (dialogBlurEnabled) {
+                        Modifier.haze(dialogHazeState)
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
+            SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
+            content()
+        }
     }
 }
 
@@ -145,21 +180,49 @@ internal fun SettingsStandaloneScaffold(
     subtitle: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
+    val dialogHazeState = remember { HazeState() }
+    val dialogBlurEnabled =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
+    val dialogGlassEnvironment = remember(
+        dialogHazeState,
+        dialogBlurEnabled
+    ) {
+        HomePopupGlassEnvironment(
+            hazeState = dialogHazeState,
+            blurEnabled = dialogBlurEnabled
+        )
+    }
+
+    CompositionLocalProvider(
+        LocalHomePopupGlassEnvironment provides dialogGlassEnvironment
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 32.dp, vertical = 24.dp)
+                .then(
+                    if (dialogBlurEnabled) {
+                        Modifier.haze(dialogHazeState)
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
-            SettingsWorkspaceSurface(
-                modifier = Modifier.fillMaxSize()
+            SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 32.dp, vertical = 24.dp)
             ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                SettingsWorkspaceSurface(
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                    content()
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        content()
+                    }
                 }
             }
         }
@@ -769,7 +832,15 @@ internal fun <T> SettingsSingleChoiceDialog(
 
     LaunchedEffect(focusedIndex) { focusRequester.requestFocusAfterFrames() }
 
-    NuvioDialog(glass = true, onDismiss = onDismiss, title = title, subtitle = subtitle, width = width, suppressFirstKeyUp = false) {
+    NuvioDialog(
+        glass = true,
+        enhancedGlass = true,
+        onDismiss = onDismiss,
+        title = title,
+        subtitle = subtitle,
+        width = width,
+        suppressFirstKeyUp = false
+    ) {
         Box(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
             LazyColumn(
                 state = listState,
@@ -831,7 +902,15 @@ internal fun <T> SettingsMultiChoiceDialog(
 
     LaunchedEffect(firstSelectedIndex) { focusRequester.requestFocusAfterFrames() }
 
-    NuvioDialog(glass = true, onDismiss = onDismiss, title = title, subtitle = subtitle, width = width, suppressFirstKeyUp = false) {
+    NuvioDialog(
+        glass = true,
+        enhancedGlass = true,
+        onDismiss = onDismiss,
+        title = title,
+        subtitle = subtitle,
+        width = width,
+        suppressFirstKeyUp = false
+    ) {
         Column(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             Box(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 LazyColumn(

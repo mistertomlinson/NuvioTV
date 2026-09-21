@@ -932,6 +932,7 @@ internal fun LanguageSelectionDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = title,
         width = 400.dp,
@@ -1068,6 +1069,7 @@ internal fun ColorSelectionDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = title,
         suppressFirstKeyUp = false

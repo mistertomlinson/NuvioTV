@@ -412,8 +412,9 @@ fun SimklScreen(
 
     if (showDisconnectConfirm) {
         NuvioDialog(
-        glass = true,
-            onDismiss = { showDisconnectConfirm = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showDisconnectConfirm = false },
             title = stringResource(R.string.simkl_disconnect_title),
             subtitle = stringResource(
                 R.string.simkl_disconnect_subtitle

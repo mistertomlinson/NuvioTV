@@ -193,8 +193,9 @@ fun ThemeSettingsContent(
         val fontFocusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) { fontFocusRequester.requestFocus() }
         NuvioDialog(
-        glass = true,
-            onDismiss = { showFontDialog = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showFontDialog = false },
             title = stringResource(R.string.appearance_font_dialog_title),
             width = 400.dp,
             suppressFirstKeyUp = false
@@ -245,8 +246,9 @@ fun ThemeSettingsContent(
         val firstFocusRequester = remember { FocusRequester() }
         LaunchedEffect(Unit) { firstFocusRequester.requestFocus() }
         NuvioDialog(
-        glass = true,
-            onDismiss = { showLanguageDialog = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showLanguageDialog = false },
             title = stringResource(R.string.appearance_language_dialog_title),
             width = 400.dp,
             suppressFirstKeyUp = false

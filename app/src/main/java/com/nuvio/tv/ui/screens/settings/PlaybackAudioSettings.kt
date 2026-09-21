@@ -306,6 +306,7 @@ private fun AudioLanguageSelectionDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.audio_preferred_lang),
         width = 400.dp,
@@ -390,6 +391,7 @@ private fun DecoderPriorityDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.audio_decoder_priority),
         subtitle = stringResource(R.string.audio_decoder_controls),

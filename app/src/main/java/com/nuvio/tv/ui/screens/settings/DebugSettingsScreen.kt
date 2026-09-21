@@ -170,8 +170,9 @@ fun DebugSettingsContent(
 
     if (showErrorDialog) {
         NuvioDialog(
-        glass = true,
-            onDismiss = { showErrorDialog = false },
+            glass = true,
+            enhancedGlass = true,
+        onDismiss = { showErrorDialog = false },
             title = stringResource(R.string.debug_error_dialog_title),
             subtitle = stringResource(R.string.debug_error_dialog_subtitle)
         ) {

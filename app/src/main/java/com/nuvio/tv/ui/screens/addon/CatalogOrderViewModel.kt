@@ -25,6 +25,13 @@ class CatalogOrderViewModel @Inject constructor(
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore
 ) : ViewModel() {
 
+    private companion object {
+        const val SEASONAL_SPOTLIGHT_ADDON_ID =
+            "community.seasonalspotlight"
+        const val SEASONAL_SPOTLIGHT_ORDER_ANCHOR =
+            "__nuvio_internal_seasonal_spotlight_order_anchor__"
+    }
+
     private val _uiState = MutableStateFlow(CatalogOrderUiState())
     val uiState: StateFlow<CatalogOrderUiState> = _uiState.asStateFlow()
     private var disabledKeysCache: Set<String> = emptySet()
@@ -63,7 +70,7 @@ class CatalogOrderViewModel @Inject constructor(
             addAll(0, memberKeys)
         }
         viewModelScope.launch {
-            layoutPreferenceDataStore.setHomeCatalogOrderKeys(collapseWatchlyOrderKeys(reordered))
+            layoutPreferenceDataStore.setHomeCatalogOrderKeys(collapseCatalogOrderKeys(reordered))
         }
     }
 
@@ -88,7 +95,7 @@ class CatalogOrderViewModel @Inject constructor(
 
         viewModelScope.launch {
             layoutPreferenceDataStore.setHomeCatalogOrderKeys(
-                collapseWatchlyOrderKeys(reorderedKeys)
+                collapseCatalogOrderKeys(reorderedKeys)
             )
         }
     }
@@ -262,7 +269,7 @@ class CatalogOrderViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            layoutPreferenceDataStore.setHomeCatalogOrderKeys(collapseWatchlyOrderKeys(reordered))
+            layoutPreferenceDataStore.setHomeCatalogOrderKeys(collapseCatalogOrderKeys(reordered))
         }
     }
 
@@ -398,11 +405,34 @@ Triple(
     }
 
     private fun seasonalSpotlightGroup(key: String): String? {
-        return if (key.startsWith("community.seasonalspotlight_")) {
+        return if (
+            key == SEASONAL_SPOTLIGHT_ORDER_ANCHOR ||
+            key.startsWith("${SEASONAL_SPOTLIGHT_ADDON_ID}_")
+        ) {
             "seasonalspotlight"
         } else {
             null
         }
+    }
+
+    private fun collapseCatalogOrderKeys(keys: List<String>): List<String> {
+        val seen = mutableSetOf<String>()
+        val seasonalCollapsed = buildList {
+            keys.forEach { key ->
+                val persistedKey =
+                    if (seasonalSpotlightGroup(key) != null) {
+                        SEASONAL_SPOTLIGHT_ORDER_ANCHOR
+                    } else {
+                        key
+                    }
+
+                if (seen.add(persistedKey)) {
+                    add(persistedKey)
+                }
+            }
+        }
+
+        return collapseWatchlyOrderKeys(seasonalCollapsed)
     }
 
     private fun catalogGroup(key: String): String? {
@@ -463,25 +493,34 @@ Triple(
         }
 
         val consumedWatchlyGroups = mutableSetOf<String>()
+        var consumedSeasonalSpotlight = false
         val savedValidMutable = mutableListOf<String>()
 
         savedOrderKeys.forEach { savedKey ->
             val watchlyGroup = watchlySavedGroup(savedKey)
+            val seasonalGroup = seasonalSpotlightGroup(savedKey)
+
             when {
                 watchlyGroup != null -> {
                     if (consumedWatchlyGroups.add(watchlyGroup)) {
-                        savedValidMutable.addAll(watchlyMembersByGroup[watchlyGroup].orEmpty())
+                        savedValidMutable.addAll(
+                            watchlyMembersByGroup[watchlyGroup].orEmpty()
+                        )
                     }
                 }
 
-                savedKey == "__nuvio_internal_seasonal_spotlight_order_anchor__" -> {
-                    defaultOrderKeys.firstOrNull {
-                        seasonalSpotlightGroup(it) != null &&
-                            it !in savedValidMutable
-                    }?.let(savedValidMutable::add)
+                seasonalGroup != null -> {
+                    if (!consumedSeasonalSpotlight) {
+                        consumedSeasonalSpotlight = true
+                        defaultOrderKeys.firstOrNull {
+                            seasonalSpotlightGroup(it) != null
+                        }?.let(savedValidMutable::add)
+                    }
                 }
 
-                savedKey in availableMap -> savedValidMutable.add(savedKey)
+                savedKey in availableMap -> {
+                    savedValidMutable.add(savedKey)
+                }
             }
         }
 
@@ -550,7 +589,7 @@ Triple(
 
         // Persist stable Watchly group anchors rather than today's transient IDs.
         // This also performs a one-time migration of legacy saved Watchly keys.
-        val persistentEffectiveOrder = collapseWatchlyOrderKeys(effectiveOrder)
+        val persistentEffectiveOrder = collapseCatalogOrderKeys(effectiveOrder)
         if (persistentEffectiveOrder != savedOrderKeys) {
             viewModelScope.launch {
                 layoutPreferenceDataStore.setHomeCatalogOrderKeys(persistentEffectiveOrder)
@@ -562,6 +601,9 @@ Triple(
             val group = catalogGroup(key)
             val members = if (group != null) groupMembers[group] ?: listOf(key) else listOf(key)
             val isGroup = group != null && members.size >= 1
+            val isSeasonalPlaceholder =
+                entry.key == SEASONAL_SPOTLIGHT_ORDER_ANCHOR
+
             CatalogOrderItem(
                 key = entry.key,
                 disableKey = entry.disableKey,
@@ -579,7 +621,8 @@ Triple(
                 canMoveUp = index > 0,
                 canMoveDown = index < collapsedOrder.lastIndex,
                 isGroup = isGroup,
-                groupSize = members.size,
+                groupSize =
+                    if (isSeasonalPlaceholder) 0 else members.size,
                 groupMemberKeys = members
             )
         }
@@ -631,6 +674,39 @@ Triple(
                         )
                     }
                 }
+        }
+
+        /*
+         * Seasonal Spotlight legitimately exposes zero catalogs between
+         * active events. Keep a Catalog Management-only anchor so its future
+         * dynamic rows can still have a user-selected Home position.
+         */
+        val seasonalAddon = addons.firstOrNull { addon ->
+            addon.id.equals(
+                SEASONAL_SPOTLIGHT_ADDON_ID,
+                ignoreCase = true
+            )
+        }
+
+        val hasRealSeasonalCatalog = entries.any { entry ->
+            entry.key != SEASONAL_SPOTLIGHT_ORDER_ANCHOR &&
+                seasonalSpotlightGroup(entry.key) != null
+        }
+
+        if (
+            seasonalAddon != null &&
+            !hasRealSeasonalCatalog &&
+            seenKeys.add(SEASONAL_SPOTLIGHT_ORDER_ANCHOR)
+        ) {
+            entries.add(
+                CatalogOrderEntry(
+                    key = SEASONAL_SPOTLIGHT_ORDER_ANCHOR,
+                    disableKey = SEASONAL_SPOTLIGHT_ORDER_ANCHOR,
+                    catalogName = "Seasonal Spotlight",
+                    addonName = seasonalAddon.displayName,
+                    typeLabel = "mixed"
+                )
+            )
         }
 
         return entries

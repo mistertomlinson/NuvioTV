@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.settings
 
+import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RawRes
 import androidx.compose.foundation.background
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
@@ -56,8 +58,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
+import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.screens.plugin.PluginScreenContent
 import com.nuvio.tv.ui.theme.NuvioColors
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.delay
 
 internal enum class SettingsCategory {
@@ -240,6 +246,25 @@ fun SettingsScreen(
 
     val focusManager = LocalFocusManager.current
 
+    /*
+     * The main Settings UI embeds category content directly instead of
+     * going through each category's standalone scaffold. Provide the same
+     * Haze environment here so dialogs opened from embedded categories can
+     * blur the actual Settings UI beneath them.
+     */
+    val settingsDialogHazeState = remember { HazeState() }
+    val settingsDialogBlurEnabled =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+    val settingsDialogGlassEnvironment = remember(
+        settingsDialogHazeState,
+        settingsDialogBlurEnabled
+    ) {
+        HomePopupGlassEnvironment(
+            hazeState = settingsDialogHazeState,
+            blurEnabled = settingsDialogBlurEnabled
+        )
+    }
+
     LaunchedEffect(visibleSections) {
         if (visibleSections.none { it.category == selectedCategory }) {
             selectedCategory = visibleSections.firstOrNull()?.category ?: SettingsCategory.APPEARANCE
@@ -278,7 +303,20 @@ fun SettingsScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    CompositionLocalProvider(
+        LocalHomePopupGlassEnvironment provides settingsDialogGlassEnvironment
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(
+                    if (settingsDialogBlurEnabled) {
+                        Modifier.haze(settingsDialogHazeState)
+                    } else {
+                        Modifier
+                    }
+                )
+        ) {
         SettingsGlassBackdrop(modifier = Modifier.fillMaxSize())
         Box(
             modifier = Modifier
@@ -467,6 +505,7 @@ fun SettingsScreen(
         }
         }
     }
+}
 }
 
 @Composable

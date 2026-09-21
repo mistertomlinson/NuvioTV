@@ -422,6 +422,7 @@ private fun NextEpisodeThresholdModeDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.autoplay_threshold_mode),
         width = 520.dp,
@@ -525,6 +526,7 @@ private fun StreamAutoPlayModeDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.autoplay_stream_selection),
         width = 460.dp,
@@ -618,6 +620,7 @@ private fun StreamReuseLastLinkCacheDurationDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.autoplay_last_link_cache),
         width = 420.dp,
@@ -709,6 +712,7 @@ private fun StreamAutoPlaySourceDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.autoplay_scope),
         width = 520.dp,
@@ -798,6 +802,7 @@ private fun StreamAutoPlayProviderSelectionDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = {
             onSelectionSaved(selected)
             onDismiss()
@@ -945,6 +950,7 @@ private fun StreamRegexDialog(
 
     NuvioDialog(
         glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = stringResource(R.string.autoplay_regex_title),
         subtitle = stringResource(R.string.autoplay_regex_matches),
