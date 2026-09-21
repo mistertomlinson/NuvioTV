@@ -83,23 +83,68 @@ class ReleaseReminderDataStore @Inject constructor(
     val reminders: Flow<List<ReleaseReminderRecord>> =
         profileManager.activeProfileId.flatMapLatest { profileId ->
             factory.get(profileId, FEATURE).data.map { preferences ->
-                preferences[reminderRecords]
+                val records = preferences[reminderRecords]
                     .orEmpty()
                     .mapNotNull(::decodeRecord)
+
+                val existingKeys = records
+                    .mapTo(mutableSetOf()) { it.key }
+
+                val legacyRecords = preferences[reminderKeys]
+                    .orEmpty()
+                    .mapNotNull(::legacyRecord)
+                    .filterNot { it.key in existingKeys }
+
+                (records + legacyRecords)
                     .sortedBy { it.key }
             }
         }
 
     fun isReminderSet(itemId: String, itemType: String): Flow<Boolean> {
         val key = releaseReminderKey(itemId, itemType) ?: return flowOf(false)
+
         return profileManager.activeProfileId.flatMapLatest { profileId ->
             factory.get(profileId, FEATURE).data.map { preferences ->
-                key in preferences[reminderKeys].orEmpty() ||
+                val legacyMatch =
+                    key in preferences[reminderKeys].orEmpty()
+
+                val recordMatch =
                     preferences[reminderRecords]
                         .orEmpty()
                         .asSequence()
                         .mapNotNull(::decodeRecord)
-                        .any { it.key == key }
+                        .filter { record ->
+                            record.status == ReleaseReminderStatus.ARMED
+                        }
+                        .any { record ->
+                            record.key == key ||
+                                record.imdbId?.let { id ->
+                                    releaseReminderKey(
+                                        id,
+                                        record.itemType
+                                    ) == key
+                                } == true ||
+                                record.tmdbId?.let { id ->
+                                    releaseReminderKey(
+                                        "tmdb:$id",
+                                        record.itemType
+                                    ) == key
+                                } == true ||
+                                record.traktId?.let { id ->
+                                    releaseReminderKey(
+                                        "trakt:$id",
+                                        record.itemType
+                                    ) == key
+                                } == true ||
+                                record.simklId?.let { id ->
+                                    releaseReminderKey(
+                                        "simkl:$id",
+                                        record.itemType
+                                    ) == key
+                                } == true
+                        }
+
+                legacyMatch || recordMatch
             }
         }
     }
@@ -186,6 +231,20 @@ class ReleaseReminderDataStore @Inject constructor(
                     .map(::encodeRecord)
                     .toSet()
         }
+    }
+
+    private fun legacyRecord(key: String): ReleaseReminderRecord? {
+        val separator = key.indexOf('|')
+        if (separator <= 0 || separator >= key.lastIndex) return null
+
+        val itemType = key.substring(0, separator)
+        val itemId = key.substring(separator + 1)
+
+        return ReleaseReminderRecord(
+            itemId = itemId,
+            itemType = itemType,
+            title = ""
+        )
     }
 
     private fun decodeRecords(values: Set<String>): List<ReleaseReminderRecord> =

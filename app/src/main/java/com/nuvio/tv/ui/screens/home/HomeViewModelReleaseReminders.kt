@@ -74,6 +74,8 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
             val cwResolved = input.cwResolved
             val snapshot = input.snapshot
             val nowMillis = input.nowMillis
+
+
             val liveBadges = buildMap {
                 reminders
                     .asSequence()
@@ -104,10 +106,44 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 else state.copy(releaseReminderBadges = liveBadges)
             }
 
-            if (!cwResolved) return@collect
+            if (!cwResolved) {
+                return@collect
+            }
 
             for (reminder in reminders) {
+
+                /*
+                 * Resolve a durable cross-provider identity before fulfillment.
+                 *
+                 * Release catalogs may identify a title by TMDB while Simkl/Trakt
+                 * My List renders the same title by IMDb. Persist the IMDb alias
+                 * once so badge matching stays provider-neutral and requires no
+                 * lookup or extra work from the Compose card path.
+                 */
+                if (reminder.imdbId.isNullOrBlank() && reminder.tmdbId != null) {
+                    val resolvedImdbId = runCatching {
+                        tmdbService.tmdbToImdb(
+                            reminder.tmdbId,
+                            reminder.itemType
+                        )
+                    }.onFailure { error ->
+                        Log.w(
+                            HomeViewModel.TAG,
+                            "Failed to resolve release reminder IMDb alias " +
+                                "for ${reminder.key}: ${error.message}"
+                        )
+                    }.getOrNull()
+
+                    if (!resolvedImdbId.isNullOrBlank()) {
+                        releaseReminderDataStore.upsert(
+                            reminder.copy(imdbId = resolvedImdbId)
+                        )
+                        continue
+                    }
+                }
+
                 if (reminder.status == ReleaseReminderStatus.FULFILLED) {
+
                     val fulfilledAt = reminder.fulfilledAtMillis
                     val expired = fulfilledAt == null ||
                         nowMillis - fulfilledAt >= RELEASE_BADGE_LIFETIME_MS
@@ -133,6 +169,45 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 val catalogMatch = snapshot.catalogItems.firstOrNull { item ->
                     reminder.matches(item.id, item.apiType, item.imdbId)
                 }
+
+                if (reminder.title.isBlank() && catalogMatch != null) {
+                    val inferredTmdbId =
+                        reminder.tmdbId
+                            ?: reminder.itemId
+                                .takeIf { it.startsWith("tmdb:", ignoreCase = true) }
+                                ?.substringAfter(':')
+                                ?.substringBefore(':')
+                                ?.toIntOrNull()
+
+                    releaseReminderDataStore.upsert(
+                        reminder.copy(
+                            title = catalogMatch.name,
+                            year = Regex("(\\d{4})")
+                                .find(catalogMatch.releaseInfo.orEmpty())
+                                ?.groupValues
+                                ?.getOrNull(1)
+                                ?.toIntOrNull(),
+                            imdbId = reminder.imdbId ?: catalogMatch.imdbId,
+                            tmdbId = inferredTmdbId,
+                            poster = catalogMatch.poster,
+                            background = catalogMatch.background,
+                            logo = catalogMatch.logo,
+                            description = catalogMatch.description,
+                            releaseInfo = catalogMatch.releaseInfo,
+                            imdbRating = catalogMatch.imdbRating,
+                            genres = catalogMatch.genres,
+                            releaseDate =
+                                catalogMatch.behaviorHints?.releaseDate
+                                    ?: reminder.releaseDate,
+                            seasonNumber =
+                                catalogMatch.behaviorHints?.upcomingSeason
+                                    ?: reminder.seasonNumber
+                        )
+                    )
+
+                    continue
+                }
+
                 val catalogReleaseDate = catalogMatch
                     ?.behaviorHints
                     ?.releaseDate
@@ -151,6 +226,7 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                     (catalogSeason != null && catalogSeason != reminder.seasonNumber) ||
                     refreshedBadge != reminder.badge
                 ) {
+
                     releaseReminderDataStore.upsert(
                         reminder.copy(
                             releaseDate = catalogReleaseDate ?: reminder.releaseDate,
@@ -161,13 +237,20 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                     continue
                 }
 
-                val releaseDate = parseExactReleaseDate(reminder.releaseDate) ?: continue
-                val availabilityConfirmed = snapshot.hasAvailabilityConfirmation(reminder)
-                if (
-                    !availabilityConfirmed &&
-                    !releaseFallbackWindowReached(releaseDate, nowMillis)
-                ) {
-                    continue
+                val releaseDate =
+                    parseExactReleaseDate(reminder.releaseDate)
+
+                val availabilityConfirmed =
+                    snapshot.hasAvailabilityConfirmation(reminder)
+
+                if (!availabilityConfirmed) {
+                    if (releaseDate == null) {
+                        continue
+                    }
+
+                    if (!releaseFallbackWindowReached(releaseDate, nowMillis)) {
+                        continue
+                    }
                 }
 
                 /* Continue Watching is authoritative and must never be duplicated in My List. */
@@ -175,6 +258,23 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                     releaseReminderDataStore.remove(reminder.key)
                     continue
                 }
+
+                /*
+                 * Automatic release promotion must never mutate My List while
+                 * that row is in or immediately adjacent to the visible Home
+                 * viewport. Reuse Modern Home's existing advisory priority list:
+                 * no new snapshotFlow, layout observer, or scroll-path state.
+                 *
+                 * The reminder remains ARMED and the normal background pipeline
+                 * retries later, after My List has moved outside that window.
+                 */
+                if (
+                    HomeViewModel.MY_LIST_CATALOG_KEY in
+                    modernHomePriorityRowKeys
+                ) {
+                    continue
+                }
+
 
                 runCatching {
                     libraryRepository.ensureInDefault(reminder.toLibraryEntryInput())

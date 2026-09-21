@@ -444,16 +444,29 @@ fun ModernHomeContent(
                                     strTypeMovie = strTypeMovie,
                                     strTypeSeries = strTypeSeries,
                                     releaseReminderBadge =
-                                        if (rowKey == HomeViewModel.MY_LIST_CATALOG_KEY) {
+                                if (rowKey == HomeViewModel.MY_LIST_CATALOG_KEY) {
+                                    val primaryKey =
+                                        com.nuvio.tv.data.local.releaseReminderKey(
+                                            item.id,
+                                            item.apiType
+                                        )
+                                    val imdbKey =
+                                        item.imdbId?.let { imdbId ->
                                             com.nuvio.tv.data.local.releaseReminderKey(
-                                                item.id,
+                                                imdbId,
                                                 item.apiType
-                                            )?.let { reminderKey ->
-                                                uiState.releaseReminderBadges[reminderKey]
-                                            }
-                                        } else {
-                                            null
+                                            )
                                         }
+
+                                    val resolvedBadge =
+                                        primaryKey?.let(uiState.releaseReminderBadges::get)
+                                            ?: imdbKey?.let(uiState.releaseReminderBadges::get)
+
+
+                                    resolvedBadge
+                                } else {
+                                    null
+                                }
                                 )
                                 rowItemCache[cacheKey] = CachedCarouselItem(
                                     source = item,

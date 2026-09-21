@@ -43,7 +43,8 @@ data class LibraryEntry(
             description = description,
             releaseInfo = releaseInfo,
             imdbRating = imdbRating,
-            genres = genres
+            genres = genres,
+            imdbId = imdbId
         )
     }
 }
