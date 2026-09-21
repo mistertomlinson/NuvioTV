@@ -1,8 +1,11 @@
 package com.nuvio.tv.data.simkl
 
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.WatchProgress
 import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,7 +18,11 @@ class SimklDurableProgressTest {
     fun `completed progress removes durable resume without dismissing next up`() = runTest {
         val durableProgressStore = mockk<SimklDurableProgressStore>(relaxed = true)
         val progressDismissalStore = mockk<SimklProgressDismissalStore>(relaxed = true)
+        val profileManager = mockk<ProfileManager>(relaxed = true)
+        every { profileManager.activeProfileId } returns MutableStateFlow(1)
+
         val provider = SimklTrackingProgressProvider(
+            profileManager = profileManager,
             syncRepository = mockk(relaxed = true),
             apiClient = mockk(relaxed = true),
             authStorage = mockk(relaxed = true),
@@ -49,7 +56,11 @@ class SimklDurableProgressTest {
     fun `unfinished progress clears older dismissal and remains durable`() = runTest {
         val durableProgressStore = mockk<SimklDurableProgressStore>(relaxed = true)
         val progressDismissalStore = mockk<SimklProgressDismissalStore>(relaxed = true)
+        val profileManager = mockk<ProfileManager>(relaxed = true)
+        every { profileManager.activeProfileId } returns MutableStateFlow(1)
+
         val provider = SimklTrackingProgressProvider(
+            profileManager = profileManager,
             syncRepository = mockk(relaxed = true),
             apiClient = mockk(relaxed = true),
             authStorage = mockk(relaxed = true),
