@@ -95,6 +95,8 @@ internal fun StreamSourcesSidePanel(
     val sourceCurrentStreamIndex = remember(
         uiState.sourceFilteredStreams,
         uiState.currentSourceStreamKey,
+        uiState.currentStreamInfoHash,
+        uiState.currentStreamFileIdx,
         uiState.currentStreamUrl,
         uiState.currentStreamName,
         uiState.currentStreamAddonName,
@@ -103,6 +105,8 @@ internal fun StreamSourcesSidePanel(
         findCurrentStreamIndex(
             streams = uiState.sourceFilteredStreams,
             currentSourceStreamKey = uiState.currentSourceStreamKey,
+            currentStreamInfoHash = uiState.currentStreamInfoHash,
+            currentStreamFileIdx = uiState.currentStreamFileIdx,
             currentStreamUrl = uiState.currentStreamUrl,
             currentStreamName = uiState.currentStreamName,
             currentStreamAddonName = uiState.currentStreamAddonName,
@@ -311,9 +315,9 @@ internal fun StreamSourcesSidePanel(
                     }
                 }
 
-                uiState.sourceStreamsError != null -> {
+                uiState.sourceStreamsError != null && uiState.sourceFilteredStreams.isEmpty() -> {
                     Text(
-                        text = uiState.sourceStreamsError ?: stringResource(R.string.panel_failed_load_streams),
+                        text = uiState.sourceStreamsError,
                         style = MaterialTheme.typography.bodyLarge,
                         color = Color.White.copy(alpha = 0.85f)
                     )
@@ -328,52 +332,63 @@ internal fun StreamSourcesSidePanel(
                 }
 
                 else -> {
-                    LazyColumn(
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        contentPadding = PaddingValues(
-                            start = 8.dp,
-                            top = 14.dp,
-                            end = 8.dp,
-                            bottom = 8.dp
-                        ),
-                        modifier = Modifier
-                            .fillMaxHeight()
-                            .onKeyEvent { event ->
-                                if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
-                                val addons =
-                                    orderedAddonNames.filter { it in uiState.sourceAvailableAddons }
-                                if (addons.isEmpty()) return@onKeyEvent false
-                                val allOptions = listOf<String?>(null) + addons
-                                val currentIdx = allOptions.indexOf(uiState.sourceSelectedAddonFilter)
-                                when (event.key) {
-                                    Key.DirectionLeft -> {
-                                        if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
-                                    }
-                                    Key.DirectionRight -> {
-                                        if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
-                                    }
-                                    else -> false
-                                }
-                            }
-                    ) {
-                        itemsIndexed(
-                            items = displayStreams,
-                            key = { index, _ -> streamKeys[index] }
-                        ) { index, stream ->
-                            StreamItem(
-                                stream = stream,
-                                focusRequester = streamFocusRequesters.getValue(streamKeys[index]),
-                                requestInitialFocus = true,
-                                isCurrentStream = index == currentStreamIndex,
-                                onClick = { onStreamSelected(stream) },
-                                onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
-                                    val selected = uiState.sourceSelectedAddonFilter
-                                    val idx = if (selected == null) 0 else orderedAddonNames.indexOf(selected) + 1
-                                    if (idx >= 0 && idx < chipFocusRequesters.size) {
-                                        try { chipFocusRequesters[idx].requestFocus() } catch (_: Exception) {}
-                                    }
-                                }} else null
+                    Column(modifier = Modifier.fillMaxHeight()) {
+                        uiState.sourceStreamsError?.let { error ->
+                            Text(
+                                text = error,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = NuvioColors.Error,
+                                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 6.dp)
                             )
+                        }
+
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            contentPadding = PaddingValues(
+                                start = 8.dp,
+                                top = 14.dp,
+                                end = 8.dp,
+                                bottom = 8.dp
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .onKeyEvent { event ->
+                                    if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onKeyEvent false
+                                    val addons =
+                                        orderedAddonNames.filter { it in uiState.sourceAvailableAddons }
+                                    if (addons.isEmpty()) return@onKeyEvent false
+                                    val allOptions = listOf<String?>(null) + addons
+                                    val currentIdx = allOptions.indexOf(uiState.sourceSelectedAddonFilter)
+                                    when (event.key) {
+                                        Key.DirectionLeft -> {
+                                            if (currentIdx > 0) { onAddonFilterSelected(allOptions[currentIdx - 1]); true } else false
+                                        }
+                                        Key.DirectionRight -> {
+                                            if (currentIdx < allOptions.lastIndex) { onAddonFilterSelected(allOptions[currentIdx + 1]); true } else false
+                                        }
+                                        else -> false
+                                    }
+                                }
+                        ) {
+                            itemsIndexed(
+                                items = displayStreams,
+                                key = { index, _ -> streamKeys[index] }
+                            ) { index, stream ->
+                                StreamItem(
+                                    stream = stream,
+                                    focusRequester = streamFocusRequesters.getValue(streamKeys[index]),
+                                    requestInitialFocus = true,
+                                    isCurrentStream = index == currentStreamIndex,
+                                    onClick = { onStreamSelected(stream) },
+                                    onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
+                                        val selected = uiState.sourceSelectedAddonFilter
+                                        val idx = if (selected == null) 0 else orderedAddonNames.indexOf(selected) + 1
+                                        if (idx >= 0 && idx < chipFocusRequesters.size) {
+                                            try { chipFocusRequesters[idx].requestFocus() } catch (_: Exception) {}
+                                        }
+                                    }} else null
+                                )
+                            }
                         }
                     }
                 }
@@ -382,15 +397,38 @@ internal fun StreamSourcesSidePanel(
     }
 }
 
-private fun findCurrentStreamIndex(
+internal fun findCurrentStreamIndex(
     streams: List<Stream>,
     currentSourceStreamKey: String?,
+    currentStreamInfoHash: String?,
+    currentStreamFileIdx: Int?,
     currentStreamUrl: String?,
     currentStreamName: String?,
     currentStreamAddonName: String?,
     currentStreamDescription: String?
 ): Int {
     if (streams.isEmpty()) return -1
+
+    val expectedInfoHash = currentStreamInfoHash?.trim()?.lowercase()
+        ?.takeIf { it.isNotEmpty() }
+    if (expectedInfoHash != null) {
+        val hashMatches = streams.indices.filter { index ->
+            val stream = streams[index]
+            val streamHash = (stream.infoHash ?: stream.clientResolve?.infoHash)
+                ?.trim()
+                ?.lowercase()
+            val streamFileIdx = stream.fileIdx ?: stream.clientResolve?.fileIdx
+            streamHash == expectedInfoHash &&
+                (currentStreamFileIdx == null || streamFileIdx == currentStreamFileIdx)
+        }
+        if (hashMatches.isNotEmpty()) {
+            // Provider expansion may create multiple presentation rows for the
+            // same underlying torrent file. They are all the same playing
+            // media identity, so keep the first configured/sorted variant
+            // pinned instead of dropping the Playing marker as duplicates load.
+            return hashMatches.first()
+        }
+    }
 
     // Best signal: the exact source row selected by the user. This survives
     // direct-debrid resolution even when the actual playback URL changes.
@@ -399,7 +437,7 @@ private fun findCurrentStreamIndex(
             streams[index].stableKey() == currentSourceStreamKey
         }
 
-        if (exactKeyMatches.size == 1) {
+        if (exactKeyMatches.isNotEmpty()) {
             return exactKeyMatches.first()
         }
     }

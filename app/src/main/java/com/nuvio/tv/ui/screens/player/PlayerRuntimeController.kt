@@ -175,6 +175,8 @@ class PlayerRuntimeController(
             contentName = contentName,
             currentStreamName = streamName,
             currentStreamUrl = currentStreamUrl,
+            currentStreamInfoHash = currentInfoHash,
+            currentStreamFileIdx = currentFileIdx,
             currentStreamAddonName = currentAddonName,
             currentStreamDescription = currentStreamDescription,
             releaseYear = year,

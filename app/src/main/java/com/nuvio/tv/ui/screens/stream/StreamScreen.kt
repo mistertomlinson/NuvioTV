@@ -69,6 +69,7 @@ import android.view.KeyEvent
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import coil.request.ImageRequest
 
 import androidx.compose.ui.platform.LocalContext
@@ -701,6 +702,8 @@ private fun RightStreamSection(
     val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     var enter by remember { mutableStateOf(false) }
     var listHasFocus by remember { mutableStateOf(false) }
+    var userHasInteracted by remember { mutableStateOf(false) }
+    var initialStreamFocusApplied by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     var focusJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val orderedAddonNames = remember(availableAddons, sourceChips) {
@@ -763,14 +766,9 @@ private fun RightStreamSection(
         }
     }
 
-    // Do not expose a stream list while that page can still change underneath
-    // the user's focus.
-    //
-    // All waits for every source to reach SUCCESS or ERROR.
-    // Individual addon pages wait only for that addon.
-    //
-    // `isLoading` alone cannot be used here because the ViewModel sets it false
-    // on progressive success emissions while other addons may still be running.
+    // A page is considered stable once every source relevant to that page has
+    // completed. Results are still rendered before then; this flag only gates
+    // the one automatic focus move to the first, fully sorted result.
     val selectedAddonStatus = selectedAddonFilter?.let { selected ->
         sourceChips.firstOrNull { it.name == selected }?.status
     }
@@ -795,6 +793,12 @@ private fun RightStreamSection(
     Column(
         modifier = modifier
             .padding(top = 48.dp, end = 48.dp, bottom = 48.dp)
+            .onPreviewKeyEvent { event ->
+                if (event.nativeKeyEvent.action == KeyEvent.ACTION_DOWN) {
+                    userHasInteracted = true
+                }
+                false
+            }
     ) {
         val chipRowHeight = 56.dp
 
@@ -836,24 +840,19 @@ private fun RightStreamSection(
                 contentAlignment = Alignment.Center
             ) {
                 when {
-                    selectedPageStillLoading -> {
-                        LoadingState()
-                    }
-                    error != null -> {
-                        ErrorState(
-                            message = error,
-                            onRetry = onRetry
-                        )
-                    }
-                    streams.isEmpty() -> {
-                        EmptyState()
-                    }
-                    else -> {
+                    streams.isNotEmpty() -> {
                         StreamsList(
                             streams = streams,
                             onStreamSelected = onStreamSelected,
                             focusedStreamKey = focusedStreamKey,
                             shouldRestoreFocusedStream = shouldRestoreFocusedStream,
+                            requestInitialFocus = !selectedPageStillLoading &&
+                                !userHasInteracted &&
+                                !initialStreamFocusApplied &&
+                                !shouldRestoreFocusedStream,
+                            onInitialFocusHandled = {
+                                initialStreamFocusApplied = true
+                            },
                             onRestoreFocusedStreamHandled = onRestoreFocusedStreamHandled,
                             availableAddons = availableAddons,
                             selectedAddonFilter = selectedAddonFilter,
@@ -863,6 +862,18 @@ private fun RightStreamSection(
                             orderedAddonNames = orderedAddonNames,
                             onFocusChanged = { listHasFocus = it }
                         )
+                    }
+                    error != null -> {
+                        ErrorState(
+                            message = error,
+                            onRetry = onRetry
+                        )
+                    }
+                    selectedPageStillLoading -> {
+                        LoadingState()
+                    }
+                    else -> {
+                        EmptyState()
                     }
                 }
             }
@@ -954,16 +965,15 @@ private fun AddonFilterChips(
                 val allOptions = listOf<String?>(null) + orderedNames
                 val currentIdx = focusedChipIndex.coerceIn(0, allOptions.lastIndex)
 
-                // Loading/error pills are visible status indicators but are not
-                // navigation destinations. Never select a pill before it can
-                // actually accept focus, otherwise selection and real TV focus
-                // can temporarily diverge and make two pills look focused.
+                // Loading pills are valid destinations. Selecting one shows its
+                // results as soon as they arrive while the spinner communicates
+                // that the source is still pending.
                 fun canNavigateTo(index: Int): Boolean {
                     if (index == 0) return true // All
 
                     val addon = orderedNames.getOrNull(index - 1) ?: return false
                     val status = chipMap[addon]?.status ?: SourceChipStatus.SUCCESS
-                    return addon in addons && status == SourceChipStatus.SUCCESS
+                    return status != SourceChipStatus.ERROR
                 }
 
                 fun nextNavigableIndex(step: Int): Int? {
@@ -1011,7 +1021,7 @@ private fun AddonFilterChips(
         items(orderedNames.size) { i ->
             val addon = orderedNames[i]
             val chipStatus = chipMap[addon]?.status ?: SourceChipStatus.SUCCESS
-            val isSelectable = addon in addons && chipStatus == SourceChipStatus.SUCCESS
+            val isSelectable = chipStatus != SourceChipStatus.ERROR
             SourceStatusFilterChip(
                 name = addon,
                 isSelected = selectedAddon == addon,
@@ -1151,6 +1161,8 @@ private fun StreamsList(
     onStreamSelected: (Stream) -> Unit,
     focusedStreamKey: String? = null,
     shouldRestoreFocusedStream: Boolean = false,
+    requestInitialFocus: Boolean = false,
+    onInitialFocusHandled: () -> Unit = {},
     onRestoreFocusedStreamHandled: () -> Unit = {},
     availableAddons: List<String> = emptyList(),
     selectedAddonFilter: String? = null,
@@ -1163,6 +1175,7 @@ private fun StreamsList(
     val isRtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
     val lastKeyRepeatDispatchRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val restoreFocusRequester = remember { FocusRequester() }
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     // Stable UI identity for progressive sorting.
     //
@@ -1209,6 +1222,19 @@ private fun StreamsList(
         }
     }
 
+    LaunchedEffect(requestInitialFocus, streamKeys) {
+        if (!requestInitialFocus || streamKeys.isEmpty()) return@LaunchedEffect
+
+        listState.scrollToItem(0)
+        repeat(2) { withFrameNanos { } }
+        val focused = runCatching {
+            streamFocusRequesters.getValue(streamKeys.first()).requestFocus()
+        }.isSuccess
+        if (focused) {
+            onInitialFocusHandled()
+        }
+    }
+
     LaunchedEffect(shouldRestoreFocusedStream, focusedStreamKey, streamKeys) {
         if (!shouldRestoreFocusedStream) return@LaunchedEffect
 
@@ -1227,6 +1253,7 @@ private fun StreamsList(
     }
 
     LazyColumn(
+        state = listState,
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)

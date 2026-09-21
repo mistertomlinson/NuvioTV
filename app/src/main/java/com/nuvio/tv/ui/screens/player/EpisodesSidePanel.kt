@@ -44,6 +44,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyColumn
@@ -172,6 +173,95 @@ private fun EpisodeStreamsView(
     onAddonFilterSelected: (String?) -> Unit,
     onStreamSelected: (Stream) -> Unit
 ) {
+    val orderedAddonNames = remember(uiState.episodeAvailableAddons) {
+        uiState.episodeAvailableAddons.distinct()
+    }
+    val allChipFocusRequester = remember { FocusRequester() }
+    val addonChipFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val chipFocusRequesters = remember(orderedAddonNames) {
+        addonChipFocusRequesters.keys.retainAll(orderedAddonNames.toSet())
+        buildList {
+            add(allChipFocusRequester)
+            orderedAddonNames.forEach { addon ->
+                add(addonChipFocusRequesters.getOrPut(addon) { FocusRequester() })
+            }
+        }
+    }
+
+    val selectedEpisodeIsPlaying =
+        uiState.episodeStreamsSeason == uiState.currentSeason &&
+            uiState.episodeStreamsEpisode == uiState.currentEpisode
+    val sourceCurrentStreamIndex = remember(
+        selectedEpisodeIsPlaying,
+        uiState.episodeFilteredStreams,
+        uiState.currentSourceStreamKey,
+        uiState.currentStreamInfoHash,
+        uiState.currentStreamFileIdx,
+        uiState.currentStreamUrl,
+        uiState.currentStreamName,
+        uiState.currentStreamAddonName,
+        uiState.currentStreamDescription
+    ) {
+        if (!selectedEpisodeIsPlaying) {
+            -1
+        } else {
+            findCurrentStreamIndex(
+                streams = uiState.episodeFilteredStreams,
+                currentSourceStreamKey = uiState.currentSourceStreamKey,
+                currentStreamInfoHash = uiState.currentStreamInfoHash,
+                currentStreamFileIdx = uiState.currentStreamFileIdx,
+                currentStreamUrl = uiState.currentStreamUrl,
+                currentStreamName = uiState.currentStreamName,
+                currentStreamAddonName = uiState.currentStreamAddonName,
+                currentStreamDescription = uiState.currentStreamDescription
+            )
+        }
+    }
+    val displayStreams = remember(uiState.episodeFilteredStreams, sourceCurrentStreamIndex) {
+        if (sourceCurrentStreamIndex > 0) {
+            buildList {
+                add(uiState.episodeFilteredStreams[sourceCurrentStreamIndex])
+                uiState.episodeFilteredStreams.forEachIndexed { index, stream ->
+                    if (index != sourceCurrentStreamIndex) add(stream)
+                }
+            }
+        } else {
+            uiState.episodeFilteredStreams
+        }
+    }
+    val currentStreamIndex = if (sourceCurrentStreamIndex >= 0) 0 else -1
+
+    val streamsListState = rememberLazyListState()
+    val streamKeys = remember(displayStreams) {
+        val occurrences = mutableMapOf<String, Int>()
+        displayStreams.map { stream ->
+            val baseKey = stream.stableKey()
+            val occurrence = occurrences[baseKey] ?: 0
+            occurrences[baseKey] = occurrence + 1
+            if (occurrence == 0) baseKey else stream.stableKey(occurrence)
+        }
+    }
+    val streamFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    streamFocusRequesters.keys.retainAll(streamKeys.toSet())
+    streamKeys.forEach { key ->
+        streamFocusRequesters.getOrPut(key) { FocusRequester() }
+    }
+    var listHasFocus by remember(uiState.episodeStreamsForVideoId) { mutableStateOf(false) }
+    var userNavigatedList by remember(uiState.episodeStreamsForVideoId) { mutableStateOf(false) }
+
+    // Progressive addon responses can insert a newly higher-ranked row above
+    // the first result. Until the user starts navigating, keep focus and scroll
+    // anchored to the current top result. Once they interact, stable row keys
+    // preserve their chosen position instead of stealing focus.
+    LaunchedEffect(streamKeys, listHasFocus, userNavigatedList) {
+        if (!listHasFocus || userNavigatedList || streamKeys.isEmpty()) {
+            return@LaunchedEffect
+        }
+        streamsListState.scrollToItem(0)
+        androidx.compose.runtime.withFrameNanos { }
+        runCatching { streamsFocusRequester.requestFocus() }
+    }
+
     // Streams for selected episode
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -216,7 +306,9 @@ private fun EpisodeStreamsView(
         AddonFilterChips(
             addons = uiState.episodeAvailableAddons,
             selectedAddon = uiState.episodeSelectedAddonFilter,
-            onAddonSelected = onAddonFilterSelected
+            onAddonSelected = onAddonFilterSelected,
+            externalFocusRequesters = chipFocusRequesters,
+            externalOrderedNames = orderedAddonNames
         )
     }
 
@@ -234,7 +326,7 @@ private fun EpisodeStreamsView(
             }
         }
 
-        uiState.episodeStreamsError != null -> {
+        uiState.episodeStreamsError != null && uiState.episodeFilteredStreams.isEmpty() -> {
             Text(
                 text = uiState.episodeStreamsError,
                 style = MaterialTheme.typography.bodyLarge,
@@ -251,18 +343,57 @@ private fun EpisodeStreamsView(
         }
 
         else -> {
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(top = 4.dp),
-                modifier = Modifier.fillMaxHeight()
-            ) {
-                items(uiState.episodeFilteredStreams) { stream ->
-                    StreamItem(
-                        stream = stream,
-                        focusRequester = streamsFocusRequester,
-                        requestInitialFocus = stream == uiState.episodeFilteredStreams.firstOrNull(),
-                        onClick = { onStreamSelected(stream) }
+            Column(modifier = Modifier.fillMaxHeight()) {
+                uiState.episodeStreamsError?.let { error ->
+                    Text(
+                        text = error,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = NuvioColors.Error,
+                        modifier = Modifier.padding(bottom = 6.dp)
                     )
+                }
+
+                LazyColumn(
+                    state = streamsListState,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(top = 4.dp),
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { listHasFocus = it.hasFocus }
+                        .onPreviewKeyEvent { event ->
+                            if (event.nativeKeyEvent.action == android.view.KeyEvent.ACTION_DOWN) {
+                                userNavigatedList = true
+                            }
+                            false
+                        }
+                ) {
+                    itemsIndexed(
+                        items = displayStreams,
+                        key = { index, _ -> streamKeys[index] }
+                    ) { index, stream ->
+                        StreamItem(
+                            stream = stream,
+                            focusRequester = if (index == 0) {
+                                streamsFocusRequester
+                            } else {
+                                streamFocusRequesters.getValue(streamKeys[index])
+                            },
+                            requestInitialFocus = true,
+                            isCurrentStream = index == currentStreamIndex,
+                            onUpKey = if (index == 0 && chipFocusRequesters.isNotEmpty()) {{
+                                val selected = uiState.episodeSelectedAddonFilter
+                                val chipIndex = if (selected == null) {
+                                    0
+                                } else {
+                                    orderedAddonNames.indexOf(selected) + 1
+                                }
+                                chipFocusRequesters.getOrNull(chipIndex)?.let { requester ->
+                                    runCatching { requester.requestFocus() }
+                                }
+                            }} else null,
+                            onClick = { onStreamSelected(stream) }
+                        )
+                    }
                 }
             }
         }

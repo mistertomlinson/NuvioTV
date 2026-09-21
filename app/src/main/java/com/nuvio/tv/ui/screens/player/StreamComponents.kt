@@ -260,10 +260,16 @@ internal fun AddonFilterChips(
                 val currentIdx = allOptions.indexOf(selectedAddon)
                 when (event.key) {
                     androidx.compose.ui.input.key.Key.DirectionLeft -> {
-                        if (currentIdx > 0) { onAddonSelected(allOptions[currentIdx - 1]); true } else false
+                        if (currentIdx > 0) {
+                            runCatching { focusRequesters[currentIdx - 1].requestFocus() }
+                            true
+                        } else false
                     }
                     androidx.compose.ui.input.key.Key.DirectionRight -> {
-                        if (currentIdx < allOptions.lastIndex) { onAddonSelected(allOptions[currentIdx + 1]); true } else false
+                        if (currentIdx < allOptions.lastIndex) {
+                            runCatching { focusRequesters[currentIdx + 1].requestFocus() }
+                            true
+                        } else false
                     }
                     else -> false
                 }
@@ -275,22 +281,28 @@ internal fun AddonFilterChips(
                 isSelected = selectedAddon == null,
                 status = SourceChipStatus.SUCCESS,
                 onClick = { onAddonSelected(null) },
+                onFocusSelect = { onAddonSelected(null) },
                 modifier = Modifier
                     .focusRequester(focusRequesters[0])
                     .focusProperties { canFocus = selectedAddon == null || chipRowHasFocus }
             )
         }
 
-        items(orderedNames.size) { i ->
-            val addon = orderedNames[i]
+        items(
+            items = orderedNames,
+            key = { addon -> addon }
+        ) { addon ->
+            val i = orderedNames.indexOf(addon)
             val chipStatus = chipMap[addon]?.status ?: SourceChipStatus.SUCCESS
-            val isSelectable = addon in addons && chipStatus == SourceChipStatus.SUCCESS
+            val isSelectable = chipStatus != SourceChipStatus.ERROR &&
+                (addon in addons || chipStatus == SourceChipStatus.LOADING)
             SourceStatusFilterChip(
                 name = addon,
                 isSelected = selectedAddon == addon,
                 status = chipStatus,
                 isSelectable = isSelectable,
                 onClick = { onAddonSelected(addon) },
+                onFocusSelect = { onAddonSelected(addon) },
                 modifier = Modifier.focusRequester(focusRequesters[i + 1])
             )
         }

@@ -566,9 +566,18 @@ class StreamScreenViewModel @Inject constructor(
                             if (updatedGroups == state.addonStreams) {
                                 state
                             } else {
-                                val updatedAllStreams = updatedGroups.flatMap { addonStreams ->
-                                    addonStreams.streams
-                                }
+                                // Resolving a debrid row changes fields used by
+                                // several sort modes (for example size and
+                                // cache/provider metadata). Reapply the same
+                                // configured ordering used for repository
+                                // emissions instead of falling back to addon
+                                // group order while results are still updating.
+                                val updatedAllStreams = DirectDebridStreamFilter.sortForSourceList(
+                                    streams = updatedGroups.flatMap { addonStreams ->
+                                        addonStreams.streams
+                                    },
+                                    settings = debridSettings
+                                ).orderByDebridEpisodeTitleEvidence(debridEpisodeSelectionContext)
                                 val currentFilter = state.selectedAddonFilter
                                 val filteredStreams = if (currentFilter == null) {
                                     updatedAllStreams

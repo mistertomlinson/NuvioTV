@@ -83,7 +83,11 @@ data class Stream(
     fun stableKey(occurrence: Int = 0): String = buildString {
         append(addonName)
         append('\u0000')
-        append(url ?: infoHash ?: clientResolve?.infoHash ?: ytId ?: externalUrl ?: "")
+        // Prefer torrent/debrid identity over its resolved HTTP URL. Resolved
+        // links are ephemeral and may arrive while the row is focused; keeping
+        // the underlying content identity first prevents Compose from treating
+        // that update as a brand-new row.
+        append(infoHash ?: clientResolve?.infoHash ?: url ?: ytId ?: externalUrl ?: "")
         append('\u0000')
         append(clientResolve?.fileIdx ?: "")
         append('\u0000')

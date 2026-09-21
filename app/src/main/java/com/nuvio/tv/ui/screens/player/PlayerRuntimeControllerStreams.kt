@@ -27,6 +27,27 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+internal data class StreamAddonFilterResult(
+    val selectedAddon: String?,
+    val streams: List<Stream>
+)
+
+internal fun resolveStreamAddonFilter(
+    allStreams: List<Stream>,
+    availableAddons: List<String>,
+    selectedAddon: String?
+): StreamAddonFilterResult {
+    val availableSelection = selectedAddon?.takeIf { it in availableAddons }
+    return StreamAddonFilterResult(
+        selectedAddon = availableSelection,
+        streams = if (availableSelection == null) {
+            allStreams
+        } else {
+            allStreams.filter { it.addonName == availableSelection }
+        }
+    )
+}
+
 
 internal fun PlayerRuntimeController.showEpisodesPanel() {
     _uiState.update {
@@ -61,7 +82,12 @@ internal fun PlayerRuntimeController.showSourcesPanel() {
             showSpeedDialog = false,
             showMoreDialog = false,
             showEpisodesPanel = false,
-            showEpisodeStreams = false
+            showEpisodeStreams = false,
+            // Opening the cloud/source panel always starts on All. Apply this
+            // in state rather than relying on a one-shot composable effect so
+            // cached panels and visibility transitions behave identically.
+            sourceSelectedAddonFilter = null,
+            sourceFilteredStreams = it.sourceAllStreams
         )
     }
     loadSourceStreams(forceRefresh = false)
@@ -140,16 +166,27 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
+                        val updatedChips = mergeSourceChipStatuses(
+                            existing = it.sourceChips,
+                            succeededNames = availableAddons
+                        )
+                        val filter = resolveStreamAddonFilter(
+                            allStreams = allStreams,
+                            // A loading bubble is a valid active destination.
+                            // Keep its selection while other addons emit; its
+                            // filtered list will populate when its result arrives.
+                            availableAddons = updatedChips
+                                .filter { chip -> chip.status != SourceChipStatus.ERROR }
+                                .map { chip -> chip.name },
+                            selectedAddon = it.sourceSelectedAddonFilter
+                        )
                         it.copy(
                             isLoadingSourceStreams = false,
                             sourceAllStreams = allStreams,
-                            sourceSelectedAddonFilter = null,
-                            sourceFilteredStreams = allStreams,
+                            sourceSelectedAddonFilter = filter.selectedAddon,
+                            sourceFilteredStreams = filter.streams,
                             sourceAvailableAddons = availableAddons,
-                            sourceChips = mergeSourceChipStatuses(
-                                existing = it.sourceChips,
-                                succeededNames = addonStreams.map { group -> group.addonName }
-                            ),
+                            sourceChips = updatedChips,
                             sourceStreamsError = null
                         )
                     }
@@ -254,6 +291,10 @@ private fun PlayerRuntimeController.markRemainingSourceChipsAsError() {
     _uiState.update { state ->
         if (!state.sourceChips.any { it.status == SourceChipStatus.LOADING }) return@update state
         markedAnyError = true
+        val failedNames = state.sourceChips
+            .filter { it.status == SourceChipStatus.LOADING }
+            .mapTo(mutableSetOf()) { it.name }
+        val selectedAddonFailed = state.sourceSelectedAddonFilter in failedNames
         state.copy(
             sourceChips = state.sourceChips.map { chip ->
                 if (chip.status == SourceChipStatus.LOADING) {
@@ -261,7 +302,9 @@ private fun PlayerRuntimeController.markRemainingSourceChipsAsError() {
                 } else {
                     chip
                 }
-            }
+            },
+            sourceSelectedAddonFilter = if (selectedAddonFailed) null else state.sourceSelectedAddonFilter,
+            sourceFilteredStreams = if (selectedAddonFailed) state.sourceAllStreams else state.sourceFilteredStreams
         )
     }
     if (!markedAnyError) return
@@ -406,6 +449,8 @@ internal fun PlayerRuntimeController.switchToSourceStream(
             currentStreamName = stream.name ?: stream.addonName,
             currentStreamUrl = url,
             currentSourceStreamKey = sourceStreamKey,
+            currentStreamInfoHash = currentInfoHash,
+            currentStreamFileIdx = currentFileIdx,
             currentStreamAddonName = currentAddonName,
             currentStreamDescription = currentStreamDescription,
             audioTracks = emptyList(),
@@ -556,7 +601,9 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
     episodeStreamsJob?.cancel()
     episodeStreamsJob = scope.launch {
         episodeStreamsCacheRequestKey = requestKey
-        val previousAddonFilter = _uiState.value.episodeSelectedAddonFilter
+        // A newly opened episode (and an explicit reload) starts on All.
+        // Carrying the previous episode's addon filter forward made the chip
+        // row and first Up-navigation unexpectedly land on that addon.
         _uiState.update {
             it.copy(
                 showEpisodeStreams = true,
@@ -595,18 +642,21 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
                     }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
-                    val selectedAddon = previousAddonFilter?.takeIf { it in availableAddons }
-                    val filteredStreams = if (selectedAddon == null) {
-                        allStreams
-                    } else {
-                        allStreams.filter { it.addonName == selectedAddon }
-                    }
                     _uiState.update {
+                        // Read the filter from the state at emission time. Addons
+                        // finish progressively, so a value captured before the
+                        // request began may be stale after the user navigates the
+                        // chip row while other addons are still loading.
+                        val filter = resolveStreamAddonFilter(
+                            allStreams = allStreams,
+                            availableAddons = availableAddons,
+                            selectedAddon = it.episodeSelectedAddonFilter
+                        )
                         it.copy(
                             isLoadingEpisodeStreams = false,
                             episodeAllStreams = allStreams,
-                            episodeSelectedAddonFilter = selectedAddon,
-                            episodeFilteredStreams = filteredStreams,
+                            episodeSelectedAddonFilter = filter.selectedAddon,
+                            episodeFilteredStreams = filter.streams,
                             episodeAvailableAddons = availableAddons,
                             episodeStreamsError = null
                         )
@@ -650,9 +700,52 @@ internal fun PlayerRuntimeController.reloadEpisodeStreams() {
 }
 
 internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, forcedTargetVideo: Video? = null) {
+    val targetVideo = forcedTargetVideo
+        ?: sequenceOf(
+            _uiState.value.episodes.firstOrNull {
+                it.id == _uiState.value.episodeStreamsForVideoId
+            },
+            _uiState.value.episodesAll.firstOrNull {
+                it.id == _uiState.value.episodeStreamsForVideoId
+            },
+            _uiState.value.episodes.firstOrNull {
+                it.season == _uiState.value.episodeStreamsSeason &&
+                    it.episode == _uiState.value.episodeStreamsEpisode
+            },
+            _uiState.value.episodesAll.firstOrNull {
+                it.season == _uiState.value.episodeStreamsSeason &&
+                    it.episode == _uiState.value.episodeStreamsEpisode
+            }
+        ).firstOrNull { it != null }
+
+    val episodeSelectionContext = debridEpisodeSelectionContextFor(targetVideo)
+    if (stream.debridEpisodeTitleMatch(episodeSelectionContext) == DebridEpisodeTitleMatch.CONFLICT) {
+        _uiState.update {
+            it.copy(episodeStreamsError = "Selected stream appears to be for a different episode")
+        }
+        return
+    }
+
     val url = stream.getStreamUrl()
     if (url.isNullOrBlank()) {
-        _uiState.update { it.copy(episodeStreamsError = "Invalid stream URL") }
+        scope.launch(Dispatchers.Default) {
+            val resolvedStream = resolveDirectDebridStreamIfNeeded(
+                stream = stream,
+                season = targetVideo?.season ?: _uiState.value.episodeStreamsSeason,
+                episode = targetVideo?.episode ?: _uiState.value.episodeStreamsEpisode,
+                selectionContext = episodeSelectionContext
+            )
+            withContext(Dispatchers.Main) {
+                if (resolvedStream == null || resolvedStream.getStreamUrl().isNullOrBlank()) {
+                    _uiState.update { it.copy(episodeStreamsError = "Invalid stream URL") }
+                } else {
+                    switchToEpisodeStream(
+                        stream = resolvedStream,
+                        forcedTargetVideo = targetVideo
+                    )
+                }
+            }
+        }
         return
     }
     nextEpisodeAutoPlayJob?.cancel()
@@ -663,16 +756,6 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     val newHeaders = PlayerMediaSourceFactory.sanitizeHeaders(
         stream.behaviorHints?.proxyHeaders?.request
     )
-    val targetVideo = forcedTargetVideo
-        ?: _uiState.value.episodes.firstOrNull { it.id == _uiState.value.episodeStreamsForVideoId }
-
-    val episodeSelectionContext = debridEpisodeSelectionContextFor(targetVideo)
-    if (stream.debridEpisodeTitleMatch(episodeSelectionContext) == DebridEpisodeTitleMatch.CONFLICT) {
-        _uiState.update {
-            it.copy(episodeStreamsError = "Selected stream appears to be for a different episode")
-        }
-        return
-    }
 
     resetLoadingOverlayForNewStream()
     releasePlayer(flushPlaybackState = false)
@@ -704,7 +787,12 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
             currentEpisodeTitle = currentEpisodeTitle,
             currentStreamName = stream.name ?: stream.addonName,
             currentStreamUrl = url,
-            currentSourceStreamKey = null,
+            // Keep the selected row identity so the Sources panel can pin the
+            // now-playing stream to the top even when its resolved URL is
+            // different from the addon result.
+            currentSourceStreamKey = stream.stableKey(),
+            currentStreamInfoHash = currentInfoHash,
+            currentStreamFileIdx = currentFileIdx,
             currentStreamAddonName = currentAddonName,
             currentStreamDescription = currentStreamDescription,
             audioTracks = emptyList(),
