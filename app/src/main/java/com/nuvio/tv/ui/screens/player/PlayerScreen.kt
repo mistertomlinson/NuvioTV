@@ -762,22 +762,118 @@ fun PlayerScreen(
             label = "skipButtonBottomPadding"
         )
 
-        // Skip Intro button (bottom-left, lifted when controls are visible)
-        SkipIntroButton(
-            interval = if (uiState.showPauseOverlay || uiState.showLoadingOverlay || uiState.showRatingOverlay || postPlayVisible) null else uiState.activeSkipInterval,
-            dismissed = uiState.skipIntervalDismissed,
-            controlsVisible = uiState.showControls,
-            onSkip = { viewModel.onEvent(PlayerEvent.OnSkipIntro) },
-            onDismiss = { viewModel.onEvent(PlayerEvent.OnDismissSkipIntro) },
-            onVisibilityChanged = { skipButtonActuallyVisible = it },
-            onFocused = { viewModel.scheduleHideControls() },
-            focusRequester = skipIntroFocusRequester,
-            downFocusRequester = if (uiState.showControls) progressBarFocusRequester else null,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .padding(start = 32.dp, bottom = skipButtonBottomPadding)
-                .zIndex(2.1f)
+        val creditSkipTarget = postCreditSkipTarget(
+            timing = uiState.creditTiming,
+            positionMs = uiState.currentPosition,
+            skippedSceneStarts = uiState.skippedPostCreditSceneStarts
         )
+        val creditsStartMs = uiState.creditTiming.creditsStartMs
+        val finalCreditsStartMs = uiState.creditTiming.finalCreditsStartMs
+        val inAnalyzedPostCreditRegion =
+            uiState.creditTiming.status == CreditTimingStatus.COMPLETE &&
+                uiState.creditTiming.hasPostCreditScenes &&
+                creditsStartMs != null &&
+                finalCreditsStartMs != null &&
+                uiState.currentPosition >= creditsStartMs &&
+                uiState.currentPosition < finalCreditsStartMs
+
+        val skipOverlayBlocked =
+            uiState.showPauseOverlay ||
+                uiState.showLoadingOverlay ||
+                uiState.showRatingOverlay ||
+                postPlayVisible
+
+        // Skip Credits owns the existing bottom-left skip-button slot whenever
+        // the analyzer says another post-credit scene is available.
+        //
+        // Generic Skip Intro/Ending remains completely unchanged outside the
+        // analyzer-controlled post-credit region.
+        when {
+            creditSkipTarget != null -> {
+                SkipCreditsButton(
+                    target = if (skipOverlayBlocked) null else creditSkipTarget,
+                    controlsVisible = uiState.showControls,
+                    onSkip = {
+                        viewModel.onEvent(
+                            PlayerEvent.OnSkipCredits(
+                                targetMs = creditSkipTarget.startMs
+                            )
+                        )
+                    },
+                    onTimeout = {
+                        viewModel.onEvent(PlayerEvent.OnSkipCreditsTimeout)
+                    },
+                    onVisibilityChanged = {
+                        skipButtonActuallyVisible = it
+                    },
+                    onFocused = {
+                        viewModel.scheduleHideControls()
+                    },
+                    focusRequester = skipIntroFocusRequester,
+                    downFocusRequester =
+                        if (uiState.showControls) {
+                            progressBarFocusRequester
+                        } else {
+                            null
+                        },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = 32.dp,
+                            bottom = skipButtonBottomPadding
+                        )
+                        .zIndex(2.1f)
+                )
+            }
+
+            inAnalyzedPostCreditRegion -> {
+                // We are either watching a detected post-credit scene or in a
+                // <=10 second credits gap belonging to the same scene cluster.
+                // Intentionally show no generic "Skip Ending" button here.
+                LaunchedEffect(Unit) {
+                    skipButtonActuallyVisible = false
+                }
+            }
+
+            else -> {
+                SkipIntroButton(
+                    interval =
+                        if (skipOverlayBlocked) {
+                            null
+                        } else {
+                            uiState.activeSkipInterval
+                        },
+                    dismissed = uiState.skipIntervalDismissed,
+                    controlsVisible = uiState.showControls,
+                    onSkip = {
+                        viewModel.onEvent(PlayerEvent.OnSkipIntro)
+                    },
+                    onDismiss = {
+                        viewModel.onEvent(PlayerEvent.OnDismissSkipIntro)
+                    },
+                    onVisibilityChanged = {
+                        skipButtonActuallyVisible = it
+                    },
+                    onFocused = {
+                        viewModel.scheduleHideControls()
+                    },
+                    focusRequester = skipIntroFocusRequester,
+                    downFocusRequester =
+                        if (uiState.showControls) {
+                            progressBarFocusRequester
+                        } else {
+                            null
+                        },
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(
+                            start = 32.dp,
+                            bottom = skipButtonBottomPadding
+                        )
+                        .zIndex(2.1f)
+                )
+            }
+        }
         NextEpisodeCardOverlay(
             nextEpisode = uiState.nextEpisode,
             visible = uiState.showNextEpisodeCard &&

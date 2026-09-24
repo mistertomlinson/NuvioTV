@@ -120,6 +120,7 @@ data class PlayerUiState(
     val nextEpisodeAutoPlayCountdownSec: Int? = null,
     val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
     val creditTiming: CreditTimingUiState = CreditTimingUiState(),
+    val skippedPostCreditSceneStarts: Set<Long> = emptySet(),
     val postPlayRecommendations: List<PostPlayRecommendation> = emptyList(),
     val postPlayRecommendationIndex: Int = 0,
     val isPostPlayRecommendationLoading: Boolean = false,
@@ -241,6 +242,8 @@ sealed class PlayerEvent {
     data object OnDismissPauseOverlay : PlayerEvent()
     data object OnSkipIntro : PlayerEvent()
     data object OnDismissSkipIntro : PlayerEvent()
+    data class OnSkipCredits(val targetMs: Long) : PlayerEvent()
+    data object OnSkipCreditsTimeout : PlayerEvent()
     data object OnPlayNextEpisode : PlayerEvent()
     data object OnDismissNextEpisodeCard : PlayerEvent()
     data object OnReturnToPlayerFromPostPlay : PlayerEvent()

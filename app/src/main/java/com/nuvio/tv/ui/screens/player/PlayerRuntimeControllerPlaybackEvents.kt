@@ -855,6 +855,35 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnDismissSkipIntro -> {
             _uiState.update { it.copy(skipIntervalDismissed = true) }
         }
+        is PlayerEvent.OnSkipCredits -> {
+            val state = _uiState.value
+            val target = postCreditSkipTarget(
+                timing = state.creditTiming,
+                positionMs = state.currentPosition,
+                skippedSceneStarts = state.skippedPostCreditSceneStarts
+            )
+
+            // Revalidate against live state so a stale UI event can never
+            // seek to an unrelated scene after playback has advanced.
+            if (target?.startMs == event.targetMs) {
+                _uiState.update {
+                    it.copy(
+                        skippedPostCreditSceneStarts =
+                            it.skippedPostCreditSceneStarts + target.startMs
+                    )
+                }
+
+                val duration = _exoPlayer?.duration?.takeIf { it > 0L }
+                    ?: Long.MAX_VALUE
+                _exoPlayer?.seekTo(
+                    target.startMs.coerceAtMost(duration)
+                )
+                scheduleProgressSyncAfterSeek()
+            }
+        }
+        PlayerEvent.OnSkipCreditsTimeout -> {
+            requestCreditSkipTimeoutEndAction()
+        }
         PlayerEvent.OnPlayNextEpisode -> {
             playNextEpisode(userInitiated = true)
         }

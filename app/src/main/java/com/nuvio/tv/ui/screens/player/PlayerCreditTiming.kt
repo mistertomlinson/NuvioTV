@@ -163,13 +163,26 @@ private fun PlayerRuntimeController.applyCreditAnalyzerResult(
         useCreditTimingFallback()
         return
     }
+    val postCreditScenes = result.postCreditScenes
+        .asSequence()
+        .filter { it.startMs >= 0L && it.endMs > it.startMs }
+        .sortedBy { it.startMs }
+        .map { scene ->
+            PostCreditSceneTiming(
+                startMs = scene.startMs,
+                endMs = scene.endMs
+            )
+        }
+        .toList()
+
     _uiState.update {
         it.copy(
             creditTiming = CreditTimingUiState(
                 status = CreditTimingStatus.COMPLETE,
                 creditsStartMs = result.creditsStartMs,
                 finalCreditsStartMs = result.finalCreditsStartMs,
-                hasPostCreditScenes = result.postCreditScenes.isNotEmpty(),
+                hasPostCreditScenes = postCreditScenes.isNotEmpty(),
+                postCreditScenes = postCreditScenes,
                 confidence = result.confidence
             )
         )
@@ -211,6 +224,7 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
     _uiState.update {
         it.copy(
             creditTiming = CreditTimingUiState(),
+            skippedPostCreditSceneStarts = emptySet(),
             postPlayRecommendations = emptyList(),
             postPlayRecommendationIndex = 0,
             isPostPlayRecommendationLoading = false,

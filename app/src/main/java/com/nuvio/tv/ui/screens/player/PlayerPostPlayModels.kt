@@ -6,7 +6,7 @@ import com.nuvio.tv.domain.model.Video
 
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
 internal const val MANUAL_END_ACTION_THRESHOLD = 0.85
-internal const val NEXT_EPISODE_CREDIT_LEAD_MS = 3_000L
+internal const val POST_CREDIT_SCENE_CONTINUITY_GAP_MS = 10_000L
 
 enum class CreditTimingStatus {
     NOT_STARTED,
@@ -22,15 +22,74 @@ enum class RatingOverlayDestination {
 }
 
 @Immutable
+data class PostCreditSceneTiming(
+    val startMs: Long,
+    val endMs: Long
+)
+
+@Immutable
 data class CreditTimingUiState(
     val status: CreditTimingStatus = CreditTimingStatus.NOT_STARTED,
     val creditsStartMs: Long? = null,
     val finalCreditsStartMs: Long? = null,
     val hasPostCreditScenes: Boolean = false,
+    val postCreditScenes: List<PostCreditSceneTiming> = emptyList(),
     val confidence: Double? = null
 ) {
     val isAuthoritative: Boolean
         get() = status == CreditTimingStatus.COMPLETE && finalCreditsStartMs != null
+}
+
+
+/**
+ * Returns the next post-credit scene that should be offered as a Skip Credits
+ * target at the current playback position.
+ *
+ * The first post-credit scene always gets a skip opportunity once credits
+ * begin. Later scenes are treated as part of the same continuous post-credit
+ * cluster when they begin within 10 seconds of the previous scene ending.
+ */
+internal fun postCreditSkipTarget(
+    timing: CreditTimingUiState,
+    positionMs: Long,
+    skippedSceneStarts: Set<Long> = emptySet(),
+    continuityGapMs: Long = POST_CREDIT_SCENE_CONTINUITY_GAP_MS
+): PostCreditSceneTiming? {
+    if (timing.status != CreditTimingStatus.COMPLETE || positionMs < 0L) return null
+
+    // Analyzer scenes are validated and sorted once when published to UI state.
+    // Keep this playback-position path allocation- and sort-free.
+    val scenes = timing.postCreditScenes
+    if (scenes.isEmpty()) return null
+
+    scenes.forEachIndexed { index, scene ->
+        if (scene.startMs in skippedSceneStarts) {
+            return@forEachIndexed
+        }
+
+        if (positionMs >= scene.startMs && positionMs < scene.endMs) {
+            return null
+        }
+
+        if (positionMs >= scene.startMs) {
+            return@forEachIndexed
+        }
+
+        if (index == 0) {
+            val creditsStartMs = timing.creditsStartMs ?: return null
+            return scene.takeIf { positionMs >= creditsStartMs }
+        }
+
+        val previousScene = scenes[index - 1]
+        if (positionMs < previousScene.endMs) return null
+
+        val gapMs = scene.startMs - previousScene.endMs
+        return scene.takeIf {
+            gapMs > continuityGapMs.coerceAtLeast(0L)
+        }
+    }
+
+    return null
 }
 
 @Immutable

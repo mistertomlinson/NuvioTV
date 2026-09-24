@@ -198,8 +198,7 @@ internal fun PlayerRuntimeController.evaluateNextEpisodeCardVisibility(positionM
     val effectiveDuration = durationMs.takeIf { it > 0L } ?: lastKnownDuration
     val shouldShow = isEndActionTriggerReached(
         positionMs = positionMs,
-        durationMs = effectiveDuration,
-        authoritativeLeadTimeMs = NEXT_EPISODE_CREDIT_LEAD_MS
+        durationMs = effectiveDuration
     )
 
     if (shouldShow) {
