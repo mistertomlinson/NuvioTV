@@ -202,6 +202,9 @@ class PlayerViewModel @Inject constructor(
     fun willPublishCwProgressOnRelease(): Boolean =
         controller.willPublishCwProgressOnRelease()
 
+    fun isNextEpisodeAutoPlayEnabled(): Boolean =
+        controller.streamAutoPlayNextEpisodeEnabledSetting
+
     fun scheduleHideControls() {
         controller.scheduleHideControls()
     }
