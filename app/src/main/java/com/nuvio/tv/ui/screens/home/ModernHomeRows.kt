@@ -2189,8 +2189,12 @@ private fun ModernCarouselCard(
                     else -> releaseReminderBadge
                 }
 
+                val showReleaseBadge =
+                    effectiveReleaseBadge != null &&
+                        !(shouldPlayTrailerInCard && trailerFirstFrameRendered)
+
                 if (
-                    (effectiveReleaseBadge != null || isWatched) &&
+                    (showReleaseBadge || isWatched) &&
                     showHeavyOverlays
                 ) {
                     Row(
@@ -2204,7 +2208,7 @@ private fun ModernCarouselCard(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        if (effectiveReleaseBadge != null) {
+                        if (showReleaseBadge) {
                             Text(
                                 text = stringResource(
                                     if (effectiveReleaseBadge == ReleaseReminderBadge.NEW_SEASON) {
