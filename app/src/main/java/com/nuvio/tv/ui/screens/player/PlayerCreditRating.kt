@@ -93,15 +93,11 @@ internal fun PlayerRuntimeController.requestCreditSkipTimeoutEndAction() {
 
     // Only an exact, currently-active analyzer Skip Credits opportunity is
     // allowed to enter through this path.
-    if (
-        postCreditSkipTarget(
-            timing = state.creditTiming,
-            positionMs = state.currentPosition,
-            skippedSceneStarts = state.skippedPostCreditSceneStarts
-        ) == null
-    ) {
-        return
-    }
+    val skipTarget = postCreditSkipTarget(
+        timing = state.creditTiming,
+        positionMs = state.currentPosition,
+        skippedSceneStarts = state.skippedPostCreditSceneStarts
+    ) ?: return
 
     if (
         state.creditRatingPromptHandled ||
@@ -131,6 +127,8 @@ internal fun PlayerRuntimeController.requestCreditSkipTimeoutEndAction() {
 
     _uiState.update {
         it.copy(
+            skippedPostCreditSceneStarts =
+                it.skippedPostCreditSceneStarts + skipTarget.startMs,
             manualEndActionRequested = true,
             showRatingOverlay = showRating,
             showControls = false,

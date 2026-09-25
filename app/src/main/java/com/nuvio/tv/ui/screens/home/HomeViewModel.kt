@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.domain.model.HomeLayout
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -646,6 +647,70 @@ class HomeViewModel @Inject constructor(
     internal val cwEnrichedInProgressOverlay = Collections.synchronizedMap(mutableMapOf<String, ContinueWatchingItem.InProgress>())
     internal val cwPipelineRefreshTrigger = kotlinx.coroutines.flow.MutableStateFlow(0)
     internal var cwPipelineJob: kotlinx.coroutines.Job? = null
+
+    /*
+     * Player -> Home CW handoff generations.
+     *
+     * These are bookkeeping only until the return transaction is wired:
+     * - requested: NavHost arms a specific direct Player -> Home return.
+     * - active: the fresh optimistic playback event has reached the CW pipeline.
+     * - settled: that generation's final CW cycle has completed.
+     *
+     * Keeping this state on the Home-scoped ViewModel lets Player and Home
+     * coordinate through the exact same CW pipeline without creating another
+     * HomeViewModel or waiting for provider network refreshes.
+     */
+    private val _playerReturnCwRequestedGeneration =
+        kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    val playerReturnCwRequestedGenerationState:
+        kotlinx.coroutines.flow.StateFlow<Long> =
+        _playerReturnCwRequestedGeneration.asStateFlow()
+
+    @Volatile
+    internal var playerReturnCwActiveGeneration: Long = 0L
+
+    private val _playerReturnCwSettledGeneration =
+        kotlinx.coroutines.flow.MutableStateFlow(0L)
+
+    val playerReturnCwSettledGeneration:
+        kotlinx.coroutines.flow.StateFlow<Long> =
+        _playerReturnCwSettledGeneration.asStateFlow()
+
+    fun armPlayerReturnCwTransaction(expectFreshSave: Boolean): Long {
+        val generation = _playerReturnCwRequestedGeneration.value + 1L
+        _playerReturnCwRequestedGeneration.value = generation
+
+        if (!expectFreshSave) {
+            /*
+             * Completion was already published earlier in this Player session,
+             * so release will not emit another CW event. Attach this return to
+             * one fresh recomputation from the repository's current authoritative
+             * state. If an older CW cycle is still running, collectLatest cancels
+             * it and this forced cycle becomes the only one allowed to settle.
+             */
+            playerReturnCwActiveGeneration = generation
+            cwPipelineRefreshTrigger.value =
+                cwPipelineRefreshTrigger.value + 1
+        }
+
+        return generation
+    }
+
+    internal val playerReturnCwRequestedGeneration: Long
+        get() = _playerReturnCwRequestedGeneration.value
+
+    internal fun settlePlayerReturnCwTransaction(generation: Long) {
+        if (generation <= 0L) return
+
+        if (_playerReturnCwSettledGeneration.value < generation) {
+            _playerReturnCwSettledGeneration.value = generation
+        }
+
+        if (playerReturnCwActiveGeneration == generation) {
+            playerReturnCwActiveGeneration = 0L
+        }
+    }
     internal val fullyWatchedSeriesIds get() = watchedSeriesStateHolder
     internal var catalogLoadGeneration: Long = 0L
     internal var catalogsLoadInProgress: Boolean = false
@@ -1143,14 +1208,122 @@ class HomeViewModel @Inject constructor(
                 else -> listOf(row) + withoutMyList
             }
 
-            if (updatedRows == state.catalogRows) {
+            val updatedGridItems =
+                if (state.homeLayout == HomeLayout.GRID) {
+                    val current = state.gridItems
+                    val sectionStart = current.indexOfFirst { item ->
+                        item is GridItem.SectionDivider &&
+                            item.addonId == MY_LIST_ADDON_ID &&
+                            item.catalogId == MY_LIST_CATALOG_ID
+                    }
+
+                    val sectionEndExclusive =
+                        if (sectionStart >= 0) {
+                            current
+                                .indexOfFirstFrom(sectionStart + 1) { item ->
+                                    item is GridItem.SectionDivider
+                                }
+                                .let { next ->
+                                    if (next >= 0) next else current.size
+                                }
+                        } else {
+                            -1
+                        }
+
+                    val withoutMyListGrid =
+                        if (sectionStart >= 0) {
+                            current.take(sectionStart) +
+                                current.drop(sectionEndExclusive)
+                        } else {
+                            current
+                        }
+
+                    if (row == null || row.items.isEmpty()) {
+                        withoutMyListGrid
+                    } else {
+                        val hasEnoughForSeeAll = row.items.size >= 15
+                        val displayItems =
+                            if (hasEnoughForSeeAll) {
+                                row.items.take(14)
+                            } else {
+                                row.items.take(15)
+                            }
+
+                        val myListGridSection = buildList<GridItem> {
+                            add(
+                                GridItem.SectionDivider(
+                                    catalogName = row.catalogName,
+                                    catalogId = row.catalogId,
+                                    addonBaseUrl = row.addonBaseUrl,
+                                    addonId = row.addonId,
+                                    type = row.apiType
+                                )
+                            )
+
+                            displayItems.forEach { item ->
+                                add(
+                                    GridItem.Content(
+                                        item = item,
+                                        addonBaseUrl = row.addonBaseUrl,
+                                        catalogId = row.catalogId,
+                                        catalogName = row.catalogName
+                                    )
+                                )
+                            }
+
+                            if (hasEnoughForSeeAll) {
+                                add(
+                                    GridItem.SeeAll(
+                                        catalogId = row.catalogId,
+                                        addonId = row.addonId,
+                                        type = row.apiType
+                                    )
+                                )
+                            }
+                        }
+
+                        val insertAt =
+                            when {
+                                sectionStart >= 0 ->
+                                    sectionStart.coerceAtMost(withoutMyListGrid.size)
+
+                                withoutMyListGrid.firstOrNull() is GridItem.Hero ->
+                                    1
+
+                                else ->
+                                    0
+                            }
+
+                        withoutMyListGrid.toMutableList().also { grid ->
+                            grid.addAll(insertAt, myListGridSection)
+                        }
+                    }
+                } else {
+                    state.gridItems
+                }
+
+            if (
+                updatedRows == state.catalogRows &&
+                updatedGridItems == state.gridItems
+            ) {
                 state
             } else {
-                state.copy(catalogRows = updatedRows)
+                state.copy(
+                    catalogRows = updatedRows,
+                    gridItems = updatedGridItems
+                )
             }
         }
+    }
 
-        scheduleUpdateCatalogRows()
+    private inline fun <T> List<T>.indexOfFirstFrom(
+        startIndex: Int,
+        predicate: (T) -> Boolean
+    ): Int {
+        for (index in startIndex.coerceAtLeast(0) until size) {
+            if (predicate(this[index])) return index
+        }
+        return -1
     }
 
     internal fun observeMyList() {
@@ -1230,14 +1403,37 @@ class HomeViewModel @Inject constructor(
                                     .orEmpty()
                                     .associateBy { item -> item.id }
 
+                            val latestMyListPosterById =
+                                entries.associate { entry ->
+                                    val preview = entry.toMetaPreview()
+                                    preview.id to preview.poster
+                                }
+
                             val items = entries.map { entry ->
                                 val preview = entry.toMetaPreview()
-                                val priorItem = priorItems[preview.id]
+                                val priorEntry = previousEntries.firstOrNull { previous ->
+                                    previous.matchesMyListIdentity(
+                                        entry.id,
+                                        entry.type
+                                    )
+                                }
+                                val priorItem =
+                                    priorItems[preview.id]
+                                        ?: priorItems.values.firstOrNull { prior ->
+                                            entry.matchesMyListIdentity(
+                                                prior.id,
+                                                prior.apiType
+                                            )
+                                        }
+                                        ?: priorEntry
+                                            ?.toMetaPreview()
+                                            ?.id
+                                            ?.let(priorItems::get)
 
                                 preview.copy(
                                     poster =
-                                        preview.poster
-                                            ?: priorItem?.poster,
+                                        priorItem?.poster
+                                            ?: preview.poster,
                                     background =
                                         preview.background
                                             ?: priorItem?.background,
@@ -1351,7 +1547,9 @@ class HomeViewModel @Inject constructor(
                                             id = item.id,
                                             type = item.rawType,
                                             name = item.name,
-                                            poster = item.poster,
+                                            poster =
+                                                latestMyListPosterById[item.id]
+                                                    ?: item.poster,
                                             background =
                                                 item.background,
                                             logo = item.logo,

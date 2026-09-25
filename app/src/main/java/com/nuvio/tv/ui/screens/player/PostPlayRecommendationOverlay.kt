@@ -2,6 +2,7 @@
 
 package com.nuvio.tv.ui.screens.player
 
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
@@ -42,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -90,6 +92,10 @@ internal fun PostPlayRecommendationOverlay(
     isTrailerPlaying: Boolean,
     hasPlayedTrailer: Boolean,
     trailerCountdownSec: Int?,
+    isInLibrary: Boolean,
+    libraryMessage: String?,
+    onToggleLibrary: (Boolean) -> Unit,
+    onLibraryMessageShown: () -> Unit,
     onPlay: () -> Unit,
     onPlayTrailer: () -> Unit,
     onTrailerEnded: () -> Unit,
@@ -101,11 +107,13 @@ internal fun PostPlayRecommendationOverlay(
     val nextFocusRequester = remember { FocusRequester() }
     val readMoreFocusRequester = remember(recommendation.id) { FocusRequester() }
     val trailerFocusRequester = remember(recommendation.id) { FocusRequester() }
+    val libraryFocusRequester = remember(recommendation.id) { FocusRequester() }
     var pendingNavigationDirection by remember { mutableIntStateOf(0) }
     var synopsisExpanded by remember(recommendation.id) { mutableStateOf(false) }
     var descriptionTruncated by remember(recommendation.id) { mutableStateOf(false) }
     val playPainter = rememberPostPlayIcon(R.raw.ic_player_play)
     val trailerPainter = rememberPostPlayIcon(R.raw.trailer_play_button)
+    val libraryAddPainter = rememberPostPlayIcon(R.raw.library_add_plus)
     val logoHeight by animateDpAsState(
         targetValue = if (isTrailerPlaying) 60.dp else 92.dp,
         animationSpec = tween(600),
@@ -121,6 +129,13 @@ internal fun PostPlayRecommendationOverlay(
         animationSpec = tween(600),
         label = "postPlayRecommendationActionSpacing"
     )
+
+    LaunchedEffect(libraryMessage) {
+        if (!libraryMessage.isNullOrBlank()) {
+            delay(2500L)
+            onLibraryMessageShown()
+        }
+    }
 
     LaunchedEffect(isTrailerPlaying) {
         delay(420L)
@@ -291,11 +306,13 @@ internal fun PostPlayRecommendationOverlay(
                 val showNavigationButtons = canGoPrevious || canGoNext
                 val actionCount = if (showTrailerButton) 2 else 1
                 val navigationCount = if (showNavigationButtons) 2 else 0
-                val itemCount = actionCount + navigationCount
+                val fixedIconCount = navigationCount + 1
+                val itemCount = actionCount + fixedIconCount
                 val spacing = 12.dp
-                val availableActionWidth = maxWidth -
-                    48.dp * navigationCount - spacing * (itemCount - 1)
-                val buttonWidth = minOf((maxWidth - spacing) / 2, availableActionWidth / actionCount)
+                val availableActionWidth =
+                    maxWidth - 48.dp * fixedIconCount - spacing * (itemCount - 1)
+                val buttonWidth =
+                    minOf((maxWidth - spacing) / 2, availableActionWidth / actionCount)
                 Row(horizontalArrangement = Arrangement.spacedBy(spacing), verticalAlignment = Alignment.CenterVertically) {
                     PostPlayActionButton(
                         label = stringResource(R.string.player_post_play_play),
@@ -336,6 +353,24 @@ internal fun PostPlayRecommendationOverlay(
                                 }
                         )
                     }
+                    PostPlayLibraryButton(
+                        isInLibrary = isInLibrary,
+                        addPainter = libraryAddPainter,
+                        contentDescription = if (isInLibrary) {
+                            stringResource(R.string.hero_remove_from_library)
+                        } else {
+                            stringResource(R.string.hero_add_to_library)
+                        },
+                        focusRequester = libraryFocusRequester,
+                        onClick = { onToggleLibrary(isInLibrary) },
+                        modifier = Modifier.focusProperties {
+                            when {
+                                descriptionTruncated -> up = readMoreFocusRequester
+                                !hasPlayedTrailer -> up = playerWindowFocusRequester
+                            }
+                        }
+                    )
+
                     if (showNavigationButtons) {
                     PostPlayNavigationButton(
                         focusRequester = previousFocusRequester,
@@ -363,6 +398,32 @@ internal fun PostPlayRecommendationOverlay(
                     )
                     }
                 }
+            }
+        }
+    }
+
+    val message = libraryMessage
+    if (!message.isNullOrBlank()) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(10f),
+            contentAlignment = androidx.compose.ui.Alignment.TopCenter
+        ) {
+            Box(
+                modifier = Modifier
+                    .padding(top = 24.dp)
+                    .background(
+                        color = com.nuvio.tv.ui.theme.NuvioColors.BackgroundElevated,
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
+                    )
+                    .padding(horizontal = 18.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = com.nuvio.tv.ui.theme.NuvioColors.TextPrimary
+                )
             }
         }
     }
@@ -455,6 +516,56 @@ private fun PostPlayRecommendationDetails(
                 downFocusRequester = playFocusRequester,
                 onTruncationChanged = onDescriptionTruncationChanged,
                 modifier = Modifier.fillMaxWidth(0.92f)
+            )
+        }
+    }
+}
+
+@OptIn(androidx.tv.material3.ExperimentalTvMaterial3Api::class)
+@Composable
+private fun PostPlayLibraryButton(
+    isInLibrary: Boolean,
+    addPainter: androidx.compose.ui.graphics.painter.Painter,
+    contentDescription: String,
+    focusRequester: FocusRequester,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    androidx.tv.material3.IconButton(
+        onClick = onClick,
+        modifier = modifier
+            .size(48.dp)
+            .focusRequester(focusRequester),
+        colors = androidx.tv.material3.IconButtonDefaults.colors(
+            containerColor = com.nuvio.tv.ui.theme.NuvioColors.BackgroundCard,
+            focusedContainerColor = com.nuvio.tv.ui.theme.NuvioColors.Secondary,
+            contentColor = com.nuvio.tv.ui.theme.NuvioColors.TextPrimary,
+            focusedContentColor = com.nuvio.tv.ui.theme.NuvioColors.OnSecondary
+        ),
+        border = androidx.tv.material3.IconButtonDefaults.border(
+            focusedBorder = androidx.tv.material3.Border(
+                border = androidx.compose.foundation.BorderStroke(
+                    2.dp,
+                    com.nuvio.tv.ui.theme.NuvioColors.FocusRing
+                ),
+                shape = androidx.compose.foundation.shape.CircleShape
+            )
+        ),
+        shape = androidx.tv.material3.IconButtonDefaults.shape(
+            shape = androidx.compose.foundation.shape.CircleShape
+        )
+    ) {
+        if (isInLibrary) {
+            androidx.tv.material3.Icon(
+                imageVector = Icons.Default.Check,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(22.dp)
+            )
+        } else {
+            androidx.tv.material3.Icon(
+                painter = addPainter,
+                contentDescription = contentDescription,
+                modifier = Modifier.size(22.dp)
             )
         }
     }

@@ -1,5 +1,15 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.R
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.SharingStarted
+import com.nuvio.tv.domain.repository.LibraryRepository
+import com.nuvio.tv.domain.model.LibraryEntryInput
+import com.nuvio.tv.data.repository.parseContentIds
 import android.content.Context
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -37,6 +47,7 @@ class PlayerViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
     private val watchProgressRepository: WatchProgressRepository,
     private val metaRepository: MetaRepository,
+    private val libraryRepository: LibraryRepository,
     private val streamRepository: StreamRepository,
     private val addonRepository: AddonRepository,
     private val pluginManager: PluginManager,
@@ -95,6 +106,31 @@ class PlayerViewModel @Inject constructor(
     val uiState: StateFlow<PlayerUiState>
         get() = controller.uiState
 
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val postPlayRecommendationInLibrary: StateFlow<Boolean> =
+        controller.uiState
+            .map { state ->
+                state.postPlayRecommendation?.let { recommendation ->
+                    recommendation.id to recommendation.contentType
+                }
+            }
+            .distinctUntilChanged()
+            .flatMapLatest { identity ->
+                if (identity == null) {
+                    flowOf(false)
+                } else {
+                    libraryRepository.isInWatchlist(
+                        itemId = identity.first,
+                        itemType = identity.second
+                    )
+                }
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(5_000L),
+                initialValue = false
+            )
+
     /*
      * Canonical generated-logo geometry shared with Home and Details.
      *
@@ -120,6 +156,41 @@ class PlayerViewModel @Inject constructor(
     val exoPlayer: ExoPlayer?
         get() = controller.exoPlayer
 
+    private val _postPlayLibraryMessage =
+        kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+
+    val postPlayLibraryMessage: StateFlow<String?> =
+        _postPlayLibraryMessage
+
+    fun clearPostPlayLibraryMessage() {
+        _postPlayLibraryMessage.value = null
+    }
+
+    fun togglePostPlayRecommendationLibrary(wasInWatchlist: Boolean) {
+        val recommendation = controller.uiState.value.postPlayRecommendation ?: return
+
+        viewModelScope.launch {
+            runCatching {
+                libraryRepository.toggleDefaultWithSignal(
+                    recommendation.toLibraryEntryInput()
+                )
+            }.onSuccess {
+                _postPlayLibraryMessage.value = context.getString(
+                    if (wasInWatchlist) {
+                        R.string.detail_removed_from_library
+                    } else {
+                        R.string.detail_added_to_library
+                    }
+                )
+            }.onFailure { error ->
+                android.util.Log.w(
+                    "PlayerViewModel",
+                    "Failed to update post-play My List: ${error.message}"
+                )
+            }
+        }
+    }
+
     fun getCurrentStreamUrl(): String = controller.getCurrentStreamUrl()
 
     fun getCurrentHeaders(): Map<String, String> = controller.getCurrentHeaders()
@@ -127,6 +198,9 @@ class PlayerViewModel @Inject constructor(
     fun stopAndRelease() {
         controller.stopAndRelease()
     }
+
+    fun willPublishCwProgressOnRelease(): Boolean =
+        controller.willPublishCwProgressOnRelease()
 
     fun scheduleHideControls() {
         controller.scheduleHideControls()
@@ -156,4 +230,31 @@ class PlayerViewModel @Inject constructor(
         controller.onCleared()
         super.onCleared()
     }
+}
+
+private fun PostPlayRecommendation.toLibraryEntryInput(): LibraryEntryInput {
+    val year = Regex("(\\d{4})")
+        .find(releaseInfo ?: "")
+        ?.groupValues
+        ?.getOrNull(1)
+        ?.toIntOrNull()
+
+    val parsedIds = parseContentIds(id)
+
+    return LibraryEntryInput(
+        itemId = id,
+        itemType = contentType,
+        title = title,
+        year = year,
+        traktId = parsedIds.trakt,
+        imdbId = parsedIds.imdb,
+        tmdbId = parsedIds.tmdb,
+        poster = poster,
+        background = backdrop,
+        logo = logo,
+        description = description,
+        releaseInfo = releaseInfo,
+        imdbRating = imdbRating,
+        genres = genres
+    )
 }

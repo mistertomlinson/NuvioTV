@@ -5,6 +5,7 @@
 
 package com.nuvio.tv.ui.screens.player
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.util.Log
 import android.view.KeyEvent
 import androidx.annotation.RawRes
@@ -122,7 +123,9 @@ fun PlayerScreen(
     onPlaybackErrorBack: () -> Unit = { onBackPress(null, null, false) },
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?) -> Unit)? = null,
     onPostPlayBackPress: (() -> Unit)? = null,
-    onPostPlayRecommendationSelected: ((PostPlayRecommendation, Boolean) -> Unit)? = null
+    onPostPlayRecommendationSelected: ((PostPlayRecommendation, Boolean) -> Unit)? = null,
+    onBeforePostPlayHomeExit: (Boolean) -> Unit = {},
+    onBeforeRatingHomeExit: (Boolean) -> Unit = {}
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val fallbackTitleLogoLarge by
@@ -154,10 +157,14 @@ fun PlayerScreen(
         if (uiState.isPostPlayRecommendationVisible && uiState.isPostPlayTrailerPlaying) {
             viewModel.onEvent(PlayerEvent.OnStopPostPlayTrailer)
         } else if (uiState.isPostPlayRecommendationVisible) {
-            viewModel.stopAndRelease()
             if (onPostPlayBackPress != null) {
+                onBeforePostPlayHomeExit(
+                    viewModel.willPublishCwProgressOnRelease()
+                )
+                viewModel.stopAndRelease()
                 onPostPlayBackPress()
             } else {
+                viewModel.stopAndRelease()
                 onBackPress(
                     uiState.currentSeason,
                     uiState.currentEpisode,
@@ -215,6 +222,13 @@ fun PlayerScreen(
     // rating flows never set ratingSubmitted.
     LaunchedEffect(uiState.ratingSubmitted) {
         if (uiState.ratingSubmitted) {
+            // Tell the Home-bound handoff whether release will publish a new CW
+            // event. Already-completed playback can attach to/force the existing
+            // settled-state cycle instead of waiting for an event that cannot occur.
+            onBeforeRatingHomeExit(
+                viewModel.willPublishCwProgressOnRelease()
+            )
+
             // stopAndRelease() is called before navigating so progress is saved
             // before the screen is disposed
             viewModel.stopAndRelease()
@@ -568,6 +582,14 @@ fun PlayerScreen(
                 isTrailerPlaying = uiState.isPostPlayTrailerPlaying,
                 hasPlayedTrailer = uiState.hasPlayedPostPlayTrailer,
                 trailerCountdownSec = uiState.postPlayTrailerCountdownSec,
+                isInLibrary = viewModel.postPlayRecommendationInLibrary
+                    .collectAsStateWithLifecycle()
+                    .value,
+                libraryMessage = viewModel.postPlayLibraryMessage
+                    .collectAsStateWithLifecycle()
+                    .value,
+                onToggleLibrary = viewModel::togglePostPlayRecommendationLibrary,
+                onLibraryMessageShown = viewModel::clearPostPlayLibraryMessage,
                 onPlay = {
                     viewModel.stopAndRelease()
                     onPostPlayRecommendationSelected?.invoke(recommendation, true)

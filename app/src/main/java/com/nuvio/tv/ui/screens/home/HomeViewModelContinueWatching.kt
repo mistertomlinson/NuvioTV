@@ -326,6 +326,21 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     if (ageMs in 0L..2_000L) {
                         immediatePlaybackRefreshAtMs =
                             SystemClock.elapsedRealtime()
+
+                        // If a direct Player -> Home return was armed before the
+                        // final playback save, bind this genuinely fresh optimistic
+                        // handoff to that return generation. A replayed/stale event
+                        // never reaches this branch because of the age check above.
+                        val requestedReturnGeneration =
+                            playerReturnCwRequestedGeneration
+                        if (
+                            requestedReturnGeneration >
+                                playerReturnCwSettledGeneration.value
+                        ) {
+                            playerReturnCwActiveGeneration =
+                                requestedReturnGeneration
+                        }
+
                         cwPipelineRefreshTrigger.value =
                             cwPipelineRefreshTrigger.value + 1
                     }
@@ -1346,6 +1361,20 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     elapsedMs = SystemClock.elapsedRealtime() - enrichStartMs,
                     changed = changed
                 )
+
+                // Only a CW cycle that survives collectLatest cancellation all the
+                // way through enrichment may settle a Player-return transaction.
+                // Intermediate/cancelled cycles intentionally leave it active so
+                // the next recomputation continues owning the same generation.
+                val completedReturnGeneration =
+                    playerReturnCwActiveGeneration
+
+                if (completedReturnGeneration > 0L) {
+                    settlePlayerReturnCwTransaction(
+                        completedReturnGeneration
+                    )
+                }
+
                 debug.markPhase("completed")
                 debug.logSummary()
             } catch (cancelled: CancellationException) {

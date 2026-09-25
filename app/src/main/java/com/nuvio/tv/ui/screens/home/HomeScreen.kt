@@ -136,6 +136,57 @@ fun HomeScreen(
     onNavigateToCatalogSeeAll: (String, String, String) -> Unit = { _, _, _ -> }
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+
+    val playerReturnRequestedGeneration by
+        viewModel.playerReturnCwRequestedGenerationState.collectAsStateWithLifecycle()
+    val playerReturnSettledGeneration by
+        viewModel.playerReturnCwSettledGeneration.collectAsStateWithLifecycle()
+
+    val playerReturnPending =
+        playerReturnRequestedGeneration > playerReturnSettledGeneration
+
+    /*
+     * Direct Player -> Home returns stay fully opaque until the exact CW
+     * generation armed before Player release has survived the complete CW
+     * pipeline, including enrichment.
+     *
+     * Initial alpha/visibility are derived synchronously from pending state so
+     * a newly recomposed Home cannot expose one stale frame before LaunchedEffect
+     * gets a chance to run.
+     */
+    val playerReturnCurtainAlpha = remember {
+        androidx.compose.animation.core.Animatable(
+            if (playerReturnPending) 1f else 0f
+        )
+    }
+    var showPlayerReturnCurtain by remember {
+        mutableStateOf(playerReturnPending)
+    }
+
+    LaunchedEffect(
+        playerReturnPending,
+        playerReturnRequestedGeneration
+    ) {
+        if (playerReturnPending) {
+            showPlayerReturnCurtain = true
+            playerReturnCurtainAlpha.snapTo(1f)
+        } else if (showPlayerReturnCurtain) {
+            /*
+             * Settlement is published after the CW pipeline's final state update.
+             * Keep the curtain through one rendered frame so the final Home
+             * projection is actually committed before the dissolve begins.
+             */
+            androidx.compose.runtime.withFrameNanos { }
+            playerReturnCurtainAlpha.animateTo(
+                targetValue = 0f,
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 350
+                )
+            )
+            showPlayerReturnCurtain = false
+        }
+    }
+
     val context = LocalContext.current
 
     // Clear stale trailer URLs after 5+ hours in background — YouTube stream
@@ -859,6 +910,24 @@ fun HomeScreen(
             onToggle = { key -> viewModel.togglePosterListPickerMembership(key) },
             onSave = { viewModel.savePosterListPickerMembership() },
             onDismiss = { viewModel.dismissPosterListPicker() }
+        )
+    }
+
+    /*
+     * Outermost Home-level Player return curtain.
+     *
+     * This deliberately lives outside Classic/Grid/Modern route implementations
+     * and after Home's normal overlays. It is absent from composition during
+     * ordinary Home use, so it cannot add work to poster/D-pad scroll paths.
+     */
+    if (showPlayerReturnCurtain) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = playerReturnCurtainAlpha.value
+                }
+                .background(NuvioColors.Background)
         )
     }
 }

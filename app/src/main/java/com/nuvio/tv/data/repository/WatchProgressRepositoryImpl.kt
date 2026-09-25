@@ -93,6 +93,19 @@ class WatchProgressRepositoryImpl @Inject constructor(
         replay = 1,
         extraBufferCapacity = 16
     )
+
+    /*
+     * This SharedFlow is a CW wake signal, not an authoritative progress store.
+     * Stamp only the emitted copy at emission time so Home's 2-second replay
+     * guard measures signal freshness rather than how long normalization or
+     * local persistence took. The real WatchProgress timestamp is untouched.
+     */
+    private fun emitOptimisticContinueWatchingUpdate(progress: WatchProgress) {
+        optimisticContinueWatchingUpdates.tryEmit(
+            progress.copy(lastWatched = System.currentTimeMillis())
+        )
+    }
+
     var hasCompletedInitialPull = false
     var hasCompletedInitialWatchedItemsPull = false
 
@@ -545,12 +558,6 @@ class WatchProgressRepositoryImpl @Inject constructor(
             quiet = !syncRemote
         )
 
-        // Final/switch/exit saves need to wake the CW pipeline immediately.
-        // Periodic in-playback saves remain on the normal debounced path.
-        if (syncRemote) {
-            optimisticContinueWatchingUpdates.tryEmit(progress)
-        }
-
         watchProgressPreferences.saveProgress(progress)
         provider?.persistDurableProgress(progress)
 
@@ -585,6 +592,13 @@ class WatchProgressRepositoryImpl @Inject constructor(
                     episode = progress.episode
                 )
             }
+        }
+
+        // Final/switch/exit saves wake CW only after every local/provider state
+        // used by the Home projection is already settled. Periodic saves keep
+        // using the normal debounced flow path.
+        if (syncRemote) {
+            emitOptimisticContinueWatchingUpdate(progress)
         }
 
         if (provider != null) {
@@ -785,14 +799,21 @@ class WatchProgressRepositoryImpl @Inject constructor(
             lastWatched = now
         )
 
-        // Completion can advance Next Up before persistence/network work finishes.
-        optimisticContinueWatchingUpdates.tryEmit(completed)
-
         if (provider != null) {
+            // Install the provider-local watched/completed projection first so
+            // badges and Next Up see the completed episode before CW refreshes.
             provider.applyOptimisticProgress(
                 progress = completed,
                 quiet = false
             )
+
+            // Explicit user "mark watched" actions should keep their immediate
+            // optimistic CW/Next Up response even if tracking-history persistence
+            // takes longer. Player completion passes broadcastTrackingHistory=false
+            // and therefore waits for the authoritative local state below.
+            if (broadcastTrackingHistory) {
+                emitOptimisticContinueWatchingUpdate(completed)
+            }
 
             if (broadcastTrackingHistory) {
                 val writer = trackingHistoryWriters.writer(
@@ -847,6 +868,13 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 watchedAt = now
             )
         )
+
+        // Player completion (broadcastTrackingHistory=false) waits until provider
+        // and local completed/watched state are fully settled before waking CW.
+        // Provider-backed explicit "mark watched" actions already emitted above.
+        if (provider == null || !broadcastTrackingHistory) {
+            emitOptimisticContinueWatchingUpdate(completed)
+        }
 
         if (provider == null) {
             triggerRemoteSync()

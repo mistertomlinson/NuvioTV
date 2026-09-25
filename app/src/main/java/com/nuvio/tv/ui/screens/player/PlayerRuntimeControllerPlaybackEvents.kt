@@ -143,6 +143,23 @@ internal fun PlayerRuntimeController.saveWatchProgress() {
     saveWatchProgressInternal(currentPosition, duration)
 }
 
+/*
+ * Mirrors the synchronous guards used by saveWatchProgress() /
+ * saveWatchProgressInternal() for the final release snapshot.
+ *
+ * If completion was already published earlier in this Player session,
+ * saveWatchProgressInternal() intentionally performs no second repository
+ * write, so there is no new CW event for a Home-return transaction to await.
+ */
+internal fun PlayerRuntimeController.willPublishCwProgressOnRelease(): Boolean {
+    if (!hasRenderedFirstFrame) return false
+    if (contentId.isNullOrEmpty() || contentType.isNullOrEmpty()) return false
+    val currentPosition = _exoPlayer?.currentPosition ?: return false
+    if (currentPosition < 1000L) return false
+    if (hasMarkedCurrentItemCompleted) return false
+    return true
+}
+
 internal fun PlayerRuntimeController.getEffectiveDuration(position: Long): Long {
     val playerDuration = _exoPlayer?.duration ?: 0L
     val effectiveDuration = maxOf(playerDuration, lastKnownDuration)

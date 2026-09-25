@@ -478,6 +478,12 @@ fun NuvioNavHost(
         }
 
         composable(Screen.Home.route) { backStackEntry ->
+            // Scope HomeViewModel explicitly to the Home NavBackStackEntry.
+            // HomeScreen previously resolved this same owner implicitly via hiltViewModel().
+            // Keeping the owner explicit lets other destinations reference this exact
+            // Home instance later without ever creating a second Home pipeline.
+            val homeViewModel: HomeViewModel = hiltViewModel(backStackEntry)
+
             val savedSkipHomeReturnCurtain =
                 androidx.compose.runtime.remember(backStackEntry) {
                     backStackEntry.savedStateHandle
@@ -560,6 +566,7 @@ fun NuvioNavHost(
                 modifier = Modifier.fillMaxSize()
             ) {
                 HomeScreen(
+                    viewModel = homeViewModel,
                     skipReturnCurtain = skipHomeReturnCurtain,
                     returnFrameSignalActive =
                         detailReturnAwaitingHomeDraw.value ||
@@ -1108,7 +1115,38 @@ fun NuvioNavHost(
                 }
             )
         ) { backStackEntry ->
+            val playerReturnToHomeOnBack =
+                backStackEntry.arguments
+                    ?.getString("returnToHomeOnBack")
+                    ?.toBooleanStrictOrNull() == true
+
+            val homeEntryForPlayerReturn =
+                runCatching {
+                    navController.getBackStackEntry(Screen.Home.route)
+                }.getOrNull()
+
+            val homeViewModelForPlayerReturn: HomeViewModel? =
+                homeEntryForPlayerReturn?.let { homeEntry ->
+                    hiltViewModel(homeEntry)
+                }
+
             PlayerScreen(
+                onBeforePostPlayHomeExit = { expectFreshSave ->
+                    // Post-play Back always returns directly to Home.
+                    homeViewModelForPlayerReturn
+                        ?.armPlayerReturnCwTransaction(
+                            expectFreshSave = expectFreshSave
+                        )
+                },
+                onBeforeRatingHomeExit = { expectFreshSave ->
+                    // Rating only returns directly to Home for CW-origin playback.
+                    if (playerReturnToHomeOnBack) {
+                        homeViewModelForPlayerReturn
+                            ?.armPlayerReturnCwTransaction(
+                                expectFreshSave = expectFreshSave
+                            )
+                    }
+                },
                 onPostPlayBackPress = {
                     backStackEntry.savedStateHandle["ratingExit"] = true
                     val returnedHome = navController.popBackStack(
