@@ -791,8 +791,14 @@ fun PlayerScreen(
         )
         val creditsStartMs = uiState.creditTiming.creditsStartMs
         val finalCreditsStartMs = uiState.creditTiming.finalCreditsStartMs
+        val hasUsablePostCreditTimeline =
+            uiState.creditTiming.postCreditScenes.isNotEmpty() &&
+                (uiState.creditTiming.status == CreditTimingStatus.COMPLETE ||
+                    uiState.creditTiming.status == CreditTimingStatus.RUNNING ||
+                    uiState.creditTiming.status == CreditTimingStatus.FALLBACK)
+
         val inAnalyzedPostCreditRegion =
-            uiState.creditTiming.status == CreditTimingStatus.COMPLETE &&
+            hasUsablePostCreditTimeline &&
                 uiState.creditTiming.hasPostCreditScenes &&
                 creditsStartMs != null &&
                 finalCreditsStartMs != null &&

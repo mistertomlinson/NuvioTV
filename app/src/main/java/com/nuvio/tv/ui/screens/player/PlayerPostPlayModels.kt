@@ -55,7 +55,15 @@ internal fun postCreditSkipTarget(
     skippedSceneStarts: Set<Long> = emptySet(),
     continuityGapMs: Long = POST_CREDIT_SCENE_CONTINUITY_GAP_MS
 ): PostCreditSceneTiming? {
-    if (timing.status != CreditTimingStatus.COMPLETE || positionMs < 0L) return null
+    if (positionMs < 0L) return null
+
+    val hasUsableSceneTiming =
+        timing.status == CreditTimingStatus.COMPLETE ||
+            ((timing.status == CreditTimingStatus.RUNNING ||
+                timing.status == CreditTimingStatus.FALLBACK) &&
+                timing.postCreditScenes.isNotEmpty())
+
+    if (!hasUsableSceneTiming) return null
 
     // Analyzer scenes are validated and sorted once when published to UI state.
     // Keep this playback-position path allocation- and sort-free.

@@ -123,13 +123,26 @@ private fun PlayerRuntimeController.applyCreditAnalyzerFallback(
 ) {
     if (creditAnalysisIdentity != expectedIdentity) return
     val fallback = job.fallback ?: return
+    val postCreditScenes = fallback.postCreditScenes
+        .asSequence()
+        .filter { it.startMs >= 0L && it.endMs > it.startMs }
+        .sortedBy { it.startMs }
+        .map { scene ->
+            PostCreditSceneTiming(
+                startMs = scene.startMs,
+                endMs = scene.endMs
+            )
+        }
+        .toList()
+
     Log.i(
         PlayerRuntimeController.TAG,
         "Credit analyzer cross-release fallback ready: " +
             "sourceDurationMs=${fallback.sourceDurationMs}, " +
             "targetDurationMs=${fallback.targetDurationMs}, " +
             "runtimeDifferenceMs=${fallback.runtimeDifferenceMs}, " +
-            "finalCreditsStartMs=${fallback.finalCreditsStartMs}"
+            "finalCreditsStartMs=${fallback.finalCreditsStartMs}, " +
+            "postCreditScenes=${postCreditScenes.size}"
     )
     _uiState.update {
         it.copy(
@@ -137,7 +150,8 @@ private fun PlayerRuntimeController.applyCreditAnalyzerFallback(
                 status = CreditTimingStatus.RUNNING,
                 creditsStartMs = fallback.creditsStartMs,
                 finalCreditsStartMs = fallback.finalCreditsStartMs,
-                hasPostCreditScenes = fallback.finalCreditsStartMs > fallback.creditsStartMs,
+                hasPostCreditScenes = postCreditScenes.isNotEmpty(),
+                postCreditScenes = postCreditScenes,
                 confidence = fallback.confidence
             )
         )

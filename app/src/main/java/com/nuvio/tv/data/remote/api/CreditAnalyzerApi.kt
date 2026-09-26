@@ -43,6 +43,7 @@ data class CreditAnalysisResult(
 data class CreditTimingFallback(
     @Json(name = "credits_start_ms") val creditsStartMs: Long,
     @Json(name = "final_credits_start_ms") val finalCreditsStartMs: Long,
+    @Json(name = "post_credit_scenes") val postCreditScenes: List<CreditTimeSegment> = emptyList(),
     @Json(name = "source_duration_ms") val sourceDurationMs: Long,
     @Json(name = "target_duration_ms") val targetDurationMs: Long,
     @Json(name = "runtime_difference_ms") val runtimeDifferenceMs: Long,
