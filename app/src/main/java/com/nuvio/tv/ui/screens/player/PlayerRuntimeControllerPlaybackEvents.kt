@@ -1090,8 +1090,19 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                 ratingTransitionJob?.cancel()
                 ratingTransitionJob = scope.launch {
                     delay(750)
+
+                    if (
+                        _uiState.value.ratingOverlayDestination !=
+                            RatingOverlayDestination.POST_PLAY
+                    ) {
+                        return@launch
+                    }
+
                     _uiState.update {
-                        if (it.ratingOverlayDestination != RatingOverlayDestination.POST_PLAY) {
+                        if (
+                            it.ratingOverlayDestination !=
+                                RatingOverlayDestination.POST_PLAY
+                        ) {
                             it
                         } else {
                             it.copy(
@@ -1100,6 +1111,12 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                             )
                         }
                     }
+
+                    // Rating submission and Dismiss both complete the rating
+                    // step. If this prompt belongs to the end-of-playback flow,
+                    // continue directly into post-play instead of exposing the
+                    // paused player and requiring a second Back press.
+                    preparePostPlayRecommendationsForManualEndAction()
                 }
             } else if (rating != null && media != null) {
                 scope.launch {

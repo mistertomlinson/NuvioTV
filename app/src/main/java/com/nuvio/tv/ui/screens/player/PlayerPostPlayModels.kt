@@ -218,18 +218,46 @@ internal fun shouldStartManualEndAction(
     durationMs: Long
 ): Boolean {
     if (durationMs <= 0L || positionMs < 0L) return false
-    if (state.creditRatingPromptHandled || state.postPlayRecommendationDismissed) return false
-    if (positionMs.toDouble() / durationMs.toDouble() < MANUAL_END_ACTION_THRESHOLD) return false
+    if (state.postPlayRecommendationDismissed) return false
+
+    val progressFraction = positionMs.toDouble() / durationMs.toDouble()
 
     return when (state.contentType?.trim()?.lowercase()) {
-        "movie" -> true
+        "movie" -> {
+            // Prefer real timing whenever Nuvio has it. This includes exact
+            // analyzer results, cross-release fallback timing while a fresh
+            // analysis is running, and any other validated movie timing.
+            //
+            // For a manual Back action, reaching the beginning of credits is
+            // enough to consider the movie complete. The automatic rating
+            // trigger remains tied to the final-credit boundary so viewers
+            // who keep watching can still see post-credit scenes normally.
+            val knownCreditsStartMs =
+                state.creditTiming.creditsStartMs
+                    ?: state.creditTiming.postCreditScenes.firstOrNull()?.startMs
+                    ?: state.creditTiming.finalCreditsStartMs
+
+            if (knownCreditsStartMs != null) {
+                positionMs >= knownCreditsStartMs
+            } else {
+                // Last-resort legacy behavior when neither analyzer/cached
+                // timing nor another credit source supplied a usable boundary.
+                progressFraction >= MANUAL_END_ACTION_THRESHOLD
+            }
+        }
+
         "series", "tv" -> {
+            if (progressFraction < MANUAL_END_ACTION_THRESHOLD) {
+                return false
+            }
+
             val ratingEligible = isRatingPromptEligibleContent(
                 contentType = state.contentType,
                 currentSeason = state.currentSeason,
                 currentEpisode = state.currentEpisode,
                 episodes = state.episodesAll
             )
+
             val analyzedCreditsStart = state.creditTiming.finalCreditsStartMs
             val analyzerLooksLate =
                 state.nextEpisode?.hasAired == true &&
@@ -239,6 +267,7 @@ internal fun shouldStartManualEndAction(
 
             ratingEligible || analyzerLooksLate
         }
+
         else -> false
     }
 }

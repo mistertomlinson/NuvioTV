@@ -50,7 +50,10 @@ internal fun PlayerRuntimeController.requestManualEndAction() {
         currentEpisode = state.currentEpisode,
         episodes = state.episodesAll
     )
-    val showRating = state.isRatingProviderConnected && ratingEligible
+    val showRating =
+        !state.creditRatingPromptHandled &&
+            state.isRatingProviderConnected &&
+            ratingEligible
     Log.i(
         PlayerRuntimeController.TAG,
         "Manual near-end exit requested post-play positionMs=${state.currentPosition}"
@@ -117,7 +120,10 @@ internal fun PlayerRuntimeController.requestCreditSkipTimeoutEndAction() {
         currentEpisode = state.currentEpisode,
         episodes = state.episodesAll
     )
-    val showRating = state.isRatingProviderConnected && ratingEligible
+    val showRating =
+        !state.creditRatingPromptHandled &&
+            state.isRatingProviderConnected &&
+            ratingEligible
 
     Log.i(
         PlayerRuntimeController.TAG,

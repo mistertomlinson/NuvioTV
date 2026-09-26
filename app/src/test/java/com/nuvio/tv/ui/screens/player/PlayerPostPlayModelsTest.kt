@@ -228,6 +228,59 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
+    fun `movie with known credits waits for the real credit boundary`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE,
+                creditsStartMs = 98_000L,
+                finalCreditsStartMs = 99_000L
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 98_000L, 100_000L))
+    }
+
+    @Test
+    fun `movie back during cached post credit timing starts post play`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING,
+                creditsStartMs = 90_000L,
+                finalCreditsStartMs = 99_000L,
+                hasPostCreditScenes = true,
+                postCreditScenes = listOf(
+                    PostCreditSceneTiming(
+                        startMs = 94_000L,
+                        endMs = 96_000L
+                    )
+                )
+            )
+        )
+
+        assertTrue(shouldStartManualEndAction(state, 95_000L, 100_000L))
+    }
+
+    @Test
+    fun `handled rating still allows movie post play until recommendations are dismissed`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            creditRatingPromptHandled = true
+        )
+
+        assertTrue(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertFalse(
+            shouldStartManualEndAction(
+                state.copy(postPlayRecommendationDismissed = true),
+                95_000L,
+                100_000L
+            )
+        )
+    }
+
+    @Test
     fun `manual near end exit does not reopen after return to video`() {
         val state = PlayerUiState(
             contentType = "movie",

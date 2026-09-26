@@ -332,7 +332,34 @@ private fun PlayerRuntimeController.shouldUsePostPlayRecommendations(state: Play
 internal fun PlayerRuntimeController.preparePostPlayRecommendationsForManualEndAction() {
     val state = _uiState.value
     if (!shouldUsePostPlayRecommendations(state)) return
-    if (state.postPlayRecommendations.isEmpty() && !state.isPostPlayRecommendationLoading) {
+    if (state.postPlayRecommendationDismissed) return
+
+    // Recommendations are normally preloaded well before the end of a movie.
+    // If Back starts the manual end flow after they are already ready, expose
+    // them immediately instead of waiting for another playback-position tick.
+    if (state.postPlayRecommendations.isNotEmpty()) {
+        if (!state.blocksEndActionForRating && !state.showRatingOverlay) {
+            _uiState.update { current ->
+                if (
+                    current.postPlayRecommendationDismissed ||
+                    current.blocksEndActionForRating ||
+                    current.showRatingOverlay
+                ) {
+                    current
+                } else {
+                    current.copy(
+                        isPostPlayRecommendationVisible = true,
+                        showControls = false,
+                        showPauseOverlay = false,
+                        showNextEpisodeCard = false
+                    )
+                }
+            }
+        }
+        return
+    }
+
+    if (!state.isPostPlayRecommendationLoading) {
         loadPostPlayRecommendations()
     }
 }
