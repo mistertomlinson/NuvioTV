@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import com.nuvio.tv.ui.catalog.reconcileDynamicCatalogOrder
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.MetaPreview
@@ -60,92 +61,39 @@ internal fun HomeViewModel.cancelInFlightCatalogLoads() {
     jobsToCancel.forEach { it.cancel() }
 }
 
-internal fun HomeViewModel.rebuildCatalogOrder(addons: List<Addon>) {
-    val defaultOrder = buildDefaultCatalogOrder(addons)
-    val availableSet = defaultOrder.toSet()
+internal fun HomeViewModel.rebuildCatalogOrder(
+    addons: List<Addon>
+) {
+    val defaultOrder =
+        buildDefaultCatalogOrder(
+            addons
+        )
 
-    /*
-     * Watchly publishes several logical row groups whose concrete catalog IDs
-     * legitimately change over time. Saved order therefore tracks the stable
-     * logical group (including movie/series type), then expands that group to
-     * the current manifest members in their current manifest order.
-     *
-     * watchlySavedGroup() also understands the old transient-ID preference
-     * format so existing installs migrate without losing their chosen slot.
-     */
-    val watchlyMembersByGroup = linkedMapOf<String, MutableList<String>>()
-    defaultOrder.forEach { key ->
-        watchlyGroup(key)?.let { group ->
-            watchlyMembersByGroup.getOrPut(group) { mutableListOf() }.add(key)
-        }
-    }
-
-    val consumedWatchlyGroups = mutableSetOf<String>()
-    val savedValid = mutableListOf<String>()
-
-    homeCatalogOrderKeys.forEach { savedKey ->
-        val watchlyGroup = watchlySavedGroup(savedKey)
-        when {
-            watchlyGroup != null -> {
-                if (consumedWatchlyGroups.add(watchlyGroup)) {
-                    savedValid.addAll(watchlyMembersByGroup[watchlyGroup].orEmpty())
-                }
-            }
-
-            savedKey in availableSet -> savedValid.add(savedKey)
-        }
-    }
-
-    val savedSet = savedValid.toSet()
-    val missing = defaultOrder.filterNot { it in savedSet }
-    val mergedOrder = savedValid.toMutableList()
-    val insertedMissingWatchlyGroups = mutableSetOf<String>()
-
-    missing.forEach { missingKey ->
-        if (missingKey == HomeViewModel.MY_LIST_CATALOG_KEY) {
-            mergedOrder.add(0, missingKey)
-            return@forEach
-        }
-
-        val group = watchlyGroup(missingKey)
-        if (group == null) {
-            mergedOrder.add(missingKey)
-            return@forEach
-        }
-
-        if (!insertedMissingWatchlyGroups.add(group)) {
-            return@forEach
-        }
-
-        val members = watchlyMembersByGroup[group].orEmpty()
-            .filterNot { it in mergedOrder }
-
-        if (members.isEmpty()) {
-            return@forEach
-        }
-
-        val sameGroupInsertAt = mergedOrder.indexOfLast { watchlyGroup(it) == group }
-        if (sameGroupInsertAt >= 0) {
-            mergedOrder.addAll(sameGroupInsertAt + 1, members)
-        } else {
-            val lastWatchlyInsertAt = mergedOrder.indexOfLast { watchlyGroup(it) != null }
-            if (lastWatchlyInsertAt >= 0) {
-                mergedOrder.addAll(lastWatchlyInsertAt + 1, members)
-            } else {
-                mergedOrder.addAll(members)
-            }
-        }
-    }
+    val mergedOrder =
+        reconcileDynamicCatalogOrder(
+            defaultOrder = defaultOrder,
+            savedOrderKeys =
+                homeCatalogOrderKeys,
+            myListKey =
+                HomeViewModel.MY_LIST_CATALOG_KEY
+        )
 
     com.nuvio.tv.data.local.CatalogOrderProbe.log(
         appContext,
         "RECONCILE",
         "savedInput=$homeCatalogOrderKeys output=$mergedOrder " +
-            "droppedFromSaved=${com.nuvio.tv.data.local.CatalogOrderProbe.dropped(homeCatalogOrderKeys, mergedOrder)}"
+            "droppedFromSaved=${
+                com.nuvio.tv.data.local.CatalogOrderProbe.dropped(
+                    homeCatalogOrderKeys,
+                    mergedOrder
+                )
+            }"
     )
 
     catalogOrder.clear()
-    catalogOrder.addAll(mergedOrder)
+    catalogOrder.addAll(
+        mergedOrder
+    )
 }
 
 private fun watchlyGroup(key: String): String? = watchlyCatalogGroup(key)

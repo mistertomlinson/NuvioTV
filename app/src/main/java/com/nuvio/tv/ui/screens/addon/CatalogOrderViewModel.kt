@@ -1,5 +1,9 @@
 package com.nuvio.tv.ui.screens.addon
 
+import com.nuvio.tv.ui.catalog.SEASONAL_SPOTLIGHT_ADDON_ID
+import com.nuvio.tv.ui.catalog.SEASONAL_SPOTLIGHT_ORDER_ANCHOR
+import com.nuvio.tv.ui.catalog.collapseSeasonalSpotlightOrderKeys
+import com.nuvio.tv.ui.catalog.seasonalSpotlightGroup
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
@@ -24,13 +28,6 @@ class CatalogOrderViewModel @Inject constructor(
     private val addonRepository: AddonRepository,
     private val layoutPreferenceDataStore: LayoutPreferenceDataStore
 ) : ViewModel() {
-
-    private companion object {
-        const val SEASONAL_SPOTLIGHT_ADDON_ID =
-            "community.seasonalspotlight"
-        const val SEASONAL_SPOTLIGHT_ORDER_ANCHOR =
-            "__nuvio_internal_seasonal_spotlight_order_anchor__"
-    }
 
     private val _uiState = MutableStateFlow(CatalogOrderUiState())
     val uiState: StateFlow<CatalogOrderUiState> = _uiState.asStateFlow()
@@ -404,35 +401,14 @@ Triple(
         }
     }
 
-    private fun seasonalSpotlightGroup(key: String): String? {
-        return if (
-            key == SEASONAL_SPOTLIGHT_ORDER_ANCHOR ||
-            key.startsWith("${SEASONAL_SPOTLIGHT_ADDON_ID}_")
-        ) {
-            "seasonalspotlight"
-        } else {
-            null
-        }
-    }
-
-    private fun collapseCatalogOrderKeys(keys: List<String>): List<String> {
-        val seen = mutableSetOf<String>()
-        val seasonalCollapsed = buildList {
-            keys.forEach { key ->
-                val persistedKey =
-                    if (seasonalSpotlightGroup(key) != null) {
-                        SEASONAL_SPOTLIGHT_ORDER_ANCHOR
-                    } else {
-                        key
-                    }
-
-                if (seen.add(persistedKey)) {
-                    add(persistedKey)
-                }
-            }
-        }
-
-        return collapseWatchlyOrderKeys(seasonalCollapsed)
+    private fun collapseCatalogOrderKeys(
+        keys: List<String>
+    ): List<String> {
+        return collapseWatchlyOrderKeys(
+            collapseSeasonalSpotlightOrderKeys(
+                keys
+            )
+        )
     }
 
     private fun catalogGroup(key: String): String? {
