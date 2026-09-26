@@ -122,6 +122,8 @@ class PlayerRuntimeController(
     internal val contentId: String? = navigationArgs.contentId
     internal val contentType: String? = navigationArgs.contentType
     internal val contentName: String? = navigationArgs.contentName
+    internal val metadataAddonBaseUrl: String? =
+        navigationArgs.metadataAddonBaseUrl
     internal val poster: String? = navigationArgs.poster
     internal val manualSelection: Boolean = navigationArgs.manualSelection
     internal val backdrop: String? = navigationArgs.backdrop

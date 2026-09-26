@@ -502,64 +502,140 @@ internal fun PlayerRuntimeController.selectEpisodesSeason(season: Int) {
     }
 }
 
+internal fun PlayerRuntimeController.applyEpisodesFromMetaVideos(
+    allEpisodes: List<Video>
+) {
+    val seasons =
+        allEpisodes
+            .mapNotNull { it.season }
+            .distinct()
+            .sorted()
+
+    val preferredSeason =
+        when {
+            currentSeason != null &&
+                seasons.contains(
+                    currentSeason
+                ) ->
+                currentSeason
+
+            initialSeason != null &&
+                seasons.contains(
+                    initialSeason
+                ) ->
+                initialSeason
+
+            else ->
+                seasons
+                    .firstOrNull {
+                        it > 0
+                    }
+                    ?: seasons
+                        .firstOrNull()
+                    ?: 1
+        }
+
+    val selectedSeason =
+        preferredSeason ?: 1
+
+    val episodesForSeason =
+        allEpisodes
+            .filter {
+                (it.season ?: -1) ==
+                    selectedSeason
+            }
+            .sortedWith(
+                compareBy<Video> {
+                    it.episode
+                        ?: Int.MAX_VALUE
+                }.thenBy {
+                    it.title
+                }
+            )
+
+    _uiState.update {
+        it.copy(
+            isLoadingEpisodes = false,
+            episodesAll = allEpisodes,
+            episodesAvailableSeasons =
+                seasons,
+            episodesSelectedSeason =
+                selectedSeason,
+            episodes =
+                episodesForSeason,
+            episodesError = null
+        )
+    }
+}
+
 internal fun PlayerRuntimeController.loadEpisodesIfNeeded() {
-    val type = contentType
-    val id = contentId
-    if (type.isNullOrBlank() || id.isNullOrBlank()) return
-    if (type !in listOf("series", "tv")) return
-    if (_uiState.value.episodesAll.isNotEmpty() || _uiState.value.isLoadingEpisodes) return
+    val type =
+        contentType
 
+    val id =
+        contentId
+
+    if (
+        type.isNullOrBlank() ||
+        id.isNullOrBlank()
+    ) {
+        return
+    }
+
+    if (
+        type.trim().lowercase() !in
+        listOf(
+            "series",
+            "tv"
+        )
+    ) {
+        return
+    }
+
+    val state =
+        _uiState.value
+
+    if (
+        state.episodesAll
+            .isNotEmpty() ||
+        state.isLoadingEpisodes
+    ) {
+        return
+    }
+
+    // The normal Player metadata load already resolved the canonical
+    // episode list. Never re-resolve the show through another addon.
+    if (metaVideos.isNotEmpty()) {
+        applyEpisodesFromMetaVideos(
+            metaVideos
+        )
+        return
+    }
+
+    // The sidebar can occasionally be opened before the normal metadata
+    // request completes. In that race, use the exact same resolver.
     scope.launch {
-        _uiState.update { it.copy(isLoadingEpisodes = true, episodesError = null) }
+        _uiState.update {
+            it.copy(
+                isLoadingEpisodes = true,
+                episodesError = null
+            )
+        }
 
-        when (
-            val result = metaRepository.getMetaFromAllAddons(type = type, id = id)
-                .first { it !is NetworkResult.Loading }
-        ) {
-            is NetworkResult.Success -> {
-                val allEpisodes = result.data.videos
-                    .sortedWith(
-                        compareBy<Video> { it.season ?: Int.MAX_VALUE }
-                            .thenBy { it.episode ?: Int.MAX_VALUE }
-                            .thenBy { it.title }
-                    )
+        val meta =
+            resolveCanonicalPlayerMeta(
+                id = id,
+                type = type
+            )
 
-                applyMetaDetails(result.data)
-
-                val seasons = allEpisodes
-                    .mapNotNull { it.season }
-                    .distinct()
-                    .sorted()
-
-                val preferredSeason = when {
-                    currentSeason != null && seasons.contains(currentSeason) -> currentSeason
-                    initialSeason != null && seasons.contains(initialSeason) -> initialSeason
-                    else -> seasons.firstOrNull { it > 0 } ?: seasons.firstOrNull() ?: 1
-                }
-
-                val selectedSeason = preferredSeason ?: 1
-                val episodesForSeason = allEpisodes
-                    .filter { (it.season ?: -1) == selectedSeason }
-                    .sortedWith(compareBy<Video> { it.episode ?: Int.MAX_VALUE }.thenBy { it.title })
-
-                _uiState.update {
-                    it.copy(
-                        isLoadingEpisodes = false,
-                        episodesAll = allEpisodes,
-                        episodesAvailableSeasons = seasons,
-                        episodesSelectedSeason = selectedSeason,
-                        episodes = episodesForSeason,
-                        episodesError = null
-                    )
-                }
-            }
-
-            is NetworkResult.Error -> {
-                _uiState.update { it.copy(isLoadingEpisodes = false, episodesError = result.message) }
-            }
-
-            NetworkResult.Loading -> {
-                
+        if (meta != null) {
+            applyMetaDetails(meta)
+        } else {
+            _uiState.update {
+                it.copy(
+                    isLoadingEpisodes =
+                        false
+                )
             }
         }
     }

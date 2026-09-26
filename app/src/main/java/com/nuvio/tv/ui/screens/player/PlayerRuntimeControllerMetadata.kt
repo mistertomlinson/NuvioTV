@@ -4,44 +4,346 @@ import com.nuvio.tv.R
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.Stream
+import java.time.LocalDate
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-internal fun PlayerRuntimeController.fetchMetaDetails(id: String?, type: String?) {
-    if (id.isNullOrBlank() || type.isNullOrBlank()) return
+internal fun PlayerRuntimeController.fetchMetaDetails(
+    id: String?,
+    type: String?
+) {
+    if (
+        id.isNullOrBlank() ||
+        type.isNullOrBlank()
+    ) {
+        return
+    }
 
     scope.launch {
-        when (
-            val result = metaRepository.getMetaFromAllAddons(type = type, id = id)
-                .first { it !is NetworkResult.Loading }
-        ) {
-            is NetworkResult.Success -> {
-                applyMetaDetails(result.data)
-            }
-            is NetworkResult.Error -> {
-                
-            }
-            NetworkResult.Loading -> {
-                
-            }
-        }
+        resolveCanonicalPlayerMeta(
+            id = id,
+            type = type
+        )?.let(::applyMetaDetails)
     }
 }
 
-internal fun PlayerRuntimeController.applyMetaDetails(meta: Meta) {
+internal suspend fun PlayerRuntimeController.resolveCanonicalPlayerMeta(
+    id: String,
+    type: String
+): Meta? {
+    val lookupId =
+        resolvePlayerMetaLookupId(
+            id = id,
+            type = type
+        )
+
+    val originatingAddon =
+        metadataAddonBaseUrl
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+
+    suspend fun loadOriginatingMeta(): Meta? {
+        val baseUrl =
+            originatingAddon ?: return null
+
+        return when (
+            val result =
+                metaRepository.getMeta(
+                    addonBaseUrl = baseUrl,
+                    type = type,
+                    id = lookupId
+                ).first {
+                    it !is NetworkResult.Loading
+                }
+        ) {
+            is NetworkResult.Success ->
+                result.data
+
+            else ->
+                null
+        }
+    }
+
+    suspend fun loadExternalMeta(): Meta? {
+        return when (
+            val result =
+                metaRepository
+                    .getMetaFromAllAddons(
+                        type = type,
+                        id = lookupId
+                    )
+                    .first {
+                        it !is NetworkResult.Loading
+                    }
+        ) {
+            is NetworkResult.Success ->
+                result.data
+
+            else ->
+                null
+        }
+    }
+
+    val preferExternal =
+        layoutPreferenceDataStore
+            .preferExternalMetaAddonDetail
+            .first()
+
+    val meta =
+        if (preferExternal) {
+            loadExternalMeta()
+                ?: loadOriginatingMeta()
+        } else {
+            loadOriginatingMeta()
+                ?: loadExternalMeta()
+        }
+            ?: return null
+
+    return enrichPlayerEpisodeMetadata(
+        meta = meta,
+        itemId = lookupId,
+        itemType = type
+    )
+}
+
+private suspend fun PlayerRuntimeController.resolvePlayerMetaLookupId(
+    id: String,
+    type: String
+): String {
+    val raw = id.trim()
+
+    if (
+        !raw.startsWith(
+            "tmdb:",
+            ignoreCase = true
+        )
+    ) {
+        return raw
+    }
+
+    val tmdbNumericId =
+        raw.substringAfter(
+            ':',
+            missingDelimiterValue = ""
+        )
+            .substringBefore(':')
+            .toIntOrNull()
+            ?: return raw
+
+    return tmdbService.tmdbToImdb(
+        tmdbNumericId,
+        type
+    ) ?: raw
+}
+
+private suspend fun PlayerRuntimeController.enrichPlayerEpisodeMetadata(
+    meta: Meta,
+    itemId: String,
+    itemType: String
+): Meta {
+    val normalizedType =
+        itemType.trim().lowercase()
+
+    val metaType =
+        meta.apiType
+            ?.trim()
+            ?.lowercase()
+
+    val isSeries =
+        normalizedType in listOf(
+            "series",
+            "tv"
+        ) ||
+            metaType in listOf(
+                "series",
+                "tv"
+            )
+
+    if (
+        !isSeries ||
+        meta.videos.isEmpty()
+    ) {
+        return meta
+    }
+
+    val settings =
+        tmdbSettingsDataStore
+            .settings
+            .first()
+
+    if (
+        !settings.enabled ||
+        !settings.useEpisodes
+    ) {
+        return meta
+    }
+
+    // Details normalizes TV metadata to the TMDB "series" lookup type.
+    val tmdbLookupType = "series"
+
+    val tmdbId =
+        tmdbService.ensureTmdbId(
+            meta.id,
+            tmdbLookupType
+        )
+            ?: tmdbService.ensureTmdbId(
+                itemId,
+                itemType
+            )
+            ?: return meta
+
+    val seasonNumbers =
+        meta.videos
+            .mapNotNull { it.season }
+            .distinct()
+
+    if (seasonNumbers.isEmpty()) {
+        return meta
+    }
+
+    val episodeMap =
+        try {
+            tmdbMetadataService
+                .fetchEpisodeEnrichment(
+                    tmdbId = tmdbId,
+                    seasonNumbers = seasonNumbers,
+                    language = settings.language
+                )
+        } catch (
+            cancellation: CancellationException
+        ) {
+            throw cancellation
+        } catch (_: Throwable) {
+            return meta
+        }
+
+    if (episodeMap.isNullOrEmpty()) {
+        return meta
+    }
+
+    return meta.copy(
+        videos = meta.videos.map { video ->
+            val key =
+                if (
+                    video.season != null &&
+                    video.episode != null
+                ) {
+                    video.season to
+                        video.episode
+                } else {
+                    null
+                }
+
+            val episode =
+                key?.let {
+                    episodeMap[it]
+                }
+
+            val tmdbAirDate =
+                episode?.airDate
+
+            val repairStaleUnavailable =
+                video.available == false &&
+                    playerTmdbAirDateHasPassed(
+                        tmdbAirDate
+                    )
+
+            // Keep the canonical addon video identity / numbering,
+            // but apply exactly the episode metadata fields that
+            // Details enriches from TMDB.
+            video.copy(
+                title =
+                    episode?.title
+                        ?: video.title,
+                overview =
+                    episode?.overview
+                        ?: video.overview,
+                released =
+                    tmdbAirDate
+                        ?: video.released,
+                thumbnail =
+                    episode?.thumbnail
+                        ?: video.thumbnail,
+                runtime =
+                    episode?.runtimeMinutes,
+                available =
+                    if (
+                        repairStaleUnavailable
+                    ) {
+                        true
+                    } else {
+                        video.available
+                    }
+            )
+        }
+    )
+}
+
+private fun playerTmdbAirDateHasPassed(
+    raw: String?
+): Boolean {
+    val airDate =
+        raw
+            ?.trim()
+            ?.takeIf {
+                it.length == 10
+            }
+            ?: return false
+
+    return runCatching {
+        LocalDate.parse(airDate)
+            .isBefore(
+                LocalDate.now()
+            )
+    }.getOrDefault(false)
+}
+
+internal fun PlayerRuntimeController.applyMetaDetails(
+    meta: Meta
+) {
     metaVideos = meta.videos
     hasResolvedMetaDetails = true
-    val description = resolveDescription(meta)
+
+    val description =
+        resolveDescription(meta)
 
     _uiState.update { state ->
         state.copy(
-            description = description ?: state.description,
-            castMembers = if (meta.castMembers.isNotEmpty()) meta.castMembers else state.castMembers
+            description =
+                description
+                    ?: state.description,
+            castMembers =
+                if (
+                    meta.castMembers
+                        .isNotEmpty()
+                ) {
+                    meta.castMembers
+                } else {
+                    state.castMembers
+                }
         )
     }
-    recomputeNextEpisode(resetVisibility = false)
+
+    if (
+        contentType
+            ?.trim()
+            ?.lowercase() in
+        listOf(
+            "series",
+            "tv"
+        )
+    ) {
+        applyEpisodesFromMetaVideos(
+            meta.videos
+        )
+    }
+
+    recomputeNextEpisode(
+        resetVisibility = false
+    )
 }
 
 internal fun PlayerRuntimeController.resolveDescription(meta: Meta): String? {

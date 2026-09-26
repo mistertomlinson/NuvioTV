@@ -715,6 +715,10 @@ fun NuvioNavHost(
                             contentId = contentId,
                             contentName = title,
                             runtime = runtime,
+                            metadataAddonBaseUrl =
+                                backStackEntry.arguments
+                                    ?.getString("addonBaseUrl")
+                                    ?.takeIf { it.isNotBlank() },
                             returnToDetailOnBack = contentType.equals("series", ignoreCase = true)
                         )
                     )
@@ -736,6 +740,10 @@ fun NuvioNavHost(
                             contentId = contentId,
                             contentName = title,
                             runtime = runtime,
+                            metadataAddonBaseUrl =
+                                backStackEntry.arguments
+                                    ?.getString("addonBaseUrl")
+                                    ?.takeIf { it.isNotBlank() },
                             manualSelection = true,
                             returnToDetailOnBack = contentType.equals("series", ignoreCase = true)
                         )
@@ -824,6 +832,11 @@ fun NuvioNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = "false"
+                },
+                navArgument("metadataAddonBaseUrl") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
@@ -854,7 +867,10 @@ fun NuvioNavHost(
                                 Screen.Detail.createRoute(
                                     itemId = streamContentId,
                                     itemType = streamContentType,
-                                    addonBaseUrl = null,
+                                    addonBaseUrl =
+                                        streamArgs
+                                            ?.getString("metadataAddonBaseUrl")
+                                            ?.takeIf { it.isNotBlank() },
                                     returnFocusSeason = season,
                                     returnFocusEpisode = episode,
                                     returnToHomeOnBack = returnToHomeOnBack
@@ -880,6 +896,10 @@ fun NuvioNavHost(
                                 contentId = playbackInfo.contentId,
                                 contentType = playbackInfo.contentType,
                                 contentName = playbackInfo.contentName,
+                                metadataAddonBaseUrl =
+                                    streamArgs
+                                        ?.getString("metadataAddonBaseUrl")
+                                        ?.takeIf { it.isNotBlank() },
                                 poster = playbackInfo.poster,
                                 backdrop = playbackInfo.backdrop,
                                 logo = playbackInfo.logo,
@@ -920,6 +940,10 @@ fun NuvioNavHost(
                                 contentId = playbackInfo.contentId,
                                 contentType = playbackInfo.contentType,
                                 contentName = playbackInfo.contentName,
+                                metadataAddonBaseUrl =
+                                    streamArgs
+                                        ?.getString("metadataAddonBaseUrl")
+                                        ?.takeIf { it.isNotBlank() },
                                 poster = playbackInfo.poster,
                                 backdrop = playbackInfo.backdrop,
                                 logo = playbackInfo.logo,
@@ -1112,6 +1136,11 @@ fun NuvioNavHost(
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null
+                },
+                navArgument("metadataAddonBaseUrl") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
                 }
             )
         ) { backStackEntry ->
@@ -1207,7 +1236,10 @@ fun NuvioNavHost(
                                         Screen.Detail.createRoute(
                                             itemId = contentId,
                                             itemType = contentType,
-                                            addonBaseUrl = null,
+                                            addonBaseUrl =
+                                                args
+                                                    ?.getString("metadataAddonBaseUrl")
+                                                    ?.takeIf { it.isNotBlank() },
                                             returnFocusSeason = focusSeason,
                                             returnFocusEpisode = focusEpisode,
                                             returnToHomeOnBack = returnToHomeOnBack
@@ -1238,6 +1270,10 @@ fun NuvioNavHost(
                                         year = args?.getString("year"),
                                         contentId = contentId.takeIf { it.isNotBlank() },
                                         contentName = args?.getString("contentName"),
+                                        metadataAddonBaseUrl =
+                                            args
+                                                ?.getString("metadataAddonBaseUrl")
+                                                ?.takeIf { it.isNotBlank() },
                                         returnToDetailOnBack = returnToDetailOnBack,
                                         returnToHomeOnBack = returnToHomeOnBack
                                     )
@@ -1265,7 +1301,10 @@ fun NuvioNavHost(
                                             Screen.Detail.createRoute(
                                                 itemId = contentId,
                                                 itemType = contentType,
-                                                addonBaseUrl = null,
+                                                addonBaseUrl =
+                                                args
+                                                    ?.getString("metadataAddonBaseUrl")
+                                                    ?.takeIf { it.isNotBlank() },
                                                 returnFocusSeason = focusSeason,
                                                 returnFocusEpisode = focusEpisode,
                                                 returnToHomeOnBack = returnToHomeOnBack
