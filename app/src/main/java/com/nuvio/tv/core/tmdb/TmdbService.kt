@@ -150,8 +150,17 @@ class TmdbService @Inject constructor(
     suspend fun tmdbToImdb(tmdbId: Int, mediaType: String): String? = withContext(Dispatchers.IO) {
         // Check cache first
         tmdbToImdbCache[tmdbId]?.let { cached ->
-            Log.d(TAG, "Cache hit: TMDB $tmdbId -> IMDB $cached")
-            return@withContext cached
+            val normalized = cached.trim()
+            if (normalized.isNotBlank()) {
+                Log.d(TAG, "Cache hit: TMDB $tmdbId -> IMDB $normalized")
+                return@withContext normalized
+            }
+
+            // Older lookups could cache TMDB's empty imdb_id value as a
+            // successful mapping. Remove that poisoned entry so callers can
+            // preserve and try the original tmdb:* identifier instead.
+            tmdbToImdbCache.remove(tmdbId, cached)
+            imdbToTmdbCache.remove(cached, tmdbId)
         }
         
         val normalizedType = normalizeMediaType(mediaType)
@@ -182,7 +191,10 @@ class TmdbService @Inject constructor(
                 return@withContext null
             }
             
-            body.imdbId?.let { imdbId ->
+            body.imdbId
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { imdbId ->
                 Log.d(TAG, "Found IMDB ID: $imdbId for TMDB: $tmdbId")
                 
                 // Cache both directions
@@ -343,13 +355,19 @@ class TmdbService @Inject constructor(
      * Pre-populate cache with known mappings
      */
     /** Synchronous cache-only lookup: returns imdb ID if already cached, null otherwise. */
-    fun getCachedImdbId(tmdbId: Int): String? = tmdbToImdbCache[tmdbId]
+    fun getCachedImdbId(tmdbId: Int): String? =
+        tmdbToImdbCache[tmdbId]
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
 
     fun getCachedTmdbId(imdbId: String): Int? = imdbToTmdbCache[imdbId]
 
     fun preCacheMapping(imdbId: String, tmdbId: Int) {
-        imdbToTmdbCache[imdbId] = tmdbId
-        tmdbToImdbCache[tmdbId] = imdbId
+        val normalizedImdbId = imdbId.trim()
+        if (normalizedImdbId.isBlank()) return
+
+        imdbToTmdbCache[normalizedImdbId] = tmdbId
+        tmdbToImdbCache[tmdbId] = normalizedImdbId
     }
 
     fun apiKey(): String = TMDB_API_KEY

@@ -594,6 +594,19 @@ class MetaDetailsViewModel @Inject constructor(
 
             suspend fun loadOriginalPreferredPrimary(): Meta? {
                 val baseUrl = preferred ?: return null
+
+                /*
+                 * A tmdb:* identifier that could not be converted to IMDb is
+                 * still a valid Stremio metadata identifier. Do not promote
+                 * the originating catalog's lightweight response to the full
+                 * Details model in this one case. Let the normal all-addon
+                 * lookup offer the raw ID to metadata addons first; the
+                 * origin remains available later in that same fallback chain.
+                 */
+                if (isUnresolvedTmdbCatalogLookup(itemId, metaLookupId)) {
+                    return null
+                }
+
                 return if (metaLookupId == itemId) {
                     releaseHintsSourceDeferred?.await()
                 } else {
@@ -2278,4 +2291,13 @@ class MetaDetailsViewModel @Inject constructor(
         trailerFetchJob?.cancel()
         nextToWatchJob?.cancel()
     }
+}
+
+internal fun isUnresolvedTmdbCatalogLookup(
+    itemId: String,
+    metaLookupId: String
+): Boolean {
+    val rawId = itemId.trim()
+    return rawId.startsWith("tmdb:", ignoreCase = true) &&
+        metaLookupId.trim().equals(rawId, ignoreCase = true)
 }
