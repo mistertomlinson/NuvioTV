@@ -201,9 +201,11 @@ private fun ModernCatalogRowItem(
     shimmerTranslateState: State<Float>,
     modernCatalogCardWidth: Dp,
     modernCatalogCardHeight: Dp,
+    landscapeTrailerExpandedHeight: Dp,
     focusedPosterBackdropTrailerMuted: Boolean,
     effectiveExpandEnabled: Boolean,
     effectiveAutoplayEnabled: Boolean,
+    expandLandscapePostersEnabled: Boolean,
     trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     expandedCatalogFocusKey: String?,
     expandedTrailerPreviewUrl: String?,
@@ -368,7 +370,21 @@ private fun ModernCatalogRowItem(
         shimmerTranslateState = shimmerTranslateState,
         cardWidth = modernCatalogCardWidth,
         cardHeight = modernCatalogCardHeight,
-        focusedPosterBackdropExpandEnabled = effectiveExpandEnabled && !useLandscapePosters,
+        expandedCardHeight =
+            if (useLandscapePosters) {
+                landscapeTrailerExpandedHeight
+            } else {
+                modernCatalogCardHeight
+            },
+        focusedPosterBackdropExpandEnabled =
+            if (useLandscapePosters) {
+                expandLandscapePostersEnabled &&
+                    effectiveAutoplayEnabled &&
+                    trailerPlaybackTarget ==
+                        FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+            } else {
+                effectiveExpandEnabled
+            },
         isBackdropExpanded = isBackdropExpanded,
         playTrailerInExpandedCard = playTrailerInExpandedCard,
         preserveExpandedCardVisualForSidebarHandoff =
@@ -440,12 +456,14 @@ internal fun ModernRowSection(
     focusedPosterBackdropTrailerMuted: Boolean,
     effectiveExpandEnabled: Boolean,
     effectiveAutoplayEnabled: Boolean,
+    expandLandscapePostersEnabled: Boolean,
     trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     expandedCatalogFocusKey: String?,
     expandedTrailerPreviewUrl: String?,
     expandedTrailerPreviewAudioUrl: String?,
     modernCatalogCardWidth: Dp,
     modernCatalogCardHeight: Dp,
+    landscapeTrailerExpandedHeight: Dp,
     continueWatchingCardWidth: Dp,
     continueWatchingCardHeight: Dp,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
@@ -816,13 +834,40 @@ internal fun ModernRowSection(
         // the last card always has a full card-width + gap of scroll travel, so it
         // slides at the same speed and duration as every other card rather than
         // snapping across a short remaining distance.
-        val canExpand = effectiveExpandEnabled && !useLandscapePosters
-        // expansionDelta: how much wider the card becomes when expanded.
-        val expansionDelta = if (canExpand) {
-            ((modernCatalogCardHeight * (16f / 9f)) - modernCatalogCardWidth).coerceAtLeast(0.dp)
-        } else {
-            0.dp
-        }
+        val canExpand =
+            if (useLandscapePosters) {
+                expandLandscapePostersEnabled &&
+                    effectiveAutoplayEnabled &&
+                    trailerPlaybackTarget ==
+                        FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+            } else {
+                effectiveExpandEnabled
+            }
+
+        /*
+         * Portrait cards already sit at their final expanded height and only
+         * widen to 16:9. Landscape trailer cards grow vertically as well.
+         *
+         * The landscape target is exactly the user's portrait-card height,
+         * using the same current Poster Settings-derived geometry.
+         */
+        val expandedCardHeightTarget =
+            if (useLandscapePosters) {
+                landscapeTrailerExpandedHeight
+            } else {
+                modernCatalogCardHeight
+            }
+
+        val expandedCardWidthTarget =
+            expandedCardHeightTarget * (16f / 9f)
+
+        val expansionDelta =
+            if (canExpand) {
+                (expandedCardWidthTarget - modernCatalogCardWidth)
+                    .coerceAtLeast(0.dp)
+            } else {
+                0.dp
+            }
 
         // When platform parallax is active, the layout is measured wider by
         // catalogSlideDistancePx. Add equivalent dp to end padding so the expanded
@@ -986,7 +1031,7 @@ internal fun ModernRowSection(
                     }
                     ?: return@LaunchedEffect
                 val cardWidthRestPx = with(density) { modernCatalogCardWidth.toPx() }
-                val expandedWidthPx = with(density) { (modernCatalogCardHeight * (16f / 9f)).toPx() }
+                val expandedWidthPx = with(density) { expandedCardWidthTarget.toPx() }
                 val marginPx = with(density) { rowStartPadding.roundToPx() }.toFloat()
                 val startPadPx = with(density) { numberedRowStartPadding.roundToPx() }.toFloat()
                 val restingRightEdgeContent = (info.offset + info.size).toFloat()
@@ -1156,9 +1201,11 @@ internal fun ModernRowSection(
                                         shimmerTranslateState = rowShimmerTranslateState,
                                         modernCatalogCardWidth = modernCatalogCardWidth,
                                         modernCatalogCardHeight = modernCatalogCardHeight,
+                                        landscapeTrailerExpandedHeight = landscapeTrailerExpandedHeight,
                                         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
                                         effectiveExpandEnabled = effectiveExpandEnabled && !isRowScrolling,
                                         effectiveAutoplayEnabled = effectiveAutoplayEnabled && !isRowScrolling,
+                                        expandLandscapePostersEnabled = expandLandscapePostersEnabled,
                                         trailerPlaybackTarget = trailerPlaybackTarget,
                                         expandedCatalogFocusKey = expandedCatalogFocusKey,
                                         expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
@@ -1194,9 +1241,11 @@ internal fun ModernRowSection(
                                     shimmerTranslateState = rowShimmerTranslateState,
                                     modernCatalogCardWidth = modernCatalogCardWidth,
                                     modernCatalogCardHeight = modernCatalogCardHeight,
+                                    landscapeTrailerExpandedHeight = landscapeTrailerExpandedHeight,
                                     focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
                                     effectiveExpandEnabled = effectiveExpandEnabled && !isRowScrolling,
                                     effectiveAutoplayEnabled = effectiveAutoplayEnabled && !isRowScrolling,
+                                    expandLandscapePostersEnabled = expandLandscapePostersEnabled,
                                     trailerPlaybackTarget = trailerPlaybackTarget,
                                     expandedCatalogFocusKey = expandedCatalogFocusKey,
                                     expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
@@ -1437,6 +1486,7 @@ private fun ModernCarouselCard(
     shimmerTranslateState: State<Float>,
     cardWidth: Dp,
     cardHeight: Dp,
+    expandedCardHeight: Dp,
     focusedPosterBackdropExpandEnabled: Boolean,
     isBackdropExpanded: Boolean,
     playTrailerInExpandedCard: Boolean,
@@ -1483,7 +1533,10 @@ private fun ModernCarouselCard(
     }
     val context = LocalContext.current
     val density = LocalDensity.current
-    val expandedCardWidth = remember(cardHeight) { cardHeight * (16f / 9f) }
+    val expandedCardWidth =
+        remember(expandedCardHeight) {
+            expandedCardHeight * (16f / 9f)
+        }
     val isSidebarExpanded = LocalSidebarExpanded.current
     val preserveSidebarTrailerPlayback =
         LocalPreserveSidebarTrailerPlayback.current
@@ -1509,25 +1562,34 @@ private fun ModernCarouselCard(
             rowFocusRestorer.value !== FocusRequester.Default &&
             rowFocusRestorer.value === focusRequester
 
-    // In noBackdropImage mode: card expansion is gated on trailer first frame.
-    // When off: simple boolean, no extra state.
-    // Always remember unconditionally (Compose rule), but only key on isBackdropExpanded when needed.
+    /*
+     * Landscape cards enlarge only once the trailer has ACTUALLY produced a
+     * frame. Merely reaching the autoplay deadline does not change layout.
+     *
+     * This intentionally preserves the existing popup/sidebar contract:
+     * - overlay opened before playback -> no expansion
+     * - overlay opened after playback -> preserve the playing expansion
+     */
+    val gateExpansionOnTrailerFirstFrame =
+        noBackdropImage || useLandscapePosters
+
     var trailerFirstFrameRendered by remember(
-        if (noBackdropImage) trailerPreviewUrl else null,
-        if (noBackdropImage) isBackdropExpanded else null
+        if (gateExpansionOnTrailerFirstFrame) trailerPreviewUrl else null,
+        if (gateExpansionOnTrailerFirstFrame) isBackdropExpanded else null
     ) { mutableStateOf(false) }
 
-    // In noBackdropImage mode: card only expands once the trailer has its first frame.
-    // Otherwise use original behavior — playTrailerInExpandedCard already has !isSidebarExpanded
-    // baked in, so effectiveIsExpanded collapses instantly when sidebar opens.
-    val effectiveIsExpanded = if (noBackdropImage && playTrailerInExpandedCard) {
-        isBackdropExpanded &&
-            trailerFirstFrameRendered &&
-            (!isSidebarExpanded || preserveSidebarTrailerPlayback)
-    } else {
-        isBackdropExpanded &&
-            (!isSidebarExpanded || preserveSidebarTrailerPlayback)
-    }
+    val effectiveIsExpanded =
+        if (
+            gateExpansionOnTrailerFirstFrame &&
+            playTrailerInExpandedCard
+        ) {
+            isBackdropExpanded &&
+                trailerFirstFrameRendered &&
+                (!isSidebarExpanded || preserveSidebarTrailerPlayback)
+        } else {
+            isBackdropExpanded &&
+                (!isSidebarExpanded || preserveSidebarTrailerPlayback)
+        }
 
     /*
      * Sidebar focus restoration may temporarily disable the row's normal
@@ -1540,7 +1602,6 @@ private fun ModernCarouselCard(
      */
     val preserveExpandedWidthForSidebarHandoff =
         preserveExpandedCardVisualForSidebarHandoff &&
-            !useLandscapePosters &&
             isBackdropExpanded &&
             playTrailerInExpandedCard
 
@@ -1615,7 +1676,44 @@ private fun ModernCarouselCard(
             }
         }
     }
-    val animatedCardWidth = if (isAnchored) with(density) { anchoredWidth.value.toDp() } else animatedCardWidthBase
+    val animatedCardWidth =
+        if (isAnchored) {
+            with(density) { anchoredWidth.value.toDp() }
+        } else {
+            animatedCardWidthBase
+        }
+
+    /*
+     * Keep width as the ONLY expansion animation clock.
+     *
+     * Landscape height is derived from that width progress. There is no
+     * second Animatable, no second Choreographer callback and no extra
+     * per-frame row search.
+     */
+    val animatedCardHeight =
+        if (
+            useLandscapePosters &&
+            expandedCardHeight > cardHeight &&
+            (isFocused || isBackdropExpanded || effectiveIsExpanded)
+        ) {
+            val widthRange =
+                expandedCardWidth.value - cardWidth.value
+
+            if (widthRange > 0f) {
+                val progress =
+                    (
+                        (animatedCardWidth.value - cardWidth.value) /
+                            widthRange
+                    ).coerceIn(0f, 1f)
+
+                cardHeight +
+                    (expandedCardHeight - cardHeight) * progress
+            } else {
+                cardHeight
+            }
+        } else {
+            cardHeight
+        }
 
     // In noBackdropImage mode, NEVER switch to the backdrop image.
     // The poster stays as-is; covered by the black overlay then the trailer.
@@ -1636,11 +1734,15 @@ private fun ModernCarouselCard(
             !item.heroPreview.poster.isNullOrBlank() &&
             imageUrl == item.heroPreview.poster
 
-    val maxRequestCardWidth = if (focusedPosterBackdropExpandEnabled) {
-        maxOf(cardWidth, expandedCardWidth)
-    } else {
-        cardWidth
-    }
+    val maxRequestCardWidth =
+        if (
+            focusedPosterBackdropExpandEnabled &&
+            !useLandscapePosters
+        ) {
+            maxOf(cardWidth, expandedCardWidth)
+        } else {
+            cardWidth
+        }
     val requestWidthPx = remember(maxRequestCardWidth, density) {
         with(density) { maxRequestCardWidth.roundToPx() }
     }
@@ -1810,7 +1912,7 @@ private fun ModernCarouselCard(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(cardHeight)
+                .height(animatedCardHeight)
                 .then(
                     if (
                         isFocused ||
@@ -2137,7 +2239,7 @@ private fun ModernCarouselCard(
                         },
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.65f)
+                            .width(cardWidth * 0.65f)
                             .height(cardHeight * 0.40f)
                             .padding(
                                 start = 10.dp,
@@ -2165,7 +2267,7 @@ private fun ModernCarouselCard(
                             },
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .fillMaxWidth(0.65f)
+                            .width(cardWidth * 0.65f)
                             .height(cardHeight * 0.40f)
                             .padding(
                                 start = 10.dp,

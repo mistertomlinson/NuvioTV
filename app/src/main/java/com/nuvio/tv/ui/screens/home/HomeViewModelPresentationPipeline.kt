@@ -59,6 +59,7 @@ private data class LayoutUiPrefs(
     val focusedBackdropExpandEnabled: Boolean,
     val focusedBackdropExpandDelaySeconds: Int,
     val focusedBackdropTrailerEnabled: Boolean,
+    val expandLandscapePostersEnabled: Boolean,
     val focusedBackdropTrailerMuted: Boolean,
     val focusedBackdropTrailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     val focusedBackdropNoBackdropImage: Boolean,
@@ -144,6 +145,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             focusedBackdropExpandEnabled = focusedBackdropPrefs.expandEnabled,
             focusedBackdropExpandDelaySeconds = focusedBackdropPrefs.expandDelaySeconds,
             focusedBackdropTrailerEnabled = focusedBackdropPrefs.trailerEnabled,
+            expandLandscapePostersEnabled = true,
             focusedBackdropTrailerMuted = focusedBackdropPrefs.trailerMuted,
             focusedBackdropTrailerPlaybackTarget = focusedBackdropPrefs.trailerPlaybackTarget,
             focusedBackdropNoBackdropImage = focusedBackdropPrefs.noBackdropImage,
@@ -151,6 +153,12 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             posterCardWidthDp = posterCardWidthDp,
             posterCardHeightDp = posterCardHeightDp,
             posterCardCornerRadiusDp = posterCardCornerRadiusDp
+        )
+    }.combine(
+        layoutPreferenceDataStore.expandLandscapePostersEnabled
+    ) { prefs, expandLandscapePostersEnabled ->
+        prefs.copy(
+            expandLandscapePostersEnabled = expandLandscapePostersEnabled
         )
     }
 
@@ -216,6 +224,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         focusedPosterBackdropExpandEnabled = prefs.focusedBackdropExpandEnabled,
                         focusedPosterBackdropExpandDelaySeconds = prefs.focusedBackdropExpandDelaySeconds,
                         focusedPosterBackdropTrailerEnabled = prefs.focusedBackdropTrailerEnabled,
+                        expandLandscapePostersEnabled = prefs.expandLandscapePostersEnabled,
                         focusedPosterBackdropTrailerMuted = prefs.focusedBackdropTrailerMuted,
                         focusedPosterBackdropTrailerPlaybackTarget = prefs.focusedBackdropTrailerPlaybackTarget,
                         focusedPosterNoBackdropImage = prefs.focusedBackdropNoBackdropImage,

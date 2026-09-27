@@ -3662,6 +3662,7 @@ fun ModernHomeContent(
             useLandscapePosters: Boolean,
             effectiveExpandEnabled: Boolean,
             effectiveAutoplayEnabled: Boolean,
+            expandLandscapePostersEnabled: Boolean,
             trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
             expandedCatalogTrailerUrl: String?,
             expandedCatalogTrailerAudioUrl: String?,
@@ -3671,6 +3672,7 @@ fun ModernHomeContent(
             forceContinueWatchingRestoreToStart: Boolean,
             posterCardCornerRadius: androidx.compose.ui.unit.Dp,
             portraitBaseWidth: androidx.compose.ui.unit.Dp,
+            portraitBaseHeight: androidx.compose.ui.unit.Dp,
             modernCatalogCardWidth: androidx.compose.ui.unit.Dp,
             modernCatalogCardHeight: androidx.compose.ui.unit.Dp,
             continueWatchingCardWidth: androidx.compose.ui.unit.Dp,
@@ -4247,12 +4249,14 @@ fun ModernHomeContent(
                         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
                         effectiveExpandEnabled = effectiveExpandEnabled,
                         effectiveAutoplayEnabled = effectiveAutoplayEnabled && row.items.isNotEmpty(),
+                        expandLandscapePostersEnabled = expandLandscapePostersEnabled,
                         trailerPlaybackTarget = trailerPlaybackTarget,
                         expandedCatalogFocusKey = rowExpandedFocusKey,
                         expandedTrailerPreviewUrl = if (rowHasExpanded) expandedCatalogTrailerUrl else null,
                         expandedTrailerPreviewAudioUrl = if (rowHasExpanded) expandedCatalogTrailerAudioUrl else null,
                         modernCatalogCardWidth = if (useLandscapePosters || row.key in landscapeCatalogKeys) portraitBaseWidth * 1.24f * 1.34f else modernCatalogCardWidth,
                         modernCatalogCardHeight = if (useLandscapePosters || row.key in landscapeCatalogKeys) (portraitBaseWidth * 1.24f * 1.34f) / 1.77f else modernCatalogCardHeight,
+                        landscapeTrailerExpandedHeight = portraitBaseHeight * 0.84f * 1.08f,
                         continueWatchingCardWidth = continueWatchingCardWidth,
                         continueWatchingCardHeight = continueWatchingCardHeight,
                         onContinueWatchingClick = onContinueWatchingClick,
@@ -4454,6 +4458,8 @@ fun ModernHomeContent(
                     effectiveExpandEnabled,
                 effectiveAutoplayEnabled =
                     effectiveAutoplayEnabled,
+                expandLandscapePostersEnabled =
+                    uiState.expandLandscapePostersEnabled,
                 trailerPlaybackTarget =
                     trailerPlaybackTarget,
                 expandedCatalogTrailerUrl =
@@ -4470,6 +4476,8 @@ fun ModernHomeContent(
                     posterCardCornerRadius,
                 portraitBaseWidth =
                     portraitBaseWidth,
+                portraitBaseHeight =
+                    portraitBaseHeight,
                 modernCatalogCardWidth =
                     modernCatalogCardWidth,
                 modernCatalogCardHeight =

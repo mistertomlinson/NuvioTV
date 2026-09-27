@@ -65,6 +65,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val focusedPosterBackdropExpandEnabledKey = booleanPreferencesKey("focused_poster_backdrop_expand_enabled")
     private val focusedPosterBackdropExpandDelaySecondsKey = intPreferencesKey("focused_poster_backdrop_expand_delay_seconds")
     private val focusedPosterBackdropTrailerEnabledKey = booleanPreferencesKey("focused_poster_backdrop_trailer_enabled")
+    private val expandLandscapePostersEnabledKey = booleanPreferencesKey("expand_landscape_posters_enabled")
     private val focusedPosterBackdropTrailerMutedKey = booleanPreferencesKey("focused_poster_backdrop_trailer_muted")
     private val focusedPosterBackdropTrailerPlaybackTargetKey =
         stringPreferencesKey("focused_poster_backdrop_trailer_playback_target")
@@ -226,6 +227,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val focusedPosterBackdropTrailerEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[focusedPosterBackdropTrailerEnabledKey] ?: false
+    }
+
+    val expandLandscapePostersEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[expandLandscapePostersEnabledKey] ?: true
     }
 
     val focusedPosterBackdropTrailerMuted: Flow<Boolean> = profileFlow { prefs ->
@@ -539,6 +544,12 @@ class LayoutPreferenceDataStore @Inject constructor(
                 prefs[focusedPosterBackdropTrailerMutedKey] = true
                 prefs[focusedPosterNoBackdropImageKey] = false
             }
+        }
+    }
+
+    suspend fun setExpandLandscapePostersEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[expandLandscapePostersEnabledKey] = enabled
         }
     }
 

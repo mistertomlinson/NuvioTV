@@ -451,6 +451,8 @@
     <string name="layout_autoplay_trailer">Autoplay Trailer</string>
     <string name="layout_autoplay_trailer_expanded">Autoplay Trailer in Expanded Card</string>
     <string name="layout_autoplay_trailer_sub">Play trailer preview for focused content when available.</string>
+    <string name="layout_expand_landscape_posters">Expand Landscape Posters</string>
+    <string name="layout_expand_landscape_posters_sub">Expands landscape posters for larger trailers.</string>
     <string name="layout_autoplay_trailer_expanded_sub">Play trailer inside expanded backdrop when available.</string>
     <string name="layout_trailer_muted">Play Trailer Muted</string>
     <string name="layout_trailer_muted_sub_preview">Mute trailer audio during autoplay preview.</string>

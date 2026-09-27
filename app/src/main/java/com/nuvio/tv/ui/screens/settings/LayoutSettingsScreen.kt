@@ -482,6 +482,35 @@ fun LayoutSettingsContent(
                         )
                     }
 
+                    if (
+                        isModern &&
+                        showAutoplayRow &&
+                        uiState.focusedPosterBackdropTrailerEnabled &&
+                        uiState.focusedPosterBackdropTrailerPlaybackTarget ==
+                            FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+                    ) {
+                        CompactToggleRow(
+                            title = stringResource(
+                                R.string.layout_expand_landscape_posters
+                            ),
+                            subtitle = stringResource(
+                                R.string.layout_expand_landscape_posters_sub
+                            ),
+                            checked = uiState.expandLandscapePostersEnabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    LayoutSettingsEvent.SetExpandLandscapePostersEnabled(
+                                        !uiState.expandLandscapePostersEnabled
+                                    )
+                                )
+                            },
+                            onFocused = {
+                                focusedSection =
+                                    LayoutSettingsSection.FOCUSED_POSTER
+                            }
+                        )
+                    }
+
                     if (showAutoplayRow && uiState.focusedPosterBackdropTrailerEnabled) {
                         CompactToggleRow(
                             title = stringResource(R.string.layout_trailer_muted),
