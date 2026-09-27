@@ -309,12 +309,18 @@ class HomeViewModel @Inject constructor(
 
     /*
      * Avoid catalog fetch/enrichment/image-decode work while Home is the
-     * actively navigated screen. A pending Seasonal refresh starts staging
-     * when Home leaves composition instead.
+     * actively navigated screen. HomeViewModel is created for the Home
+     * destination, so treat the initial presentation as visible immediately.
+     * This closes the startup window before HomeScreen's DisposableEffect runs
+     * where an updated Seasonal manifest could otherwise begin heavy staging
+     * alongside Home's normal cold-start work.
+     *
+     * HomeScreen sets this false on dispose, which remains the point where a
+     * pending Seasonal refresh is allowed to start staging.
      */
     @Volatile
     internal var homePresentationVisible:
-        Boolean = false
+        Boolean = true
 
     /*
      * Seasonal Spotlight's manifest can remain identical while the catalog
