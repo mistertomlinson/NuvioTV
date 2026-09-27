@@ -3,10 +3,37 @@ package com.nuvio.tv.ui.screens.home
 import com.nuvio.tv.ui.catalog.reconcileDynamicCatalogOrder
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogDescriptor
+import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.catalog.watchlyCatalogGroup
 import com.nuvio.tv.ui.catalog.watchlySavedGroup
 import kotlinx.coroutines.Job
+
+/**
+ * Catalog names are presentation metadata. A renamed catalog with the same
+ * descriptor structure must update in place instead of being treated as a
+ * replacement catalog block.
+ */
+internal fun hasSameCatalogStructure(
+    current: List<CatalogDescriptor>,
+    incoming: List<CatalogDescriptor>
+): Boolean =
+    current.map { catalog ->
+        catalog.copy(name = "")
+    } == incoming.map { catalog ->
+        catalog.copy(name = "")
+    }
+
+internal fun CatalogRow.withCatalogDisplayMetadata(
+    addonName: String,
+    addonBaseUrl: String,
+    catalogName: String
+): CatalogRow =
+    copy(
+        addonName = addonName,
+        addonBaseUrl = addonBaseUrl,
+        catalogName = catalogName
+    )
 
 internal fun HomeViewModel.catalogKey(addonId: String, type: String, catalogId: String): String {
     return "${addonId}_${type}_${catalogId}"

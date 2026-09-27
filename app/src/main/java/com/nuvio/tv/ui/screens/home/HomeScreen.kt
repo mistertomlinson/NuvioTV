@@ -137,6 +137,67 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
+    val seasonalSpotlightStageReady by
+        viewModel.seasonalSpotlightStageReady
+            .collectAsStateWithLifecycle()
+
+    /*
+     * Consume only a replacement that was already completely staged when
+     * this Home entry began. If staging finishes after Home is visible, keep
+     * the current block stable and defer that replacement to the next return.
+     */
+    val seasonalSpotlightStageReadyAtEntry =
+        remember {
+            seasonalSpotlightStageReady
+        }
+
+    var seasonalSpotlightReturnSwapSettled by
+        remember {
+            mutableStateOf(
+                !seasonalSpotlightStageReadyAtEntry
+            )
+        }
+
+    androidx.compose.runtime.DisposableEffect(
+        viewModel
+    ) {
+        viewModel.setHomePresentationVisible(
+            true
+        )
+
+        onDispose {
+            /*
+             * Home is no longer being navigated. Pending Seasonal Spotlight
+             * preparation may now use network/TMDB/image decode resources.
+             */
+            viewModel.setHomePresentationVisible(
+                false
+            )
+        }
+    }
+
+    LaunchedEffect(
+        seasonalSpotlightStageReadyAtEntry
+    ) {
+        if (
+            seasonalSpotlightStageReadyAtEntry
+        ) {
+            viewModel
+                .applyStagedSeasonalSpotlightIfReady()
+
+            /*
+             * The map/order/UI-state swap happens synchronously above.
+             * Keep any existing return cover through one real frame so the
+             * replacement Home tree is committed before it can be revealed.
+             */
+            androidx.compose.runtime.withFrameNanos {
+            }
+
+            seasonalSpotlightReturnSwapSettled =
+                true
+        }
+    }
+
     val playerReturnRequestedGeneration by
         viewModel.playerReturnCwRequestedGenerationState.collectAsStateWithLifecycle()
     val playerReturnSettledGeneration by
@@ -165,12 +226,16 @@ fun HomeScreen(
 
     LaunchedEffect(
         playerReturnPending,
-        playerReturnRequestedGeneration
+        playerReturnRequestedGeneration,
+        seasonalSpotlightReturnSwapSettled
     ) {
         if (playerReturnPending) {
             showPlayerReturnCurtain = true
             playerReturnCurtainAlpha.snapTo(1f)
-        } else if (showPlayerReturnCurtain) {
+        } else if (
+            showPlayerReturnCurtain &&
+            seasonalSpotlightReturnSwapSettled
+        ) {
             /*
              * Settlement is published after the CW pipeline's final state update.
              * Keep the curtain through one rendered frame so the final Home
@@ -752,7 +817,13 @@ fun HomeScreen(
                                 uiState = uiState,
                                 skipReturnCurtain = skipReturnCurtain,
                                 returnFrameSignalActive = returnFrameSignalActive,
-                                onReturnFrameDrawn = onReturnFrameDrawn,
+                                onReturnFrameDrawn = {
+                                    if (
+                                        seasonalSpotlightReturnSwapSettled
+                                    ) {
+                                        onReturnFrameDrawn()
+                                    }
+                                },
                                 onPlatformChromeCommitted = {
                                     platformChromeCommitted = true
                                 },

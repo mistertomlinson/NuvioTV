@@ -21,6 +21,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -28,8 +30,11 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
 import com.nuvio.tv.core.auth.AuthManager
 import com.nuvio.tv.core.sync.AddonSyncService
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
+import javax.inject.Singleton
 
+@Singleton
 class AddonRepositoryImpl @Inject constructor(
     private val api: AddonApi,
     private val preferences: AddonPreferences,
@@ -45,7 +50,13 @@ class AddonRepositoryImpl @Inject constructor(
         private const val MANIFEST_REFRESH_TIME_KEY = "manifest_refresh_time_v4"
         private const val LEGACY_MANIFEST_CACHE_KEY = "manifests"
         private const val MANIFEST_SUFFIX = "/manifest.json"
-        private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L 
+        private const val MANIFEST_CACHE_TTL_MS = 6 * 60 * 60 * 1000L
+        private const val SEASONAL_SPOTLIGHT_ADDON_ID =
+            "community.seasonalspotlight"
+        private const val SEASONAL_REVALIDATE_START_DELAY_MS =
+            30 * 1000L
+        private const val SEASONAL_REVALIDATE_INTERVAL_MS =
+            60 * 60 * 1000L
     }
 
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -83,19 +94,92 @@ class AddonRepositoryImpl @Inject constructor(
     }
 
     private val gson = Gson()
-    private val manifestCache = mutableMapOf<String, Addon>()
+    private val manifestCache = ConcurrentHashMap<String, Addon>()
     @Volatile
     private var lastManifestRefreshTime = 0L
     private var manifestRefreshJob: Job? = null
 
+    /*
+     * Installed-addon URLs only emit when the user's addon configuration
+     * changes. Dynamic manifests such as Seasonal Spotlight can change while
+     * the URL remains identical, so publish a lightweight revision whenever
+     * the periodic revalidation observes a different manifest.
+     */
+    private val manifestRefreshRevision =
+        MutableStateFlow(0L)
+
     init {
         syncScope.launch {
             loadManifestCacheFromDisk()
+
+            /*
+             * Keep launch contention at zero: the persisted manifest remains
+             * the startup fast path. Once startup has settled, revalidate
+             * Seasonal Spotlight, then repeat hourly.
+             */
+            delay(SEASONAL_REVALIDATE_START_DELAY_MS)
+
+            while (true) {
+                revalidateSeasonalSpotlightManifest()
+                delay(SEASONAL_REVALIDATE_INTERVAL_MS)
+            }
         }
     }
 
     private fun isCacheStale(): Boolean =
         System.currentTimeMillis() - lastManifestRefreshTime > MANIFEST_CACHE_TTL_MS
+
+    private suspend fun revalidateSeasonalSpotlightManifest() {
+        val urls =
+            preferences.installedAddonUrls.first()
+
+        val seasonalUrls =
+            urls.filter { url ->
+                manifestCache[
+                    canonicalizeUrl(url)
+                ]?.id == SEASONAL_SPOTLIGHT_ADDON_ID
+            }
+
+        if (seasonalUrls.isEmpty()) {
+            return
+        }
+
+        val before =
+            seasonalUrls.associateWith { url ->
+                manifestCache[
+                    canonicalizeUrl(url)
+                ]
+            }
+
+        coroutineScope {
+            seasonalUrls
+                .map { url ->
+                    async {
+                        fetchAddon(url)
+                    }
+                }
+                .awaitAll()
+        }
+
+        val changed =
+            seasonalUrls.any { url ->
+                before[url] !=
+                    manifestCache[
+                        canonicalizeUrl(url)
+                    ]
+            }
+
+        if (changed) {
+            manifestRefreshRevision.value =
+                manifestRefreshRevision.value + 1L
+
+            Log.d(
+                TAG,
+                "Seasonal Spotlight manifest changed; " +
+                    "publishing installed-addon revision"
+            )
+        }
+    }
 
     private fun scheduleManifestRefresh(urls: List<String>) {
         if (manifestRefreshJob?.isActive == true) return
@@ -151,7 +235,12 @@ class AddonRepositoryImpl @Inject constructor(
     }
 
     override fun getInstalledAddons(): Flow<List<Addon>> =
-        preferences.installedAddonUrls.flatMapLatest { urls ->
+        combine(
+            preferences.installedAddonUrls,
+            manifestRefreshRevision
+        ) { urls, _ ->
+            urls
+        }.flatMapLatest { urls ->
             flow {
                 val cached = urls.mapNotNull { manifestCache[canonicalizeUrl(it)] }
                 if (cached.isNotEmpty()) {

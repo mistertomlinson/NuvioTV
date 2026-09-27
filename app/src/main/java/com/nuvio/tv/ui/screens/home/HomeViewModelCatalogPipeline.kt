@@ -86,7 +86,7 @@ internal fun HomeViewModel.refreshCatalogDisplayMetadataPipeline(
             )
 
             catalogsMap[key]?.let { current ->
-                val updated = current.copy(
+                val updated = current.withCatalogDisplayMetadata(
                     addonName = addon.displayName,
                     addonBaseUrl = addon.baseUrl,
                     catalogName = catalog.name
@@ -98,7 +98,7 @@ internal fun HomeViewModel.refreshCatalogDisplayMetadataPipeline(
             }
 
             catalogSourceRows[key]?.let { current ->
-                val updated = current.copy(
+                val updated = current.withCatalogDisplayMetadata(
                     addonName = addon.displayName,
                     addonBaseUrl = addon.baseUrl,
                     catalogName = catalog.name
@@ -205,6 +205,94 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
     viewModelScope.launch {
         addonRepository.getInstalledAddons()
             .collectLatest { addons ->
+                val currentSeasonal =
+                    addonsCache.firstOrNull { addon ->
+                        addon.id ==
+                            com.nuvio.tv.ui.catalog
+                                .SEASONAL_SPOTLIGHT_ADDON_ID
+                    }
+
+                val incomingSeasonal =
+                    addons.firstOrNull { addon ->
+                        addon.id ==
+                            com.nuvio.tv.ui.catalog
+                                .SEASONAL_SPOTLIGHT_ADDON_ID
+                    }
+
+                val seasonalManifestChanged =
+                    currentSeasonal != null &&
+                        incomingSeasonal != null &&
+                        !hasSameCatalogStructure(
+                            current = currentSeasonal.catalogs,
+                            incoming = incomingSeasonal.catalogs
+                        )
+
+                if (seasonalManifestChanged) {
+                    /*
+                     * Do NOT replace Home's active Seasonal Spotlight rows
+                     * here. A structural manifest change can add/remove/rotate
+                     * catalog IDs; feeding that directly into the normal Home
+                     * pipeline clears the currently rendered catalog maps.
+                     *
+                     * Keep the old Seasonal addon in Home's active addon
+                     * snapshot while adopting any unrelated addon changes.
+                     * Catalog Management has its own repository collector and
+                     * therefore receives the fresh manifest immediately.
+                     */
+                    pendingSeasonalSpotlightAddons =
+                        addons
+
+                    seasonalSpotlightRefreshPendingState.value =
+                        true
+
+                    seasonalSpotlightStageReadyState.value =
+                        false
+
+                    stagedSeasonalSpotlightRows.clear()
+
+                    if (!homePresentationVisible) {
+                        stagePendingSeasonalSpotlight(
+                            addons = addons,
+                            seasonalAddon = incomingSeasonal
+                        )
+                    }
+
+                    val activeAddons =
+                        addons.map { addon ->
+                            if (
+                                addon.id ==
+                                    com.nuvio.tv.ui.catalog
+                                        .SEASONAL_SPOTLIGHT_ADDON_ID
+                            ) {
+                                currentSeasonal
+                            } else {
+                                addon
+                            }
+                        }
+
+                    addonsCache = activeAddons
+
+                    /*
+                     * Preserve normal behavior for unrelated addon changes.
+                     * If nothing except Seasonal Spotlight changed, the
+                     * structural signature is unchanged and this is a no-op.
+                     */
+                    refreshCatalogDisplayMetadataPipeline(
+                        activeAddons
+                    )
+                    scheduleCatalogPipeline(
+                        activeAddons
+                    )
+
+                    android.util.Log.d(
+                        HomeViewModel.TAG,
+                        "Staged Seasonal Spotlight manifest " +
+                            "for next Home return"
+                    )
+
+                    return@collectLatest
+                }
+
                 addonsCache = addons
 
                 /*

@@ -271,6 +271,65 @@ class HomeViewModel @Inject constructor(
     internal val catalogOrder = mutableListOf<String>()
     internal var addonsCache: List<Addon> = emptyList()
 
+    /*
+     * Dynamic Seasonal Spotlight manifests are staged independently from the
+     * currently rendered Home snapshot. Catalog Management may consume the
+     * fresh repository emission immediately, while Home keeps its existing
+     * fully-loaded rows until a safe return handoff explicitly applies this.
+     */
+    internal var pendingSeasonalSpotlightAddons:
+        List<Addon>? = null
+
+    internal val seasonalSpotlightRefreshPendingState =
+        kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    val seasonalSpotlightRefreshPending:
+        kotlinx.coroutines.flow.StateFlow<Boolean> =
+        seasonalSpotlightRefreshPendingState
+
+    /*
+     * Replacement Seasonal Spotlight rows are prepared entirely outside the
+     * live Home maps. They are promoted atomically only on a later Home entry.
+     */
+    internal val stagedSeasonalSpotlightRows:
+        MutableMap<String, CatalogRow> =
+        Collections.synchronizedMap(
+            LinkedHashMap()
+        )
+
+    internal var seasonalSpotlightStageJob:
+        Job? = null
+
+    internal val seasonalSpotlightStageReadyState =
+        kotlinx.coroutines.flow.MutableStateFlow(false)
+
+    val seasonalSpotlightStageReady:
+        kotlinx.coroutines.flow.StateFlow<Boolean> =
+        seasonalSpotlightStageReadyState
+
+    /*
+     * Avoid catalog fetch/enrichment/image-decode work while Home is the
+     * actively navigated screen. A pending Seasonal refresh starts staging
+     * when Home leaves composition instead.
+     */
+    @Volatile
+    internal var homePresentationVisible:
+        Boolean = false
+
+    /*
+     * Seasonal Spotlight's manifest can remain identical while the catalog
+     * endpoint changes item order at its daily shuffle boundary.
+     *
+     * The hourly ticker only marks work due while Home is active. Actual
+     * network/TMDB/image preparation is deferred until Home is off-screen.
+     */
+    @Volatile
+    internal var seasonalSpotlightContentRefreshDue:
+        Boolean = false
+
+    internal var seasonalSpotlightContentRefreshTickerJob:
+        Job? = null
+
     fun forceReloadCatalogs() {
         scheduleCatalogPipeline(addonsCache, forceReload = true)
     }
