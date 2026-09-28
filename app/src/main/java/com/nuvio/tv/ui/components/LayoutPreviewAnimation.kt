@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.ui.theme.NuvioColors
 
+private val CwStylePreviewBackground = Color(0xFF252B31)
+
 /**
  * Animated preview of the classic horizontal row layout.
  * Shows 3 rows with colored placeholder rectangles scrolling horizontally.
@@ -217,7 +219,7 @@ fun CardCwStylePreview(
     modifier: Modifier = Modifier,
     accentColor: Color = NuvioColors.Primary
 ) {
-    val bgColor = NuvioColors.Background
+    val bgColor = CwStylePreviewBackground
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -290,7 +292,7 @@ fun WideCwStylePreview(
     modifier: Modifier = Modifier,
     accentColor: Color = NuvioColors.Primary
 ) {
-    val bgColor = NuvioColors.Background
+    val bgColor = CwStylePreviewBackground
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
@@ -372,7 +374,7 @@ fun PosterCwStylePreview(
     modifier: Modifier = Modifier,
     accentColor: Color = NuvioColors.Primary
 ) {
-    val bgColor = NuvioColors.Background
+    val bgColor = CwStylePreviewBackground
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
