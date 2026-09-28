@@ -64,7 +64,8 @@ fun AnimeSkipSettingsContent(
         )
 
         SettingsGroupCard(
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            segmented = true
         ) {
             val animeSkipListState = rememberLazyListState()
             Box(modifier = Modifier.fillMaxWidth()) {
