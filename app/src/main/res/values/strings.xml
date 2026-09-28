@@ -1381,7 +1381,7 @@
 
     <!-- Card Depth Effect -->
     <string name="settings_card_depth_title">Card Depth Effect</string>
-    <string name="settings_card_depth_enabled">Enable depth effect</string>
+    <string name="settings_card_depth_enabled">Enable card depth effect</string>
     <string name="settings_card_depth_description">Adds a soft sheen and lighter edges to cards</string>
     <string name="settings_card_depth_edge">Edge glow</string>
     <string name="settings_card_depth_edge_subtle">Subtle</string>
