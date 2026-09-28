@@ -75,7 +75,7 @@ fun MDBListSettingsContent(
                     state = mdbListState,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(0.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
+                verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
             ) {
                 item(key = "mdblist_enabled") {
                     SettingsToggleRow(
