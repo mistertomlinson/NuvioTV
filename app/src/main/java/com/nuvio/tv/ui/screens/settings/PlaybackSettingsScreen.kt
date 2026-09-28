@@ -624,6 +624,7 @@ internal fun SliderSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
+    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
 
     Card(
         onClick = { },
@@ -654,23 +655,27 @@ internal fun SliderSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsGlassRowColor,
+            containerColor = Color.Transparent,
             focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, if (enabled) NuvioColors.FocusRing else NuvioColors.FocusRing.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(SettingsSecondaryCardRadius)
+                border = BorderStroke(
+                    1.dp,
+                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
+                ),
+                shape = rowShape
             )
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(SettingsSecondaryCardRadius)),
+        shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.fillMaxWidth()
@@ -827,6 +832,8 @@ internal fun SliderSettingsItem(
                     }
                 }
             }
+            }
+            SettingsRowDivider()
         }
     }
 }
@@ -843,6 +850,7 @@ internal fun ColorSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
+    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
 
     Card(
         onClick = { if (enabled) onClick() },
@@ -856,22 +864,26 @@ internal fun ColorSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowColor
+            containerColor = Color.Transparent,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, if (enabled) NuvioColors.FocusRing else NuvioColors.FocusRing.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(SettingsPillRadius)
+                border = BorderStroke(
+                    1.dp,
+                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
+                ),
+                shape = rowShape
             )
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(SettingsPillRadius)),
+        shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -922,6 +934,8 @@ internal fun ColorSettingsItem(
                         .border(2.dp, NuvioColors.Border, CircleShape)
                 )
             }
+            }
+            SettingsRowDivider()
         }
     }
 }
