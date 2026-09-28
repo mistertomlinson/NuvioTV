@@ -4,6 +4,7 @@ package com.nuvio.tv.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -866,7 +867,9 @@ private fun ModernTrailerPlaybackTargetRow(
             color = NuvioColors.TextTertiary
         )
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusGroup(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             SettingsChoiceChip(
