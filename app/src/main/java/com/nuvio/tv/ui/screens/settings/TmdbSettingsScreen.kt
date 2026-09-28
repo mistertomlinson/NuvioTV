@@ -71,7 +71,7 @@ fun TmdbSettingsContent(
                     state = tmdbListState,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(0.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
+                verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
             ) {
                 item(key = "tmdb_enabled") {
                     SettingsToggleRow(
