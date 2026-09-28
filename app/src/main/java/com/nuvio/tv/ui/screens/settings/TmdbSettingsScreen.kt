@@ -63,14 +63,13 @@ fun TmdbSettingsContent(
         SettingsGroupCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
         ) {
             val tmdbListState = rememberLazyListState()
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 LazyColumn(
                     state = tmdbListState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 6.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 item(key = "tmdb_enabled") {
