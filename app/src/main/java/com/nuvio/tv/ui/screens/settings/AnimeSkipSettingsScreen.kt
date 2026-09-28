@@ -64,14 +64,14 @@ fun AnimeSkipSettingsContent(
         )
 
         SettingsGroupCard(
-            modifier = Modifier.fillMaxWidth().weight(1f)
+            modifier = Modifier.fillMaxWidth()
         ) {
             val animeSkipListState = rememberLazyListState()
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 LazyColumn(
                     state = animeSkipListState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 item(key = "animeskip_enabled") {
