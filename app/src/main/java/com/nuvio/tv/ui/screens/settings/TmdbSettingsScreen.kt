@@ -62,7 +62,8 @@ fun TmdbSettingsContent(
 
         SettingsGroupCard(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(),
+            segmented = true
         ) {
             val tmdbListState = rememberLazyListState()
             Box(modifier = Modifier.fillMaxWidth()) {
