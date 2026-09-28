@@ -626,7 +626,8 @@ private fun IntegrationSettingsContent(
 
                 SettingsGroupCard(
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .fillMaxWidth(),
+                    segmented = true
                 ) {
                     val integrationHubState = rememberLazyListState()
                     Box(modifier = Modifier.fillMaxWidth()) {
