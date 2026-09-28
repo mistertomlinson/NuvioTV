@@ -431,7 +431,7 @@ private fun PlaybackSectionHeader(
         onFocused = onFocused,
         enabled = enabled,
         trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-        showDivider = !expanded
+        showDivider = true
     )
 }
 
@@ -454,7 +454,6 @@ private fun FrameRateMatchingModeOptions(
             enabled = enabled
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
 
         RenderTypeSettingsItem(
             title = stringResource(R.string.playback_afr_on_start),
@@ -465,7 +464,6 @@ private fun FrameRateMatchingModeOptions(
             enabled = enabled
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
 
         RenderTypeSettingsItem(
             title = stringResource(R.string.playback_afr_on_start_stop),
@@ -476,7 +474,6 @@ private fun FrameRateMatchingModeOptions(
             enabled = enabled
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
 
         ToggleSettingsItem(
             icon = Icons.Default.Image,
