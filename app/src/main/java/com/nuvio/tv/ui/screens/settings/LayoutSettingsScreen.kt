@@ -202,7 +202,7 @@ fun LayoutSettingsContent(
             state = layoutListState,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
         ) {
             item(key = "home_layout_section") {
                 CollapsibleSectionCard(
@@ -801,7 +801,9 @@ private fun CollapsibleSectionCard(
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(0.dp)
+        verticalArrangement = Arrangement.spacedBy(
+            if (expanded) SettingsRowGap else 0.dp
+        )
     ) {
         SettingsActionRow(
             title = title,
