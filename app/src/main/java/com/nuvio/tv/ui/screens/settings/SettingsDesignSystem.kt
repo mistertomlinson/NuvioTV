@@ -93,8 +93,35 @@ internal val SettingsContainerRadius = 28.dp
 internal val SettingsPillRadius = 999.dp
 internal val SettingsSecondaryCardRadius = 16.dp
 internal val SettingsRailFocusRadius = 10.dp
-internal val SettingsRowFocusRadius = 10.dp
+internal val SettingsRowFocusRadius = SettingsSecondaryCardRadius
+internal val SettingsRowFocusInset = 4.dp
 internal val SettingsRailItemHeight = 40.dp
+
+internal enum class SettingsGroupPosition {
+    SINGLE,
+    TOP,
+    MIDDLE,
+    BOTTOM
+}
+
+internal fun settingsGroupShape(position: SettingsGroupPosition): RoundedCornerShape {
+    return when (position) {
+        SettingsGroupPosition.SINGLE -> RoundedCornerShape(SettingsSecondaryCardRadius)
+        SettingsGroupPosition.TOP -> RoundedCornerShape(
+            topStart = SettingsSecondaryCardRadius,
+            topEnd = SettingsSecondaryCardRadius,
+            bottomStart = 0.dp,
+            bottomEnd = 0.dp
+        )
+        SettingsGroupPosition.MIDDLE -> RoundedCornerShape(0.dp)
+        SettingsGroupPosition.BOTTOM -> RoundedCornerShape(
+            topStart = 0.dp,
+            topEnd = 0.dp,
+            bottomStart = SettingsSecondaryCardRadius,
+            bottomEnd = SettingsSecondaryCardRadius
+        )
+    }
+}
 
 private const val SETTINGS_COMPACT_FONT_SCALE = 0.86f
 
@@ -512,8 +539,7 @@ internal fun SettingsGroupCard(
                 width = 1.dp,
                 color = SettingsGlassBorderColor,
                 shape = shape
-            )
-            .padding(vertical = 2.dp),
+            ),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         if (!title.isNullOrBlank()) {
@@ -541,18 +567,18 @@ internal fun SettingsExpandedSectionSurface(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(SettingsRowFocusRadius)
+    val shape = settingsGroupShape(SettingsGroupPosition.BOTTOM)
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
+            .background(SettingsGlassRowColor)
             .border(
                 width = 1.dp,
                 color = SettingsGlassBorderColor,
                 shape = shape
-            )
-            .padding(vertical = 2.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            ),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
         content = content
     )
 }
@@ -562,7 +588,6 @@ internal fun SettingsRowDivider() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp)
             .height(1.dp)
             .background(SettingsGlassDividerColor)
     )
@@ -576,45 +601,47 @@ internal fun SettingsToggleRow(
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    showDivider: Boolean = true
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
     var isFocused by remember { mutableStateOf(false) }
     val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
 
-    Card(
-        onClick = {
-            if (enabled) onToggle()
-        },
-        modifier = modifier
-            .fillMaxWidth()
-            .height(50.dp)
-            .onFocusChanged { state ->
-                val nowFocused = state.isFocused
-                if (isFocused != nowFocused) {
-                    isFocused = nowFocused
-                    if (nowFocused) onFocused()
-                }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            onClick = {
+                if (enabled) onToggle()
             },
-        colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = SettingsGlassRowFocusedColor
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
-                shape = rowShape
-            )
-        ),
-        shape = CardDefaults.shape(rowShape),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = SettingsRowFocusInset, vertical = 2.dp)
+                .height(45.dp)
+                .onFocusChanged { state ->
+                    val nowFocused = state.isFocused
+                    if (isFocused != nowFocused) {
+                        isFocused = nowFocused
+                        if (nowFocused) onFocused()
+                    }
+                },
+            colors = CardDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = SettingsGlassRowFocusedColor
+            ),
+            border = CardDefaults.border(
+                focusedBorder = Border(
+                    border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
+                    shape = rowShape
+                )
+            ),
+            shape = CardDefaults.shape(rowShape),
+            scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(49.dp)
-                    .padding(horizontal = 14.dp),
+                    .height(45.dp)
+                    .padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -643,6 +670,8 @@ internal fun SettingsToggleRow(
                     enabled = enabled
                 )
             }
+        }
+        if (showDivider) {
             SettingsRowDivider()
         }
     }
@@ -658,60 +687,62 @@ internal fun SettingsActionRow(
     onFocused: () -> Unit = {},
     enabled: Boolean = true,
     trailingIcon: ImageVector = Icons.Default.ChevronRight,
-    segmentBreakAfter: Boolean = false
+    showDivider: Boolean = true,
+    groupPosition: SettingsGroupPosition? = null
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
     var isFocused by remember { mutableStateOf(false) }
     val focusShape = RoundedCornerShape(SettingsRowFocusRadius)
-    val restingShape = if (segmentBreakAfter) {
-        RoundedCornerShape(
-            topStart = 0.dp,
-            topEnd = 0.dp,
-            bottomStart = SettingsRowFocusRadius,
-            bottomEnd = SettingsRowFocusRadius
-        )
-    } else {
-        focusShape
-    }
+    val groupShape = groupPosition?.let(::settingsGroupShape)
 
-    Card(
-        onClick = { if (enabled) onClick() },
-        modifier = modifier
+    Column(
+        modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 50.dp)
-            .onFocusChanged { state ->
-                val nowFocused = state.isFocused
-                if (isFocused != nowFocused) {
-                    isFocused = nowFocused
-                    if (nowFocused) onFocused()
+            .then(
+                if (groupShape != null) {
+                    Modifier
+                        .clip(groupShape)
+                        .background(SettingsGlassRowColor)
+                        .border(
+                            width = 1.dp,
+                            color = SettingsGlassBorderColor,
+                            shape = groupShape
+                        )
+                } else {
+                    Modifier
                 }
-            },
-        colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = SettingsGlassRowFocusedColor
-        ),
-        border = CardDefaults.border(
-            border = if (segmentBreakAfter) {
-                Border(
-                    border = BorderStroke(1.dp, SettingsGlassBorderColor),
-                    shape = restingShape
-                )
-            } else {
-                Border.None
-            },
-            focusedBorder = Border(
-                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
-                shape = focusShape
             )
-        ),
-        shape = CardDefaults.shape(restingShape),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
+        Card(
+            onClick = { if (enabled) onClick() },
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = SettingsRowFocusInset, vertical = 2.dp)
+                .heightIn(min = 45.dp)
+                .onFocusChanged { state ->
+                    val nowFocused = state.isFocused
+                    if (isFocused != nowFocused) {
+                        isFocused = nowFocused
+                        if (nowFocused) onFocused()
+                    }
+                },
+            colors = CardDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor = SettingsGlassRowFocusedColor
+            ),
+            border = CardDefaults.border(
+                focusedBorder = Border(
+                    border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
+                    shape = focusShape
+                )
+            ),
+            shape = CardDefaults.shape(focusShape),
+            scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -753,9 +784,10 @@ internal fun SettingsActionRow(
                     modifier = Modifier.size(18.dp)
                 )
             }
-            if (!segmentBreakAfter) {
-                SettingsRowDivider()
-            }
+        }
+
+        if (groupPosition == null && showDivider) {
+            SettingsRowDivider()
         }
     }
 }
