@@ -3,6 +3,9 @@
 package com.nuvio.tv.ui.screens.settings
 
 import android.os.Build
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.CompositionLocalProvider
 import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
@@ -124,6 +127,44 @@ internal fun settingsGroupShape(position: SettingsGroupPosition): RoundedCornerS
     }
 }
 
+@Composable
+internal fun animatedSettingsGroupShape(
+    position: SettingsGroupPosition
+): RoundedCornerShape {
+    val targetTop = when (position) {
+        SettingsGroupPosition.SINGLE,
+        SettingsGroupPosition.TOP -> SettingsSecondaryCardRadius
+        SettingsGroupPosition.MIDDLE,
+        SettingsGroupPosition.BOTTOM -> 0.dp
+    }
+    val targetBottom = when (position) {
+        SettingsGroupPosition.SINGLE,
+        SettingsGroupPosition.BOTTOM -> SettingsSecondaryCardRadius
+        SettingsGroupPosition.TOP,
+        SettingsGroupPosition.MIDDLE -> 0.dp
+    }
+    val animation = tween<Dp>(
+        durationMillis = 240,
+        easing = FastOutSlowInEasing
+    )
+    val top by animateDpAsState(
+        targetValue = targetTop,
+        animationSpec = animation,
+        label = "settingsTopCorner"
+    )
+    val bottom by animateDpAsState(
+        targetValue = targetBottom,
+        animationSpec = animation,
+        label = "settingsBottomCorner"
+    )
+    return RoundedCornerShape(
+        topStart = top,
+        topEnd = top,
+        bottomStart = bottom,
+        bottomEnd = bottom
+    )
+}
+
 private const val SETTINGS_COMPACT_FONT_SCALE = 0.86f
 
 /**
@@ -162,8 +203,8 @@ internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
 )
 internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
 internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
-internal val SettingsRightSurfaceColor = Color(0xFF30373F)
-internal val SettingsRightSurfaceFocusedColor = Color(0xFF586572)
+internal val SettingsRightSurfaceColor = Color(0xFF444E58)
+internal val SettingsRightSurfaceFocusedColor = Color(0xFF6B7886)
 internal val SettingsGlassGroupColor = Color.White.copy(alpha = 0.025f)
 internal val SettingsGlassBorderColor = Color.White.copy(alpha = 0.09f)
 internal val SettingsGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
@@ -690,8 +731,11 @@ internal fun SettingsActionRow(
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
     var isFocused by remember { mutableStateOf(false) }
-    val rowShape = groupPosition?.let(::settingsGroupShape)
-        ?: RoundedCornerShape(SettingsInnerRowRadius)
+    val rowShape = if (groupPosition != null) {
+        animatedSettingsGroupShape(groupPosition)
+    } else {
+        RoundedCornerShape(SettingsInnerRowRadius)
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
@@ -864,25 +908,19 @@ internal fun SettingsResetButton(
         onClick = onClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
         colors = androidx.tv.material3.ButtonDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowFocusedColor,
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor,
             contentColor = NuvioColors.TextPrimary,
             focusedContentColor = NuvioColors.TextPrimary
         ),
         border = androidx.tv.material3.ButtonDefaults.border(
-            border = Border(
-                border = BorderStroke(1.dp, SettingsGlassBorderColor),
-                shape = shape
-            ),
-            focusedBorder = Border(
-                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
-                shape = shape
-            )
+            border = Border.None,
+            focusedBorder = Border.None
         ),
         shape = androidx.tv.material3.ButtonDefaults.shape(shape),
         scale = androidx.tv.material3.ButtonDefaults.scale(
-            focusedScale = 1.018f,
-            pressedScale = 0.99f
+            focusedScale = 1f,
+            pressedScale = 1f
         )
     ) {
         Box(
