@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -35,6 +36,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -144,7 +146,7 @@ fun AccountSettingsContent(
 
 @Composable
 private fun AccountInfoSurface(
-    content: @Composable Column.() -> Unit
+    content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
         modifier = Modifier
@@ -325,6 +327,10 @@ private fun SettingsActionButton(
             containerColor = SettingsRightSurfaceColor,
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
         shape = CardDefaults.shape(shape = shape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
@@ -368,6 +374,10 @@ private fun SignOutSettingsButton(onClick: () -> Unit) {
         colors = CardDefaults.colors(
             containerColor = SettingsRightSurfaceColor,
             focusedContainerColor = SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = shape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
