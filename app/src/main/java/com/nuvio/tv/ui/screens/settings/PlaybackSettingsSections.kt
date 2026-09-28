@@ -199,10 +199,10 @@ internal fun PlaybackSettingsSections(
     }
 
     val playbackListState = rememberLazyListState()
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(modifier = Modifier.fillMaxWidth()) {
         LazyColumn(
             state = playbackListState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
@@ -407,23 +407,6 @@ private fun LazyListScope.playbackCollapsibleSection(
 
     if (expanded) {
         content()
-        item(key = "${keyPrefix}_end_divider") {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(8.dp)
-                    .border(
-                        width = 1.dp,
-                        color = SettingsGlassBorderColor,
-                        shape = RoundedCornerShape(
-                            topStart = 0.dp,
-                            topEnd = 0.dp,
-                            bottomStart = SettingsRowFocusRadius,
-                            bottomEnd = SettingsRowFocusRadius
-                        )
-                    )
-            )
-        }
     }
 }
 
@@ -448,7 +431,7 @@ private fun PlaybackSectionHeader(
         onFocused = onFocused,
         enabled = enabled,
         trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-        segmentBreakAfter = expanded
+        showDivider = !expanded
     )
 }
 
