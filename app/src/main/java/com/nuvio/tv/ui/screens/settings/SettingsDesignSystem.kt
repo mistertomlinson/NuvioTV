@@ -578,7 +578,7 @@ internal fun SettingsExpandedSectionSurface(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = RoundedCornerShape(SettingsSecondaryCardRadius)
+    val shape = settingsGroupShape(SettingsGroupPosition.BOTTOM)
     Column(
         modifier = modifier
             .fillMaxWidth()
