@@ -346,28 +346,6 @@ fun PlaybackSettingsContent(
     )
 }
 
-private fun Modifier.playbackSettingsFocusFrame(
-    isFocused: Boolean,
-    contentAlpha: Float
-): Modifier {
-    val shape = RoundedCornerShape(SettingsRowFocusRadius)
-    return this
-        .padding(horizontal = SettingsRowFocusInset, vertical = 2.dp)
-        .clip(shape)
-        .background(
-            if (isFocused) SettingsGlassRowFocusedColor else Color.Transparent
-        )
-        .border(
-            width = 1.dp,
-            color = if (isFocused) {
-                SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
-            } else {
-                Color.Transparent
-            },
-            shape = shape
-        )
-}
-
 @Composable
 internal fun ToggleSettingsItem(
     icon: ImageVector,
@@ -380,22 +358,22 @@ internal fun ToggleSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
+    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
 
     Card(
         onClick = { if (enabled) onCheckedChange(!isChecked) },
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { state ->
-                val nowFocused = state.isFocused
+                val nowFocused = state.hasFocus
                 if (isFocused != nowFocused) {
                     isFocused = nowFocused
                     if (nowFocused) onFocused()
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -404,8 +382,7 @@ internal fun ToggleSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -465,22 +442,22 @@ internal fun RenderTypeSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
+    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
 
     Card(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { state ->
-                val nowFocused = state.isFocused
+                val nowFocused = state.hasFocus
                 if (isFocused != nowFocused) {
                     isFocused = nowFocused
                     if (nowFocused) onFocused()
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -489,8 +466,7 @@ internal fun RenderTypeSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -536,22 +512,22 @@ internal fun NavigationSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
+    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
 
     Card(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { state ->
-                val nowFocused = state.isFocused
+                val nowFocused = state.hasFocus
                 if (isFocused != nowFocused) {
                     isFocused = nowFocused
                     if (nowFocused) onFocused()
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -560,8 +536,7 @@ internal fun NavigationSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -621,14 +596,14 @@ internal fun SliderSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
+    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
 
     Card(
         onClick = { },
         modifier = modifier
             .fillMaxWidth()
             .onFocusChanged { state ->
-                val nowFocused = state.isFocused
+                val nowFocused = state.hasFocus
                 if (isFocused != nowFocused) {
                     isFocused = nowFocused
                     if (nowFocused) onFocused()
@@ -652,8 +627,8 @@ internal fun SliderSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -662,8 +637,7 @@ internal fun SliderSettingsItem(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
-                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .padding(horizontal = 14.dp, vertical = 8.dp)
             ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -728,7 +702,7 @@ internal fun SliderSettingsItem(
                     },
                     modifier = Modifier
                         .onFocusChanged { state ->
-                            val nowFocused = state.isFocused
+                            val nowFocused = state.hasFocus
                             if (decreaseFocused != nowFocused) {
                                 decreaseFocused = nowFocused
                                 if (nowFocused) onFocused()
@@ -789,7 +763,7 @@ internal fun SliderSettingsItem(
                     },
                     modifier = Modifier
                         .onFocusChanged { state ->
-                            val nowFocused = state.isFocused
+                            val nowFocused = state.hasFocus
                             if (increaseFocused != nowFocused) {
                                 increaseFocused = nowFocused
                                 if (nowFocused) onFocused()
@@ -839,22 +813,22 @@ internal fun ColorSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
+    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
 
     Card(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { state ->
-                val nowFocused = state.isFocused
+                val nowFocused = state.hasFocus
                 if (isFocused != nowFocused) {
                     isFocused = nowFocused
                     if (nowFocused) onFocused()
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -863,8 +837,7 @@ internal fun ColorSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
