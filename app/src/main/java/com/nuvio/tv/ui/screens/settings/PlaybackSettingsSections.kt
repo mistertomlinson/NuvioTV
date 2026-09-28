@@ -203,7 +203,7 @@ internal fun PlaybackSettingsSections(
         LazyColumn(
             state = playbackListState,
             modifier = Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(top = 4.dp, bottom = 32.dp),
+            contentPadding = PaddingValues(0.dp),
             verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
         ) {
         playbackCollapsibleSection(
