@@ -558,7 +558,7 @@ internal fun SettingsExpandedSectionSurface(
 }
 
 @Composable
-private fun SettingsRowDivider() {
+internal fun SettingsRowDivider() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
