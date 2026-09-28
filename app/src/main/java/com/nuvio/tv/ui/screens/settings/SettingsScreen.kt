@@ -627,13 +627,12 @@ private fun IntegrationSettingsContent(
                 SettingsGroupCard(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
                 ) {
                     val integrationHubState = rememberLazyListState()
-                    Box(modifier = Modifier.fillMaxSize()) {
+                    Box(modifier = Modifier.fillMaxWidth()) {
                         LazyColumn(
                             state = integrationHubState,
-                            modifier = Modifier.fillMaxSize(),
+                            modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
                             item(key = "integration_hub_debrid") {
