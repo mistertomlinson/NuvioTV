@@ -901,9 +901,14 @@ private fun SettingsTogglePill(
 internal fun SettingsResetButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    onFocused: () -> Unit = {}
+    onFocused: () -> Unit = {},
+    groupPosition: SettingsGroupPosition? = null
 ) {
-    val shape = RoundedCornerShape(SettingsSecondaryCardRadius)
+    val shape = if (groupPosition != null) {
+        animatedSettingsGroupShape(groupPosition)
+    } else {
+        RoundedCornerShape(SettingsSecondaryCardRadius)
+    }
     androidx.tv.material3.Button(
         onClick = onClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
