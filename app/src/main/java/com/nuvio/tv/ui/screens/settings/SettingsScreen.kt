@@ -632,7 +632,7 @@ private fun IntegrationSettingsContent(
                         LazyColumn(
                             state = integrationHubState,
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(0.dp)
+                            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
                         ) {
                             item(key = "integration_hub_debrid") {
                                 SettingsActionRow(
