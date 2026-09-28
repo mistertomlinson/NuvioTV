@@ -521,7 +521,7 @@ internal fun SettingsGroupCard(
                 text = title,
                 style = MaterialTheme.typography.titleMedium,
                 color = NuvioColors.TextPrimary,
-                modifier = Modifier.padding(horizontal = 14.dp, top = 8.dp, bottom = 2.dp)
+                modifier = Modifier.padding(start = 14.dp, top = 8.dp, end = 14.dp, bottom = 2.dp)
             )
         }
         if (!subtitle.isNullOrBlank()) {
@@ -529,7 +529,7 @@ internal fun SettingsGroupCard(
                 text = subtitle,
                 style = MaterialTheme.typography.bodySmall,
                 color = NuvioColors.TextSecondary,
-                modifier = Modifier.padding(horizontal = 14.dp, bottom = 6.dp)
+                modifier = Modifier.padding(start = 14.dp, end = 14.dp, bottom = 6.dp)
             )
         }
         content()
