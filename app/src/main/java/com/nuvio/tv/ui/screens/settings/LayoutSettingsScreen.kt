@@ -120,11 +120,6 @@ fun LayoutSettingsContent(
 
     var focusedSection by remember { mutableStateOf<LayoutSettingsSection?>(null) }
 
-    LaunchedEffect(uiState.selectedLayout) {
-        if (uiState.selectedLayout != HomeLayout.MODERN) {
-            viewModel.onEvent(LayoutSettingsEvent.SelectLayout(HomeLayout.MODERN))
-        }
-    }
     LaunchedEffect(homeContentExpanded, focusedSection) {
         if (!homeContentExpanded && focusedSection == LayoutSettingsSection.HOME_CONTENT) {
             homeContentHeaderFocus.requestFocus()
