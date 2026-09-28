@@ -574,13 +574,11 @@ private fun AccountSettingsInline(
             title = stringResource(R.string.settings_account),
             subtitle = stringResource(R.string.settings_account_section_subtitle)
         )
-        SettingsGroupCard(modifier = Modifier.fillMaxSize()) {
-            com.nuvio.tv.ui.screens.account.AccountSettingsContent(
-                uiState = accountUiState,
-                viewModel = accountViewModel,
-                onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn
-            )
-        }
+        com.nuvio.tv.ui.screens.account.AccountSettingsContent(
+            uiState = accountUiState,
+            viewModel = accountViewModel,
+            onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn
+        )
     }
 }
 
