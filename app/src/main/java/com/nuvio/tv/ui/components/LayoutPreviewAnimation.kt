@@ -209,3 +209,231 @@ fun ModernLayoutPreview(
         }
     }
 }
+
+
+/** Static preview of the normal landscape Continue Watching card. */
+@Composable
+fun CardCwStylePreview(
+    modifier: Modifier = Modifier,
+    accentColor: Color = NuvioColors.Primary
+) {
+    val bgColor = NuvioColors.Background
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cardW = minOf(w * 0.90f, h * 0.68f * 1.77f)
+            val cardH = cardW / 1.77f
+            val x = (w - cardW) / 2f
+            val y = (h - cardH) / 2f
+            val radius = CornerRadius(h * 0.04f)
+
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.42f),
+                topLeft = Offset(x, y),
+                size = Size(cardW, cardH),
+                cornerRadius = radius
+            )
+
+            drawRoundRect(
+                color = bgColor.copy(alpha = 0.74f),
+                topLeft = Offset(x, y + cardH * 0.52f),
+                size = Size(cardW, cardH * 0.48f),
+                cornerRadius = radius
+            )
+
+            val inset = cardW * 0.06f
+            val lineH = cardH * 0.09f
+
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.80f),
+                topLeft = Offset(x + inset, y + cardH * 0.60f),
+                size = Size(cardW * 0.48f, lineH),
+                cornerRadius = CornerRadius(lineH)
+            )
+
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.42f),
+                topLeft = Offset(x + inset, y + cardH * 0.74f),
+                size = Size(cardW * 0.31f, lineH * 0.7f),
+                cornerRadius = CornerRadius(lineH)
+            )
+
+            val trackW = cardW - inset * 2f
+            val trackH = (cardH * 0.035f).coerceAtLeast(2f)
+            val trackY = y + cardH - inset * 0.7f
+
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.38f),
+                topLeft = Offset(x + inset, trackY),
+                size = Size(trackW, trackH),
+                cornerRadius = CornerRadius(trackH)
+            )
+
+            drawRoundRect(
+                color = accentColor,
+                topLeft = Offset(x + inset, trackY),
+                size = Size(trackW * 0.55f, trackH),
+                cornerRadius = CornerRadius(trackH)
+            )
+        }
+    }
+}
+
+/** Static preview of the wide CW card: poster strip left, metadata right. */
+@Composable
+fun WideCwStylePreview(
+    modifier: Modifier = Modifier,
+    accentColor: Color = NuvioColors.Primary
+) {
+    val bgColor = NuvioColors.Background
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cardW = minOf(w * 0.92f, h * 0.80f * 2.5f)
+            val cardH = cardW * 0.4f
+            val x = (w - cardW) / 2f
+            val y = (h - cardH) / 2f
+            val radius = CornerRadius(h * 0.05f)
+
+            drawRoundRect(
+                color = bgColor.copy(alpha = 0.85f),
+                topLeft = Offset(x, y),
+                size = Size(cardW, cardH),
+                cornerRadius = radius
+            )
+
+            val posterW = cardH * (2f / 3f)
+
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.52f),
+                topLeft = Offset(x, y),
+                size = Size(posterW, cardH),
+                cornerRadius = radius
+            )
+
+            val infoX = x + posterW + cardW * 0.06f
+            val infoW = cardW - posterW - cardW * 0.12f
+            val lineH = cardH * 0.10f
+
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.82f),
+                topLeft = Offset(infoX, y + cardH * 0.18f),
+                size = Size(infoW * 0.82f, lineH),
+                cornerRadius = CornerRadius(lineH)
+            )
+
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.42f),
+                topLeft = Offset(infoX, y + cardH * 0.37f),
+                size = Size(infoW * 0.52f, lineH * 0.75f),
+                cornerRadius = CornerRadius(lineH)
+            )
+
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.30f),
+                topLeft = Offset(infoX, y + cardH * 0.52f),
+                size = Size(infoW * 0.68f, lineH * 0.7f),
+                cornerRadius = CornerRadius(lineH)
+            )
+
+            val barH = (cardH * 0.04f).coerceAtLeast(2f)
+            val barY = y + cardH * 0.76f
+
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.4f),
+                topLeft = Offset(infoX, barY),
+                size = Size(infoW, barH),
+                cornerRadius = CornerRadius(barH)
+            )
+
+            drawRoundRect(
+                color = accentColor,
+                topLeft = Offset(infoX, barY),
+                size = Size(infoW * 0.48f, barH),
+                cornerRadius = CornerRadius(barH)
+            )
+        }
+    }
+}
+
+/** Static preview of the portrait CW card with title beneath the artwork. */
+@Composable
+fun PosterCwStylePreview(
+    modifier: Modifier = Modifier,
+    accentColor: Color = NuvioColors.Primary
+) {
+    val bgColor = NuvioColors.Background
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(bgColor)
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+
+            val titleSpace = h * 0.18f
+            val artW = minOf(
+                (h - titleSpace) * (2f / 3f) * 0.94f,
+                w * 0.52f
+            )
+            val artH = artW * 1.5f
+            val x = (w - artW) / 2f
+            val y = (h - titleSpace - artH) / 2f
+            val radius = CornerRadius(h * 0.035f)
+
+            drawRoundRect(
+                color = accentColor.copy(alpha = 0.48f),
+                topLeft = Offset(x, y),
+                size = Size(artW, artH),
+                cornerRadius = radius
+            )
+
+            val inset = artW * 0.08f
+            val trackW = artW - inset * 2f
+            val trackH = (artH * 0.025f).coerceAtLeast(2f)
+            val pillY = y + artH - inset
+
+            drawRoundRect(
+                color = bgColor.copy(alpha = 0.72f),
+                topLeft = Offset(x + inset, pillY - trackH),
+                size = Size(trackW, trackH * 2.8f),
+                cornerRadius = CornerRadius(trackH * 2.8f)
+            )
+
+            drawRoundRect(
+                color = accentColor,
+                topLeft = Offset(x + inset + trackH, pillY),
+                size = Size((trackW - trackH * 2f) * 0.52f, trackH),
+                cornerRadius = CornerRadius(trackH)
+            )
+
+            val titleY = y + artH + h * 0.035f
+            val titleH = h * 0.055f
+
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.78f),
+                topLeft = Offset(x, titleY),
+                size = Size(artW * 0.88f, titleH),
+                cornerRadius = CornerRadius(titleH)
+            )
+
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.35f),
+                topLeft = Offset(x, titleY + titleH * 1.45f),
+                size = Size(artW * 0.48f, titleH * 0.70f),
+                cornerRadius = CornerRadius(titleH)
+            )
+        }
+    }
+}

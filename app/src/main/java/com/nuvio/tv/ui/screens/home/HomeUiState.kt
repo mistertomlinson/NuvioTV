@@ -4,6 +4,7 @@ import androidx.compose.runtime.Immutable
 import com.nuvio.tv.data.local.StartupAuthNotice
 import com.nuvio.tv.data.local.ReleaseReminderBadge
 import com.nuvio.tv.domain.model.CatalogRow
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
@@ -27,6 +28,7 @@ data class HomeUiState(
     val installedAddonsCount: Int = 0,
     val homeLayout: HomeLayout = HomeLayout.MODERN,
     val modernLandscapePostersEnabled: Boolean = false,
+    val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
     val landscapeCatalogKeys: Set<String> = emptySet(),
     val heroItems: List<MetaPreview> = emptyList(),
     val heroCatalogKeys: List<String> = emptyList(),

@@ -27,6 +27,7 @@ import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.ui.components.CatalogRowSection
 import com.nuvio.tv.ui.components.ContinueWatchingSection
 import com.nuvio.tv.ui.components.HeroCarousel
@@ -222,6 +223,24 @@ fun ClassicHomeContent(
                         val isNextUp = item is ContinueWatchingItem.NextUp
                         onRemoveContinueWatching(contentId, season, episode, isNextUp)
                     },
+                    cardWidth = when (uiState.continueWatchingCardStyle) {
+                        ContinueWatchingCardStyle.POSTER ->
+                            posterCardStyle.width
+                        ContinueWatchingCardStyle.WIDE ->
+                            posterCardStyle.width * 2.5f
+                        ContinueWatchingCardStyle.CARD ->
+                            288.dp
+                    },
+                    imageHeight = when (uiState.continueWatchingCardStyle) {
+                        ContinueWatchingCardStyle.POSTER ->
+                            posterCardStyle.height
+                        ContinueWatchingCardStyle.WIDE ->
+                            posterCardStyle.width
+                        ContinueWatchingCardStyle.CARD ->
+                            162.dp
+                    },
+                    cardStyle = uiState.continueWatchingCardStyle,
+                    cornerRadius = posterCardStyle.cornerRadius,
                     focusedItemIndex = when {
                         focusState.hasSavedFocus && focusState.focusedRowIndex == -1 -> focusState.focusedItemIndex
                         shouldRequestInitialFocus && !heroVisible -> 0

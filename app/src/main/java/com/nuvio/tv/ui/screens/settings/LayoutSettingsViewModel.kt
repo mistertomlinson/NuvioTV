@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.LayoutPreferenceDataStore
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.repository.AddonRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -27,6 +28,7 @@ data class LayoutSettingsUiState(
     val modernSidebarEnabled: Boolean = false,
     val modernSidebarBlurEnabled: Boolean = false,
     val modernLandscapePostersEnabled: Boolean = false,
+    val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
     val heroSectionEnabled: Boolean = true,
     val searchDiscoverEnabled: Boolean = true,
     val posterLabelsEnabled: Boolean = true,
@@ -64,6 +66,7 @@ sealed class LayoutSettingsEvent {
     data class SetModernSidebarEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetModernSidebarBlurEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetModernLandscapePostersEnabled(val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetContinueWatchingCardStyle(val style: ContinueWatchingCardStyle) : LayoutSettingsEvent()
     data class SetHeroSectionEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetSearchDiscoverEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetPosterLabelsEnabled(val enabled: Boolean) : LayoutSettingsEvent()
@@ -166,6 +169,13 @@ class LayoutSettingsViewModel @Inject constructor(
             layoutPreferenceDataStore.modernLandscapePostersEnabled.distinctUntilChanged().collectLatest { enabled ->
                 updateUiStateIfChanged { it.copy(modernLandscapePostersEnabled = enabled) }
             }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.continueWatchingCardStyle
+                .distinctUntilChanged()
+                .collectLatest { style ->
+                    updateUiStateIfChanged { it.copy(continueWatchingCardStyle = style) }
+                }
         }
         viewModelScope.launch {
             layoutPreferenceDataStore.heroSectionEnabled.distinctUntilChanged().collectLatest { enabled ->
@@ -289,6 +299,7 @@ class LayoutSettingsViewModel @Inject constructor(
             is LayoutSettingsEvent.SetModernSidebarEnabled -> setModernSidebarEnabled(event.enabled)
             is LayoutSettingsEvent.SetModernSidebarBlurEnabled -> setModernSidebarBlurEnabled(event.enabled)
             is LayoutSettingsEvent.SetModernLandscapePostersEnabled -> setModernLandscapePostersEnabled(event.enabled)
+            is LayoutSettingsEvent.SetContinueWatchingCardStyle -> setContinueWatchingCardStyle(event.style)
             is LayoutSettingsEvent.SetHeroSectionEnabled -> setHeroSectionEnabled(event.enabled)
             is LayoutSettingsEvent.SetSearchDiscoverEnabled -> setSearchDiscoverEnabled(event.enabled)
             is LayoutSettingsEvent.SetPosterLabelsEnabled -> setPosterLabelsEnabled(event.enabled)
@@ -375,6 +386,13 @@ class LayoutSettingsViewModel @Inject constructor(
         if (_uiState.value.modernLandscapePostersEnabled == enabled) return
         viewModelScope.launch {
             layoutPreferenceDataStore.setModernLandscapePostersEnabled(enabled)
+        }
+    }
+
+    private fun setContinueWatchingCardStyle(style: ContinueWatchingCardStyle) {
+        if (_uiState.value.continueWatchingCardStyle == style) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setContinueWatchingCardStyle(style)
         }
     }
 

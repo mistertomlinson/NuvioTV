@@ -20,6 +20,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -28,6 +29,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 
@@ -42,7 +44,9 @@ fun GridContinueWatchingSection(
     showManualPlayOption: Boolean = false,
     onPlayManually: (ContinueWatchingItem) -> Unit = {},
     modifier: Modifier = Modifier,
-    focusedItemIndex: Int = -1
+    focusedItemIndex: Int = -1,
+    cardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
+    cornerRadius: Dp = 12.dp
 ) {
     if (items.isEmpty()) return
     var optionsItem by remember { mutableStateOf<ContinueWatchingItem?>(null) }
@@ -121,8 +125,18 @@ fun GridContinueWatchingSection(
                                 lastFocusedIndex = index
                             }
                         },
-                    cardWidth = 220.dp,
-                    imageHeight = 124.dp
+                    cardWidth = when (cardStyle) {
+                        ContinueWatchingCardStyle.POSTER -> 120.dp
+                        ContinueWatchingCardStyle.WIDE -> 320.dp
+                        ContinueWatchingCardStyle.CARD -> 220.dp
+                    },
+                    imageHeight = when (cardStyle) {
+                        ContinueWatchingCardStyle.POSTER -> 180.dp
+                        ContinueWatchingCardStyle.WIDE -> 128.dp
+                        ContinueWatchingCardStyle.CARD -> 124.dp
+                    },
+                    cardStyle = cardStyle,
+                    cornerRadius = cornerRadius
                 )
             }
         }
