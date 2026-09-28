@@ -203,7 +203,7 @@ internal fun PlaybackSettingsSections(
             state = playbackListState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
         playbackCollapsibleSection(
             keyPrefix = "general",
@@ -410,9 +410,17 @@ private fun LazyListScope.playbackCollapsibleSection(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp)
-                    .height(1.dp)
-                    .background(NuvioColors.Border)
+                    .height(8.dp)
+                    .border(
+                        width = 1.dp,
+                        color = SettingsGlassBorderColor,
+                        shape = RoundedCornerShape(
+                            topStart = 0.dp,
+                            topEnd = 0.dp,
+                            bottomStart = SettingsRowFocusRadius,
+                            bottomEnd = SettingsRowFocusRadius
+                        )
+                    )
             )
         }
     }
@@ -438,7 +446,8 @@ private fun PlaybackSectionHeader(
             .focusRequester(focusRequester),
         onFocused = onFocused,
         enabled = enabled,
-        trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight
+        trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+        segmentBreakAfter = expanded
     )
 }
 
