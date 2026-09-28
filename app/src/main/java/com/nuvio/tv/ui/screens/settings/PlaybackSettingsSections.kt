@@ -204,7 +204,7 @@ internal fun PlaybackSettingsSections(
             state = playbackListState,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(top = 4.dp, bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(0.dp)
+            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
         ) {
         playbackCollapsibleSection(
             keyPrefix = "general",
@@ -444,7 +444,10 @@ private fun FrameRateMatchingModeOptions(
     onFocused: () -> Unit,
     enabled: Boolean
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+    ) {
         RenderTypeSettingsItem(
             title = stringResource(R.string.playback_afr_off),
             subtitle = stringResource(R.string.playback_afr_off_sub),
