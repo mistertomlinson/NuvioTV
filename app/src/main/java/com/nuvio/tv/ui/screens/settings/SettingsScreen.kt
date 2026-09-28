@@ -196,6 +196,27 @@ fun SettingsScreen(
     onNavigateToSupportersContributors: () -> Unit = {},
     profileViewModel: ProfileSettingsViewModel = hiltViewModel()
 ) {
+    SettingsCompactContent {
+        SettingsScreenContent(
+            showBuiltInHeader = showBuiltInHeader,
+            onNavigateToTracking = onNavigateToTracking,
+            onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
+            onNavigateToManageProfiles = onNavigateToManageProfiles,
+            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
+            profileViewModel = profileViewModel
+        )
+    }
+}
+
+@Composable
+private fun SettingsScreenContent(
+    showBuiltInHeader: Boolean = true,
+    onNavigateToTracking: () -> Unit = {},
+    onNavigateToAuthQrSignIn: () -> Unit = {},
+    onNavigateToManageProfiles: () -> Unit = {},
+    onNavigateToSupportersContributors: () -> Unit = {},
+    profileViewModel: ProfileSettingsViewModel = hiltViewModel()
+) {
     val isPrimaryProfileActive by profileViewModel.isPrimaryProfileActive.collectAsStateWithLifecycle()
 
     val allSectionSpecs = rememberSettingsSectionSpecs()
@@ -322,10 +343,10 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(
-                    start = 32.dp,
-                    end = 32.dp,
-                    top = if (showBuiltInHeader) 24.dp else 68.dp,
-                    bottom = 24.dp
+                    start = 24.dp,
+                    end = 24.dp,
+                    top = if (showBuiltInHeader) 18.dp else 56.dp,
+                    bottom = 18.dp
                 )
         ) {
         SettingsWorkspaceSurface(
@@ -334,14 +355,14 @@ fun SettingsScreen(
         ) {
             Row(
                 modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 var railHadFocus by remember { mutableStateOf(false) }
                 val railListState = rememberLazyListState()
 
                 Box(
                     modifier = Modifier
-                        .width(220.dp)
+                        .width(190.dp)
                         .fillMaxHeight()
                 ) {
                     LazyColumn(
@@ -372,7 +393,7 @@ fun SettingsScreen(
                                 false
                             }
                         },
-                    verticalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterVertically)
+                    verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
                 ) {
                     items(
                         items = visibleSections,

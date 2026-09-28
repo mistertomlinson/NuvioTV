@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import com.nuvio.tv.ui.screens.settings.SettingsActionRow
+import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
 import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
 import com.nuvio.tv.R as NuvioR
 import com.nuvio.tv.R
@@ -92,6 +93,19 @@ import androidx.tv.material3.Card
 
 @Composable
 fun CatalogOrderScreen(
+    viewModel: CatalogOrderViewModel = hiltViewModel(),
+    onBackPress: () -> Unit
+) {
+    SettingsCompactContent {
+        CatalogOrderScreenContent(
+            viewModel = viewModel,
+            onBackPress = onBackPress
+        )
+    }
+}
+
+@Composable
+private fun CatalogOrderScreenContent(
     viewModel: CatalogOrderViewModel = hiltViewModel(),
     onBackPress: () -> Unit
 ) {
@@ -198,7 +212,7 @@ fun CatalogOrderScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 48.dp, vertical = 24.dp)
+            .padding(horizontal = 32.dp, vertical = 18.dp)
     ) {
         LazyColumn(
             state = listState,
@@ -214,8 +228,8 @@ fun CatalogOrderScreen(
                         Modifier
                     }
                 ),
-            contentPadding = PaddingValues(bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            contentPadding = PaddingValues(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             item {
                 Text(
@@ -420,7 +434,7 @@ private fun CatalogOrderCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 16.dp),
+                .padding(horizontal = 10.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -623,7 +637,7 @@ private fun CatalogOrderCard(
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
@@ -643,12 +657,12 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = ButtonDefaults.ContentPadding
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = NuvioR.drawable.ic_move_to_top),
                         contentDescription = "Move to top",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
@@ -669,12 +683,12 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = ButtonDefaults.ContentPadding
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
                         contentDescription = "Move up",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
@@ -695,12 +709,12 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = ButtonDefaults.ContentPadding
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
                         contentDescription = "Move down",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
@@ -727,7 +741,7 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = ButtonDefaults.ContentPadding
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     val hashFont = when (item.numberStyle) {
                         com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE -> FontFamily(Font(R.font.sf_distant_galaxy_outline))
@@ -737,10 +751,15 @@ private fun CatalogOrderCard(
                         text = "#",
                         style = TextStyle(
                             fontFamily = hashFont,
-                            fontSize = 28.sp,
-                            lineHeight = 28.sp
+                            fontSize = 22.sp,
+                            lineHeight = 22.sp
                         ),
-                        modifier = Modifier.padding(top = if (item.numberStyle == com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE) 7.dp else 8.dp)
+                        modifier = Modifier.padding(
+                            top = if (
+                                item.numberStyle ==
+                                com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE
+                            ) 4.dp else 5.dp
+                        )
                     )
                 }
 
@@ -764,12 +783,12 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = ButtonDefaults.ContentPadding
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_landscape_poster),
                         contentDescription = "Toggle landscape posters",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
@@ -793,12 +812,12 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = ButtonDefaults.ContentPadding
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_shuffle_catalog),
                         contentDescription = "Toggle shuffle",
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(18.dp)
                     )
                 }
 
@@ -858,7 +877,7 @@ private fun ShowAllCatalogsOnHomeToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -924,7 +943,7 @@ private fun HidePlatformNameToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1019,7 +1038,7 @@ private fun HeroMetadataSizeToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1085,7 +1104,7 @@ private fun AggregatePlatformsToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1151,7 +1170,7 @@ private fun FullWidthIconRowToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1221,7 +1240,7 @@ private fun HidePlatformIconsOnRowExitToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1302,7 +1321,7 @@ private fun DimIconsOnRowExitToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -1350,7 +1369,7 @@ private fun ThemeColorToggleRow(
         onClick = onToggle,
         modifier = Modifier
             .fillMaxWidth()
-            .height(62.dp)
+            .height(50.dp)
             .onFocusChanged { isFocused = it.isFocused },
         colors = androidx.tv.material3.CardDefaults.colors(
             containerColor = SettingsGlassGroupColor,

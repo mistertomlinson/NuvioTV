@@ -11,6 +11,7 @@ import dev.chrisbanes.haze.haze
 import androidx.compose.foundation.layout.RowScope
 import com.nuvio.tv.ui.components.NuvioDialog
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.LaunchedEffect
@@ -67,6 +68,7 @@ import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -90,7 +92,37 @@ import com.nuvio.tv.ui.theme.NuvioColors
 internal val SettingsContainerRadius = 28.dp
 internal val SettingsPillRadius = 999.dp
 internal val SettingsSecondaryCardRadius = 18.dp
-internal val SettingsRailItemHeight = 56.dp
+internal val SettingsRailItemHeight = 46.dp
+
+private const val SETTINGS_COMPACT_FONT_SCALE = 0.86f
+
+/**
+ * Content-only density used by Settings, Addons and Library.
+ *
+ * Only fontScale changes. Physical dp sizing, Home, player UI and the legacy
+ * sidebar are untouched.
+ */
+@Composable
+internal fun SettingsCompactContent(
+    content: @Composable () -> Unit
+) {
+    val baseDensity = LocalDensity.current
+    val compactDensity = remember(
+        baseDensity.density,
+        baseDensity.fontScale
+    ) {
+        Density(
+            density = baseDensity.density,
+            fontScale = baseDensity.fontScale * SETTINGS_COMPACT_FONT_SCALE
+        )
+    }
+
+    CompositionLocalProvider(
+        LocalDensity provides compactDensity
+    ) {
+        content()
+    }
+}
 internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
     colors = listOf(
         Color(0xAD2A3038),
@@ -140,6 +172,15 @@ internal fun SettingsGlassBackdrop(
 internal fun SettingsGlassScreen(
     content: @Composable BoxScope.() -> Unit
 ) {
+    SettingsCompactContent {
+        SettingsGlassScreenContent(content)
+    }
+}
+
+@Composable
+private fun SettingsGlassScreenContent(
+    content: @Composable BoxScope.() -> Unit
+) {
     val dialogHazeState = remember { HazeState() }
     val dialogBlurEnabled =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -180,6 +221,21 @@ internal fun SettingsStandaloneScaffold(
     subtitle: String,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    SettingsCompactContent {
+        SettingsStandaloneScaffoldContent(
+            title = title,
+            subtitle = subtitle,
+            content = content
+        )
+    }
+}
+
+@Composable
+private fun SettingsStandaloneScaffoldContent(
+    title: String,
+    subtitle: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
     val dialogHazeState = remember { HazeState() }
     val dialogBlurEnabled =
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
@@ -212,14 +268,14 @@ internal fun SettingsStandaloneScaffold(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 32.dp, vertical = 24.dp)
+                    .padding(horizontal = 24.dp, vertical = 18.dp)
             ) {
                 SettingsWorkspaceSurface(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     Column(
                         modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         content()
                     }
@@ -248,14 +304,14 @@ internal fun SettingsBrandPanel(
                 color = SettingsGlassBorderColor,
                 shape = RoundedCornerShape(SettingsContainerRadius)
             )
-            .padding(26.dp),
+            .padding(20.dp),
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.Start
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 modifier = Modifier
-                    .size(44.dp)
+                    .size(36.dp)
                     .clip(CircleShape)
                     .background(SettingsGlassRowColor),
                 contentAlignment = Alignment.Center
@@ -266,7 +322,7 @@ internal fun SettingsBrandPanel(
                     tint = titleColor
                 )
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = stringResource(R.string.nav_settings),
                 style = MaterialTheme.typography.titleLarge,
@@ -274,18 +330,18 @@ internal fun SettingsBrandPanel(
             )
         }
 
-        Spacer(modifier = Modifier.height(26.dp))
+        Spacer(modifier = Modifier.height(18.dp))
 
         Image(
             painter = painterResource(id = R.drawable.app_logo_wordmark),
             contentDescription = "NuvioTV",
             modifier = Modifier
                 .fillMaxWidth(0.9f)
-                .height(72.dp),
+                .height(56.dp),
             contentScale = ContentScale.Fit
         )
 
-        Spacer(modifier = Modifier.height(14.dp))
+        Spacer(modifier = Modifier.height(10.dp))
 
         Text(
             text = title,
@@ -295,7 +351,7 @@ internal fun SettingsBrandPanel(
             overflow = TextOverflow.Ellipsis
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(5.dp))
 
         Text(
             text = subtitle,
@@ -349,7 +405,7 @@ internal fun SettingsRailButton(
         onClick = onClick,
         modifier = appliedModifier
             .fillMaxWidth()
-            .padding(horizontal = 4.dp, vertical = 3.dp)
+            .padding(horizontal = 3.dp, vertical = 2.dp)
             .heightIn(min = SettingsRailItemHeight)
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
@@ -388,7 +444,7 @@ internal fun SettingsRailButton(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 18.dp),
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -448,7 +504,7 @@ internal fun SettingsDetailHeader(
 ) {
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
             text = title,
@@ -477,8 +533,8 @@ internal fun SettingsGroupCard(
                 color = SettingsGlassGroupColor,
                 shape = RoundedCornerShape(SettingsSecondaryCardRadius)
             )
-            .padding(horizontal = 6.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .padding(horizontal = 4.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         if (!title.isNullOrBlank()) {
             Text(
@@ -517,8 +573,8 @@ internal fun SettingsToggleRow(
         },
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .height(62.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .height(50.dp)
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
                 if (isFocused != nowFocused) {
@@ -542,7 +598,7 @@ internal fun SettingsToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 18.dp),
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -565,7 +621,7 @@ internal fun SettingsToggleRow(
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(8.dp))
             SettingsTogglePill(
                 checked = checked,
                 enabled = enabled
@@ -592,8 +648,8 @@ internal fun SettingsActionRow(
         onClick = { if (enabled) onClick() },
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 8.dp, vertical = 4.dp)
-            .heightIn(min = 62.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .heightIn(min = 50.dp)
             .onFocusChanged { state ->
                 val nowFocused = state.isFocused
                 if (isFocused != nowFocused) {
@@ -617,7 +673,7 @@ internal fun SettingsActionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 12.dp),
+                .padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -675,7 +731,7 @@ internal fun SettingsChoiceChip(
     Card(
         onClick = onClick,
         modifier = modifier
-            .padding(horizontal = 4.dp, vertical = 3.dp)
+            .padding(horizontal = 3.dp, vertical = 2.dp)
             .onFocusChanged { state ->
             val nowFocused = state.isFocused
             if (isFocused != nowFocused) {
@@ -708,7 +764,7 @@ internal fun SettingsChoiceChip(
             text = label,
             style = MaterialTheme.typography.labelMedium,
             color = if (selected || isFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
         )
     }
 }
@@ -721,8 +777,8 @@ private fun SettingsTogglePill(
     val alpha = if (enabled) 1f else 0.35f
     Box(
         modifier = Modifier
-            .width(46.dp)
-            .height(24.dp)
+            .width(42.dp)
+            .height(22.dp)
             .clip(RoundedCornerShape(SettingsPillRadius))
             .background(
                 if (checked) {
@@ -736,7 +792,7 @@ private fun SettingsTogglePill(
     ) {
         Box(
             modifier = Modifier
-                .size(20.dp)
+                .size(18.dp)
                 .clip(CircleShape)
                 .background(Color.White.copy(alpha = alpha))
         )
@@ -823,8 +879,8 @@ internal fun <T> SettingsSingleChoiceDialog(
     onOptionSelected: (T) -> Unit,
     onDismiss: () -> Unit,
     subtitle: String? = null,
-    width: Dp = 420.dp,
-    maxHeight: Dp = 320.dp
+    width: Dp = 360.dp,
+    maxHeight: Dp = 260.dp
 ) {
     val focusRequester = remember { FocusRequester() }
     val focusedIndex = options.indexOfFirst { it.value == selectedValue }.let { if (it >= 0) it else 0 }
@@ -835,6 +891,7 @@ internal fun <T> SettingsSingleChoiceDialog(
     NuvioDialog(
         glass = true,
         enhancedGlass = true,
+        compact = true,
         onDismiss = onDismiss,
         title = title,
         subtitle = subtitle,
@@ -844,7 +901,7 @@ internal fun <T> SettingsSingleChoiceDialog(
         Box(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
             LazyColumn(
                 state = listState,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
                 contentPadding = PaddingValues(vertical = 4.dp)
             ) {
                 itemsIndexed(items = options, key = { index, option -> "$index-${option.value}" }) { index, option ->
@@ -860,7 +917,7 @@ internal fun <T> SettingsSingleChoiceDialog(
                         shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
                     ) {
-                        Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(text = option.title, color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary, style = MaterialTheme.typography.bodyLarge)
                                 if (!option.description.isNullOrBlank()) {
@@ -869,11 +926,11 @@ internal fun <T> SettingsSingleChoiceDialog(
                                 }
                             }
                             if (!option.trailing.isNullOrBlank()) {
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Text(text = option.trailing, style = MaterialTheme.typography.bodySmall, color = NuvioColors.TextSecondary)
                             }
                             if (isSelected) {
-                                Spacer(modifier = Modifier.width(12.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
                                 Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = NuvioColors.Primary, modifier = Modifier.size(20.dp))
                             }
                         }
@@ -892,8 +949,8 @@ internal fun <T> SettingsMultiChoiceDialog(
     onValuesSelected: (List<T>) -> Unit,
     onDismiss: () -> Unit,
     subtitle: String? = null,
-    width: Dp = 520.dp,
-    maxHeight: Dp = 420.dp
+    width: Dp = 440.dp,
+    maxHeight: Dp = 340.dp
 ) {
     val focusRequester = remember { FocusRequester() }
     val selected = remember(selectedValues) { mutableStateListOf<T>().also { it.addAll(selectedValues) } }
@@ -905,17 +962,18 @@ internal fun <T> SettingsMultiChoiceDialog(
     NuvioDialog(
         glass = true,
         enhancedGlass = true,
+        compact = true,
         onDismiss = onDismiss,
         title = title,
         subtitle = subtitle,
         width = width,
         suppressFirstKeyUp = false
     ) {
-        Column(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(modifier = Modifier.fillMaxWidth().heightIn(max = maxHeight), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(modifier = Modifier.fillMaxWidth().weight(1f, fill = false)) {
                 LazyColumn(
                     state = listState,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                     contentPadding = PaddingValues(vertical = 4.dp)
                 ) {
                     itemsIndexed(items = options, key = { index, option -> "$index-${option.value}" }) { index, option ->
@@ -931,12 +989,12 @@ internal fun <T> SettingsMultiChoiceDialog(
                             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
                             scale = CardDefaults.scale(focusedScale = 1f)
                         ) {
-                            Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(text = option.title, color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary, style = MaterialTheme.typography.bodyLarge)
                                 }
                                 if (isSelected) {
-                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
                                     Icon(imageVector = Icons.Default.Check, contentDescription = null, tint = NuvioColors.Primary, modifier = Modifier.size(20.dp))
                                 }
                             }
@@ -963,7 +1021,7 @@ internal fun SettingsDialogActionRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp, horizontalAlignment),
+        horizontalArrangement = Arrangement.spacedBy(6.dp, horizontalAlignment),
         verticalAlignment = Alignment.CenterVertically,
         content = content
     )

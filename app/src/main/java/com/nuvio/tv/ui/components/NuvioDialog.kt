@@ -57,6 +57,7 @@ fun NuvioDialog(
     suppressFirstKeyUp: Boolean = true,
     glass: Boolean = false,
     enhancedGlass: Boolean = false,
+    compact: Boolean = false,
     usePlatformDefaultWidth: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -149,7 +150,7 @@ fun NuvioDialog(
                     }
                 )
                 .border(1.dp, borderColor, shape)
-                .padding(24.dp)
+                .padding(if (compact) 18.dp else 24.dp)
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
                     if (suppressNextKeyUp && native.action == AndroidKeyEvent.ACTION_UP) {
@@ -161,10 +162,18 @@ fun NuvioDialog(
                     false
                 }
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(
+                    if (compact) 11.dp else 16.dp
+                )
+            ) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleLarge,
+                    style = if (compact) {
+                        MaterialTheme.typography.titleMedium
+                    } else {
+                        MaterialTheme.typography.titleLarge
+                    },
                     color = NuvioColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -173,7 +182,11 @@ fun NuvioDialog(
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = if (compact) {
+                            MaterialTheme.typography.bodySmall
+                        } else {
+                            MaterialTheme.typography.bodyMedium
+                        },
                         color = NuvioColors.TextSecondary
                     )
                 }

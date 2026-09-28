@@ -53,7 +53,7 @@ fun TmdbSettingsContent(
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         SettingsDetailHeader(
             title = stringResource(R.string.tmdb_title),
@@ -70,8 +70,8 @@ fun TmdbSettingsContent(
                 LazyColumn(
                     state = tmdbListState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 8.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                    contentPadding = PaddingValues(bottom = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 item(key = "tmdb_enabled") {
                     SettingsToggleRow(

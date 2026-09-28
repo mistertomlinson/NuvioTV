@@ -151,7 +151,7 @@ fun LayoutSettingsContent(
 
     Column(
         modifier = Modifier.fillMaxSize(),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         SettingsDetailHeader(
             title = stringResource(R.string.layout_title),
@@ -168,8 +168,8 @@ fun LayoutSettingsContent(
         LazyColumn(
             state = layoutListState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(bottom = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            contentPadding = PaddingValues(bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             item(key = "home_layout_section") {
                 CollapsibleSectionCard(
@@ -182,7 +182,7 @@ fun LayoutSettingsContent(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         LayoutCard(
                             layout = HomeLayout.MODERN,
@@ -763,7 +763,7 @@ private fun CollapsibleSectionCard(
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         SettingsActionRow(
             title = title,
@@ -943,7 +943,7 @@ private fun LayoutPreviewPlaceholder() {
                 shape = RoundedCornerShape(12.dp)
             )
             .padding(10.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Box(
             modifier = Modifier
@@ -1191,6 +1191,7 @@ private fun CardDepthFineTuneDialog(
     NuvioDialog(
         glass = true,
         enhancedGlass = true,
+        compact = true,
         onDismiss = onDismiss,
         title = stringResource(
             R.string.settings_card_depth_fine_tune_title
@@ -1198,7 +1199,7 @@ private fun CardDepthFineTuneDialog(
         subtitle = stringResource(
             R.string.settings_card_depth_fine_tune_hint_tv
         ),
-        width = 680.dp,
+        width = 580.dp,
         usePlatformDefaultWidth = false
     ) {
         Row(
@@ -1210,7 +1211,7 @@ private fun CardDepthFineTuneDialog(
                 style = style,
                 modifier =
                     Modifier
-                        .width(260.dp)
+                        .width(220.dp)
                         .aspectRatio(2f / 3f)
             )
 
@@ -1338,7 +1339,7 @@ private fun PosterCardStyleControls(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         OptionRow(
             title = stringResource(R.string.layout_card_width),

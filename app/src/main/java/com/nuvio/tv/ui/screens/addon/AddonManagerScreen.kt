@@ -98,11 +98,29 @@ import com.nuvio.tv.ui.screens.settings.SettingsGlassControlIdleColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
+import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun AddonManagerScreen(
+    viewModel: AddonManagerViewModel = hiltViewModel(),
+    showBuiltInHeader: Boolean = true,
+    onNavigateToCatalogOrder: () -> Unit = {},
+    onRefreshCatalogs: () -> Unit = {}
+) {
+    SettingsCompactContent {
+        AddonManagerScreenContent(
+            viewModel = viewModel,
+            showBuiltInHeader = showBuiltInHeader,
+            onNavigateToCatalogOrder = onNavigateToCatalogOrder,
+            onRefreshCatalogs = onRefreshCatalogs
+        )
+    }
+}
+
+@Composable
+private fun AddonManagerScreenContent(
     viewModel: AddonManagerViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
     onNavigateToCatalogOrder: () -> Unit = {},
@@ -223,8 +241,8 @@ fun AddonManagerScreen(
     ) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 36.dp, vertical = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+            contentPadding = PaddingValues(horizontal = 28.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             item {
                 Text(
@@ -260,16 +278,16 @@ fun AddonManagerScreen(
                         colors = CardDefaults.cardColors(containerColor = SettingsGlassRowColor),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Column(modifier = Modifier.padding(20.dp)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Text(
                                 text = stringResource(R.string.addon_install_title),
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                 color = NuvioColors.TextPrimary
                             )
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(5.dp))
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 // Surface always stays in the tree for stable D-pad focus
@@ -514,9 +532,9 @@ private fun AddonMessageOverlay(
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp))
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
                         imageVector = if (isError) Icons.Default.Close else Icons.Default.Check,
@@ -563,7 +581,10 @@ private fun ManageFromPhoneCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(
+                    horizontal = 14.dp,
+                    vertical = 10.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -571,10 +592,10 @@ private fun ManageFromPhoneCard(
                 Icon(
                     imageVector = Icons.Default.QrCode2,
                     contentDescription = null,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(22.dp),
                     tint = if (isFocused) NuvioColors.Secondary else NuvioColors.TextSecondary
                 )
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         text = stringResource(R.string.addon_manage_from_phone_title),
@@ -591,7 +612,7 @@ private fun ManageFromPhoneCard(
             Icon(
                 imageVector = Icons.Default.PhoneAndroid,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(16.dp),
                 tint = NuvioColors.TextSecondary
             )
         }
@@ -627,7 +648,10 @@ private fun CatalogOrderEntryCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(
+                    horizontal = 14.dp,
+                    vertical = 10.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -635,10 +659,10 @@ private fun CatalogOrderEntryCard(
                 Icon(
                     imageVector = Icons.Default.Reorder,
                     contentDescription = null,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(22.dp),
                     tint = if (isFocused) NuvioColors.Secondary else NuvioColors.TextSecondary
                 )
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         text = stringResource(R.string.addon_reorder_title),
@@ -655,7 +679,7 @@ private fun CatalogOrderEntryCard(
             Icon(
                 imageVector = Icons.Default.ArrowDownward,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(16.dp),
                 tint = NuvioColors.TextSecondary
             )
         }
@@ -691,7 +715,10 @@ private fun RefreshCatalogsEntryCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(20.dp),
+                .padding(
+                    horizontal = 14.dp,
+                    vertical = 10.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -699,10 +726,10 @@ private fun RefreshCatalogsEntryCard(
                 Icon(
                     imageVector = Icons.Default.Refresh,
                     contentDescription = null,
-                    modifier = Modifier.size(28.dp),
+                    modifier = Modifier.size(22.dp),
                     tint = if (isFocused) NuvioColors.Secondary else NuvioColors.TextSecondary
                 )
-                Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.width(12.dp))
                 Column {
                     Text(
                         text = "Refresh Catalogs",
@@ -719,7 +746,7 @@ private fun RefreshCatalogsEntryCard(
             Icon(
                 imageVector = Icons.Default.Refresh,
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(16.dp),
                 tint = NuvioColors.TextSecondary
             )
         }
@@ -760,7 +787,7 @@ private fun QrCodeOverlay(
                 textAlign = TextAlign.Center
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             if (qrBitmap != null) {
                 Image(
@@ -771,7 +798,7 @@ private fun QrCodeOverlay(
                 )
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(5.dp))
 
             if (serverUrl != null) {
                 Text(
@@ -782,7 +809,7 @@ private fun QrCodeOverlay(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(10.dp))
 
             Surface(
                 onClick = onClose,
@@ -801,7 +828,7 @@ private fun QrCodeOverlay(
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
@@ -846,8 +873,8 @@ private fun ConfirmAddonChangesDialog(
         Surface(
             onClick = { },
             modifier = Modifier
-                .width(560.dp)
-                .heightIn(max = 640.dp),
+                .width(480.dp)
+                .heightIn(max = 520.dp),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = NuvioColors.SurfaceVariant
             ),
@@ -863,7 +890,7 @@ private fun ConfirmAddonChangesDialog(
                     color = NuvioColors.TextPrimary
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
                     text = stringResource(R.string.addon_confirm_subtitle),
@@ -871,12 +898,12 @@ private fun ConfirmAddonChangesDialog(
                     color = NuvioColors.TextSecondary
                 )
 
-                Spacer(modifier = Modifier.height(12.dp))
+                Spacer(modifier = Modifier.height(5.dp))
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 320.dp)
+                        .heightIn(max = 260.dp)
                         .background(
                             color = NuvioColors.Surface,
                             shape = RoundedCornerShape(12.dp)
@@ -908,7 +935,7 @@ private fun ConfirmAddonChangesDialog(
                                         .padding(start = 8.dp, bottom = 2.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(5.dp))
                         }
 
                         if (pendingChange.removedUrls.isNotEmpty()) {
@@ -931,7 +958,7 @@ private fun ConfirmAddonChangesDialog(
                                         .padding(start = 8.dp, bottom = 2.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(5.dp))
                         }
 
                         if (pendingChange.catalogsReordered) {
@@ -964,7 +991,7 @@ private fun ConfirmAddonChangesDialog(
                                         .padding(start = 8.dp, bottom = 2.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(5.dp))
                         }
 
                         if (pendingChange.enabledCatalogNames.isNotEmpty()) {
@@ -986,7 +1013,7 @@ private fun ConfirmAddonChangesDialog(
                                         .padding(start = 8.dp, bottom = 2.dp)
                                 )
                             }
-                            Spacer(modifier = Modifier.height(8.dp))
+                            Spacer(modifier = Modifier.height(5.dp))
                         }
 
                         if (
@@ -1018,13 +1045,13 @@ private fun ConfirmAddonChangesDialog(
                     modifier = Modifier.fillMaxWidth()
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 if (pendingChange.isApplying) {
                     LoadingIndicator(modifier = Modifier.size(36.dp))
                 } else {
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Surface(
                             onClick = onReject,
@@ -1041,7 +1068,7 @@ private fun ConfirmAddonChangesDialog(
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -1075,7 +1102,7 @@ private fun ConfirmAddonChangesDialog(
                         ) {
                             Text(
                                 text = stringResource(R.string.addon_confirm_confirm),
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp),
                                 color = NuvioColors.OnSecondary
                             )
                         }
@@ -1150,7 +1177,7 @@ private fun AddonCardContent(
     onMoveDown: () -> Unit = {},
     onRemove: () -> Unit = {}
 ) {
-    Column(modifier = Modifier.padding(20.dp)) {
+    Column(modifier = Modifier.padding(14.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -1170,7 +1197,7 @@ private fun AddonCardContent(
             }
             if (!isReadOnly) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Button(
@@ -1183,9 +1210,17 @@ private fun AddonCardContent(
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                        contentPadding = PaddingValues(
+                            horizontal = 10.dp,
+                            vertical = 5.dp
+                        )
                     ) {
-                        Icon(imageVector = Icons.Default.ArrowUpward, contentDescription = "Move up")
+                        Icon(
+                            imageVector = Icons.Default.ArrowUpward,
+                            contentDescription = "Move up",
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                     Button(
                         onClick = onMoveDown,
@@ -1197,9 +1232,17 @@ private fun AddonCardContent(
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                        contentPadding = PaddingValues(
+                            horizontal = 10.dp,
+                            vertical = 5.dp
+                        )
                     ) {
-                        Icon(imageVector = Icons.Default.ArrowDownward, contentDescription = "Move down")
+                        Icon(
+                            imageVector = Icons.Default.ArrowDownward,
+                            contentDescription = "Move down",
+                            modifier = Modifier.size(18.dp)
+                        )
                     }
                     Button(
                         onClick = onRemove,
@@ -1209,7 +1252,11 @@ private fun AddonCardContent(
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Error
                         ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
+                        contentPadding = PaddingValues(
+                            horizontal = 10.dp,
+                            vertical = 5.dp
+                        )
                     ) {
                         Text(text = stringResource(R.string.addon_remove))
                     }
@@ -1218,7 +1265,7 @@ private fun AddonCardContent(
         }
 
         if (!addon.description.isNullOrBlank()) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(5.dp))
             Text(
                 text = addon.description ?: "",
                 style = MaterialTheme.typography.bodyMedium,
@@ -1226,14 +1273,14 @@ private fun AddonCardContent(
             )
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(5.dp))
         Text(
             text = addon.baseUrl,
             style = MaterialTheme.typography.bodySmall,
             color = NuvioColors.TextTertiary
         )
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(5.dp))
         Text(
             text = stringResource(R.string.addon_catalogs_types, addon.catalogs.size, addon.rawTypes.joinToString()),
             style = MaterialTheme.typography.bodySmall,

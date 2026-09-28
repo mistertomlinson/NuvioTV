@@ -82,6 +82,7 @@ import com.nuvio.tv.ui.util.formatAddonTypeLabel
 import kotlinx.coroutines.delay
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
 import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
@@ -100,6 +101,22 @@ private fun localizedTypeLabel(key: String): String = when (key.lowercase()) {
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun LibraryScreen(
+    viewModel: LibraryViewModel = hiltViewModel(),
+    showBuiltInHeader: Boolean = true,
+    onNavigateToDetail: (String, String, String?) -> Unit
+) {
+    SettingsCompactContent {
+        LibraryScreenContent(
+            viewModel = viewModel,
+            showBuiltInHeader = showBuiltInHeader,
+            onNavigateToDetail = onNavigateToDetail
+        )
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LibraryScreenContent(
     viewModel: LibraryViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
     onNavigateToDetail: (String, String, String?) -> Unit
@@ -189,7 +206,7 @@ fun LibraryScreen(
             )
             Column(
                 horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 LoadingIndicator()
                 Text(
@@ -220,9 +237,9 @@ fun LibraryScreen(
                 }
                 false
             },
-        contentPadding = PaddingValues(start = 48.dp, end = 48.dp, top = 24.dp, bottom = 32.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        contentPadding = PaddingValues(start = 32.dp, end = 32.dp, top = 18.dp, bottom = 24.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item(span = { GridItemSpan(maxLineSpan) }) {
             Row(
@@ -380,9 +397,9 @@ fun LibraryScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = NuvioColors.TextPrimary,
                 modifier = Modifier
-                    .padding(top = 24.dp)
+                    .padding(top = 18.dp)
                     .background(SettingsGlassGroupColor, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 18.dp, vertical = 10.dp)
+                    .padding(horizontal = 14.dp, vertical = 7.dp)
             )
         }
     }
@@ -411,7 +428,7 @@ private fun LibrarySelectorsRow(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (sourceMode == LibrarySourceMode.TRAKT) {
             LibraryDropdownPicker(
@@ -433,7 +450,7 @@ private fun LibrarySelectorsRow(
                 Modifier.weight(1f)
             } else {
                 Modifier
-                    .width(420.dp)
+                    .width(360.dp)
                     .focusRequester(primaryFocusRequester)
             },
             title = stringResource(R.string.library_filter_type),
@@ -511,7 +528,7 @@ private fun LibraryDropdownPicker(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
                 Text(
@@ -548,7 +565,7 @@ private fun LibraryDropdownPicker(
             },
             modifier = Modifier
                 .width(with(LocalDensity.current) { anchorSize.width.toDp() })
-                .heightIn(max = 320.dp),
+                .heightIn(max = 260.dp),
             shape = RoundedCornerShape(14.dp),
             containerColor = SettingsGlassRowColor,
             tonalElevation = 0.dp,
@@ -618,7 +635,7 @@ private fun LibraryActionsRow(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Button(
             onClick = onManageLists,
@@ -674,11 +691,11 @@ private fun ManageListsDialog(
     Dialog(onDismissRequest = onDismiss) {
         Box(
             modifier = Modifier
-                .width(620.dp)
+                .width(520.dp)
                 .background(SettingsGlassGroupColor, RoundedCornerShape(16.dp))
-                .padding(24.dp)
+                .padding(18.dp)
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(
                     text = stringResource(R.string.library_manage_trakt_lists),
                     style = MaterialTheme.typography.titleLarge,
@@ -703,8 +720,8 @@ private fun ManageListsDialog(
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(220.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                            .height(180.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                         items(personalTabs, key = { it.key }) { tab ->
                             val selected = tab.key == selectedKey
@@ -733,7 +750,7 @@ private fun ManageListsDialog(
                     }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(
                         onClick = onCreate,
                         enabled = !pending,
@@ -768,7 +785,7 @@ private fun ManageListsDialog(
                     ) { Text(stringResource(R.string.library_list_move_down)) }
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     Button(
                         onClick = onDelete,
                         enabled = !pending && selectedKey != null,
@@ -821,9 +838,10 @@ private fun ListEditorDialog(
 
     NuvioDialog(
         glass = true,
+        compact = true,
         onDismiss = onCancel,
         title = if (state.mode == LibraryListEditorState.Mode.CREATE) "Create List" else "Edit List",
-        width = 560.dp
+        width = 480.dp
     ) {
         androidx.compose.material3.OutlinedTextField(
             value = state.name,
@@ -914,7 +932,7 @@ private fun ListEditorDialog(
             color = NuvioTheme.extendedColors.textSecondary
         )
 
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             items(TraktListPrivacy.entries.toList(), key = { it.name }) { privacy ->
                 val selected = privacy == state.privacy
                 Button(
@@ -953,10 +971,11 @@ private fun ConfirmDeleteDialog(
 ) {
     NuvioDialog(
         glass = true,
+        compact = true,
         onDismiss = onCancel,
         title = stringResource(R.string.library_delete_title),
         subtitle = stringResource(R.string.library_delete_subtitle),
-        width = 420.dp
+        width = 360.dp
     ) {
         Button(
             onClick = onConfirm,
