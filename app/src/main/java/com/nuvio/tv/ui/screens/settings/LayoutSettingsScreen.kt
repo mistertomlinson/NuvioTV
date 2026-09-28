@@ -169,7 +169,7 @@ fun LayoutSettingsContent(
             state = layoutListState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
             item(key = "home_layout_section") {
                 CollapsibleSectionCard(
@@ -763,7 +763,7 @@ private fun CollapsibleSectionCard(
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
         SettingsActionRow(
             title = title,
@@ -772,11 +772,12 @@ private fun CollapsibleSectionCard(
             onClick = onToggle,
             trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
             modifier = Modifier.focusRequester(focusRequester),
-            onFocused = onFocused
+            onFocused = onFocused,
+            segmentBreakAfter = expanded
         )
 
         if (expanded) {
-            SettingsGroupCard {
+            SettingsExpandedSectionSurface {
                 content()
             }
         }
