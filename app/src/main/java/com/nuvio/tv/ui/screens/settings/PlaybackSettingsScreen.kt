@@ -345,6 +345,28 @@ fun PlaybackSettingsContent(
     )
 }
 
+private fun Modifier.playbackSettingsFocusFrame(
+    isFocused: Boolean,
+    contentAlpha: Float
+): Modifier {
+    val shape = RoundedCornerShape(SettingsRowFocusRadius)
+    return this
+        .padding(horizontal = SettingsRowFocusInset, vertical = 2.dp)
+        .clip(shape)
+        .background(
+            if (isFocused) SettingsGlassRowFocusedColor else Color.Transparent
+        )
+        .border(
+            width = 1.dp,
+            color = if (isFocused) {
+                SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
+            } else {
+                Color.Transparent
+            },
+            shape = shape
+        )
+}
+
 @Composable
 internal fun ToggleSettingsItem(
     icon: ImageVector,
@@ -372,16 +394,7 @@ internal fun ToggleSettingsItem(
             },
         colors = CardDefaults.colors(
             containerColor = Color.Transparent,
-            focusedContainerColor = SettingsGlassRowFocusedColor
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(
-                    1.dp,
-                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
-                ),
-                shape = rowShape
-            )
+            focusedContainerColor = Color.Transparent
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -390,7 +403,8 @@ internal fun ToggleSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -465,16 +479,7 @@ internal fun RenderTypeSettingsItem(
             },
         colors = CardDefaults.colors(
             containerColor = Color.Transparent,
-            focusedContainerColor = SettingsGlassRowFocusedColor
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(
-                    1.dp,
-                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
-                ),
-                shape = rowShape
-            )
+            focusedContainerColor = Color.Transparent
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -483,7 +488,8 @@ internal fun RenderTypeSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -544,16 +550,7 @@ internal fun NavigationSettingsItem(
             },
         colors = CardDefaults.colors(
             containerColor = Color.Transparent,
-            focusedContainerColor = SettingsGlassRowFocusedColor
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(
-                    1.dp,
-                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
-                ),
-                shape = rowShape
-            )
+            focusedContainerColor = Color.Transparent
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -562,7 +559,8 @@ internal fun NavigationSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
@@ -654,16 +652,7 @@ internal fun SliderSettingsItem(
             },
         colors = CardDefaults.colors(
             containerColor = Color.Transparent,
-            focusedContainerColor = SettingsGlassRowFocusedColor
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(
-                    1.dp,
-                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
-                ),
-                shape = rowShape
-            )
+            focusedContainerColor = Color.Transparent
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -672,7 +661,8 @@ internal fun SliderSettingsItem(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
             ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -863,16 +853,7 @@ internal fun ColorSettingsItem(
             },
         colors = CardDefaults.colors(
             containerColor = Color.Transparent,
-            focusedContainerColor = SettingsGlassRowFocusedColor
-        ),
-        border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(
-                    1.dp,
-                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
-                ),
-                shape = rowShape
-            )
+            focusedContainerColor = Color.Transparent
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -881,7 +862,8 @@ internal fun ColorSettingsItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .playbackSettingsFocusFrame(isFocused, contentAlpha)
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
