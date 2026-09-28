@@ -92,9 +92,10 @@ import com.nuvio.tv.ui.theme.NuvioColors
 internal val SettingsContainerRadius = 28.dp
 internal val SettingsPillRadius = 999.dp
 internal val SettingsSecondaryCardRadius = 16.dp
+internal val SettingsInnerRowRadius = 6.dp
 internal val SettingsRailFocusRadius = 10.dp
 internal val SettingsRowFocusRadius = SettingsSecondaryCardRadius
-internal val SettingsRowFocusInset = 4.dp
+internal val SettingsRowGap = 2.dp
 internal val SettingsRailItemHeight = 40.dp
 
 internal enum class SettingsGroupPosition {
@@ -110,13 +111,13 @@ internal fun settingsGroupShape(position: SettingsGroupPosition): RoundedCornerS
         SettingsGroupPosition.TOP -> RoundedCornerShape(
             topStart = SettingsSecondaryCardRadius,
             topEnd = SettingsSecondaryCardRadius,
-            bottomStart = 0.dp,
-            bottomEnd = 0.dp
+            bottomStart = SettingsInnerRowRadius,
+            bottomEnd = SettingsInnerRowRadius
         )
-        SettingsGroupPosition.MIDDLE -> RoundedCornerShape(0.dp)
+        SettingsGroupPosition.MIDDLE -> RoundedCornerShape(SettingsInnerRowRadius)
         SettingsGroupPosition.BOTTOM -> RoundedCornerShape(
-            topStart = 0.dp,
-            topEnd = 0.dp,
+            topStart = SettingsInnerRowRadius,
+            topEnd = SettingsInnerRowRadius,
             bottomStart = SettingsSecondaryCardRadius,
             bottomEnd = SettingsSecondaryCardRadius
         )
@@ -161,6 +162,8 @@ internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
 )
 internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
 internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
+internal val SettingsRightSurfaceColor = Color(0xFF20262D)
+internal val SettingsRightSurfaceFocusedColor = Color(0xFF303841)
 internal val SettingsGlassGroupColor = Color.White.copy(alpha = 0.025f)
 internal val SettingsGlassBorderColor = Color.White.copy(alpha = 0.09f)
 internal val SettingsGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
@@ -450,7 +453,7 @@ internal fun SettingsRailButton(
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
+                border = BorderStroke(2.dp, SettingsGlassFocusBorderColor),
                 shape = focusShape
             )
         ),
@@ -527,6 +530,7 @@ internal fun SettingsGroupCard(
     modifier: Modifier = Modifier,
     title: String? = null,
     subtitle: String? = null,
+    segmented: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = RoundedCornerShape(SettingsSecondaryCardRadius)
@@ -534,11 +538,18 @@ internal fun SettingsGroupCard(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(SettingsGlassRowColor)
-            .border(
-                width = 1.dp,
-                color = SettingsGlassBorderColor,
-                shape = shape
+            .then(
+                if (segmented) {
+                    Modifier.background(Color.Transparent)
+                } else {
+                    Modifier
+                        .background(SettingsRightSurfaceColor)
+                        .border(
+                            width = 1.dp,
+                            color = SettingsGlassBorderColor,
+                            shape = shape
+                        )
+                }
             ),
         verticalArrangement = Arrangement.spacedBy(0.dp)
     ) {
@@ -567,12 +578,12 @@ internal fun SettingsExpandedSectionSurface(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val shape = settingsGroupShape(SettingsGroupPosition.BOTTOM)
+    val shape = RoundedCornerShape(SettingsSecondaryCardRadius)
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(SettingsGlassRowColor)
+            .background(SettingsRightSurfaceColor)
             .border(
                 width = 1.dp,
                 color = SettingsGlassBorderColor,
@@ -585,11 +596,10 @@ internal fun SettingsExpandedSectionSurface(
 
 @Composable
 internal fun SettingsRowDivider() {
-    Box(
+    Spacer(
         modifier = Modifier
             .fillMaxWidth()
-            .height(1.dp)
-            .background(SettingsGlassDividerColor)
+            .height(SettingsRowGap)
     )
 }
 
@@ -606,7 +616,7 @@ internal fun SettingsToggleRow(
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
     var isFocused by remember { mutableStateOf(false) }
-    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
+    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
@@ -615,8 +625,7 @@ internal fun SettingsToggleRow(
             },
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = SettingsRowFocusInset, vertical = 2.dp)
-                .height(45.dp)
+                .height(49.dp)
                 .onFocusChanged { state ->
                     val nowFocused = state.isFocused
                     if (isFocused != nowFocused) {
@@ -625,23 +634,18 @@ internal fun SettingsToggleRow(
                     }
                 },
             colors = CardDefaults.colors(
-                containerColor = Color.Transparent,
-                focusedContainerColor = SettingsGlassRowFocusedColor
+                containerColor = SettingsRightSurfaceColor,
+                focusedContainerColor = SettingsRightSurfaceFocusedColor
             ),
-            border = CardDefaults.border(
-                focusedBorder = Border(
-                    border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
-                    shape = rowShape
-                )
-            ),
+            border = CardDefaults.border(),
             shape = CardDefaults.shape(rowShape),
             scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(45.dp)
-                    .padding(horizontal = 10.dp),
+                    .height(49.dp)
+                    .padding(horizontal = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
@@ -692,33 +696,15 @@ internal fun SettingsActionRow(
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
     var isFocused by remember { mutableStateOf(false) }
-    val focusShape = RoundedCornerShape(SettingsRowFocusRadius)
-    val groupShape = groupPosition?.let(::settingsGroupShape)
+    val rowShape = groupPosition?.let(::settingsGroupShape)
+        ?: RoundedCornerShape(SettingsInnerRowRadius)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
-                if (groupShape != null) {
-                    Modifier
-                        .clip(groupShape)
-                        .background(SettingsGlassRowColor)
-                        .border(
-                            width = 1.dp,
-                            color = SettingsGlassBorderColor,
-                            shape = groupShape
-                        )
-                } else {
-                    Modifier
-                }
-            )
-    ) {
+    Column(modifier = Modifier.fillMaxWidth()) {
         Card(
             onClick = { if (enabled) onClick() },
             modifier = modifier
                 .fillMaxWidth()
-                .padding(horizontal = SettingsRowFocusInset, vertical = 2.dp)
-                .heightIn(min = 45.dp)
+                .heightIn(min = 49.dp)
                 .onFocusChanged { state ->
                     val nowFocused = state.isFocused
                     if (isFocused != nowFocused) {
@@ -727,22 +713,17 @@ internal fun SettingsActionRow(
                     }
                 },
             colors = CardDefaults.colors(
-                containerColor = Color.Transparent,
-                focusedContainerColor = SettingsGlassRowFocusedColor
+                containerColor = SettingsRightSurfaceColor,
+                focusedContainerColor = SettingsRightSurfaceFocusedColor
             ),
-            border = CardDefaults.border(
-                focusedBorder = Border(
-                    border = BorderStroke(1.dp, SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)),
-                    shape = focusShape
-                )
-            ),
-            shape = CardDefaults.shape(focusShape),
+            border = CardDefaults.border(),
+            shape = CardDefaults.shape(rowShape),
             scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 6.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
@@ -786,7 +767,7 @@ internal fun SettingsActionRow(
             }
         }
 
-        if (groupPosition == null && showDivider) {
+        if (showDivider) {
             SettingsRowDivider()
         }
     }
