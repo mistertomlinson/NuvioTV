@@ -72,7 +72,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import com.nuvio.tv.domain.model.CardDepthStyle
-import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_COVERAGE
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
@@ -279,7 +278,9 @@ fun LayoutSettingsContent(
                         LayoutSettingsSection.CONTINUE_WATCHING
                     )
                 ) {
-                    LayoutControlGroup {
+                    LayoutControlGroup(
+                        groupPosition = SettingsGroupPosition.BOTTOM
+                    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -622,17 +623,6 @@ fun LayoutSettingsContent(
                                 LayoutSettingsEvent
                                     .SetCardDepthEdgeCoverage(
                                         coverage
-                                    )
-                            )
-                        },
-                        onSurfaceEnabledChange = {
-                            surface,
-                            enabled ->
-                            viewModel.onEvent(
-                                LayoutSettingsEvent
-                                    .SetCardDepthSurfaceEnabled(
-                                        surface,
-                                        enabled
                                     )
                             )
                         },
@@ -1058,12 +1048,14 @@ private fun CatalogChip(
 
 @Composable
 private fun LayoutControlGroup(
+    groupPosition: SettingsGroupPosition = SettingsGroupPosition.SINGLE,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val shape = animatedSettingsGroupShape(groupPosition)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(SettingsSecondaryCardRadius)),
+            .clip(shape),
         verticalArrangement = Arrangement.spacedBy(SettingsRowGap),
         content = content
     )
@@ -1076,8 +1068,6 @@ private fun CardDepthStyleControls(
     onEdgeStrengthChange: (Int) -> Unit,
     onSheenStrengthChange: (Int) -> Unit,
     onEdgeCoverageChange: (Int) -> Unit,
-    onSurfaceEnabledChange:
-        (CardDepthSurface, Boolean) -> Unit,
     onFineTune: () -> Unit,
     onReset: () -> Unit,
     onFocused: () -> Unit
@@ -1144,21 +1134,6 @@ private fun CardDepthStyleControls(
         )
     )
 
-    val surfaces = listOf(
-        stringResource(
-            R.string.settings_card_depth_surface_posters
-        ) to CardDepthSurface.POSTERS,
-        stringResource(
-            R.string.settings_card_depth_surface_continue_watching
-        ) to CardDepthSurface.CONTINUE_WATCHING,
-        stringResource(
-            R.string.settings_card_depth_surface_episodes
-        ) to CardDepthSurface.EPISODE_CARDS,
-        stringResource(
-            R.string.settings_card_depth_surface_cast
-        ) to CardDepthSurface.CAST,)
-
-
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
@@ -1221,47 +1196,14 @@ private fun CardDepthStyleControls(
                     onFocused = onFocused
                 )
             }
+
+            SettingsResetButton(
+                onClick = onReset,
+                modifier = Modifier.fillMaxWidth(),
+                onFocused = onFocused,
+                groupPosition = SettingsGroupPosition.BOTTOM
+            )
         }
-
-        if (style.enabled) {
-            LayoutControlGroup {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(SettingsRightSurfaceColor)
-                        .padding(horizontal = 14.dp, vertical = 8.dp)
-                ) {
-                    Text(
-                        text = stringResource(
-                            R.string.settings_card_depth_apply_to
-                        ),
-                        style = MaterialTheme.typography.labelLarge,
-                        color = NuvioColors.TextSecondary
-                    )
-                }
-
-                surfaces.forEach { (title, surface) ->
-                    CompactToggleRow(
-                        title = title,
-                        subtitle = null,
-                        checked = style.isSurfaceEnabled(surface),
-                        onToggle = {
-                            onSurfaceEnabledChange(
-                                surface,
-                                !style.isSurfaceEnabled(surface)
-                            )
-                        },
-                        onFocused = onFocused
-                    )
-                }
-            }
-        }
-
-        SettingsResetButton(
-            onClick = onReset,
-            modifier = Modifier.fillMaxWidth(),
-            onFocused = onFocused
-        )
     }
 }
 
@@ -1433,7 +1375,9 @@ private fun PosterCardStyleControls(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
     ) {
-        LayoutControlGroup {
+        LayoutControlGroup(
+            groupPosition = SettingsGroupPosition.BOTTOM
+        ) {
             OptionRow(
                 title = stringResource(R.string.layout_card_width),
                 selectedValue = widthDp,
@@ -1448,13 +1392,13 @@ private fun PosterCardStyleControls(
                 onSelected = onCornerRadiusSelected,
                 onFocused = onFocused
             )
+            SettingsResetButton(
+                onClick = onReset,
+                modifier = Modifier.fillMaxWidth(),
+                onFocused = onFocused,
+                groupPosition = SettingsGroupPosition.BOTTOM
+            )
         }
-
-        SettingsResetButton(
-            onClick = onReset,
-            modifier = Modifier.fillMaxWidth(),
-            onFocused = onFocused
-        )
     }
 }
 
