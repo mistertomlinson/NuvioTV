@@ -15,7 +15,7 @@ import org.junit.Test
 
 class SimklDurableProgressTest {
     @Test
-    fun `completed progress removes durable resume without dismissing next up`() = runTest {
+    fun `completed movie dismisses stale playback and removes durable resume`() = runTest {
         val durableProgressStore = mockk<SimklDurableProgressStore>(relaxed = true)
         val progressDismissalStore = mockk<SimklProgressDismissalStore>(relaxed = true)
         val profileManager = mockk<ProfileManager>(relaxed = true)
@@ -38,8 +38,13 @@ class SimklDurableProgressTest {
 
         provider.persistDurableProgress(completed)
 
-        coVerify(exactly = 0) {
-            progressDismissalStore.dismiss(any(), any(), any(), any())
+        coVerify(exactly = 1) {
+            progressDismissalStore.dismiss(
+                contentId = "tt0000099",
+                season = null,
+                episode = null,
+                dismissedAtEpochMs = 500L
+            )
         }
         coVerify(exactly = 1) {
             durableProgressStore.removeProgress(
@@ -48,8 +53,56 @@ class SimklDurableProgressTest {
                 episode = null
             )
         }
-        coVerify(exactly = 0) { progressDismissalStore.clearForNewerProgress(any()) }
-        coVerify(exactly = 0) { durableProgressStore.persist(any()) }
+        coVerify(exactly = 0) {
+            progressDismissalStore.clearForNewerProgress(any())
+        }
+        coVerify(exactly = 0) {
+            durableProgressStore.persist(any())
+        }
+    }
+
+    @Test
+    fun `completed episode removes durable resume without dismissing next up`() = runTest {
+        val durableProgressStore = mockk<SimklDurableProgressStore>(relaxed = true)
+        val progressDismissalStore = mockk<SimklProgressDismissalStore>(relaxed = true)
+        val profileManager = mockk<ProfileManager>(relaxed = true)
+        every { profileManager.activeProfileId } returns MutableStateFlow(1)
+
+        val provider = SimklTrackingProgressProvider(
+            profileManager = profileManager,
+            syncRepository = mockk(relaxed = true),
+            apiClient = mockk(relaxed = true),
+            authStorage = mockk(relaxed = true),
+            layoutPreferences = mockk(relaxed = true),
+            durableProgressStore = durableProgressStore,
+            progressDismissalStore = progressDismissalStore
+        )
+        val completed = progress(
+            contentId = "tt0000100",
+            season = 1,
+            episode = 4,
+            percent = 100f,
+            lastWatched = 600L
+        )
+
+        provider.persistDurableProgress(completed)
+
+        coVerify(exactly = 0) {
+            progressDismissalStore.dismiss(any(), any(), any(), any())
+        }
+        coVerify(exactly = 1) {
+            durableProgressStore.removeProgress(
+                contentId = "tt0000100",
+                season = 1,
+                episode = 4
+            )
+        }
+        coVerify(exactly = 0) {
+            progressDismissalStore.clearForNewerProgress(any())
+        }
+        coVerify(exactly = 0) {
+            durableProgressStore.persist(any())
+        }
     }
 
     @Test

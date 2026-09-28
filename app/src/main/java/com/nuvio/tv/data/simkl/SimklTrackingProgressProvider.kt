@@ -231,9 +231,24 @@ class SimklTrackingProgressProvider @Inject constructor(
 
     override suspend fun persistDurableProgress(progress: WatchProgress) {
         if (progress.isCompleted()) {
-            // Completion removes the stale playback record, but must not dismiss
-            // the completed episode as a Next Up seed. Doing both suppresses the
-            // successor until a later Simkl refresh returns a newer timestamp.
+            /*
+             * Movies have no Next Up successor. Persist a dismissal tombstone
+             * so an older Simkl playback session cannot resurrect the completed
+             * movie in Continue Watching after a process restart.
+             *
+             * Episodes intentionally do NOT get this dismissal here: their
+             * completed progress is used to advance Next Up, and suppressing
+             * that seed previously prevented the successor from appearing.
+             */
+            if (progress.season == null && progress.episode == null) {
+                progressDismissalStore.dismiss(
+                    contentId = progress.contentId,
+                    season = null,
+                    episode = null,
+                    dismissedAtEpochMs = progress.lastWatched
+                )
+            }
+
             durableProgressStore.removeProgress(
                 contentId = progress.contentId,
                 season = progress.season,
@@ -242,6 +257,11 @@ class SimklTrackingProgressProvider @Inject constructor(
             return
         }
 
+        /*
+         * A genuinely newer playback session is a new rewatch. Once its
+         * progress timestamp passes the completion tombstone, allow it back
+         * into Continue Watching normally.
+         */
         progressDismissalStore.clearForNewerProgress(progress)
         durableProgressStore.persist(progress)
     }
