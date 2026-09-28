@@ -66,7 +66,8 @@ fun MDBListSettingsContent(
 
         SettingsGroupCard(
             modifier = Modifier
-                .fillMaxWidth()
+                .fillMaxWidth(),
+            segmented = true
         ) {
             val mdbListState = rememberLazyListState()
             Box(modifier = Modifier.fillMaxWidth()) {
