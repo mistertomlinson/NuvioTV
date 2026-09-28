@@ -416,6 +416,11 @@
     <string name="layout_hero_catalogs_sub">Select one or more catalogs for hero content.</string>
     <string name="layout_section_content">Home Content</string>
     <string name="layout_section_content_desc">Control what appears on home and search.</string>
+    <string name="layout_section_continue_watching">Continue Watching</string>
+    <string name="layout_section_continue_watching_desc">Choose how Continue Watching titles are displayed.</string>
+    <string name="layout_cw_card_style_card">Card</string>
+    <string name="layout_cw_card_style_wide">Wide</string>
+    <string name="layout_cw_card_style_poster">Poster</string>
     <string name="layout_collapse_sidebar">Collapse Sidebar</string>
     <string name="layout_collapse_sidebar_sub">Hide sidebar by default; show when focused.</string>
     <string name="layout_modern_sidebar">Modern Sidebar</string>

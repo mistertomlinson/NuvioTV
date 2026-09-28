@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.domain.model.HomeLayout
@@ -72,6 +73,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val posterCardWidthDpKey = intPreferencesKey("poster_card_width_dp")
     private val posterCardHeightDpKey = intPreferencesKey("poster_card_height_dp")
     private val posterCardCornerRadiusDpKey = intPreferencesKey("poster_card_corner_radius_dp")
+    private val continueWatchingCardStyleKey = stringPreferencesKey("continue_watching_card_style")
 
     private val cardDepthEnabledKey =
         booleanPreferencesKey("card_depth_enabled")
@@ -122,6 +124,12 @@ class LayoutPreferenceDataStore @Inject constructor(
         } catch (e: IllegalArgumentException) {
             HomeLayout.MODERN
         }
+    }
+
+    val continueWatchingCardStyle: Flow<ContinueWatchingCardStyle> = profileFlow { prefs ->
+        val stored = prefs[continueWatchingCardStyleKey] ?: ContinueWatchingCardStyle.CARD.name
+        runCatching { ContinueWatchingCardStyle.valueOf(stored) }
+            .getOrDefault(ContinueWatchingCardStyle.CARD)
     }
 
     val hasChosenLayout: Flow<Boolean> = profileFlow { prefs ->
@@ -356,6 +364,12 @@ class LayoutPreferenceDataStore @Inject constructor(
                     FocusedPosterTrailerPlaybackTarget.HERO_MEDIA.name
             }
             prefs[hasChosenKey] = true
+        }
+    }
+
+    suspend fun setContinueWatchingCardStyle(style: ContinueWatchingCardStyle) {
+        store().edit { prefs ->
+            prefs[continueWatchingCardStyleKey] = style.name
         }
     }
 
