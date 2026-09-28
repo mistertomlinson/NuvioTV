@@ -359,6 +359,7 @@ internal fun ToggleSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
+    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
 
     Card(
         onClick = { if (enabled) onCheckedChange(!isChecked) },
@@ -372,63 +373,70 @@ internal fun ToggleSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowColor
+            containerColor = Color.Transparent,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, if (enabled) NuvioColors.FocusRing else NuvioColors.FocusRing.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(SettingsPillRadius)
+                border = BorderStroke(
+                    1.dp,
+                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
+                ),
+                shape = rowShape
             )
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(SettingsPillRadius)),
+        shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = (if (isFocused && enabled) NuvioColors.Primary else NuvioColors.TextSecondary).copy(alpha = contentAlpha),
-                modifier = Modifier.size(18.dp)
-            )
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = (if (isFocused && enabled) NuvioColors.Primary else NuvioColors.TextSecondary)
+                        .copy(alpha = contentAlpha),
+                    modifier = Modifier.size(18.dp)
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = NuvioColors.TextPrimary.copy(alpha = contentAlpha),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Switch(
+                    checked = isChecked,
+                    onCheckedChange = null,
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = NuvioColors.Secondary.copy(alpha = contentAlpha),
+                        checkedTrackColor = NuvioColors.Secondary.copy(alpha = 0.35f * contentAlpha),
+                        uncheckedThumbColor = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
+                        uncheckedTrackColor = NuvioColors.Border
+                    )
                 )
             }
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Switch(
-                checked = isChecked,
-                onCheckedChange = null, // Handled by Card onClick
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = NuvioColors.Secondary.copy(alpha = contentAlpha),
-                    checkedTrackColor = NuvioColors.Secondary.copy(alpha = 0.35f * contentAlpha),
-                    uncheckedThumbColor = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                    uncheckedTrackColor = NuvioColors.Border
-                )
-            )
+            SettingsRowDivider()
         }
     }
 }
@@ -444,7 +452,8 @@ internal fun RenderTypeSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    
+    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
+
     Card(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
@@ -457,61 +466,56 @@ internal fun RenderTypeSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) {
-                NuvioColors.Primary.copy(alpha = 0.15f * contentAlpha)
-            } else {
-                SettingsGlassRowColor
-            },
-            focusedContainerColor = if (isSelected) {
-                NuvioColors.Primary.copy(alpha = 0.15f * contentAlpha)
-            } else {
-                SettingsGlassRowColor
-            }
+            containerColor = Color.Transparent,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing.copy(alpha = contentAlpha)),
-                shape = RoundedCornerShape(SettingsSecondaryCardRadius)
-            ),
-            border = if (isSelected) Border(
-                border = BorderStroke(2.dp, NuvioColors.Primary.copy(alpha = contentAlpha)),
-                shape = RoundedCornerShape(SettingsSecondaryCardRadius)
-            ) else Border.None
+                border = BorderStroke(
+                    1.dp,
+                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
+                ),
+                shape = rowShape
+            )
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(SettingsSecondaryCardRadius)),
+        shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = (if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary).copy(alpha = contentAlpha),
-                    maxLines = 2,
-                    overflow = TextOverflow.Clip
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary.copy(alpha = contentAlpha)
-                )
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = (if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary)
+                            .copy(alpha = contentAlpha),
+                        maxLines = 2,
+                        overflow = TextOverflow.Clip
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.TextSecondary.copy(alpha = contentAlpha)
+                    )
+                }
+
+                if (isSelected) {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = stringResource(R.string.cd_selected),
+                        tint = NuvioColors.Primary.copy(alpha = contentAlpha),
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
             }
-            
-            if (isSelected) {
-                Spacer(modifier = Modifier.width(10.dp))
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = stringResource(R.string.cd_selected),
-                    tint = NuvioColors.Primary.copy(alpha = contentAlpha),
-                    modifier = Modifier.size(24.dp)
-                )
-            }
+            SettingsRowDivider()
         }
     }
 }
@@ -527,6 +531,7 @@ internal fun NavigationSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
+    val rowShape = RoundedCornerShape(SettingsRowFocusRadius)
 
     Card(
         onClick = { if (enabled) onClick() },
@@ -540,57 +545,64 @@ internal fun NavigationSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowColor
+            containerColor = Color.Transparent,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, if (enabled) NuvioColors.FocusRing else NuvioColors.FocusRing.copy(alpha = 0.3f)),
-                shape = RoundedCornerShape(SettingsPillRadius)
+                border = BorderStroke(
+                    1.dp,
+                    SettingsGlassFocusBorderColor.copy(alpha = contentAlpha)
+                ),
+                shape = rowShape
             )
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(SettingsPillRadius)),
+        shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = (if (isFocused && enabled) NuvioColors.Primary else NuvioColors.TextSecondary).copy(alpha = contentAlpha),
-                modifier = Modifier.size(18.dp)
-            )
-
-            Spacer(modifier = Modifier.width(10.dp))
-
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = (if (isFocused && enabled) NuvioColors.Primary else NuvioColors.TextSecondary)
+                        .copy(alpha = contentAlpha),
+                    modifier = Modifier.size(18.dp)
                 )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = NuvioColors.TextPrimary.copy(alpha = contentAlpha),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Icon(
+                    imageVector = Icons.Default.ChevronRight,
+                    contentDescription = null,
+                    tint = NuvioColors.TextTertiary.copy(alpha = contentAlpha),
+                    modifier = Modifier.size(18.dp)
                 )
             }
-
-            Icon(
-                imageVector = Icons.Default.ChevronRight,
-                contentDescription = null,
-                tint = NuvioColors.TextSecondary.copy(alpha = contentAlpha),
-                modifier = Modifier.size(20.dp)
-            )
+            SettingsRowDivider()
         }
     }
 }
