@@ -372,7 +372,11 @@ internal fun ToggleSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsRightSurfaceColor,
+            containerColor = if (isFocused) {
+                SettingsRightSurfaceFocusedColor
+            } else {
+                SettingsRightSurfaceColor
+            },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
@@ -456,7 +460,11 @@ internal fun RenderTypeSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsRightSurfaceColor,
+            containerColor = if (isFocused) {
+                SettingsRightSurfaceFocusedColor
+            } else {
+                SettingsRightSurfaceColor
+            },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
@@ -526,7 +534,11 @@ internal fun NavigationSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsRightSurfaceColor,
+            containerColor = if (isFocused) {
+                SettingsRightSurfaceFocusedColor
+            } else {
+                SettingsRightSurfaceColor
+            },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
@@ -627,7 +639,11 @@ internal fun SliderSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsRightSurfaceColor,
+            containerColor = if (isFocused) {
+                SettingsRightSurfaceFocusedColor
+            } else {
+                SettingsRightSurfaceColor
+            },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
@@ -827,7 +843,11 @@ internal fun ColorSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = SettingsRightSurfaceColor,
+            containerColor = if (isFocused) {
+                SettingsRightSurfaceFocusedColor
+            } else {
+                SettingsRightSurfaceColor
+            },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = rowShape),
