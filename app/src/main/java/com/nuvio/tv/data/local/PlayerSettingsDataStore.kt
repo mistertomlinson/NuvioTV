@@ -171,7 +171,7 @@ data class PlayerSettings(
     val secondaryPreferredAudioLanguage: String? = null,
     val loadingOverlayEnabled: Boolean = true,
     val pauseOverlayEnabled: Boolean = true,
-    val osdClockEnabled: Boolean = true,
+    val osdClockEnabled: Boolean = false,
     val skipIntroEnabled: Boolean = true,
     // Dolby Vision Profile 7 → HEVC fallback (requires forked ExoPlayer)
     val mapDV7ToHevc: Boolean = false,
@@ -179,14 +179,14 @@ data class PlayerSettings(
     val frameRateMatchingMode: FrameRateMatchingMode = FrameRateMatchingMode.OFF,
     val resolutionMatchingEnabled: Boolean = false,
     // Stream selection settings
-    val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.MANUAL,
+    val streamAutoPlayMode: StreamAutoPlayMode = StreamAutoPlayMode.FIRST_STREAM,
     val streamAutoPlaySource: StreamAutoPlaySource = StreamAutoPlaySource.ALL_SOURCES,
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
     val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
     val streamAutoPlayRegex: String = "",
-    val streamAutoPlayNextEpisodeEnabled: Boolean = false,
-    val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = true,
-    val streamAutoPlayTimeoutSeconds: Int = 3,
+    val streamAutoPlayNextEpisodeEnabled: Boolean = true,
+    val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = false,
+    val streamAutoPlayTimeoutSeconds: Int = 2,
     val nextEpisodeThresholdMode: NextEpisodeThresholdMode = NextEpisodeThresholdMode.PERCENTAGE,
     val nextEpisodeThresholdPercent: Float = 99f,
     val nextEpisodeThresholdMinutesBeforeEnd: Float = 2f,
@@ -196,7 +196,7 @@ data class PlayerSettings(
     val streamReuseLastLinkEnabled: Boolean = false,
     val streamReuseLastLinkCacheHours: Int = 24,
     val subtitleOrganizationMode: SubtitleOrganizationMode = SubtitleOrganizationMode.NONE,
-    val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.ALL_SUBTITLES,
+    val addonSubtitleStartupMode: AddonSubtitleStartupMode = AddonSubtitleStartupMode.FAST_STARTUP,
     val resizeMode: Int = 0
 ) {
     companion object {
@@ -436,7 +436,7 @@ class PlayerSettingsDataStore @Inject constructor(
                     ?.let(::normalizeSecondaryAudioLanguageCode),
                 loadingOverlayEnabled = prefs[loadingOverlayEnabledKey] ?: true,
                 pauseOverlayEnabled = prefs[pauseOverlayEnabledKey] ?: true,
-                osdClockEnabled = prefs[osdClockEnabledKey] ?: true,
+                osdClockEnabled = prefs[osdClockEnabledKey] ?: false,
                 skipIntroEnabled = prefs[skipIntroEnabledKey] ?: true,
                 mapDV7ToHevc = prefs[mapDV7ToHevcKey] ?: false,
                 frameRateMatchingMode = prefs[frameRateMatchingModeKey]?.let {
@@ -448,18 +448,18 @@ class PlayerSettingsDataStore @Inject constructor(
                 },
                 resolutionMatchingEnabled = prefs[resolutionMatchingEnabledKey] ?: false,
                 streamAutoPlayMode = prefs[streamAutoPlayModeKey]?.let {
-                    runCatching { StreamAutoPlayMode.valueOf(it) }.getOrDefault(StreamAutoPlayMode.MANUAL)
-                } ?: StreamAutoPlayMode.MANUAL,
+                    runCatching { StreamAutoPlayMode.valueOf(it) }.getOrDefault(StreamAutoPlayMode.FIRST_STREAM)
+                } ?: StreamAutoPlayMode.FIRST_STREAM,
                 streamAutoPlaySource = prefs[streamAutoPlaySourceKey]?.let {
                     runCatching { StreamAutoPlaySource.valueOf(it) }.getOrDefault(StreamAutoPlaySource.ALL_SOURCES)
                 } ?: StreamAutoPlaySource.ALL_SOURCES,
                 streamAutoPlaySelectedAddons = prefs[streamAutoPlaySelectedAddonsKey] ?: emptySet(),
                 streamAutoPlaySelectedPlugins = prefs[streamAutoPlaySelectedPluginsKey] ?: emptySet(),
                 streamAutoPlayRegex = prefs[streamAutoPlayRegexKey] ?: "",
-                streamAutoPlayNextEpisodeEnabled = prefs[streamAutoPlayNextEpisodeEnabledKey] ?: false,
+                streamAutoPlayNextEpisodeEnabled = prefs[streamAutoPlayNextEpisodeEnabledKey] ?: true,
                 streamAutoPlayPreferBingeGroupForNextEpisode =
-                    prefs[streamAutoPlayPreferBingeGroupForNextEpisodeKey] ?: true,
-                streamAutoPlayTimeoutSeconds = (prefs[streamAutoPlayTimeoutSecondsKey] ?: 3).coerceIn(0, 11),
+                    prefs[streamAutoPlayPreferBingeGroupForNextEpisodeKey] ?: false,
+                streamAutoPlayTimeoutSeconds = (prefs[streamAutoPlayTimeoutSecondsKey] ?: 2).coerceIn(0, 11),
                 nextEpisodeThresholdMode = prefs[nextEpisodeThresholdModeKey]?.let {
                     runCatching { NextEpisodeThresholdMode.valueOf(it) }.getOrDefault(NextEpisodeThresholdMode.PERCENTAGE)
                 } ?: NextEpisodeThresholdMode.PERCENTAGE,
@@ -763,10 +763,10 @@ class PlayerSettingsDataStore @Inject constructor(
 
     private fun parseAddonSubtitleStartupMode(value: String?): AddonSubtitleStartupMode {
         return when (value) {
-            null, "ALL_SUBTITLES" -> AddonSubtitleStartupMode.ALL_SUBTITLES
+            null, "FAST_STARTUP" -> AddonSubtitleStartupMode.FAST_STARTUP
             "PREFERRED_ONLY" -> AddonSubtitleStartupMode.PREFERRED_ONLY
-            "FAST_STARTUP" -> AddonSubtitleStartupMode.FAST_STARTUP
-            else -> AddonSubtitleStartupMode.ALL_SUBTITLES
+            "ALL_SUBTITLES" -> AddonSubtitleStartupMode.ALL_SUBTITLES
+            else -> AddonSubtitleStartupMode.FAST_STARTUP
         }
     }
 

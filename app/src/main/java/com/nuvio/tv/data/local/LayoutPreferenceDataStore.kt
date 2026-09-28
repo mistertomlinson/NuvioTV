@@ -125,7 +125,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val hasChosenLayout: Flow<Boolean> = profileFlow { prefs ->
-        prefs[hasChosenKey] ?: false
+        prefs[hasChosenKey] ?: true
     }
 
     val heroCatalogSelections: Flow<List<String>> = profileFlow { prefs ->
@@ -208,7 +208,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val catalogTypeSuffixEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[catalogTypeSuffixEnabledKey] ?: true
+        prefs[catalogTypeSuffixEnabledKey] ?: false
     }
 
     val hidePlatformNameInCatalogTitleEnabled: Flow<Boolean> = profileFlow { prefs ->
@@ -216,7 +216,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val focusedPosterBackdropExpandEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[focusedPosterBackdropExpandEnabledKey] ?: false
+        prefs[focusedPosterBackdropExpandEnabledKey] ?: true
     }
 
     val focusedPosterBackdropExpandDelaySeconds: Flow<Int> = profileFlow { prefs ->
@@ -226,7 +226,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val focusedPosterBackdropTrailerEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[focusedPosterBackdropTrailerEnabledKey] ?: false
+        prefs[focusedPosterBackdropTrailerEnabledKey] ?: true
     }
 
     val expandLandscapePostersEnabled: Flow<Boolean> = profileFlow { prefs ->
@@ -234,7 +234,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val focusedPosterBackdropTrailerMuted: Flow<Boolean> = profileFlow { prefs ->
-        prefs[focusedPosterBackdropTrailerMutedKey] ?: true
+        prefs[focusedPosterBackdropTrailerMutedKey] ?: false
     }
 
     val focusedPosterBackdropTrailerPlaybackTarget: Flow<FocusedPosterTrailerPlaybackTarget> =
@@ -300,7 +300,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val detailPageTrailerButtonEnabled: Flow<Boolean> = profileFlow { prefs ->
-        prefs[detailPageTrailerButtonEnabledKey] ?: false
+        prefs[detailPageTrailerButtonEnabledKey] ?: true
     }
 
     val preferExternalMetaAddonDetail: Flow<Boolean> = profileFlow { prefs ->
@@ -316,7 +316,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     }
 
     val heroTrailerAllowLetterboxing: Flow<Boolean> = profileFlow { prefs ->
-        prefs[heroTrailerAllowLetterboxingKey] ?: false
+        prefs[heroTrailerAllowLetterboxingKey] ?: true
     }
 
     val aggregateStreamingPlatformsEnabled: Flow<Boolean> = profileFlow { prefs ->
