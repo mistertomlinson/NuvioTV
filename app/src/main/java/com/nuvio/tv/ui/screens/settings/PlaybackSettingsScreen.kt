@@ -379,6 +379,10 @@ internal fun ToggleSettingsItem(
             },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
@@ -467,6 +471,10 @@ internal fun RenderTypeSettingsItem(
             },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
     ) {
@@ -540,6 +548,10 @@ internal fun NavigationSettingsItem(
                 SettingsRightSurfaceColor
             },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -645,6 +657,10 @@ internal fun SliderSettingsItem(
                 SettingsRightSurfaceColor
             },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -849,6 +865,10 @@ internal fun ColorSettingsItem(
                 SettingsRightSurfaceColor
             },
             focusedContainerColor = SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
