@@ -104,6 +104,7 @@ import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.CwNewSeasonBadgeColor
@@ -145,6 +146,8 @@ private fun ModernContinueWatchingRowItem(
     requester: FocusRequester,
     cardWidth: Dp,
     imageHeight: Dp,
+    cardStyle: ContinueWatchingCardStyle,
+    cornerRadius: Dp,
     onFocused: () -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onShowOptions: (ContinueWatchingItem) -> Unit,
@@ -169,6 +172,8 @@ private fun ModernContinueWatchingRowItem(
         onLongPress = { onShowOptions(payload.item) },
         cardWidth = cardWidth,
         imageHeight = imageHeight,
+        cardStyle = cardStyle,
+        cornerRadius = cornerRadius,
         retainFocusOutline = retainSidebarFocusOutline,
         modifier = Modifier
             .focusRequester(requester)
@@ -466,6 +471,7 @@ internal fun ModernRowSection(
     landscapeTrailerExpandedHeight: Dp,
     continueWatchingCardWidth: Dp,
     continueWatchingCardHeight: Dp,
+    continueWatchingCardStyle: ContinueWatchingCardStyle,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
     onContinueWatchingOptions: (ContinueWatchingItem) -> Unit,
     numberStyle: NumberStyle = NumberStyle.OFF,
@@ -1144,6 +1150,8 @@ internal fun ModernRowSection(
                                 requester = requester,
                                 cardWidth = continueWatchingCardWidth,
                                 imageHeight = continueWatchingCardHeight,
+                                cardStyle = continueWatchingCardStyle,
+                                cornerRadius = posterCardCornerRadius,
                                 onFocused = onFocused,
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onShowOptions = onContinueWatchingOptions,

@@ -56,10 +56,14 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.ui.components.ClassicLayoutPreview
 import com.nuvio.tv.ui.components.GridLayoutPreview
 import com.nuvio.tv.ui.components.ModernLayoutPreview
+import com.nuvio.tv.ui.components.CardCwStylePreview
+import com.nuvio.tv.ui.components.WideCwStylePreview
+import com.nuvio.tv.ui.components.PosterCwStylePreview
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
@@ -92,6 +96,7 @@ fun LayoutSettingsScreen(
 
 private enum class LayoutSettingsSection {
     HOME_CONTENT,
+    CONTINUE_WATCHING,
     DETAIL_PAGE,
     FOCUSED_POSTER,
     POSTER_CARD_STYLE
@@ -105,6 +110,7 @@ fun LayoutSettingsContent(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
 
     var homeContentExpanded by rememberSaveable { mutableStateOf(false) }
+    var continueWatchingExpanded by rememberSaveable { mutableStateOf(false) }
     var detailPageExpanded by rememberSaveable { mutableStateOf(false) }
     var focusedPosterExpanded by rememberSaveable { mutableStateOf(false) }
     var posterCardStyleExpanded by rememberSaveable { mutableStateOf(false) }
@@ -114,6 +120,7 @@ fun LayoutSettingsContent(
 
     val defaultHomeContentHeaderFocus = remember { FocusRequester() }
     val homeContentHeaderFocus = initialFocusRequester ?: defaultHomeContentHeaderFocus
+    val continueWatchingHeaderFocus = remember { FocusRequester() }
     val detailPageHeaderFocus = remember { FocusRequester() }
     val focusedPosterHeaderFocus = remember { FocusRequester() }
     val posterCardStyleHeaderFocus = remember { FocusRequester() }
@@ -123,6 +130,11 @@ fun LayoutSettingsContent(
     LaunchedEffect(homeContentExpanded, focusedSection) {
         if (!homeContentExpanded && focusedSection == LayoutSettingsSection.HOME_CONTENT) {
             homeContentHeaderFocus.requestFocus()
+        }
+    }
+    LaunchedEffect(continueWatchingExpanded, focusedSection) {
+        if (!continueWatchingExpanded && focusedSection == LayoutSettingsSection.CONTINUE_WATCHING) {
+            continueWatchingHeaderFocus.requestFocus()
         }
     }
     LaunchedEffect(detailPageExpanded, focusedSection) {
@@ -143,12 +155,14 @@ fun LayoutSettingsContent(
 
     val visibleSections = listOf(
         LayoutSettingsSection.HOME_CONTENT,
+        LayoutSettingsSection.CONTINUE_WATCHING,
         LayoutSettingsSection.DETAIL_PAGE,
         LayoutSettingsSection.FOCUSED_POSTER,
         LayoutSettingsSection.POSTER_CARD_STYLE
     )
     val expandedSections = buildSet {
         if (homeContentExpanded) add(LayoutSettingsSection.HOME_CONTENT)
+        if (continueWatchingExpanded) add(LayoutSettingsSection.CONTINUE_WATCHING)
         if (detailPageExpanded) add(LayoutSettingsSection.DETAIL_PAGE)
         if (focusedPosterExpanded) add(LayoutSettingsSection.FOCUSED_POSTER)
         if (posterCardStyleExpanded) add(LayoutSettingsSection.POSTER_CARD_STYLE)
@@ -246,6 +260,90 @@ fun LayoutSettingsContent(
                         },
                         onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
                     )
+                }
+            }
+
+            item(key = "continue_watching_section") {
+                CollapsibleSectionCard(
+                    title = stringResource(R.string.layout_section_continue_watching),
+                    description = stringResource(R.string.layout_section_continue_watching_desc),
+                    expanded = continueWatchingExpanded,
+                    onToggle = {
+                        continueWatchingExpanded = !continueWatchingExpanded
+                    },
+                    focusRequester = continueWatchingHeaderFocus,
+                    onFocused = {
+                        focusedSection = LayoutSettingsSection.CONTINUE_WATCHING
+                    },
+                    groupPosition = groupPositionFor(
+                        LayoutSettingsSection.CONTINUE_WATCHING
+                    )
+                ) {
+                    LayoutControlGroup {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(SettingsRightSurfaceColor)
+                                .padding(10.dp)
+                                .focusGroup(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ContinueWatchingStyleCard(
+                                style = ContinueWatchingCardStyle.CARD,
+                                isSelected =
+                                    uiState.continueWatchingCardStyle ==
+                                        ContinueWatchingCardStyle.CARD,
+                                onClick = {
+                                    viewModel.onEvent(
+                                        LayoutSettingsEvent.SetContinueWatchingCardStyle(
+                                            ContinueWatchingCardStyle.CARD
+                                        )
+                                    )
+                                },
+                                onFocused = {
+                                    focusedSection =
+                                        LayoutSettingsSection.CONTINUE_WATCHING
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            ContinueWatchingStyleCard(
+                                style = ContinueWatchingCardStyle.WIDE,
+                                isSelected =
+                                    uiState.continueWatchingCardStyle ==
+                                        ContinueWatchingCardStyle.WIDE,
+                                onClick = {
+                                    viewModel.onEvent(
+                                        LayoutSettingsEvent.SetContinueWatchingCardStyle(
+                                            ContinueWatchingCardStyle.WIDE
+                                        )
+                                    )
+                                },
+                                onFocused = {
+                                    focusedSection =
+                                        LayoutSettingsSection.CONTINUE_WATCHING
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                            ContinueWatchingStyleCard(
+                                style = ContinueWatchingCardStyle.POSTER,
+                                isSelected =
+                                    uiState.continueWatchingCardStyle ==
+                                        ContinueWatchingCardStyle.POSTER,
+                                onClick = {
+                                    viewModel.onEvent(
+                                        LayoutSettingsEvent.SetContinueWatchingCardStyle(
+                                            ContinueWatchingCardStyle.POSTER
+                                        )
+                                    )
+                                },
+                                onFocused = {
+                                    focusedSection =
+                                        LayoutSettingsSection.CONTINUE_WATCHING
+                                },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
             }
 
@@ -671,6 +769,100 @@ private fun CompactToggleRow(
         onToggle = onToggle,
         onFocused = onFocused
     )
+}
+
+@Composable
+private fun ContinueWatchingStyleCard(
+    style: ContinueWatchingCardStyle,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    onFocused: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    var isFocused by remember { mutableStateOf(false) }
+    val shape = RoundedCornerShape(12.dp)
+
+    Card(
+        onClick = onClick,
+        modifier = modifier.onFocusChanged { state ->
+            val nowFocused = state.isFocused
+            if (isFocused != nowFocused) {
+                isFocused = nowFocused
+                if (nowFocused) onFocused()
+            }
+        },
+        colors = CardDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
+        shape = CardDefaults.shape(shape),
+        scale = CardDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(112.dp)
+            ) {
+                when (style) {
+                    ContinueWatchingCardStyle.CARD ->
+                        CardCwStylePreview(Modifier.fillMaxSize())
+                    ContinueWatchingCardStyle.WIDE ->
+                        WideCwStylePreview(Modifier.fillMaxSize())
+                    ContinueWatchingCardStyle.POSTER ->
+                        PosterCwStylePreview(Modifier.fillMaxSize())
+                }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (isSelected) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = stringResource(R.string.cd_selected),
+                        tint = NuvioColors.Secondary,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .padding(end = 6.dp)
+                    )
+                }
+
+                Text(
+                    text = when (style) {
+                        ContinueWatchingCardStyle.CARD ->
+                            stringResource(R.string.layout_cw_card_style_card)
+                        ContinueWatchingCardStyle.WIDE ->
+                            stringResource(R.string.layout_cw_card_style_wide)
+                        ContinueWatchingCardStyle.POSTER ->
+                            stringResource(R.string.layout_cw_card_style_poster)
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    color =
+                        if (isSelected || isFocused) {
+                            NuvioColors.TextPrimary
+                        } else {
+                            NuvioColors.TextSecondary
+                        }
+                )
+            }
+        }
+    }
 }
 
 @Composable

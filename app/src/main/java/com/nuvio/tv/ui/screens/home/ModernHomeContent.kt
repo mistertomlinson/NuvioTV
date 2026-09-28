@@ -103,6 +103,7 @@ import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.components.ContinueWatchingOptionsDialog
@@ -2074,9 +2075,36 @@ fun ModernHomeContent(
     } else {
         portraitBaseHeight * 0.84f * modernPosterScale
     }
+    // CW poster style uses the same portrait geometry as Modern catalog posters.
+    val portraitCatalogCardWidth =
+        portraitBaseWidth * 0.84f * 1.08f
+    val portraitCatalogCardHeight =
+        portraitBaseHeight * 0.84f * 1.08f
+
     val continueWatchingScale = 1.34f
-    val continueWatchingCardWidth = portraitBaseWidth * 1.24f * continueWatchingScale
-    val continueWatchingCardHeight = continueWatchingCardWidth / 1.77f
+    val continueWatchingCardWidth =
+        when (uiState.continueWatchingCardStyle) {
+            ContinueWatchingCardStyle.POSTER ->
+                portraitCatalogCardWidth
+
+            ContinueWatchingCardStyle.WIDE ->
+                portraitBaseWidth * 2.1f
+
+            ContinueWatchingCardStyle.CARD ->
+                portraitBaseWidth * 1.24f * continueWatchingScale
+        }
+
+    val continueWatchingCardHeight =
+        when (uiState.continueWatchingCardStyle) {
+            ContinueWatchingCardStyle.POSTER ->
+                portraitCatalogCardHeight
+
+            ContinueWatchingCardStyle.WIDE ->
+                continueWatchingCardWidth * 0.4f
+
+            ContinueWatchingCardStyle.CARD ->
+                continueWatchingCardWidth / 1.77f
+        }
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize()
@@ -4259,6 +4287,7 @@ fun ModernHomeContent(
                         landscapeTrailerExpandedHeight = portraitBaseHeight * 0.84f * 1.08f,
                         continueWatchingCardWidth = continueWatchingCardWidth,
                         continueWatchingCardHeight = continueWatchingCardHeight,
+                        continueWatchingCardStyle = uiState.continueWatchingCardStyle,
                         onContinueWatchingClick = onContinueWatchingClick,
                         onContinueWatchingOptions = stableOnContinueWatchingOptions,
                         isCatalogItemWatched = isCatalogItemWatched,

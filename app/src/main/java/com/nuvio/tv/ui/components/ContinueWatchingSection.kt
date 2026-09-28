@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -74,6 +76,7 @@ import java.util.concurrent.TimeUnit
 import com.nuvio.tv.ui.util.localizeEpisodeTitle
 import com.nuvio.tv.ui.util.computeAirDateBadgeText
 import com.nuvio.tv.domain.model.CardDepthSurface
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 
@@ -132,7 +135,11 @@ fun ContinueWatchingSection(
     onPlayManually: (ContinueWatchingItem) -> Unit = {},
     modifier: Modifier = Modifier,
     focusedItemIndex: Int = -1,
-    onItemFocused: (itemIndex: Int) -> Unit = {}
+    onItemFocused: (itemIndex: Int) -> Unit = {},
+    cardWidth: Dp = 288.dp,
+    imageHeight: Dp = 162.dp,
+    cardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
+    cornerRadius: Dp = 12.dp
 ) {
     if (items.isEmpty()) return
 
@@ -211,6 +218,10 @@ fun ContinueWatchingSection(
                     item = progress,
                     onClick = { onItemClick(progress) },
                     onLongPress = { optionsItem = progress },
+                    cardWidth = cardWidth,
+                    imageHeight = imageHeight,
+                    cardStyle = cardStyle,
+                    cornerRadius = cornerRadius,
                     modifier = Modifier
                         .onFocusChanged { focusState ->
                             if (focusState.isFocused && lastFocusedIndex != index) {
@@ -277,28 +288,61 @@ fun ContinueWatchingCard(
     modifier: Modifier = Modifier,
     cardWidth: Dp = 288.dp,
     imageHeight: Dp = 162.dp,
-    retainFocusOutline: Boolean = false
+    retainFocusOutline: Boolean = false,
+    cardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
+    cornerRadius: Dp = 12.dp
 ) {
+    val isPosterStyle = cardStyle == ContinueWatchingCardStyle.POSTER
+    val isWideStyle = cardStyle == ContinueWatchingCardStyle.WIDE
+    val usePosterArtwork = isPosterStyle || isWideStyle
+
+    val cwCardShape = remember(cornerRadius) {
+        RoundedCornerShape(cornerRadius)
+    }
+    val cwClipShape = remember(cornerRadius, isPosterStyle) {
+        if (isPosterStyle) {
+            RoundedCornerShape(cornerRadius)
+        } else {
+            RoundedCornerShape(
+                topStart = cornerRadius,
+                topEnd = cornerRadius
+            )
+        }
+    }
+
     var longPressTriggered by remember { mutableStateOf(false) }
+    var isCardFocused by remember { mutableStateOf(false) }
 
     val cardDepthStyle = LocalCardDepthStyle.current
     val continueWatchingDepthModifier = remember(
-        cardDepthStyle
+        cardDepthStyle,
+        cwCardShape
     ) {
         Modifier.nuvioCardDepth(
-            shape = CwCardShape,
+            shape = cwCardShape,
             surface = CardDepthSurface.CONTINUE_WATCHING,
             style = cardDepthStyle
         )
     }
 
-    val progress = remember(item) { (item as? ContinueWatchingItem.InProgress)?.progress }
-    val episodeThumbnail = remember(item) { (item as? ContinueWatchingItem.InProgress)?.episodeThumbnail }
-    val nextUp = remember(item) { (item as? ContinueWatchingItem.NextUp)?.info }
+    val progress =
+        remember(item) {
+            (item as? ContinueWatchingItem.InProgress)?.progress
+        }
+    val episodeThumbnail =
+        remember(item) {
+            (item as? ContinueWatchingItem.InProgress)?.episodeThumbnail
+        }
+    val nextUp =
+        remember(item) {
+            (item as? ContinueWatchingItem.NextUp)?.info
+        }
+
     val episodeStr = remember(progress, nextUp) {
-        progress?.episodeDisplayString ?: nextUp?.let { "S${it.season}E${it.episode}" }
+        progress?.episodeDisplayString
+            ?: nextUp?.let { "S${it.season}E${it.episode}" }
     }
-    val strAirsDate = stringResource(R.string.cw_airs_date, nextUp?.airDateLabel ?: "")
+
     val strUpcoming = stringResource(R.string.cw_upcoming)
     val strNextUp = stringResource(R.string.cw_next_up)
     val strNewEpisode = stringResource(R.string.cw_new_episode)
@@ -307,20 +351,45 @@ fun ContinueWatchingCard(
     val strPercentWatched = stringResource(R.string.cw_percent_watched)
     val strHoursMinLeft = stringResource(R.string.cw_hours_min_left)
     val strMinLeft = stringResource(R.string.cw_min_left)
+
     val cardContext = LocalContext.current
-    val nextUpBadgeText = remember(nextUp?.hasAired, nextUp?.isReleaseAlert, nextUp?.isNewSeasonRelease, nextUp?.released, nextUp?.airDateLabel, strUpcoming, strNextUp, strNewEpisode, strNewSeason) {
+
+    val nextUpBadgeText = remember(
+        nextUp?.hasAired,
+        nextUp?.isReleaseAlert,
+        nextUp?.isNewSeasonRelease,
+        nextUp?.released,
+        nextUp?.airDateLabel,
+        strUpcoming,
+        strNextUp,
+        strNewEpisode,
+        strNewSeason
+    ) {
         nextUp?.let { info ->
             if (info.isReleaseAlert) {
-                if (info.isNewSeasonRelease) strNewSeason else strNewEpisode
+                if (info.isNewSeasonRelease) {
+                    strNewSeason
+                } else {
+                    strNewEpisode
+                }
             } else if (!info.hasAired) {
-                computeAirDateBadgeText(cardContext, info.released, info.airDateLabel) ?: strUpcoming
+                computeAirDateBadgeText(
+                    cardContext,
+                    info.released,
+                    info.airDateLabel
+                ) ?: strUpcoming
             } else {
                 strNextUp
             }
         }
     }
+
     val remainingText = progress?.let {
-        remember(it.position, it.duration, it.progressPercent) {
+        remember(
+            it.position,
+            it.duration,
+            it.progressPercent
+        ) {
             formatContinueWatchingProgressLabel(
                 progress = it,
                 resumeLabel = strResume,
@@ -330,70 +399,167 @@ fun ContinueWatchingCard(
             )
         }
     }
-    val badgeText = remember(remainingText, nextUpBadgeText, strNextUp) {
+
+    val badgeText = remember(
+        remainingText,
+        nextUpBadgeText,
+        strNextUp
+    ) {
         remainingText ?: nextUpBadgeText ?: strNextUp
     }
-    val progressFraction = remember(progress) { progress?.progressPercentage ?: 0f }
-    val imageModel = remember(nextUp, progress) {
-        when {
-            nextUp != null && !nextUp.hasAired -> firstNonBlank(
-                nextUp.backdrop,
-                nextUp.poster,
-                nextUp.thumbnail,
-                progress?.backdrop,
-                progress?.poster
-            )
-            else -> firstNonBlank(
-                episodeThumbnail,
-                nextUp?.thumbnail,
-                progress?.backdrop,
+
+    val progressFraction =
+        remember(progress) {
+            progress?.progressPercentage ?: 0f
+        }
+
+    /*
+     * CARD deliberately keeps the exact artwork priority used by this fork
+     * before the style feature was introduced.
+     *
+     * WIDE / POSTER prefer poster art because their artwork viewport is 2:3.
+     */
+    val imageModel = remember(
+        item,
+        cardStyle
+    ) {
+        if (usePosterArtwork) {
+            firstNonBlank(
+                nextUp?.poster,
                 progress?.poster,
                 nextUp?.backdrop,
-                nextUp?.poster
+                progress?.backdrop,
+                nextUp?.thumbnail,
+                episodeThumbnail
             )
+        } else {
+            when {
+                nextUp != null && !nextUp.hasAired ->
+                    firstNonBlank(
+                        nextUp.backdrop,
+                        nextUp.poster,
+                        nextUp.thumbnail,
+                        progress?.backdrop,
+                        progress?.poster
+                    )
+
+                else ->
+                    firstNonBlank(
+                        episodeThumbnail,
+                        nextUp?.thumbnail,
+                        progress?.backdrop,
+                        progress?.poster,
+                        nextUp?.backdrop,
+                        nextUp?.poster
+                    )
+            }
         }
     }
-    val titleText = remember(progress, nextUp) { progress?.name ?: nextUp?.name.orEmpty() }
+
+    val titleText =
+        remember(progress, nextUp) {
+            progress?.name ?: nextUp?.name.orEmpty()
+        }
+
     val context = LocalContext.current
-    val strAirsDateForEpisode = computeAirDateBadgeText(context, nextUp?.released, nextUp?.airDateLabel)
-    val episodeTitle = remember(progress, nextUp, context, strAirsDateForEpisode) {
+    val strAirsDateForEpisode =
+        computeAirDateBadgeText(
+            context,
+            nextUp?.released,
+            nextUp?.airDateLabel
+        )
+
+    val episodeTitle = remember(
+        progress,
+        nextUp,
+        context,
+        strAirsDateForEpisode
+    ) {
         when {
-            progress != null -> progress.episodeTitle?.localizeEpisodeTitle(context)
-            nextUp != null && !nextUp.hasAired -> nextUp.episodeTitle?.localizeEpisodeTitle(context) ?: strAirsDateForEpisode
-            else -> nextUp?.episodeTitle?.localizeEpisodeTitle(context)
+            progress != null ->
+                progress.episodeTitle?.localizeEpisodeTitle(context)
+
+            nextUp != null && !nextUp.hasAired ->
+                nextUp.episodeTitle?.localizeEpisodeTitle(context)
+                    ?: strAirsDateForEpisode
+
+            else ->
+                nextUp?.episodeTitle?.localizeEpisodeTitle(context)
         }
     }
+
     val density = LocalDensity.current
-    val requestWidthPx = remember(cardWidth, density) {
-        with(density) { cardWidth.roundToPx() }
-    }
-    val requestHeightPx = remember(imageHeight, density) {
-        with(density) { imageHeight.roundToPx() }
-    }
-    val imageRequest = remember(imageModel, requestWidthPx, requestHeightPx) {
-        ImageRequest.Builder(context)
-            .data(imageModel)
-            .crossfade(false)
-            .memoryCacheKey("${imageModel}_${requestWidthPx}x${requestHeightPx}")
-            .size(width = requestWidthPx, height = requestHeightPx)
-            .build()
-    }
+
+    val artworkWidth =
+        if (isWideStyle) {
+            imageHeight * (2f / 3f)
+        } else {
+            cardWidth
+        }
+
+    val requestWidthPx =
+        remember(artworkWidth, density) {
+            with(density) {
+                artworkWidth.roundToPx().coerceAtLeast(1)
+            }
+        }
+
+    val requestHeightPx =
+        remember(imageHeight, density) {
+            with(density) {
+                imageHeight.roundToPx().coerceAtLeast(1)
+            }
+        }
+
+    val imageRequest =
+        remember(
+            imageModel,
+            requestWidthPx,
+            requestHeightPx
+        ) {
+            ImageRequest.Builder(context)
+                .data(imageModel)
+                .crossfade(false)
+                .memoryCacheKey(
+                    "${imageModel}_${requestWidthPx}x${requestHeightPx}"
+                )
+                .size(
+                    width = requestWidthPx,
+                    height = requestHeightPx
+                )
+                .build()
+        }
 
     val bgColor = NuvioColors.Background
     val cwFocusRingColor = NuvioColors.FocusRing
 
-    val cwFocusedBorder = remember(cwFocusRingColor) {
+    val cwFocusedBorder = remember(
+        cwFocusRingColor,
+        cwCardShape
+    ) {
         Border(
-            border = BorderStroke(2.dp, cwFocusRingColor),
-            shape = CwCardShape
+            border = BorderStroke(
+                2.dp,
+                cwFocusRingColor
+            ),
+            shape = cwCardShape
         )
     }
 
-    val badgeBackground = remember(bgColor, nextUp?.isReleaseAlert, nextUp?.isNewSeasonRelease) {
+    val badgeBackground = remember(
+        bgColor,
+        nextUp?.isReleaseAlert,
+        nextUp?.isNewSeasonRelease
+    ) {
         when {
-            nextUp?.isNewSeasonRelease == true -> CwNewSeasonBadgeColor.copy(alpha = 0.8f)
-            nextUp?.isReleaseAlert == true -> CwNewEpisodeBadgeColor.copy(alpha = 0.8f)
-            else -> bgColor.copy(alpha = 0.8f)
+            nextUp?.isNewSeasonRelease == true ->
+                CwNewSeasonBadgeColor.copy(alpha = 0.8f)
+
+            nextUp?.isReleaseAlert == true ->
+                CwNewEpisodeBadgeColor.copy(alpha = 0.8f)
+
+            else ->
+                bgColor.copy(alpha = 0.8f)
         }
     }
 
@@ -407,54 +573,146 @@ fun ContinueWatchingCard(
         },
         modifier = modifier
             .width(cardWidth)
+            .onFocusChanged {
+                isCardFocused = it.isFocused
+            }
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
+
                 if (native.action == AndroidKeyEvent.ACTION_DOWN) {
                     if (native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
                         longPressTriggered = true
                         onLongPress()
                         return@onPreviewKeyEvent true
                     }
-                    val isLongPress = native.isLongPress || native.repeatCount > 0
-                    if (isLongPress && isSelectKey(native.keyCode)) {
+
+                    val isLongPress =
+                        native.isLongPress ||
+                            native.repeatCount > 0
+
+                    if (
+                        isLongPress &&
+                        isSelectKey(native.keyCode)
+                    ) {
                         longPressTriggered = true
                         onLongPress()
                         return@onPreviewKeyEvent true
                     }
                 }
-                if (native.action == AndroidKeyEvent.ACTION_UP && longPressTriggered && isSelectKey(native.keyCode)) {
+
+                if (
+                    native.action == AndroidKeyEvent.ACTION_UP &&
+                    longPressTriggered &&
+                    isSelectKey(native.keyCode)
+                ) {
                     longPressTriggered = false
                     return@onPreviewKeyEvent true
                 }
+
                 false
             },
-        shape = CardDefaults.shape(shape = CwCardShape),
+        shape = CardDefaults.shape(
+            shape = cwCardShape
+        ),
         colors = CardDefaults.colors(
-            containerColor = NuvioColors.BackgroundCard,
-            focusedContainerColor = NuvioColors.FocusBackground
-        ),
-        border = CardDefaults.border(
-            border =
-                if (retainFocusOutline) {
-                    cwFocusedBorder
+            containerColor =
+                if (isPosterStyle) {
+                    Color.Transparent
                 } else {
-                    Border.None
+                    NuvioColors.BackgroundCard
                 },
-            focusedBorder = cwFocusedBorder
+            focusedContainerColor =
+                if (isPosterStyle) {
+                    Color.Transparent
+                } else {
+                    NuvioColors.FocusBackground
+                }
         ),
-        scale = CardDefaults.scale(focusedScale = 1f)
+        border =
+            if (isPosterStyle) {
+                CardDefaults.border(
+                    border = Border.None,
+                    focusedBorder = Border.None
+                )
+            } else {
+                CardDefaults.border(
+                    border =
+                        if (retainFocusOutline) {
+                            cwFocusedBorder
+                        } else {
+                            Border.None
+                        },
+                    focusedBorder = cwFocusedBorder
+                )
+            },
+        scale = CardDefaults.scale(
+            focusedScale = 1f
+        )
     ) {
+        if (isWideStyle) {
+            WideContinueWatchingCardContent(
+                imageRequest = imageRequest,
+                imageModel = imageModel,
+                artworkWidth = artworkWidth,
+                imageHeight = imageHeight,
+                depthModifier = continueWatchingDepthModifier,
+                cardShape = cwCardShape,
+                titleText = titleText,
+                episodeStr = episodeStr,
+                episodeTitle = episodeTitle,
+                badgeText = badgeText,
+                badgeBackground = badgeBackground,
+                progressFraction = progressFraction,
+                hasProgress = progress != null
+            )
+            return@Card
+        }
+
         Column(
-            modifier = continueWatchingDepthModifier
+            modifier =
+                if (isPosterStyle) {
+                    Modifier
+                } else {
+                    continueWatchingDepthModifier
+                }
         ) {
-            // Thumbnail with progress overlay
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(imageHeight)
-                    .clip(CwClipShape)
+                    .then(
+                        if (isPosterStyle) {
+                            Modifier.nuvioCardDepth(
+                                shape = cwCardShape,
+                                surface =
+                                    CardDepthSurface.CONTINUE_WATCHING,
+                                style = cardDepthStyle
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
+                    .clip(cwClipShape)
+                    .then(
+                        if (
+                            isPosterStyle &&
+                            (
+                                isCardFocused ||
+                                    retainFocusOutline
+                                )
+                        ) {
+                            Modifier.border(
+                                border = BorderStroke(
+                                    2.dp,
+                                    cwFocusRingColor
+                                ),
+                                shape = cwCardShape
+                            )
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
-                // Background image with size hints for efficient decoding
                 if (imageModel.isNullOrBlank()) {
                     MonochromePosterPlaceholder()
                 } else {
@@ -466,95 +724,354 @@ fun ContinueWatchingCard(
                     )
                 }
 
-                // Gradient overlay for text readability
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .drawWithCache {
-                            val gradient = Brush.verticalGradient(
-                                colorStops = arrayOf(
-                                    0.0f to Color.Transparent,
-                                    0.5f to Color.Transparent,
-                                    0.8f to bgColor.copy(alpha = 0.7f),
-                                    1.0f to bgColor.copy(alpha = 0.95f)
-                                ),
-                                startY = 0f,
-                                endY = size.height
-                            )
-                            onDrawBehind { drawRect(gradient) }
-                        }
-                )
+                // Existing CARD gradient. Poster art stays clean.
+                if (!isPosterStyle) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .drawWithCache {
+                                val gradient =
+                                    Brush.verticalGradient(
+                                        colorStops = arrayOf(
+                                            0.0f to Color.Transparent,
+                                            0.5f to Color.Transparent,
+                                            0.8f to
+                                                bgColor.copy(
+                                                    alpha = 0.7f
+                                                ),
+                                            1.0f to
+                                                bgColor.copy(
+                                                    alpha = 0.95f
+                                                )
+                                        ),
+                                        startY = 0f,
+                                        endY = size.height
+                                    )
 
-                // Content info at bottom
-                Column(
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(12.dp)
-                ) {
-                    // Episode info (for series)
-                    if (episodeStr != null) {
-                        Text(
-                            text = episodeStr,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = NuvioColors.TextPrimary
-                        )
-                    }
-
-                    Text(
-                        text = titleText,
-                        style = MaterialTheme.typography.titleSmall,
-                        color = NuvioColors.TextPrimary,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                                onDrawBehind {
+                                    drawRect(gradient)
+                                }
+                            }
                     )
 
-                    // Episode title if available
-                    episodeTitle?.let { title ->
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(12.dp)
+                    ) {
+                        if (episodeStr != null) {
+                            Text(
+                                text = episodeStr,
+                                style =
+                                    MaterialTheme.typography.labelMedium,
+                                color = NuvioColors.TextPrimary
+                            )
+                        }
+
                         Text(
-                            text = title,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = NuvioTheme.extendedColors.textSecondary,
+                            text = titleText,
+                            style =
+                                MaterialTheme.typography.titleSmall,
+                            color = NuvioColors.TextPrimary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+
+                        episodeTitle?.let { title ->
+                            Text(
+                                text = title,
+                                style =
+                                    MaterialTheme.typography.bodySmall,
+                                color =
+                                    NuvioTheme.extendedColors
+                                        .textSecondary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
 
-                // Remaining time badge
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(8.dp)
-                        .clip(BadgeShape)
-                        .background(badgeBackground)
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
-                ) {
-                    Text(
-                        text = badgeText,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = NuvioColors.TextPrimary
-                    )
+                /*
+                 * Poster cards omit resume/percent badges; Next Up / release
+                 * badges remain useful and match the official treatment.
+                 */
+                if (!isPosterStyle || progress == null) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(8.dp)
+                            .clip(BadgeShape)
+                            .background(badgeBackground)
+                            .padding(
+                                horizontal = 8.dp,
+                                vertical = 4.dp
+                            )
+                    ) {
+                        Text(
+                            text = badgeText,
+                            style =
+                                MaterialTheme.typography.labelSmall,
+                            color = NuvioColors.TextPrimary
+                        )
+                    }
                 }
 
                 if (progress != null) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.BottomStart)
-                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .padding(
+                                horizontal = 10.dp,
+                                vertical =
+                                    if (isPosterStyle) {
+                                        10.dp
+                                    } else {
+                                        4.dp
+                                    }
+                            )
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(1.5.dp))
-                            .height(3.dp)
-                            .background(Color.Black.copy(alpha = 0.3f))
+                            .then(
+                                if (isPosterStyle) {
+                                    Modifier
+                                        .clip(
+                                            RoundedCornerShape(
+                                                999.dp
+                                            )
+                                        )
+                                        .background(
+                                            NuvioColors.Background
+                                                .copy(alpha = 0.70f)
+                                        )
+                                        .padding(3.dp)
+                                } else {
+                                    Modifier
+                                }
+                            )
                     ) {
                         Box(
                             modifier = Modifier
-                                .fillMaxWidth(progressFraction)
-                                .clip(RoundedCornerShape(1.5.dp))
+                                .fillMaxWidth()
+                                .clip(
+                                    RoundedCornerShape(1.5.dp)
+                                )
                                 .height(3.dp)
-                                .background(NuvioColors.Primary)
+                                .background(
+                                    Color.Black.copy(
+                                        alpha = 0.3f
+                                    )
+                                )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(
+                                        progressFraction
+                                    )
+                                    .clip(
+                                        RoundedCornerShape(
+                                            1.5.dp
+                                        )
+                                    )
+                                    .height(3.dp)
+                                    .background(
+                                        NuvioColors.Primary
+                                    )
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (isPosterStyle) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            top = 4.dp,
+                            start = 4.dp,
+                            end = 4.dp
+                        )
+                        .height(30.dp),
+                    horizontalArrangement =
+                        Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Box(
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = titleText,
+                            style =
+                                MaterialTheme.typography.titleSmall,
+                            color = NuvioColors.TextPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+
+                    if (episodeStr != null) {
+                        Text(
+                            text = episodeStr,
+                            modifier =
+                                Modifier.padding(start = 4.dp),
+                            style =
+                                MaterialTheme.typography.labelSmall,
+                            color =
+                                NuvioTheme.extendedColors
+                                    .textSecondary,
+                            maxLines = 1
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WideContinueWatchingCardContent(
+    imageRequest: ImageRequest,
+    imageModel: String?,
+    artworkWidth: Dp,
+    imageHeight: Dp,
+    depthModifier: Modifier,
+    cardShape: RoundedCornerShape,
+    titleText: String,
+    episodeStr: String?,
+    episodeTitle: String?,
+    badgeText: String,
+    badgeBackground: Color,
+    progressFraction: Float,
+    hasProgress: Boolean
+) {
+    Row(
+        modifier = depthModifier
+            .fillMaxWidth()
+            .height(imageHeight)
+            .clip(cardShape)
+            .background(NuvioColors.BackgroundCard)
+    ) {
+        Box(
+            modifier = Modifier
+                .width(artworkWidth)
+                .fillMaxHeight()
+        ) {
+            if (imageModel.isNullOrBlank()) {
+                MonochromePosterPlaceholder()
+            } else {
+                AsyncImage(
+                    model = imageRequest,
+                    contentDescription = titleText,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+        }
+
+        Column(
+            modifier = Modifier
+                .fillMaxHeight()
+                .weight(1f)
+                .padding(
+                    horizontal = 12.dp,
+                    vertical = 8.dp
+                ),
+            verticalArrangement =
+                Arrangement.spacedBy(3.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(
+                        text = titleText,
+                        style =
+                            MaterialTheme.typography.titleSmall,
+                        color = NuvioColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                if (!hasProgress) {
+                    Box(
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .clip(BadgeShape)
+                            .background(badgeBackground)
+                            .padding(
+                                horizontal = 7.dp,
+                                vertical = 3.dp
+                            )
+                    ) {
+                        Text(
+                            text = badgeText,
+                            style =
+                                MaterialTheme.typography.labelSmall,
+                            color = NuvioColors.TextPrimary
+                        )
+                    }
+                }
+            }
+
+            Text(
+                text = episodeStr.orEmpty(),
+                style = MaterialTheme.typography.labelMedium,
+                color =
+                    NuvioTheme.extendedColors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Text(
+                text = episodeTitle.orEmpty(),
+                style = MaterialTheme.typography.bodySmall,
+                color =
+                    NuvioTheme.extendedColors.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(
+                modifier = Modifier.weight(1f)
+            )
+
+            if (hasProgress) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .height(3.dp)
+                        .background(
+                            Color.Black.copy(alpha = 0.3f)
+                        )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(progressFraction)
+                            .clip(
+                                RoundedCornerShape(1.5.dp)
+                            )
+                            .height(3.dp)
+                            .background(NuvioColors.Primary)
+                    )
+                }
+
+                Text(
+                    text = badgeText,
+                    style =
+                        MaterialTheme.typography.labelSmall,
+                    color =
+                        NuvioTheme.extendedColors
+                            .textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.tmdb.TmdbEnrichment
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
@@ -56,6 +57,7 @@ private data class LayoutUiPrefs(
     val hideUnreleasedContent: Boolean,
     val hidePlatformNameInCatalogTitleEnabled: Boolean,
     val modernLandscapePostersEnabled: Boolean,
+    val continueWatchingCardStyle: ContinueWatchingCardStyle,
     val focusedBackdropExpandEnabled: Boolean,
     val focusedBackdropExpandDelaySeconds: Int,
     val focusedBackdropTrailerEnabled: Boolean,
@@ -142,6 +144,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             hideUnreleasedContent = corePrefs.hideUnreleasedContent,
             hidePlatformNameInCatalogTitleEnabled = corePrefs.hidePlatformNameInCatalogTitleEnabled,
             modernLandscapePostersEnabled = false,
+            continueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
             focusedBackdropExpandEnabled = focusedBackdropPrefs.expandEnabled,
             focusedBackdropExpandDelaySeconds = focusedBackdropPrefs.expandDelaySeconds,
             focusedBackdropTrailerEnabled = focusedBackdropPrefs.trailerEnabled,
@@ -159,6 +162,12 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
     ) { prefs, expandLandscapePostersEnabled ->
         prefs.copy(
             expandLandscapePostersEnabled = expandLandscapePostersEnabled
+        )
+    }.combine(
+        layoutPreferenceDataStore.continueWatchingCardStyle
+    ) { prefs, continueWatchingCardStyle ->
+        prefs.copy(
+            continueWatchingCardStyle = continueWatchingCardStyle
         )
     }
 
@@ -221,6 +230,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         hideUnreleasedContent = prefs.hideUnreleasedContent,
                         hidePlatformNameInCatalogTitleEnabled = prefs.hidePlatformNameInCatalogTitleEnabled,
                         modernLandscapePostersEnabled = prefs.modernLandscapePostersEnabled,
+                        continueWatchingCardStyle = prefs.continueWatchingCardStyle,
                         focusedPosterBackdropExpandEnabled = prefs.focusedBackdropExpandEnabled,
                         focusedPosterBackdropExpandDelaySeconds = prefs.focusedBackdropExpandDelaySeconds,
                         focusedPosterBackdropTrailerEnabled = prefs.focusedBackdropTrailerEnabled,

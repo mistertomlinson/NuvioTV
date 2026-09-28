@@ -229,6 +229,8 @@ fun GridHomeContent(
                                 GridContinueWatchingSection(
                                     items = continueWatchingItems,
                                     focusedItemIndex = if (shouldRequestInitialFocus && !hasHero) 0 else -1,
+                                    cardStyle = uiState.continueWatchingCardStyle,
+                                    cornerRadius = posterCardStyle.cornerRadius,
                                     onItemClick = { item ->
                                         onContinueWatchingClick(item)
                                     },
@@ -374,6 +376,8 @@ fun GridHomeContent(
                     GridContinueWatchingSection(
                         items = continueWatchingItems,
                         focusedItemIndex = if (shouldRequestInitialFocus && !hasHero) 0 else -1,
+                        cardStyle = uiState.continueWatchingCardStyle,
+                        cornerRadius = posterCardStyle.cornerRadius,
                         onItemClick = { item ->
                             onContinueWatchingClick(item)
                         },
