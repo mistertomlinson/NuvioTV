@@ -92,7 +92,7 @@ import com.nuvio.tv.ui.theme.NuvioColors
 internal val SettingsContainerRadius = 28.dp
 internal val SettingsPillRadius = 999.dp
 internal val SettingsSecondaryCardRadius = 16.dp
-internal val SettingsInnerRowRadius = 6.dp
+internal val SettingsInnerRowRadius = 0.dp
 internal val SettingsRailFocusRadius = 10.dp
 internal val SettingsRowFocusRadius = SettingsSecondaryCardRadius
 internal val SettingsRowGap = 2.dp
@@ -111,13 +111,13 @@ internal fun settingsGroupShape(position: SettingsGroupPosition): RoundedCornerS
         SettingsGroupPosition.TOP -> RoundedCornerShape(
             topStart = SettingsSecondaryCardRadius,
             topEnd = SettingsSecondaryCardRadius,
-            bottomStart = SettingsInnerRowRadius,
-            bottomEnd = SettingsInnerRowRadius
+            bottomStart = 0.dp,
+            bottomEnd = 0.dp
         )
-        SettingsGroupPosition.MIDDLE -> RoundedCornerShape(SettingsInnerRowRadius)
+        SettingsGroupPosition.MIDDLE -> RoundedCornerShape(0.dp)
         SettingsGroupPosition.BOTTOM -> RoundedCornerShape(
-            topStart = SettingsInnerRowRadius,
-            topEnd = SettingsInnerRowRadius,
+            topStart = 0.dp,
+            topEnd = 0.dp,
             bottomStart = SettingsSecondaryCardRadius,
             bottomEnd = SettingsSecondaryCardRadius
         )
@@ -162,8 +162,8 @@ internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
 )
 internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
 internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
-internal val SettingsRightSurfaceColor = Color(0xFF1E242A)
-internal val SettingsRightSurfaceFocusedColor = Color(0xFF2B333C)
+internal val SettingsRightSurfaceColor = Color(0xFF30373F)
+internal val SettingsRightSurfaceFocusedColor = Color(0xFF4D5965)
 internal val SettingsGlassGroupColor = Color.White.copy(alpha = 0.025f)
 internal val SettingsGlassBorderColor = Color.White.copy(alpha = 0.09f)
 internal val SettingsGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
@@ -636,6 +636,14 @@ internal fun SettingsToggleRow(
             colors = CardDefaults.colors(
                 containerColor = SettingsRightSurfaceColor,
                 focusedContainerColor = SettingsRightSurfaceFocusedColor
+            ),
+            border = CardDefaults.border(
+                border = Border.None,
+                focusedBorder = Border.None
+            ),
+            border = CardDefaults.border(
+                border = Border.None,
+                focusedBorder = Border.None
             ),
             shape = CardDefaults.shape(rowShape),
             scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
