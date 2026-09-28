@@ -500,16 +500,6 @@ fun LayoutSettingsContent(
                         onFocused = { focusedSection = LayoutSettingsSection.POSTER_CARD_STYLE }
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = stringResource(
-                            R.string.settings_card_depth_title
-                        ),
-                        style = MaterialTheme.typography.titleLarge,
-                        color = NuvioColors.TextPrimary
-                    )
-
                     CardDepthStyleControls(
                         style = uiState.cardDepthStyle,
                         onEnabledChange = { enabled ->
@@ -697,8 +687,9 @@ private fun ModernTrailerPlaybackTargetRow(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
+            .background(SettingsRightSurfaceColor)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
             text = stringResource(R.string.layout_trailer_location),
@@ -734,7 +725,6 @@ private fun ModernTrailerPlaybackTargetRow(
             )
         }
     }
-    SettingsRowDivider()
 }
 
 @Composable
@@ -880,6 +870,19 @@ private fun CatalogChip(
 }
 
 @Composable
+private fun LayoutControlGroup(
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(SettingsSecondaryCardRadius)),
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap),
+        content = content
+    )
+}
+
+@Composable
 private fun CardDepthStyleControls(
     style: CardDepthStyle,
     onEnabledChange: (Boolean) -> Unit,
@@ -891,8 +894,7 @@ private fun CardDepthStyleControls(
     onFineTune: () -> Unit,
     onReset: () -> Unit,
     onFocused: () -> Unit
-) {
-    val edgeOptions = listOf(
+) {    val edgeOptions = listOf(
         PresetOption(
             stringResource(
                 R.string.settings_card_depth_edge_subtle
@@ -969,93 +971,102 @@ private fun CardDepthStyleControls(
             R.string.settings_card_depth_surface_cast
         ) to CardDepthSurface.CAST,)
 
+
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement =
-            Arrangement.spacedBy(8.dp)
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
     ) {
-        CompactToggleRow(
-            title = stringResource(
-                R.string.settings_card_depth_enabled
-            ),
-            subtitle = stringResource(
-                R.string.settings_card_depth_description
-            ),
-            checked = style.enabled,
-            onToggle = {
-                onEnabledChange(!style.enabled)
-            },
-            onFocused = onFocused
-        )
-
-        if (style.enabled) {
-            OptionRow(
+        LayoutControlGroup {
+            CompactToggleRow(
                 title = stringResource(
-                    R.string.settings_card_depth_edge
-                ),
-                selectedValue = style.edgeStrength,
-                options = edgeOptions,
-                onSelected = onEdgeStrengthChange,
-                onFocused = onFocused
-            )
-
-            OptionRow(
-                title = stringResource(
-                    R.string.settings_card_depth_sheen
-                ),
-                selectedValue = style.sheenStrength,
-                options = sheenOptions,
-                onSelected = onSheenStrengthChange,
-                onFocused = onFocused
-            )
-
-            OptionRow(
-                title = stringResource(
-                    R.string.settings_card_depth_edge_coverage
-                ),
-                selectedValue = style.edgeCoverage,
-                options = coverageOptions,
-                onSelected = onEdgeCoverageChange,
-                onFocused = onFocused
-            )
-
-            SettingsActionRow(
-                title = stringResource(
-                    R.string.settings_card_depth_fine_tune
+                    R.string.settings_card_depth_enabled
                 ),
                 subtitle = stringResource(
-                    R.string.settings_card_depth_fine_tune_hint_tv
+                    R.string.settings_card_depth_description
                 ),
-                onClick = onFineTune,
-                trailingIcon = Icons.Default.Tune,
+                checked = style.enabled,
+                onToggle = {
+                    onEnabledChange(!style.enabled)
+                },
                 onFocused = onFocused
             )
 
-            Text(
-                text = stringResource(
-                    R.string.settings_card_depth_apply_to
-                ),
-                style =
-                    MaterialTheme.typography.labelLarge,
-                color = NuvioColors.TextSecondary
-            )
-
-            surfaces.forEach { (title, surface) ->
-                CompactToggleRow(
-                    title = title,
-                    subtitle = null,
-                    checked =
-                        style.isSurfaceEnabled(surface),
-                    onToggle = {
-                        onSurfaceEnabledChange(
-                            surface,
-                            !style.isSurfaceEnabled(
-                                surface
-                            )
-                        )
-                    },
+            if (style.enabled) {
+                OptionRow(
+                    title = stringResource(
+                        R.string.settings_card_depth_edge
+                    ),
+                    selectedValue = style.edgeStrength,
+                    options = edgeOptions,
+                    onSelected = onEdgeStrengthChange,
                     onFocused = onFocused
                 )
+
+                OptionRow(
+                    title = stringResource(
+                        R.string.settings_card_depth_sheen
+                    ),
+                    selectedValue = style.sheenStrength,
+                    options = sheenOptions,
+                    onSelected = onSheenStrengthChange,
+                    onFocused = onFocused
+                )
+
+                OptionRow(
+                    title = stringResource(
+                        R.string.settings_card_depth_edge_coverage
+                    ),
+                    selectedValue = style.edgeCoverage,
+                    options = coverageOptions,
+                    onSelected = onEdgeCoverageChange,
+                    onFocused = onFocused
+                )
+
+                SettingsActionRow(
+                    title = stringResource(
+                        R.string.settings_card_depth_fine_tune
+                    ),
+                    subtitle = stringResource(
+                        R.string.settings_card_depth_fine_tune_hint_tv
+                    ),
+                    onClick = onFineTune,
+                    trailingIcon = Icons.Default.Tune,
+                    onFocused = onFocused
+                )
+            }
+        }
+
+        if (style.enabled) {
+            LayoutControlGroup {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SettingsRightSurfaceColor)
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.settings_card_depth_apply_to
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = NuvioColors.TextSecondary
+                    )
+                }
+
+                surfaces.forEach { (title, surface) ->
+                    CompactToggleRow(
+                        title = title,
+                        subtitle = null,
+                        checked = style.isSurfaceEnabled(surface),
+                        onToggle = {
+                            onSurfaceEnabledChange(
+                                surface,
+                                !style.isSurfaceEnabled(surface)
+                            )
+                        },
+                        onFocused = onFocused
+                    )
+                }
             }
         }
 
@@ -1214,8 +1225,7 @@ private fun PosterCardStyleControls(
     onCornerRadiusSelected: (Int) -> Unit,
     onReset: () -> Unit,
     onFocused: () -> Unit
-) {
-    val widthOptions = listOf(
+) {    val widthOptions = listOf(
         PresetOption(stringResource(R.string.layout_preset_compact), 104),
         PresetOption(stringResource(R.string.layout_preset_dense), 112),
         PresetOption(stringResource(R.string.layout_preset_standard), 120),
@@ -1231,24 +1241,27 @@ private fun PosterCardStyleControls(
         PresetOption(stringResource(R.string.layout_preset_pill), 16)
     )
 
+
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
     ) {
-        OptionRow(
-            title = stringResource(R.string.layout_card_width),
-            selectedValue = widthDp,
-            options = widthOptions,
-            onSelected = onWidthSelected,
-            onFocused = onFocused
-        )
-        OptionRow(
-            title = stringResource(R.string.layout_card_radius),
-            selectedValue = cornerRadiusDp,
-            options = radiusOptions,
-            onSelected = onCornerRadiusSelected,
-            onFocused = onFocused
-        )
+        LayoutControlGroup {
+            OptionRow(
+                title = stringResource(R.string.layout_card_width),
+                selectedValue = widthDp,
+                options = widthOptions,
+                onSelected = onWidthSelected,
+                onFocused = onFocused
+            )
+            OptionRow(
+                title = stringResource(R.string.layout_card_radius),
+                selectedValue = cornerRadiusDp,
+                options = radiusOptions,
+                onSelected = onCornerRadiusSelected,
+                onFocused = onFocused
+            )
+        }
 
         SettingsResetButton(
             onClick = onReset,
@@ -1268,26 +1281,34 @@ private fun OptionRow(
 ) {
     val selectedLabel = options.firstOrNull { it.value == selectedValue }?.label ?: stringResource(R.string.layout_custom)
 
-    Text(
-        text = "$title ($selectedLabel)",
-        style = MaterialTheme.typography.labelLarge,
-        color = NuvioColors.TextSecondary
-    )
-
-    LazyRow(
-        contentPadding = PaddingValues(end = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SettingsRightSurfaceColor)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        items(
-            items = options,
-            key = { it.value }
-        ) { option ->
-            ValueChip(
-                label = option.label,
-                isSelected = option.value == selectedValue,
-                onClick = { onSelected(option.value) },
-                onFocused = onFocused
-            )
+        Text(
+            text = "$title ($selectedLabel)",
+            style = MaterialTheme.typography.labelLarge,
+            color = NuvioColors.TextSecondary
+        )
+
+        LazyRow(
+            contentPadding = PaddingValues(end = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(
+                items = options,
+                key = { it.value }
+            ) { option ->
+                ValueChip(
+                    label = option.label,
+                    isSelected = option.value == selectedValue,
+                    onClick = { onSelected(option.value) },
+                    onFocused = onFocused
+                )
+            }
         }
     }
 }
