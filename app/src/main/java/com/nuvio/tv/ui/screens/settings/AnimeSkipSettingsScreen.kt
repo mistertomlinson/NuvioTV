@@ -73,7 +73,7 @@ fun AnimeSkipSettingsContent(
                     state = animeSkipListState,
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(0.dp),
-                verticalArrangement = Arrangement.spacedBy(0.dp)
+                verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
             ) {
                 item(key = "animeskip_enabled") {
                     SettingsToggleRow(
