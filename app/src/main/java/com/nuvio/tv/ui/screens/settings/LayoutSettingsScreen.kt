@@ -149,6 +149,39 @@ fun LayoutSettingsContent(
         }
     }
 
+    val visibleSections = buildList {
+        add(LayoutSettingsSection.HOME_LAYOUT)
+        add(LayoutSettingsSection.HOME_CONTENT)
+        add(LayoutSettingsSection.DETAIL_PAGE)
+        if (uiState.selectedLayout != HomeLayout.GRID) {
+            add(LayoutSettingsSection.FOCUSED_POSTER)
+        }
+        add(LayoutSettingsSection.POSTER_CARD_STYLE)
+    }
+    val expandedSections = buildSet {
+        if (homeLayoutExpanded) add(LayoutSettingsSection.HOME_LAYOUT)
+        if (homeContentExpanded) add(LayoutSettingsSection.HOME_CONTENT)
+        if (detailPageExpanded) add(LayoutSettingsSection.DETAIL_PAGE)
+        if (focusedPosterExpanded && uiState.selectedLayout != HomeLayout.GRID) {
+            add(LayoutSettingsSection.FOCUSED_POSTER)
+        }
+        if (posterCardStyleExpanded) add(LayoutSettingsSection.POSTER_CARD_STYLE)
+    }
+    fun groupPositionFor(section: LayoutSettingsSection): SettingsGroupPosition {
+        val index = visibleSections.indexOf(section)
+        if (index < 0) return SettingsGroupPosition.SINGLE
+        if (section in expandedSections) return SettingsGroupPosition.TOP
+
+        val startsGroup = index == 0 || visibleSections[index - 1] in expandedSections
+        val endsGroup = index == visibleSections.lastIndex || visibleSections[index + 1] in expandedSections
+        return when {
+            startsGroup && endsGroup -> SettingsGroupPosition.SINGLE
+            startsGroup -> SettingsGroupPosition.TOP
+            endsGroup -> SettingsGroupPosition.BOTTOM
+            else -> SettingsGroupPosition.MIDDLE
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -158,16 +191,15 @@ fun LayoutSettingsContent(
             subtitle = stringResource(R.string.layout_subtitle)
         )
 
-        SettingsGroupCard(
+        val layoutListState = rememberLazyListState()
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
         ) {
-        val layoutListState = rememberLazyListState()
-        Box(modifier = Modifier.fillMaxSize()) {
         LazyColumn(
             state = layoutListState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(0.dp)
         ) {
@@ -178,7 +210,8 @@ fun LayoutSettingsContent(
                     expanded = homeLayoutExpanded,
                     onToggle = { homeLayoutExpanded = !homeLayoutExpanded },
                     focusRequester = homeLayoutHeaderFocus,
-                    onFocused = { focusedSection = LayoutSettingsSection.HOME_LAYOUT }
+                    onFocused = { focusedSection = LayoutSettingsSection.HOME_LAYOUT },
+                    groupPosition = groupPositionFor(LayoutSettingsSection.HOME_LAYOUT)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -281,7 +314,8 @@ fun LayoutSettingsContent(
                     expanded = homeContentExpanded,
                     onToggle = { homeContentExpanded = !homeContentExpanded },
                     focusRequester = homeContentHeaderFocus,
-                    onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
+                    onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT },
+                    groupPosition = groupPositionFor(LayoutSettingsSection.HOME_CONTENT)
                 ) {
                     if (uiState.selectedLayout != HomeLayout.MODERN) {
                         CompactToggleRow(
@@ -365,7 +399,8 @@ fun LayoutSettingsContent(
                     expanded = detailPageExpanded,
                     onToggle = { detailPageExpanded = !detailPageExpanded },
                     focusRequester = detailPageHeaderFocus,
-                    onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE }
+                    onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE },
+                    groupPosition = groupPositionFor(LayoutSettingsSection.DETAIL_PAGE)
                 ) {
                     CompactToggleRow(
                         title = stringResource(R.string.layout_blur_unwatched),
@@ -417,7 +452,8 @@ fun LayoutSettingsContent(
                     expanded = focusedPosterExpanded,
                     onToggle = { focusedPosterExpanded = !focusedPosterExpanded },
                     focusRequester = focusedPosterHeaderFocus,
-                    onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER }
+                    onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER },
+                    groupPosition = groupPositionFor(LayoutSettingsSection.FOCUSED_POSTER)
                 ) {
                     val isModern = uiState.selectedLayout == HomeLayout.MODERN
                     val isModernLandscape = isModern && uiState.modernLandscapePostersEnabled
@@ -603,7 +639,8 @@ fun LayoutSettingsContent(
                     expanded = posterCardStyleExpanded,
                     onToggle = { posterCardStyleExpanded = !posterCardStyleExpanded },
                     focusRequester = posterCardStyleHeaderFocus,
-                    onFocused = { focusedSection = LayoutSettingsSection.POSTER_CARD_STYLE }
+                    onFocused = { focusedSection = LayoutSettingsSection.POSTER_CARD_STYLE },
+                    groupPosition = groupPositionFor(LayoutSettingsSection.POSTER_CARD_STYLE)
                 ) {
                     PosterCardStyleControls(
                         widthDp = uiState.posterCardWidthDp,
@@ -747,7 +784,6 @@ fun LayoutSettingsContent(
         }
         SettingsVerticalScrollIndicators(state = layoutListState)
         }
-        }
     }
 }
 
@@ -759,6 +795,7 @@ private fun CollapsibleSectionCard(
     onToggle: () -> Unit,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
+    groupPosition: SettingsGroupPosition,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
@@ -773,7 +810,12 @@ private fun CollapsibleSectionCard(
             trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
             modifier = Modifier.focusRequester(focusRequester),
             onFocused = onFocused,
-            segmentBreakAfter = expanded
+            showDivider = false,
+            groupPosition = if (expanded) {
+                SettingsGroupPosition.TOP
+            } else {
+                groupPosition
+            }
         )
 
         if (expanded) {
@@ -807,21 +849,26 @@ private fun ModernTrailerPlaybackTargetRow(
     onTargetSelected: (FocusedPosterTrailerPlaybackTarget) -> Unit,
     onFocused: () -> Unit
 ) {
-    Text(
-        text = stringResource(R.string.layout_trailer_location),
-        style = MaterialTheme.typography.labelLarge,
-        color = NuvioColors.TextSecondary
-    )
-    Text(
-        text = stringResource(R.string.layout_trailer_location_sub),
-        style = MaterialTheme.typography.bodySmall,
-        color = NuvioColors.TextTertiary
-    )
-    LazyRow(
-        contentPadding = PaddingValues(end = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
-        item(key = "trailer_target_expanded_card") {
+        Text(
+            text = stringResource(R.string.layout_trailer_location),
+            style = MaterialTheme.typography.labelLarge,
+            color = NuvioColors.TextSecondary
+        )
+        Text(
+            text = stringResource(R.string.layout_trailer_location_sub),
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioColors.TextTertiary
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
             SettingsChoiceChip(
                 label = stringResource(R.string.layout_trailer_expanded_card),
                 selected = selectedTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD,
@@ -830,8 +877,6 @@ private fun ModernTrailerPlaybackTargetRow(
                 },
                 onFocused = onFocused
             )
-        }
-        item(key = "trailer_target_hero_media") {
             SettingsChoiceChip(
                 label = stringResource(R.string.layout_trailer_hero_media),
                 selected = selectedTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA,
