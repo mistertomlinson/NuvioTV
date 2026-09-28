@@ -582,25 +582,16 @@ internal fun SettingsExpandedSectionSurface(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(SettingsRightSurfaceColor)
-            .border(
-                width = 1.dp,
-                color = SettingsGlassBorderColor,
-                shape = shape
-            ),
-        verticalArrangement = Arrangement.spacedBy(0.dp),
+            .clip(shape),
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap),
         content = content
     )
 }
 
 @Composable
 internal fun SettingsRowDivider() {
-    Spacer(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(SettingsRowGap)
-    )
+    // Row separation is owned by the parent container so no trailing gap is
+    // added after the final setting in a rounded group.
 }
 
 @Composable
@@ -806,17 +797,14 @@ internal fun SettingsChoiceChip(
             } else {
                 SettingsGlassRowColor
             },
-            focusedContainerColor = SettingsGlassRowFocusedColor
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         border = CardDefaults.border(
             border = if (selected) Border(
                 border = BorderStroke(1.dp, NuvioColors.Secondary.copy(alpha = 0.6f)),
                 shape = RoundedCornerShape(SettingsRowFocusRadius)
             ) else Border.None,
-            focusedBorder = Border(
-                border = BorderStroke(1.dp, SettingsGlassFocusBorderColor),
-                shape = RoundedCornerShape(SettingsRowFocusRadius)
-            )
+            focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(RoundedCornerShape(SettingsRowFocusRadius)),
         scale = CardDefaults.scale(focusedScale = 1.025f, pressedScale = 0.99f)
