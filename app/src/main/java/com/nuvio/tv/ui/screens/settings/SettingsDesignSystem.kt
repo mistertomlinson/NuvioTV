@@ -637,7 +637,6 @@ internal fun SettingsToggleRow(
                 containerColor = SettingsRightSurfaceColor,
                 focusedContainerColor = SettingsRightSurfaceFocusedColor
             ),
-            border = CardDefaults.border(),
             shape = CardDefaults.shape(rowShape),
             scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
         ) {
@@ -716,7 +715,6 @@ internal fun SettingsActionRow(
                 containerColor = SettingsRightSurfaceColor,
                 focusedContainerColor = SettingsRightSurfaceFocusedColor
             ),
-            border = CardDefaults.border(),
             shape = CardDefaults.shape(rowShape),
             scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
         ) {
