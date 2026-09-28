@@ -189,9 +189,7 @@ fun PlaybackSettingsContent(
         )
 
         SettingsGroupCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
+            modifier = Modifier.fillMaxWidth()
         ) {
             PlaybackSettingsSections(
                 initialFocusRequester = initialFocusRequester,
