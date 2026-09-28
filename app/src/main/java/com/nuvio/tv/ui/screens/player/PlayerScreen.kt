@@ -809,6 +809,7 @@ fun PlayerScreen(
             uiState.showPauseOverlay ||
                 uiState.showLoadingOverlay ||
                 uiState.showRatingOverlay ||
+                uiState.manualEndActionRequested ||
                 postPlayVisible
 
         val activeSkipType = uiState.activeSkipInterval?.type
