@@ -887,6 +887,7 @@ private fun ModernTrailerPlaybackTargetRow(
             )
         }
     }
+    SettingsRowDivider()
 }
 
 @Composable
