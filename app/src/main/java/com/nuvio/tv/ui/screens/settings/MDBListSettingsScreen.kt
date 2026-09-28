@@ -67,14 +67,13 @@ fun MDBListSettingsContent(
         SettingsGroupCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
         ) {
             val mdbListState = rememberLazyListState()
-            Box(modifier = Modifier.fillMaxSize()) {
+            Box(modifier = Modifier.fillMaxWidth()) {
                 LazyColumn(
                     state = mdbListState,
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(0.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 item(key = "mdblist_enabled") {
