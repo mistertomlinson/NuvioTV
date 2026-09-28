@@ -23,15 +23,16 @@ data class CardDepthStyle(
     val castEnabled: Boolean = true,
     val trailersEnabled: Boolean = true
 ) {
+    @Suppress("UNUSED_PARAMETER")
     fun isEnabledFor(surface: CardDepthSurface): Boolean =
-        enabled && isSurfaceEnabled(surface)
+        enabled
 
+    /**
+     * Card depth is now universal whenever the master switch is enabled.
+     * Legacy per-surface fields remain in the model so existing stored
+     * preferences can still be read without migration churn.
+     */
+    @Suppress("UNUSED_PARAMETER")
     fun isSurfaceEnabled(surface: CardDepthSurface): Boolean =
-        when (surface) {
-            CardDepthSurface.POSTERS -> postersEnabled
-            CardDepthSurface.CONTINUE_WATCHING -> continueWatchingEnabled
-            CardDepthSurface.EPISODE_CARDS -> episodeCardsEnabled
-            CardDepthSurface.CAST -> castEnabled
-            CardDepthSurface.TRAILERS -> trailersEnabled
-        }
+        true
 }
