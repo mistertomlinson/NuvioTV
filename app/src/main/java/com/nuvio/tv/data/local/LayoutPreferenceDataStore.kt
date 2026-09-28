@@ -115,13 +115,8 @@ class LayoutPreferenceDataStore @Inject constructor(
             factory.get(pid, FEATURE).data.map { prefs -> extract(prefs) }
         }
 
-    val selectedLayout: Flow<HomeLayout> = profileFlow { prefs ->
-        val layoutName = prefs[layoutKey] ?: HomeLayout.MODERN.name
-        try {
-            HomeLayout.valueOf(layoutName)
-        } catch (e: IllegalArgumentException) {
-            HomeLayout.MODERN
-        }
+    val selectedLayout: Flow<HomeLayout> = profileFlow {
+        HomeLayout.MODERN
     }
 
     val hasChosenLayout: Flow<Boolean> = profileFlow { prefs ->
@@ -346,9 +341,8 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setLayout(layout: HomeLayout) {
         store().edit { prefs ->
             val hadChosenLayout = prefs[hasChosenKey] ?: false
-            prefs[layoutKey] = layout.name
+            prefs[layoutKey] = HomeLayout.MODERN.name
             if (
-                layout == HomeLayout.MODERN &&
                 !hadChosenLayout &&
                 prefs[focusedPosterBackdropTrailerPlaybackTargetKey] == null
             ) {
