@@ -393,7 +393,7 @@ private fun SettingsScreenContent(
                                 false
                             }
                         },
-                    verticalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterVertically)
+                    verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
                 ) {
                     items(
                         items = visibleSections,
@@ -634,7 +634,7 @@ private fun IntegrationSettingsContent(
                         LazyColumn(
                             state = integrationHubState,
                             modifier = Modifier.fillMaxSize(),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                            verticalArrangement = Arrangement.spacedBy(0.dp)
                         ) {
                             item(key = "integration_hub_debrid") {
                                 SettingsActionRow(
