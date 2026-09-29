@@ -5,6 +5,7 @@ package com.nuvio.tv.ui.screens.settings
 import android.os.Build
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.CompositionLocalProvider
 import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
@@ -143,18 +144,18 @@ internal fun animatedSettingsGroupShape(
         SettingsGroupPosition.TOP,
         SettingsGroupPosition.MIDDLE -> 0.dp
     }
-    val animation = tween<Dp>(
+    val roundedAnimation = tween<Dp>(
         durationMillis = 240,
         easing = FastOutSlowInEasing
     )
     val top by animateDpAsState(
         targetValue = targetTop,
-        animationSpec = animation,
+        animationSpec = if (targetTop == 0.dp) snap() else roundedAnimation,
         label = "settingsTopCorner"
     )
     val bottom by animateDpAsState(
         targetValue = targetBottom,
-        animationSpec = animation,
+        animationSpec = if (targetBottom == 0.dp) snap() else roundedAnimation,
         label = "settingsBottomCorner"
     )
     return RoundedCornerShape(
