@@ -324,7 +324,16 @@ private fun SettingsScreenContent(
     }
 
     LaunchedEffect(Unit) {
-        runCatching { railContainerFocusRequester.requestFocus() }
+        /*
+         * A pending Tracking return has its own exact child-focus target.
+         * Do not briefly focus the rail first; that produces a visible
+         * left-rail flash before Trakt/Simkl restores focus.
+         */
+        if (trackingReturnFocusAccount.isNullOrBlank()) {
+            runCatching {
+                railContainerFocusRequester.requestFocus()
+            }
+        }
     }
 
     LaunchedEffect(trackingReturnFocusAccount) {
