@@ -47,6 +47,8 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
 import com.nuvio.tv.ui.theme.NuvioColors
 
 @Composable
@@ -384,8 +386,8 @@ private fun MDBListApiKeyDialog(
                 .fillMaxWidth()
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
-                containerColor = SettingsInsetControlColor,
-                focusedContainerColor = SettingsInsetControlFocusedColor
+                containerColor = SettingsDialogGlassInsetColor,
+                focusedContainerColor = SettingsDialogGlassInsetFocusedColor
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -441,8 +443,8 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsRightSurfaceColor,
-                    focusedContainerColor = SettingsRightSurfaceFocusedColor,
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
@@ -452,8 +454,8 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = onClear,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsRightSurfaceColor,
-                    focusedContainerColor = SettingsRightSurfaceFocusedColor,
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
@@ -463,8 +465,8 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = { if (!validating) viewModel.validateAndSaveApiKey(value, onSaved) },
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsRightSurfaceColor,
-                    focusedContainerColor = SettingsRightSurfaceFocusedColor,
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
