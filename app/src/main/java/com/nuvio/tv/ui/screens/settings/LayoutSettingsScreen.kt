@@ -3,6 +3,11 @@
 package com.nuvio.tv.ui.screens.settings
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.background
@@ -736,7 +741,23 @@ private fun CollapsibleSectionCard(
             }
         )
 
-        if (expanded) {
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                ),
+                expandFrom = Alignment.Top
+            ),
+            exit = shrinkVertically(
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                ),
+                shrinkTowards = Alignment.Top
+            )
+        ) {
             SettingsExpandedSectionSurface {
                 content()
             }
