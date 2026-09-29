@@ -1280,16 +1280,10 @@ internal fun ColorSelectionDialog(
                 colors = CardDefaults.colors(
                     containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor),
-                border = CardDefaults.border(
-                    focusedBorder = Border.None),
-                shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
-                modifier = Modifier.fillMaxWidth()
-            ,
-    scale = CardDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                border = CardDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None),
+                shape = CardDefaults.shape(SettingsDialogPillShape),
+                modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
+    scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)) {
                 Text(
                     text = stringResource(R.string.action_cancel),
                     style = MaterialTheme.typography.bodyLarge,
