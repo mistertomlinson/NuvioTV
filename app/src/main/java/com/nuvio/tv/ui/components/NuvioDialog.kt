@@ -12,8 +12,12 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,6 +26,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,6 +67,7 @@ fun NuvioDialog(
     content: @Composable ColumnScope.() -> Unit
 ) {
     var suppressNextKeyUp by remember { mutableStateOf(suppressFirstKeyUp) }
+    val appearanceProgress = remember { Animatable(0f) }
 
     /*
      * Read the host environment in the parent composition, before Dialog
@@ -69,6 +75,22 @@ fun NuvioDialog(
      * Home popup implementation and preserves the Settings Haze state.
      */
     val glassEnvironment = LocalHomePopupGlassEnvironment.current
+    val useEnhancedGlass = glass && enhancedGlass
+
+    LaunchedEffect(useEnhancedGlass) {
+        if (useEnhancedGlass) {
+            appearanceProgress.snapTo(0f)
+            appearanceProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = FastOutSlowInEasing
+                )
+            )
+        } else {
+            appearanceProgress.snapTo(1f)
+        }
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -77,7 +99,6 @@ fun NuvioDialog(
         )
     ) {
         val dialogView = LocalView.current
-        val useEnhancedGlass = glass && enhancedGlass
 
         /*
          * Enhanced glass is an explicit caller opt-in. Settings uses it;
@@ -127,8 +148,10 @@ fun NuvioDialog(
                     state = hazeState,
                     shape = shape,
                     tint = Color.Unspecified,
-                    blurRadius = 30.dp,
-                    noiseFactor = 0.025f
+                    blurRadius =
+                        (1f + (29f * appearanceProgress.value)).dp,
+                    noiseFactor =
+                        0.025f * appearanceProgress.value
                 )
             } else {
                 Modifier
@@ -137,6 +160,23 @@ fun NuvioDialog(
         Box(
             modifier = Modifier
                 .width(width)
+                .graphicsLayer {
+                    alpha =
+                        if (useEnhancedGlass) {
+                            appearanceProgress.value
+                        } else {
+                            1f
+                        }
+                    val animatedScale =
+                        if (useEnhancedGlass) {
+                            0.96f +
+                                (0.04f * appearanceProgress.value)
+                        } else {
+                            1f
+                        }
+                    scaleX = animatedScale
+                    scaleY = animatedScale
+                }
                 .then(blurModifier)
                 .clip(shape)
                 .then(
