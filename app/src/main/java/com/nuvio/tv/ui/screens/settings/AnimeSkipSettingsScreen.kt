@@ -59,71 +59,104 @@ fun AnimeSkipSettingsContent(
     val enabled by viewModel.enabled.collectAsStateWithLifecycle()
     var showDialog by remember { mutableStateOf(false) }
 
-    Column(
-        modifier =
-            if (embedded) {
-                Modifier
-                    .fillMaxWidth()
-                    .height(260.dp)
-            } else {
-                Modifier
-            },
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        if (!embedded) {
-            SettingsDetailHeader(
-            title = stringResource(R.string.animeskip_title),
-            subtitle = stringResource(R.string.animeskip_subtitle)
-            )
-        }
-
-        SettingsGroupCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (embedded) {
-                        Modifier.weight(1f)
+    if (embedded) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+        ) {
+            SettingsToggleRow(
+                title = stringResource(R.string.animeskip_enable_title),
+                subtitle = stringResource(R.string.animeskip_enable_subtitle),
+                checked = enabled,
+                onToggle = { viewModel.setEnabled(!enabled) },
+                modifier =
+                    if (initialFocusRequester != null) {
+                        Modifier.focusRequester(initialFocusRequester)
                     } else {
                         Modifier
                     }
+            )
+            SettingsActionRow(
+                title = stringResource(R.string.animeskip_client_id_title),
+                subtitle = stringResource(
+                    R.string.animeskip_client_id_subtitle
                 ),
-            segmented = true
+                value = maskClientId(
+                    clientId,
+                    stringResource(R.string.mdblist_not_set)
+                ),
+                onClick = { showDialog = true },
+                enabled = enabled
+            )
+        }
+    } else {
+        Column(
+            modifier =
+                if (embedded) {
+                    Modifier
+                        .fillMaxWidth()
+                        .height(260.dp)
+                } else {
+                    Modifier
+                },
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            val animeSkipListState = rememberLazyListState()
-            Box(modifier = Modifier.fillMaxWidth()) {
-                LazyColumn(
-                    state = animeSkipListState,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(0.dp),
-                verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
-            ) {
-                item(key = "animeskip_enabled") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.animeskip_enable_title),
-                        subtitle = stringResource(R.string.animeskip_enable_subtitle),
-                        checked = enabled,
-                        onToggle = { viewModel.setEnabled(!enabled) },
-                        modifier = if (initialFocusRequester != null) {
-                            Modifier.focusRequester(initialFocusRequester)
+            if (!embedded) {
+                SettingsDetailHeader(
+                title = stringResource(R.string.animeskip_title),
+                subtitle = stringResource(R.string.animeskip_subtitle)
+                )
+            }
+    
+            SettingsGroupCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (embedded) {
+                            Modifier.weight(1f)
                         } else {
                             Modifier
                         }
-                    )
+                    ),
+                segmented = true
+            ) {
+                val animeSkipListState = rememberLazyListState()
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    LazyColumn(
+                        state = animeSkipListState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(0.dp),
+                    verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+                ) {
+                    item(key = "animeskip_enabled") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.animeskip_enable_title),
+                            subtitle = stringResource(R.string.animeskip_enable_subtitle),
+                            checked = enabled,
+                            onToggle = { viewModel.setEnabled(!enabled) },
+                            modifier = if (initialFocusRequester != null) {
+                                Modifier.focusRequester(initialFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                    }
+                    item(key = "animeskip_client_id") {
+                        SettingsActionRow(
+                            title = stringResource(R.string.animeskip_client_id_title),
+                            subtitle = stringResource(R.string.animeskip_client_id_subtitle),
+                            value = maskClientId(clientId, stringResource(R.string.mdblist_not_set)),
+                            onClick = { showDialog = true },
+                            enabled = enabled,
+                            modifier = Modifier
+                        )
+                    }
+                    }
+                    SettingsVerticalScrollIndicators(state = animeSkipListState)
                 }
-                item(key = "animeskip_client_id") {
-                    SettingsActionRow(
-                        title = stringResource(R.string.animeskip_client_id_title),
-                        subtitle = stringResource(R.string.animeskip_client_id_subtitle),
-                        value = maskClientId(clientId, stringResource(R.string.mdblist_not_set)),
-                        onClick = { showDialog = true },
-                        enabled = enabled,
-                        modifier = Modifier
-                    )
-                }
-                }
-                SettingsVerticalScrollIndicators(state = animeSkipListState)
             }
         }
+    
     }
 
     if (showDialog) {
