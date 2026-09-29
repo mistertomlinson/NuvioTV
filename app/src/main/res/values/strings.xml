@@ -1359,6 +1359,12 @@
     <!-- Centralized tracking settings -->
     <string name="settings_tracking_title">Tracking</string>
     <string name="settings_tracking_description">Connect tracking providers and choose which one powers your Library, Continue Watching, and playback scrobbling.</string>
+    <string name="settings_tracking_description_compact">Connect tracking services and choose where Nuvio reads your library and watch progress.</string>
+    <string name="tracking_trakt_subtitle_compact">Sync watchlists, history and playback progress with Trakt.</string>
+    <string name="tracking_simkl_subtitle_compact">Sync lists, history and playback progress with Simkl.</string>
+    <string name="tracking_sources_subtitle_compact">Choose the services used for your library and watch progress.</string>
+    <string name="trakt_library_source_subtitle_compact">Choose which service powers your library.</string>
+    <string name="trakt_watch_progress_subtitle_compact">Choose where resume and Continue Watching progress comes from.</string>
     <string name="tracking_accounts_title">Accounts</string>
     <string name="tracking_accounts_subtitle">Connect and manage tracking services</string>
     <string name="tracking_sources_title">Sources</string>
