@@ -431,7 +431,7 @@ fun SimklScreen(
                         viewModel.onDisconnect()
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = SettingsGlassRowColor,
+                        containerColor = SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -451,7 +451,7 @@ fun SimklScreen(
                         showDisconnectConfirm = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = SettingsGlassRowColor,
+                        containerColor = SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
