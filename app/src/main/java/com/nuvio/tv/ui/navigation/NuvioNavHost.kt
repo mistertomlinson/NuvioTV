@@ -1506,15 +1506,9 @@ fun NuvioNavHost(
                         navController.navigate(Screen.Tracking.route)
                     },
                     onNavigateToTrakt = {
-                        settingsBackStackEntry.savedStateHandle[
-                            "settings_tracking_return_focus"
-                        ] = "trakt"
                         navController.navigate(Screen.Trakt.route)
                     },
                     onNavigateToSimkl = {
-                        settingsBackStackEntry.savedStateHandle[
-                            "settings_tracking_return_focus"
-                        ] = "simkl"
                         navController.navigate(Screen.Simkl.route)
                     },
                     trackingReturnFocusAccount =
@@ -1556,13 +1550,37 @@ fun NuvioNavHost(
 
         composable(Screen.Trakt.route) {
             TraktScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = {
+                    navController.previousBackStackEntry
+                        ?.takeIf {
+                            it.destination.route ==
+                                Screen.Settings.route
+                        }
+                        ?.savedStateHandle
+                        ?.set(
+                            "settings_tracking_return_focus",
+                            "trakt"
+                        )
+                    navController.popBackStack()
+                }
             )
         }
 
         composable(Screen.Simkl.route) {
             SimklScreen(
-                onBackPress = { navController.popBackStack() }
+                onBackPress = {
+                    navController.previousBackStackEntry
+                        ?.takeIf {
+                            it.destination.route ==
+                                Screen.Settings.route
+                        }
+                        ?.savedStateHandle
+                        ?.set(
+                            "settings_tracking_return_focus",
+                            "simkl"
+                        )
+                    navController.popBackStack()
+                }
             )
         }
 
