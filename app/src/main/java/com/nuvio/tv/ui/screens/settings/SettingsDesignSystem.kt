@@ -808,6 +808,7 @@ internal fun SettingsActionRow(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .heightIn(min = 49.dp)
                     .padding(horizontal = 14.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
