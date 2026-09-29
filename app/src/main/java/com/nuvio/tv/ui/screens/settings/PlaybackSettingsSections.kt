@@ -139,6 +139,7 @@ internal fun PlaybackSettingsSections(
 ) {
     var generalExpanded by rememberSaveable { mutableStateOf(false) }
     var afrExpanded by rememberSaveable { mutableStateOf(false) }
+    var afrClosing by remember { mutableStateOf(false) }
     var streamExpanded by rememberSaveable { mutableStateOf(false) }
     var audioTrailerExpanded by rememberSaveable { mutableStateOf(false) }
     var subtitlesExpanded by rememberSaveable { mutableStateOf(false) }
@@ -338,6 +339,20 @@ internal fun PlaybackSettingsSections(
             index in animatedFlattenBoundaries
     }
 
+    fun toggleAfr() {
+        if (afrExpanded) {
+            afrClosing = true
+            afrExpanded = false
+            playbackAnimationScope.launch {
+                delay(240L)
+                afrClosing = false
+            }
+        } else {
+            afrClosing = false
+            afrExpanded = true
+        }
+    }
+
     val defaultGeneralHeaderFocus = remember { FocusRequester() }
     val afrHeaderFocus = remember { FocusRequester() }
     val streamHeaderFocus = remember { FocusRequester() }
@@ -511,7 +526,14 @@ internal fun PlaybackSettingsSections(
                         onFocused = {
                             focusedSection = PlaybackSection.GENERAL
                         },
-                        enabled = !generalUi.isExternalPlayer
+                        enabled = !generalUi.isExternalPlayer,
+                        groupPosition =
+                            if (afrExpanded) {
+                                SettingsGroupPosition.BOTTOM
+                            } else {
+                                SettingsGroupPosition.MIDDLE
+                            },
+                        animateBottomFlatten = afrClosing
                     )
 
                     PlaybackExpandableGroup(
@@ -520,15 +542,15 @@ internal fun PlaybackSettingsSections(
                         ),
                         description = generalUi.frameRateMatchingLabel,
                         expanded = afrExpanded,
-                        onToggle = {
-                            afrExpanded = !afrExpanded
-                        },
+                        onToggle = ::toggleAfr,
                         focusRequester = afrHeaderFocus,
                         onHeaderFocused = {
                             focusedSection = PlaybackSection.GENERAL
                         },
                         enabled = !generalUi.isExternalPlayer,
-                        groupPosition = SettingsGroupPosition.BOTTOM
+                        groupPosition = SettingsGroupPosition.BOTTOM,
+                        animateTopFlatten = afrClosing,
+                        deferBottomCorner = afrClosing
                     ) {
                         FrameRateMatchingModeOptions(
                             selectedMode =
