@@ -158,8 +158,10 @@ private fun rememberSettingsSectionSpecs() = listOf(
         category = SettingsCategory.TRACKING,
         title = stringResource(R.string.settings_tracking_title),
         icon = Icons.Default.Link,
-        subtitle = stringResource(R.string.settings_tracking_description),
-        destination = SettingsSectionDestination.External
+        subtitle = stringResource(
+            R.string.settings_tracking_description_compact
+        ),
+        destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
         category = SettingsCategory.PROFILES,
@@ -202,6 +204,8 @@ private fun rememberSettingsSectionSpecs() = listOf(
 fun SettingsScreen(
     showBuiltInHeader: Boolean = true,
     onNavigateToTracking: () -> Unit = {},
+    onNavigateToTrakt: () -> Unit = {},
+    onNavigateToSimkl: () -> Unit = {},
     onNavigateToAuthQrSignIn: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
@@ -211,6 +215,8 @@ fun SettingsScreen(
         SettingsScreenContent(
             showBuiltInHeader = showBuiltInHeader,
             onNavigateToTracking = onNavigateToTracking,
+            onNavigateToTrakt = onNavigateToTrakt,
+            onNavigateToSimkl = onNavigateToSimkl,
             onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
             onNavigateToManageProfiles = onNavigateToManageProfiles,
             onNavigateToSupportersContributors = onNavigateToSupportersContributors,
@@ -223,6 +229,8 @@ fun SettingsScreen(
 private fun SettingsScreenContent(
     showBuiltInHeader: Boolean = true,
     onNavigateToTracking: () -> Unit = {},
+    onNavigateToTrakt: () -> Unit = {},
+    onNavigateToSimkl: () -> Unit = {},
     onNavigateToAuthQrSignIn: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
@@ -259,6 +267,7 @@ private fun SettingsScreenContent(
                 SettingsCategory.APPEARANCE to FocusRequester(),
                 SettingsCategory.LAYOUT to FocusRequester(),
                 SettingsCategory.INTEGRATION to FocusRequester(),
+                SettingsCategory.TRACKING to FocusRequester(),
                 SettingsCategory.PLAYBACK to FocusRequester(),
                 SettingsCategory.ADVANCED to FocusRequester(),
                 SettingsCategory.ABOUT to FocusRequester()
@@ -530,7 +539,18 @@ private fun SettingsScreenContent(
                             onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn
                         )
                         SettingsCategory.DEBUG -> DebugSettingsContent()
-                        SettingsCategory.TRACKING -> Unit
+                        SettingsCategory.TRACKING -> TrackingSettingsContent(
+                            onNavigateToTrakt = onNavigateToTrakt,
+                            onNavigateToSimkl = onNavigateToSimkl,
+                            initialFocusRequester =
+                                if (allowDetailAutofocus) {
+                                    contentFocusRequesters[
+                                        SettingsCategory.TRACKING
+                                    ]
+                                } else {
+                                    null
+                                }
+                        )
                     }
                 }
             }
