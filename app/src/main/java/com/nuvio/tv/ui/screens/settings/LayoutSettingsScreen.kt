@@ -76,6 +76,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -413,6 +414,7 @@ fun LayoutSettingsContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
+                .clipToBounds()
         ) {
         LazyColumn(
             state = layoutListState,
