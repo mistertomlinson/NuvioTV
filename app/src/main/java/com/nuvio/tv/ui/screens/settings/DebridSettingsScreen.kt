@@ -97,6 +97,7 @@ import kotlinx.coroutines.CancellationException
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
 import kotlinx.coroutines.delay
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 
 @Composable
 fun DebridSettingsContent(
@@ -1451,13 +1452,14 @@ private fun DebridTextListDialog(
     ) {
         Card(
             onClick = { inputFocusRequester.requestFocus() },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
             colors = CardDefaults.colors(
                 containerColor = SettingsDialogGlassInsetColor,
                 focusedContainerColor = SettingsGlassRowFocusedColor),
-            shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-            scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
-        ) {
+            shape = CardDefaults.shape(SettingsDialogPillShape),
+            scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = CardDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
             Box(modifier = Modifier.padding(14.dp)) {
                 BasicTextField(
                     value = value,
@@ -2086,21 +2088,15 @@ private fun DebridApiKeyDialog(
     ) {
         Card(
             onClick = { inputFocusRequester.requestFocus() },
-            modifier = Modifier
+            modifier = (Modifier
                 .fillMaxWidth()
-                .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
+                .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus }).glassDialogFocusTransform(),
             colors = CardDefaults.colors(
                 containerColor = SettingsDialogGlassInsetColor,
                 focusedContainerColor = SettingsGlassRowFocusedColor),
-            border = CardDefaults.border(
-                border = Border(
-                    border = BorderStroke(1.dp, NuvioColors.Border),
-                    shape = RoundedCornerShape(10.dp)
-                ),
-                focusedBorder = Border.None),
-            shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-            scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
-        ) {
+            border = CardDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None),
+            shape = CardDefaults.shape(SettingsDialogPillShape),
+            scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)) {
             Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 BasicTextField(
                     value = value,
@@ -2260,20 +2256,16 @@ private fun QrCodeOverlay(
 
             Card(
                 onClick = onClose,
-                modifier = Modifier
+                modifier = (Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusRequester),
+                    .focusRequester(focusRequester)).glassDialogFocusTransform(),
                 colors = CardDefaults.colors(
                     containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor),
-                shape = CardDefaults.shape(
-                    RoundedCornerShape(10.dp)
-                ),
-                scale = CardDefaults.scale(
-                    focusedScale = SettingsDialogFocusScale,
-                    pressedScale = SettingsDialogPressedScale
-                )
-            ) {
+                shape = CardDefaults.shape(SettingsDialogPillShape),
+                scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = CardDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
                 Text(
                     text = stringResource(R.string.action_cancel),
                     modifier = Modifier
