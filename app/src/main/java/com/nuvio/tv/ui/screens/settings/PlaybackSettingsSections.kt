@@ -66,6 +66,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 
 private enum class PlaybackSection {
     GENERAL,
@@ -1131,15 +1132,16 @@ private fun PlayerPreferenceDialog(
 
                     Card(
                         onClick = { onPreferenceSelected(preference) },
-                        modifier = Modifier
+                        modifier = (Modifier
                             .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
+                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)).glassDialogFocusTransform(),
                         colors = CardDefaults.colors(
                             containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor),
-                        shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
-                        scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
-                    ) {
+                        shape = CardDefaults.shape(SettingsDialogPillShape),
+                        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = CardDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
