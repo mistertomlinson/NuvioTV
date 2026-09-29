@@ -255,6 +255,24 @@ internal val SettingsRightSurfaceFocusedColor: Color
             )
         }
 
+internal val SettingsInsetControlColor: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = lerp(
+        SettingsRightSurfaceColor,
+        Color.Black,
+        0.16f
+    )
+
+internal val SettingsInsetControlFocusedColor: Color
+    @Composable
+    @ReadOnlyComposable
+    get() = lerp(
+        SettingsRightSurfaceColor,
+        Color.Black,
+        0.06f
+    )
+
 internal val SettingsGlassGroupColor = Color.White.copy(alpha = 0.025f)
 internal val SettingsGlassBorderColor = Color.White.copy(alpha = 0.09f)
 internal val SettingsGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
