@@ -1154,6 +1154,8 @@ fun ContinueWatchingOptionsDialog(
                 modifier = Modifier
                     .width(520.dp)
                     .graphicsLayer {
+                        shape = panelShape
+                        clip = true
                         alpha = appearanceProgress.value
                         val animatedScale =
                             0.96f + (0.04f * appearanceProgress.value)
