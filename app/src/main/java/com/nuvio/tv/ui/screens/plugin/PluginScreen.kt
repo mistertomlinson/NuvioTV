@@ -468,11 +468,11 @@ private fun EmbeddedPluginSettingsContent(
                     )
                 }
 
-                items(
-                    uiState.scrapers,
-                    key = { it.id }
-                ) { scraper ->
-                    ScraperCard(
+                itemsIndexed(
+                    items = uiState.scrapers,
+                    key = { _, scraper -> scraper.id }
+                ) { index, scraper ->
+                    EmbeddedScraperRow(
                         scraper = scraper,
                         onToggle = { enabled ->
                             viewModel.onEvent(
@@ -502,7 +502,17 @@ private fun EmbeddedPluginSettingsContent(
                             } else {
                                 null
                             },
-                        isReadOnly = viewModel.isReadOnly
+                        isReadOnly = viewModel.isReadOnly,
+                        groupPosition = when {
+                            uiState.scrapers.size == 1 ->
+                                SettingsGroupPosition.SINGLE
+                            index == 0 ->
+                                SettingsGroupPosition.TOP
+                            index == uiState.scrapers.lastIndex ->
+                                SettingsGroupPosition.BOTTOM
+                            else ->
+                                SettingsGroupPosition.MIDDLE
+                        }
                     )
                 }
             }
@@ -780,6 +790,147 @@ private fun EmbeddedRepositoryRow(
                         .padding(8.dp)
                         .size(18.dp)
                 )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun EmbeddedScraperRow(
+    scraper: ScraperInfo,
+    onToggle: (Boolean) -> Unit,
+    onTest: () -> Unit,
+    isTesting: Boolean,
+    testResults: List<LocalScraperResult>?,
+    isReadOnly: Boolean,
+    groupPosition: SettingsGroupPosition
+) {
+    val shape = settingsGroupShape(groupPosition)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SettingsRightSurfaceColor, shape)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        androidx.tv.material3.Card(
+            onClick = {
+                if (!isReadOnly) {
+                    onToggle(!scraper.enabled)
+                }
+            },
+            modifier = Modifier.weight(1f),
+            enabled = !isReadOnly,
+            colors = androidx.tv.material3.CardDefaults.colors(
+                containerColor = Color.Transparent,
+                focusedContainerColor =
+                    SettingsRightSurfaceFocusedColor
+            ),
+            border = androidx.tv.material3.CardDefaults.border(
+                border = Border.None,
+                focusedBorder = Border.None
+            ),
+            shape = androidx.tv.material3.CardDefaults.shape(
+                RoundedCornerShape(10.dp)
+            ),
+            scale = androidx.tv.material3.CardDefaults.scale(
+                focusedScale = 1f,
+                pressedScale = 1f
+            )
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 49.dp)
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = scraper.name,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = NuvioColors.TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = buildString {
+                            append("Version ")
+                            append(scraper.version)
+                            if (testResults != null) {
+                                append("  •  ")
+                                append(testResults.size)
+                                append(" test result")
+                                if (testResults.size != 1) {
+                                    append("s")
+                                }
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = NuvioColors.TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                Text(
+                    text =
+                        if (scraper.enabled) {
+                            stringResource(R.string.plugin_enabled)
+                        } else {
+                            stringResource(R.string.plugin_disabled)
+                        },
+                    style = MaterialTheme.typography.labelMedium,
+                    color =
+                        if (scraper.enabled) {
+                            NuvioColors.Secondary
+                        } else {
+                            NuvioColors.TextTertiary
+                        }
+                )
+            }
+        }
+
+        if (!isReadOnly) {
+            Spacer(modifier = Modifier.width(4.dp))
+            androidx.tv.material3.Card(
+                onClick = onTest,
+                enabled = !isTesting,
+                colors = androidx.tv.material3.CardDefaults.colors(
+                    containerColor = Color.Transparent,
+                    focusedContainerColor =
+                        SettingsRightSurfaceFocusedColor
+                ),
+                border = androidx.tv.material3.CardDefaults.border(
+                    border = Border.None,
+                    focusedBorder = Border.None
+                ),
+                shape = androidx.tv.material3.CardDefaults.shape(
+                    RoundedCornerShape(10.dp)
+                ),
+                scale = androidx.tv.material3.CardDefaults.scale(
+                    focusedScale = 1f,
+                    pressedScale = 1f
+                )
+            ) {
+                if (isTesting) {
+                    LoadingIndicator(
+                        modifier = Modifier
+                            .padding(10.dp)
+                            .size(18.dp)
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = "Test",
+                        tint = NuvioColors.TextSecondary,
+                        modifier = Modifier
+                            .padding(10.dp)
+                            .size(18.dp)
+                    )
+                }
             }
         }
     }
