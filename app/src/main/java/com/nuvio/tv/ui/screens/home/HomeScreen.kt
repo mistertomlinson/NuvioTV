@@ -59,6 +59,7 @@ import com.nuvio.tv.ui.components.PulsingLogoIndicator
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
@@ -80,7 +81,7 @@ private data class HomePosterOptionsTarget(
     val isFromMyList: Boolean = false
 )
 
-private val HomeDialogGlassRowColor = Color.White.copy(alpha = 0.065f)
+private val HomeDialogGlassRowColor = Color.Transparent
 private val HomeDialogGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
 private val HomeDialogGlassBrush = Brush.verticalGradient(
     colors = listOf(
@@ -1619,16 +1620,22 @@ private fun HomePosterOptionsDialog(
             onClick = onDetails,
             modifier = Modifier
                 .fillMaxWidth()
+                .glassDialogFocusTransform()
                 .focusRequester(primaryFocusRequester),
             colors = ButtonDefaults.colors(
                 containerColor = HomeDialogGlassRowColor,
                 focusedContainerColor = HomeDialogGlassRowFocusedColor,
-                contentColor = NuvioColors.TextPrimary,
-                focusedContentColor = Color.White
+                contentColor = NuvioColors.TextSecondary,
+                focusedContentColor = NuvioColors.TextPrimary
             ),
+            border = ButtonDefaults.border(
+                border = androidx.tv.material3.Border.None,
+                focusedBorder = androidx.tv.material3.Border.None
+            ),
+            shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
             scale = ButtonDefaults.scale(
-                focusedScale = 1.018f,
-                pressedScale = 0.99f
+                focusedScale = 1f,
+                pressedScale = 1f
             )
         ) {
             Text(stringResource(R.string.cw_action_go_to_details))
@@ -1637,16 +1644,23 @@ private fun HomePosterOptionsDialog(
         Button(
             onClick = onToggleLibrary,
             enabled = !isLibraryPending,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassDialogFocusTransform(),
             colors = ButtonDefaults.colors(
                 containerColor = HomeDialogGlassRowColor,
                 focusedContainerColor = HomeDialogGlassRowFocusedColor,
-                contentColor = NuvioColors.TextPrimary,
-                focusedContentColor = Color.White
+                contentColor = NuvioColors.TextSecondary,
+                focusedContentColor = NuvioColors.TextPrimary
             ),
+            border = ButtonDefaults.border(
+                border = androidx.tv.material3.Border.None,
+                focusedBorder = androidx.tv.material3.Border.None
+            ),
+            shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
             scale = ButtonDefaults.scale(
-                focusedScale = 1.018f,
-                pressedScale = 0.99f
+                focusedScale = 1f,
+                pressedScale = 1f
             )
         ) {
             Text(
@@ -1662,16 +1676,23 @@ private fun HomePosterOptionsDialog(
             Button(
                 onClick = onToggleWatched,
                 enabled = !isWatchedPending,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                .fillMaxWidth()
+                .glassDialogFocusTransform(),
                 colors = ButtonDefaults.colors(
                     containerColor = HomeDialogGlassRowColor,
                     focusedContainerColor = HomeDialogGlassRowFocusedColor,
-                    contentColor = NuvioColors.TextPrimary,
-                    focusedContentColor = Color.White
+                    contentColor = NuvioColors.TextSecondary,
+                    focusedContentColor = NuvioColors.TextPrimary
                 ),
+                border = ButtonDefaults.border(
+                    border = androidx.tv.material3.Border.None,
+                    focusedBorder = androidx.tv.material3.Border.None
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
                 scale = ButtonDefaults.scale(
-                    focusedScale = 1.018f,
-                    pressedScale = 0.99f
+                    focusedScale = 1f,
+                    pressedScale = 1f
                 )
             ) {
                 Text(
@@ -1708,6 +1729,8 @@ private fun HomeLibraryListPickerDialog(
     }
 
     NuvioDialog(
+        glass = true,
+        enhancedGlass = true,
         onDismiss = onDismiss,
         title = title,
         subtitle = stringResource(R.string.detail_lists_subtitle),
@@ -1736,13 +1759,27 @@ private fun HomeLibraryListPickerDialog(
                     modifier = if (tab.key == tabs.firstOrNull()?.key) {
                         Modifier
                             .fillMaxWidth()
+                            .glassDialogFocusTransform()
                             .focusRequester(primaryFocusRequester)
                     } else {
-                        Modifier.fillMaxWidth()
+                        Modifier
+                            .fillMaxWidth()
+                            .glassDialogFocusTransform()
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (selected) NuvioColors.FocusBackground else NuvioColors.BackgroundCard,
-                        contentColor = NuvioColors.TextPrimary
+                        containerColor = if (selected) NuvioColors.Secondary.copy(alpha = 0.42f) else Color.Transparent,
+                        focusedContainerColor = HomeDialogGlassRowFocusedColor,
+                        contentColor = NuvioColors.TextSecondary,
+                        focusedContentColor = NuvioColors.TextPrimary
+                    ),
+                    border = ButtonDefaults.border(
+                        border = androidx.tv.material3.Border.None,
+                        focusedBorder = androidx.tv.material3.Border.None
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
+                    scale = ButtonDefaults.scale(
+                        focusedScale = 1f,
+                        pressedScale = 1f
                     )
                 ) {
                     Text(
@@ -1754,15 +1791,24 @@ private fun HomeLibraryListPickerDialog(
             }
         }
 
-        Divider(color = NuvioColors.Border, thickness = 1.dp)
-
         Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
             Button(
                 onClick = onSave,
                 enabled = !isPending,
                 colors = ButtonDefaults.colors(
-                    containerColor = NuvioColors.BackgroundCard,
-                    contentColor = NuvioColors.TextPrimary
+                    containerColor = Color.Transparent,
+                    focusedContainerColor = HomeDialogGlassRowFocusedColor,
+                    contentColor = NuvioColors.TextSecondary,
+                    focusedContentColor = NuvioColors.TextPrimary
+                ),
+                border = ButtonDefaults.border(
+                    border = androidx.tv.material3.Border.None,
+                    focusedBorder = androidx.tv.material3.Border.None
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
+                scale = ButtonDefaults.scale(
+                    focusedScale = 1f,
+                    pressedScale = 1f
                 )
             ) {
                 Text(if (isPending) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
