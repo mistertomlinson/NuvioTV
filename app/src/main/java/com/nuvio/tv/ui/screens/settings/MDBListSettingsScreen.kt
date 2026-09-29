@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,22 +52,40 @@ import com.nuvio.tv.ui.theme.NuvioColors
 @Composable
 fun MDBListSettingsContent(
     viewModel: MDBListSettingsViewModel = hiltViewModel(),
-    initialFocusRequester: FocusRequester? = null
+    initialFocusRequester: FocusRequester? = null,
+    embedded: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showApiKeyDialog by remember { mutableStateOf(false) }
 
     Column(
+        modifier =
+            if (embedded) {
+                Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
+            } else {
+                Modifier
+            },
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        SettingsDetailHeader(
+        if (!embedded) {
+            SettingsDetailHeader(
             title = stringResource(R.string.mdblist_title),
             subtitle = stringResource(R.string.mdblist_subtitle)
-        )
+            )
+        }
 
         SettingsGroupCard(
             modifier = Modifier
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .then(
+                    if (embedded) {
+                        Modifier.weight(1f)
+                    } else {
+                        Modifier
+                    }
+                ),
             segmented = true
         ) {
             val mdbListState = rememberLazyListState()
