@@ -1152,18 +1152,15 @@ fun ContinueWatchingOptionsDialog(
 
             Box(
                 modifier = Modifier
+                    .glassDialogAppearanceTransform(
+                        scale =
+                            0.96f +
+                                (0.04f * appearanceProgress.value),
+                        alpha = appearanceProgress.value,
+                        clipShape = panelShape
+                    )
                     .width(520.dp)
                     .then(blurModifier)
-                .graphicsLayer {
-                        shape = panelShape
-                        clip = true
-                        alpha = appearanceProgress.value
-                        val animatedScale =
-                            0.96f + (0.04f * appearanceProgress.value)
-                        scaleX = animatedScale
-                        scaleY = animatedScale
-                    }
-                    
                     .clip(panelShape)
                     .background(CwDialogGlassBrush, panelShape)
                     .border(1.dp, CwDialogGlassBorderColor, panelShape)
@@ -1208,16 +1205,24 @@ fun ContinueWatchingOptionsDialog(
                         onClick = onDetails,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .glassDialogFocusTransform()
                             .focusRequester(detailsFocusRequester),
                         colors = ButtonDefaults.colors(
                             containerColor = CwDialogGlassRowColor,
                             focusedContainerColor = CwDialogGlassRowFocusedColor,
-                            contentColor = NuvioColors.TextPrimary,
-                            focusedContentColor = Color.White
+                            contentColor = NuvioColors.TextSecondary,
+                            focusedContentColor = NuvioColors.TextPrimary
+                        ),
+                        border = ButtonDefaults.border(
+                            border = Border.None,
+                            focusedBorder = Border.None
+                        ),
+                        shape = ButtonDefaults.shape(
+                            RoundedCornerShape(32.dp)
                         ),
                         scale = ButtonDefaults.scale(
-                            focusedScale = 1.018f,
-                            pressedScale = 0.99f
+                            focusedScale = 1f,
+                            pressedScale = 1f
                         )
                     ) {
                         Text(stringResource(R.string.cw_action_go_to_details))
@@ -1226,17 +1231,26 @@ fun ContinueWatchingOptionsDialog(
                     if (showPlayManually) {
                         Button(
                             onClick = onPlayManually,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                            .fillMaxWidth()
+                            .glassDialogFocusTransform(),
                             colors = ButtonDefaults.colors(
                                 containerColor = CwDialogGlassRowColor,
                                 focusedContainerColor = CwDialogGlassRowFocusedColor,
-                                contentColor = NuvioColors.TextPrimary,
-                                focusedContentColor = Color.White
+                                contentColor = NuvioColors.TextSecondary,
+                                focusedContentColor = NuvioColors.TextPrimary
                             ),
-                            scale = ButtonDefaults.scale(
-                                focusedScale = 1.018f,
-                                pressedScale = 0.99f
-                            )
+                            border = ButtonDefaults.border(
+                            border = Border.None,
+                            focusedBorder = Border.None
+                        ),
+                        shape = ButtonDefaults.shape(
+                            RoundedCornerShape(32.dp)
+                        ),
+                        scale = ButtonDefaults.scale(
+                            focusedScale = 1f,
+                            pressedScale = 1f
+                        )
                         ) {
                             Text(stringResource(R.string.play_manually))
                         }
@@ -1245,17 +1259,26 @@ fun ContinueWatchingOptionsDialog(
                     if (item is ContinueWatchingItem.InProgress) {
                         Button(
                             onClick = onStartFromBeginning,
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                            .fillMaxWidth()
+                            .glassDialogFocusTransform(),
                             colors = ButtonDefaults.colors(
                                 containerColor = CwDialogGlassRowColor,
                                 focusedContainerColor = CwDialogGlassRowFocusedColor,
-                                contentColor = NuvioColors.TextPrimary,
-                                focusedContentColor = Color.White
+                                contentColor = NuvioColors.TextSecondary,
+                                focusedContentColor = NuvioColors.TextPrimary
                             ),
-                            scale = ButtonDefaults.scale(
-                                focusedScale = 1.018f,
-                                pressedScale = 0.99f
-                            )
+                            border = ButtonDefaults.border(
+                            border = Border.None,
+                            focusedBorder = Border.None
+                        ),
+                        shape = ButtonDefaults.shape(
+                            RoundedCornerShape(32.dp)
+                        ),
+                        scale = ButtonDefaults.scale(
+                            focusedScale = 1f,
+                            pressedScale = 1f
+                        )
                         ) {
                             Text(
                                 stringResource(
@@ -1267,16 +1290,25 @@ fun ContinueWatchingOptionsDialog(
 
                     Button(
                         onClick = onRemove,
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassDialogFocusTransform(),
                         colors = ButtonDefaults.colors(
                             containerColor = CwDialogGlassRowColor,
                             focusedContainerColor = CwDialogGlassRowFocusedColor,
-                            contentColor = NuvioColors.TextPrimary,
-                            focusedContentColor = Color.White
+                            contentColor = NuvioColors.TextSecondary,
+                            focusedContentColor = NuvioColors.TextPrimary
+                        ),
+                        border = ButtonDefaults.border(
+                            border = Border.None,
+                            focusedBorder = Border.None
+                        ),
+                        shape = ButtonDefaults.shape(
+                            RoundedCornerShape(32.dp)
                         ),
                         scale = ButtonDefaults.scale(
-                            focusedScale = 1.018f,
-                            pressedScale = 0.99f
+                            focusedScale = 1f,
+                            pressedScale = 1f
                         )
                     ) {
                         Text(stringResource(R.string.cw_action_remove))
