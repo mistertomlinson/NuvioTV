@@ -42,6 +42,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
@@ -59,6 +60,7 @@ fun GridContentCard(
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
+    depthSurface: CardDepthSurface = CardDepthSurface.POSTERS,
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
