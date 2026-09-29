@@ -101,12 +101,14 @@ class TmdbMetadataService @Inject constructor(
     suspend fun fetchEnrichment(
         tmdbId: String,
         contentType: ContentType,
-        language: String = "en"
+        language: String = "en",
+        includeTrailers: Boolean = false
     ): TmdbEnrichment? =
         withContext(Dispatchers.IO) {
             ensureDiskCacheLoaded()
             val normalizedLanguage = normalizeTmdbLanguage(language)
-            val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:v3"
+            val trailerCacheVariant = if (includeTrailers) "with_trailers" else "base"
+            val cacheKey = "$tmdbId:${contentType.name}:$normalizedLanguage:v4:$trailerCacheVariant"
             enrichmentCache[cacheKey]?.let { return@withContext it }
             enrichmentInFlight[cacheKey]?.let { return@withContext it.await() }
 
@@ -174,11 +176,15 @@ class TmdbMetadataService @Inject constructor(
                 val genres = details?.genres?.mapNotNull { genre ->
                     genre.name.trim().takeIf { name -> name.isNotBlank() }
                 } ?: emptyList()
-                val trailers = fetchTmdbTrailers(
-                    tmdbId = numericId,
-                    tmdbType = tmdbType,
-                    preferredLanguage = normalizedLanguage
-                )
+                val trailers = if (includeTrailers) {
+                    fetchTmdbTrailers(
+                        tmdbId = numericId,
+                        tmdbType = tmdbType,
+                        preferredLanguage = normalizedLanguage
+                    )
+                } else {
+                    emptyList()
+                }
                 val description = details?.overview?.takeIf { it.isNotBlank() }
                 val releaseInfo = details?.releaseDate
                     ?: details?.firstAirDate
