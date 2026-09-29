@@ -166,18 +166,20 @@ fun TrackingSettingsContent(
             return@LaunchedEffect
         }
 
-        var focused = runCatching {
+        var focusRequestCompleted = runCatching {
             requester.requestFocus()
+            true
         }.getOrDefault(false)
 
-        if (!focused) {
+        if (!focusRequestCompleted) {
             androidx.compose.runtime.withFrameNanos { }
-            focused = runCatching {
+            focusRequestCompleted = runCatching {
                 requester.requestFocus()
+                true
             }.getOrDefault(false)
         }
 
-        if (focused) {
+        if (focusRequestCompleted) {
             onReturnFocusConsumed()
         }
     }
