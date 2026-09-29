@@ -38,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -82,6 +83,7 @@ import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.cardDepthVisual
+import kotlinx.coroutines.launch
 
 @Composable
 fun LayoutSettingsScreen(
@@ -130,6 +132,7 @@ fun LayoutSettingsContent(
     val posterCardStyleHeaderFocus = remember { FocusRequester() }
 
     var focusedSection by remember { mutableStateOf<LayoutSettingsSection?>(null) }
+    val layoutAnimationScope = rememberCoroutineScope()
 
     LaunchedEffect(homeContentExpanded, focusedSection) {
         if (!homeContentExpanded && focusedSection == LayoutSettingsSection.HOME_CONTENT) {
@@ -579,7 +582,44 @@ fun LayoutSettingsContent(
                     title = stringResource(R.string.layout_section_card_style),
                     description = stringResource(R.string.layout_section_card_style_desc),
                     expanded = posterCardStyleExpanded,
-                    onToggle = { posterCardStyleExpanded = !posterCardStyleExpanded },
+                    onToggle = {
+                        if (!posterCardStyleExpanded) {
+                            posterCardStyleExpanded = true
+                        } else {
+                            val onlyPosterCardStyleExpanded =
+                                !homeContentExpanded &&
+                                    !continueWatchingExpanded &&
+                                    !detailPageExpanded &&
+                                    !focusedPosterExpanded
+                            val listHasBeenScrolled =
+                                layoutListState.firstVisibleItemIndex > 0 ||
+                                    layoutListState.firstVisibleItemScrollOffset > 0
+
+                            if (
+                                onlyPosterCardStyleExpanded &&
+                                listHasBeenScrolled
+                            ) {
+                                layoutAnimationScope.launch {
+                                    /*
+                                     * When the expanded final item made the
+                                     * otherwise-short list scrollable, begin
+                                     * returning the list to its natural top
+                                     * position before shrinking the item.
+                                     * This avoids LazyColumn's one-frame
+                                     * max-scroll clamp after collapse.
+                                     */
+                                    val returnScroll = launch {
+                                        layoutListState.animateScrollToItem(0)
+                                    }
+                                    androidx.compose.runtime.withFrameNanos { }
+                                    posterCardStyleExpanded = false
+                                    returnScroll.join()
+                                }
+                            } else {
+                                posterCardStyleExpanded = false
+                            }
+                        }
+                    },
                     focusRequester = posterCardStyleHeaderFocus,
                     onFocused = { focusedSection = LayoutSettingsSection.POSTER_CARD_STYLE },
                     groupPosition = groupPositionFor(LayoutSettingsSection.POSTER_CARD_STYLE)
