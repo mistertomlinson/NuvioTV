@@ -46,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
@@ -110,6 +109,10 @@ private enum class LayoutSettingsSection {
     POSTER_CARD_STYLE
 }
 
+private const val DEFAULT_SECTION_COLLAPSE_MILLIS = 240
+private const val POSTER_CARD_STYLE_COLLAPSE_MILLIS = 340
+private const val POSTER_CARD_STYLE_CORNER_SETTLE_MILLIS = 90
+
 @Composable
 fun LayoutSettingsContent(
     viewModel: LayoutSettingsViewModel = hiltViewModel(),
@@ -135,7 +138,6 @@ fun LayoutSettingsContent(
 
     var focusedSection by remember { mutableStateOf<LayoutSettingsSection?>(null) }
     val layoutAnimationScope = rememberCoroutineScope()
-    val layoutDensity = LocalDensity.current
     var animatedFlattenBoundaries by remember {
         mutableStateOf<Set<Int>>(emptySet())
     }
@@ -802,62 +804,22 @@ fun LayoutSettingsContent(
                                     deferredCornerCollapseSections + section
 
                                 layoutAnimationScope.launch {
+                                    /*
+                                     * Keep the built-in LazyList animation
+                                     * that previously prevented the short-list
+                                     * max-scroll clamp. The slightly longer
+                                     * section shrink below slows the combined
+                                     * visual return without replacing the
+                                     * scroll primitive.
+                                     */
                                     val returnScroll = launch {
-                                        val speedPxPerSecond =
-                                            with(layoutDensity) {
-                                                520.dp.toPx()
-                                            }
-
-                                        layoutListState.scroll {
-                                            var previousFrameNanos =
-                                                androidx.compose.runtime
-                                                    .withFrameNanos { it }
-
-                                            while (
-                                                layoutListState
-                                                    .canScrollBackward
-                                            ) {
-                                                val frameNanos =
-                                                    androidx.compose.runtime
-                                                        .withFrameNanos { it }
-                                                val elapsedSeconds =
-                                                    (
-                                                        (frameNanos -
-                                                            previousFrameNanos)
-                                                            .toFloat() /
-                                                            1_000_000_000f
-                                                    ).coerceIn(
-                                                        0f,
-                                                        0.05f
-                                                    )
-                                                previousFrameNanos =
-                                                    frameNanos
-
-                                                val requested =
-                                                    speedPxPerSecond *
-                                                        elapsedSeconds
-                                                if (requested <= 0f) {
-                                                    continue
-                                                }
-
-                                                val consumed =
-                                                    scrollBy(-requested)
-                                                if (
-                                                    kotlin.math.abs(
-                                                        consumed
-                                                    ) < 0.01f
-                                                ) {
-                                                    break
-                                                }
-                                            }
-                                        }
+                                        layoutListState.animateScrollToItem(0)
                                     }
 
                                     /*
-                                     * Let the return scroll claim the list
-                                     * before reducing its content height so
-                                     * LazyColumn never performs the old hard
-                                     * max-scroll clamp.
+                                     * Give the list animation ownership one
+                                     * rendered frame before its content height
+                                     * begins shrinking.
                                      */
                                     androidx.compose.runtime
                                         .withFrameNanos { }
@@ -867,16 +829,37 @@ fun LayoutSettingsContent(
                                         false
                                     )
 
-                                    val collapseMinimum = launch {
-                                        delay(260)
+                                    val collapseSettled = launch {
+                                        delay(
+                                            POSTER_CARD_STYLE_COLLAPSE_MILLIS
+                                                .toLong()
+                                        )
                                     }
 
                                     returnScroll.join()
-                                    collapseMinimum.join()
+                                    collapseSettled.join()
+
+                                    /*
+                                     * The rows are now gone and the LazyColumn
+                                     * has reached its final valid position.
+                                     * Keep the old corner geometry through a
+                                     * short visual settle, then begin the
+                                     * rounded-edge rejoin as a distinct phase.
+                                     */
+                                    delay(
+                                        POSTER_CARD_STYLE_CORNER_SETTLE_MILLIS
+                                            .toLong()
+                                    )
+                                    androidx.compose.runtime
+                                        .withFrameNanos { }
+                                    androidx.compose.runtime
+                                        .withFrameNanos { }
 
                                     beginBoundaryReturnAnimation(
                                         returnBoundaries
                                     )
+                                    androidx.compose.runtime
+                                        .withFrameNanos { }
                                     deferredCornerCollapseSections =
                                         deferredCornerCollapseSections -
                                             section
@@ -899,7 +882,9 @@ fun LayoutSettingsContent(
                     ),
                     animateBottomFlatten = animateBottomFlattenFor(
                         LayoutSettingsSection.POSTER_CARD_STYLE
-                    )
+                    ),
+                    collapseDurationMillis =
+                        POSTER_CARD_STYLE_COLLAPSE_MILLIS
                 ) {
                     PosterCardStyleControls(
                         widthDp = uiState.posterCardWidthDp,
@@ -1036,6 +1021,7 @@ private fun CollapsibleSectionCard(
     groupPosition: SettingsGroupPosition,
     animateTopFlatten: Boolean = false,
     animateBottomFlatten: Boolean = false,
+    collapseDurationMillis: Int = DEFAULT_SECTION_COLLAPSE_MILLIS,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
@@ -1073,7 +1059,7 @@ private fun CollapsibleSectionCard(
             ),
             exit = shrinkVertically(
                 animationSpec = tween(
-                    durationMillis = 240,
+                    durationMillis = collapseDurationMillis,
                     easing = FastOutSlowInEasing
                 ),
                 shrinkTowards = Alignment.Top
