@@ -223,6 +223,10 @@ internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
 )
 internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
 internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
+internal val SettingsDialogGlassInsetColor =
+    Color.Black.copy(alpha = 0.20f)
+internal val SettingsDialogGlassInsetFocusedColor =
+    Color.Black.copy(alpha = 0.12f)
 
 private val SettingsNeutralSurfaceColor = Color(0xFF40464D)
 private val SettingsNeutralSurfaceFocusedColor = Color(0xFF5B636C)
