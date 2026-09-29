@@ -365,7 +365,7 @@ fun NuvioNavHost(
                     } else {
                         fadeIn(
                             animationSpec = tween(
-                                durationMillis = 280,
+                                durationMillis = 290,
                                 easing = FastOutSlowInEasing
                             )
                         )
@@ -391,7 +391,7 @@ fun NuvioNavHost(
                 isSidebarRootTransition(from, to) ->
                     fadeOut(
                         animationSpec = tween(
-                            durationMillis = if (to == Screen.Home.route) 300 else 280,
+                            durationMillis = if (to == Screen.Home.route) 300 else 290,
                             easing = if (to == Screen.Home.route) LinearEasing else FastOutSlowInEasing
                         )
                     )
@@ -417,7 +417,7 @@ fun NuvioNavHost(
                     } else {
                         fadeIn(
                             animationSpec = tween(
-                                durationMillis = 280,
+                                durationMillis = 290,
                                 easing = FastOutSlowInEasing
                             )
                         )
@@ -448,7 +448,7 @@ fun NuvioNavHost(
                 isSidebarRootTransition(from, to) ->
                     fadeOut(
                         animationSpec = tween(
-                            durationMillis = if (to == Screen.Home.route) 300 else 280,
+                            durationMillis = if (to == Screen.Home.route) 300 else 290,
                             easing = if (to == Screen.Home.route) LinearEasing else FastOutSlowInEasing
                         )
                     )
