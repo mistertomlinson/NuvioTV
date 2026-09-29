@@ -391,6 +391,7 @@ private fun EmbeddedPluginSettingsContent(
                             )
                         },
                         trailingIcon = Icons.Default.PhoneAndroid,
+                        modifier = Modifier.height(58.dp),
                         showDivider = false,
                         groupPosition =
                             SettingsGroupPosition.BOTTOM
