@@ -26,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -102,12 +103,26 @@ fun TrackingSettingsContent(
     val traktFocusRequester = remember { FocusRequester() }
     val simklFocusRequester = remember { FocusRequester() }
 
-    var accountsExpanded by remember { mutableStateOf(false) }
-    var sourcesExpanded by remember { mutableStateOf(false) }
+    /*
+     * These expansion choices are part of the Settings destination state.
+     * Navigation to Trakt/Simkl temporarily removes this composition, so use
+     * rememberSaveable to restore the exact hierarchy on return instead of
+     * replaying an open animation.
+     */
+    var accountsExpanded by rememberSaveable {
+        mutableStateOf(false)
+    }
+    var sourcesExpanded by rememberSaveable {
+        mutableStateOf(false)
+    }
     var accountsClosing by remember { mutableStateOf(false) }
     var sourcesClosing by remember { mutableStateOf(false) }
-    var librarySourceExpanded by remember { mutableStateOf(false) }
-    var watchProgressExpanded by remember { mutableStateOf(false) }
+    var librarySourceExpanded by rememberSaveable {
+        mutableStateOf(false)
+    }
+    var watchProgressExpanded by rememberSaveable {
+        mutableStateOf(false)
+    }
 
     fun toggleAccounts() {
         if (accountsExpanded) {
@@ -140,15 +155,21 @@ fun TrackingSettingsContent(
     }
 
     /*
-     * A Tracking detail destination is removed from composition while Trakt
-     * or Simkl is on top. Re-open Accounts first so the exact child row exists,
-     * then restore that row instead of allowing Settings to fall back to rail.
+     * Accounts was already open if the user reached Trakt/Simkl from this
+     * child row. rememberSaveable restores that state before this effect runs;
+     * this effect is therefore focus-only and does not replay the expansion.
      */
     LaunchedEffect(returnFocusAccount) {
         val target =
             returnFocusAccount ?: return@LaunchedEffect
         accountsClosing = false
-        accountsExpanded = true
+
+        // Defensive fallback only: in normal navigation return this is already
+        // true from rememberSaveable and produces no state change/animation.
+        if (!accountsExpanded) {
+            accountsExpanded = true
+            androidx.compose.runtime.withFrameNanos { }
+        }
 
         // The pop transition is 350 ms. Restore only after Settings is
         // genuinely visible again so the outgoing account screen cannot
