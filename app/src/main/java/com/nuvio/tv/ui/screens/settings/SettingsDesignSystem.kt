@@ -1026,7 +1026,8 @@ internal fun SettingsResetButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
-    groupPosition: SettingsGroupPosition? = null
+    groupPosition: SettingsGroupPosition? = null,
+    useDialogGlass: Boolean = false
 ) {
     val shape = if (groupPosition != null) {
         animatedSettingsGroupShape(groupPosition)
@@ -1037,10 +1038,20 @@ internal fun SettingsResetButton(
         onClick = onClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
         colors = androidx.tv.material3.ButtonDefaults.colors(
-            containerColor = SettingsRightSurfaceColor,
-            focusedContainerColor = SettingsRightSurfaceFocusedColor,
+            containerColor =
+                if (useDialogGlass) {
+                    SettingsGlassRowColor
+                } else {
+                    SettingsRightSurfaceColor
+                },
+            focusedContainerColor =
+                if (useDialogGlass) {
+                    SettingsGlassRowFocusedColor
+                } else {
+                    SettingsRightSurfaceFocusedColor
+                },
             contentColor = NuvioColors.TextPrimary,
-            focusedContentColor = NuvioColors.TextPrimary
+            focusedContentColor = Color.White
         ),
         border = androidx.tv.material3.ButtonDefaults.border(
             border = Border.None,
@@ -1048,8 +1059,18 @@ internal fun SettingsResetButton(
         ),
         shape = androidx.tv.material3.ButtonDefaults.shape(shape),
         scale = androidx.tv.material3.ButtonDefaults.scale(
-            focusedScale = 1f,
-            pressedScale = 1f
+            focusedScale =
+                if (useDialogGlass) {
+                    SettingsDialogFocusScale
+                } else {
+                    1f
+                },
+            pressedScale =
+                if (useDialogGlass) {
+                    SettingsDialogPressedScale
+                } else {
+                    1f
+                }
         )
     ) {
         Box(
@@ -1127,11 +1148,19 @@ internal fun <T> SettingsSingleChoiceDialog(
                         modifier = Modifier.fillMaxWidth()
                             .then(if (index == focusedIndex) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            containerColor =
+                                if (isSelected) {
+                                    SettingsDialogGlassSelectedColor
+                                } else {
+                                    SettingsGlassRowColor
+                                },
                             focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-                        scale = CardDefaults.scale(focusedScale = 1f)
+                        scale = CardDefaults.scale(
+                            focusedScale = SettingsDialogFocusScale,
+                            pressedScale = SettingsDialogPressedScale
+                        )
                     ) {
                         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
@@ -1199,11 +1228,19 @@ internal fun <T> SettingsMultiChoiceDialog(
                             modifier = Modifier.fillMaxWidth()
                                 .then(if (index == firstSelectedIndex) Modifier.focusRequester(focusRequester) else Modifier),
                             colors = CardDefaults.colors(
-                                containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                                containerColor =
+                                if (isSelected) {
+                                    SettingsDialogGlassSelectedColor
+                                } else {
+                                    SettingsGlassRowColor
+                                },
                                 focusedContainerColor = SettingsGlassRowFocusedColor
                             ),
                             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-                            scale = CardDefaults.scale(focusedScale = 1f)
+                            scale = CardDefaults.scale(
+                            focusedScale = SettingsDialogFocusScale,
+                            pressedScale = SettingsDialogPressedScale
+                        )
                         ) {
                             Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
