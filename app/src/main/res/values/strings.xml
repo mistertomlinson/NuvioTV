@@ -170,6 +170,7 @@
 
     <!-- ThemeSettingsScreen -->
     <string name="appearance_title">Appearance</string>
+    <string name="appearance_color_theme">Color Theme</string>
     <string name="appearance_subtitle">Choose your color theme, font and language</string>
 
     <!-- AboutScreen -->
