@@ -491,10 +491,13 @@ internal fun RenderTypeSettingsItem(
         colors = CardDefaults.colors(
             containerColor =
                 if (useDialogGlass) {
-                    if (isFocused) {
-                        SettingsGlassRowFocusedColor
-                    } else {
-                        SettingsGlassRowColor
+                    when {
+                        isFocused ->
+                            SettingsGlassRowFocusedColor
+                        isSelected ->
+                            SettingsDialogGlassSelectedColor
+                        else ->
+                            SettingsGlassRowColor
                     }
                 } else if (isFocused) {
                     SettingsRightSurfaceFocusedColor
@@ -1146,7 +1149,7 @@ private fun LanguageOptionItem(
         colors = CardDefaults.colors(
             containerColor =
                 if (isSelected) {
-                    SettingsGlassControlSelectedColor
+                    SettingsDialogGlassSelectedColor
                 } else {
                     SettingsGlassRowColor
                 },
@@ -1158,7 +1161,10 @@ private fun LanguageOptionItem(
                 }
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
-        scale = CardDefaults.scale(focusedScale = 1f)
+        scale = CardDefaults.scale(
+            focusedScale = SettingsDialogFocusScale,
+            pressedScale = SettingsDialogPressedScale
+        )
     ) {
         Row(
             modifier = Modifier
