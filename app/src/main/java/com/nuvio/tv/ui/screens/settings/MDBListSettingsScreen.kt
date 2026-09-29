@@ -58,143 +58,153 @@ fun MDBListSettingsContent(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showApiKeyDialog by remember { mutableStateOf(false) }
 
-    Column(
-        modifier =
-            if (embedded) {
-                Modifier
-                    .fillMaxWidth()
-                    .height(360.dp)
-            } else {
-                Modifier
-            },
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        if (!embedded) {
-            SettingsDetailHeader(
-            title = stringResource(R.string.mdblist_title),
-            subtitle = stringResource(R.string.mdblist_subtitle)
-            )
-        }
-
-        SettingsGroupCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (embedded) {
-                        Modifier.weight(1f)
-                    } else {
-                        Modifier
-                    }
-                ),
-            segmented = true
+    if (embedded) {
+        MDBListEmbeddedSettingsRows(
+            uiState = uiState,
+            viewModel = viewModel,
+            initialFocusRequester = initialFocusRequester,
+            onOpenApiKey = { showApiKeyDialog = true }
+        )
+    } else {
+        Column(
+            modifier =
+                if (embedded) {
+                    Modifier
+                        .fillMaxWidth()
+                        .height(360.dp)
+                } else {
+                    Modifier
+                },
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            val mdbListState = rememberLazyListState()
-            Box(modifier = Modifier.fillMaxWidth()) {
-                LazyColumn(
-                    state = mdbListState,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(0.dp),
-                verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
-            ) {
-                item(key = "mdblist_enabled") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_enable_title),
-                        subtitle = stringResource(R.string.mdblist_enable_subtitle),
-                        checked = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleEnabled(!uiState.enabled)) },
-                        modifier = if (initialFocusRequester != null) {
-                            Modifier.focusRequester(initialFocusRequester)
+            if (!embedded) {
+                SettingsDetailHeader(
+                title = stringResource(R.string.mdblist_title),
+                subtitle = stringResource(R.string.mdblist_subtitle)
+                )
+            }
+    
+            SettingsGroupCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (embedded) {
+                            Modifier.weight(1f)
                         } else {
                             Modifier
                         }
-                    )
+                    ),
+                segmented = true
+            ) {
+                val mdbListState = rememberLazyListState()
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    LazyColumn(
+                        state = mdbListState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(0.dp),
+                    verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+                ) {
+                    item(key = "mdblist_enabled") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_enable_title),
+                            subtitle = stringResource(R.string.mdblist_enable_subtitle),
+                            checked = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleEnabled(!uiState.enabled)) },
+                            modifier = if (initialFocusRequester != null) {
+                                Modifier.focusRequester(initialFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                    }
+    
+    
+    
+                    item(key = "mdblist_api_key") {
+                        SettingsActionRow(
+                            title = stringResource(R.string.mdblist_api_key_title),
+                            subtitle = stringResource(R.string.mdblist_api_key_subtitle),
+                            value = maskApiKey(uiState.apiKey, stringResource(R.string.mdblist_not_set)),
+                            onClick = { showApiKeyDialog = true },
+                            enabled = uiState.enabled
+                        )
+                    }
+    
+                    item(key = "mdblist_trakt") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_trakt_title),
+                            subtitle = stringResource(R.string.mdblist_trakt_subtitle),
+                            checked = uiState.showTrakt,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTrakt(!uiState.showTrakt)) }
+                        )
+                    }
+    
+                    item(key = "mdblist_imdb") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_imdb_title),
+                            subtitle = stringResource(R.string.mdblist_imdb_subtitle),
+                            checked = uiState.showImdb,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleImdb(!uiState.showImdb)) }
+                        )
+                    }
+    
+                    item(key = "mdblist_tmdb") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_tmdb_title),
+                            subtitle = stringResource(R.string.mdblist_tmdb_subtitle),
+                            checked = uiState.showTmdb,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTmdb(!uiState.showTmdb)) }
+                        )
+                    }
+    
+                    item(key = "mdblist_letterboxd") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_letterboxd_title),
+                            subtitle = stringResource(R.string.mdblist_letterboxd_subtitle),
+                            checked = uiState.showLetterboxd,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleLetterboxd(!uiState.showLetterboxd)) }
+                        )
+                    }
+    
+                    item(key = "mdblist_tomatoes") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_tomatoes_title),
+                            subtitle = stringResource(R.string.mdblist_tomatoes_subtitle),
+                            checked = uiState.showTomatoes,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTomatoes(!uiState.showTomatoes)) }
+                        )
+                    }
+    
+                    item(key = "mdblist_audience") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_audience_title),
+                            subtitle = stringResource(R.string.mdblist_audience_subtitle),
+                            checked = uiState.showAudience,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleAudience(!uiState.showAudience)) }
+                        )
+                    }
+    
+                    item(key = "mdblist_metacritic") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.mdblist_metacritic_title),
+                            subtitle = stringResource(R.string.mdblist_metacritic_subtitle),
+                            checked = uiState.showMetacritic,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleMetacritic(!uiState.showMetacritic)) }
+                        )
+                    }
+                    }
+                    SettingsVerticalScrollIndicators(state = mdbListState)
                 }
-
-
-
-                item(key = "mdblist_api_key") {
-                    SettingsActionRow(
-                        title = stringResource(R.string.mdblist_api_key_title),
-                        subtitle = stringResource(R.string.mdblist_api_key_subtitle),
-                        value = maskApiKey(uiState.apiKey, stringResource(R.string.mdblist_not_set)),
-                        onClick = { showApiKeyDialog = true },
-                        enabled = uiState.enabled
-                    )
-                }
-
-                item(key = "mdblist_trakt") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_trakt_title),
-                        subtitle = stringResource(R.string.mdblist_trakt_subtitle),
-                        checked = uiState.showTrakt,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTrakt(!uiState.showTrakt)) }
-                    )
-                }
-
-                item(key = "mdblist_imdb") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_imdb_title),
-                        subtitle = stringResource(R.string.mdblist_imdb_subtitle),
-                        checked = uiState.showImdb,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleImdb(!uiState.showImdb)) }
-                    )
-                }
-
-                item(key = "mdblist_tmdb") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_tmdb_title),
-                        subtitle = stringResource(R.string.mdblist_tmdb_subtitle),
-                        checked = uiState.showTmdb,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTmdb(!uiState.showTmdb)) }
-                    )
-                }
-
-                item(key = "mdblist_letterboxd") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_letterboxd_title),
-                        subtitle = stringResource(R.string.mdblist_letterboxd_subtitle),
-                        checked = uiState.showLetterboxd,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleLetterboxd(!uiState.showLetterboxd)) }
-                    )
-                }
-
-                item(key = "mdblist_tomatoes") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_tomatoes_title),
-                        subtitle = stringResource(R.string.mdblist_tomatoes_subtitle),
-                        checked = uiState.showTomatoes,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleTomatoes(!uiState.showTomatoes)) }
-                    )
-                }
-
-                item(key = "mdblist_audience") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_audience_title),
-                        subtitle = stringResource(R.string.mdblist_audience_subtitle),
-                        checked = uiState.showAudience,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleAudience(!uiState.showAudience)) }
-                    )
-                }
-
-                item(key = "mdblist_metacritic") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.mdblist_metacritic_title),
-                        subtitle = stringResource(R.string.mdblist_metacritic_subtitle),
-                        checked = uiState.showMetacritic,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(MDBListSettingsEvent.ToggleMetacritic(!uiState.showMetacritic)) }
-                    )
-                }
-                }
-                SettingsVerticalScrollIndicators(state = mdbListState)
             }
         }
+    
     }
 
     if (showApiKeyDialog) {
@@ -204,6 +214,136 @@ fun MDBListSettingsContent(
             onSaved = { showApiKeyDialog = false },
             onClear = { viewModel.validateAndSaveApiKey("") {}; showApiKeyDialog = false },
             onDismiss = { showApiKeyDialog = false }
+        )
+    }
+}
+
+
+@Composable
+private fun MDBListEmbeddedSettingsRows(
+    uiState: MDBListSettingsUiState,
+    viewModel: MDBListSettingsViewModel,
+    initialFocusRequester: FocusRequester?,
+    onOpenApiKey: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+    ) {
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_enable_title),
+            subtitle = stringResource(R.string.mdblist_enable_subtitle),
+            checked = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleEnabled(!uiState.enabled)
+                )
+            },
+            modifier =
+                if (initialFocusRequester != null) {
+                    Modifier.focusRequester(initialFocusRequester)
+                } else {
+                    Modifier
+                }
+        )
+        SettingsActionRow(
+            title = stringResource(R.string.mdblist_api_key_title),
+            subtitle = stringResource(R.string.mdblist_api_key_subtitle),
+            value = maskApiKey(
+                uiState.apiKey,
+                stringResource(R.string.mdblist_not_set)
+            ),
+            onClick = onOpenApiKey,
+            enabled = uiState.enabled
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_trakt_title),
+            subtitle = stringResource(R.string.mdblist_trakt_subtitle),
+            checked = uiState.showTrakt,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleTrakt(!uiState.showTrakt)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_imdb_title),
+            subtitle = stringResource(R.string.mdblist_imdb_subtitle),
+            checked = uiState.showImdb,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleImdb(!uiState.showImdb)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_tmdb_title),
+            subtitle = stringResource(R.string.mdblist_tmdb_subtitle),
+            checked = uiState.showTmdb,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleTmdb(!uiState.showTmdb)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_letterboxd_title),
+            subtitle = stringResource(
+                R.string.mdblist_letterboxd_subtitle
+            ),
+            checked = uiState.showLetterboxd,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleLetterboxd(
+                        !uiState.showLetterboxd
+                    )
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_tomatoes_title),
+            subtitle = stringResource(R.string.mdblist_tomatoes_subtitle),
+            checked = uiState.showTomatoes,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleTomatoes(
+                        !uiState.showTomatoes
+                    )
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_audience_title),
+            subtitle = stringResource(R.string.mdblist_audience_subtitle),
+            checked = uiState.showAudience,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleAudience(
+                        !uiState.showAudience
+                    )
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.mdblist_metacritic_title),
+            subtitle = stringResource(
+                R.string.mdblist_metacritic_subtitle
+            ),
+            checked = uiState.showMetacritic,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    MDBListSettingsEvent.ToggleMetacritic(
+                        !uiState.showMetacritic
+                    )
+                )
+            }
         )
     }
 }
