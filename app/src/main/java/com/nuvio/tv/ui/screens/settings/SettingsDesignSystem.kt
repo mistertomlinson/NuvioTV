@@ -72,6 +72,7 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -223,14 +224,21 @@ internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
 internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
 internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
 
+private val SettingsNeutralSurfaceColor = Color(0xFF40464D)
+private val SettingsNeutralSurfaceFocusedColor = Color(0xFF5B636C)
+
 internal val SettingsRightSurfaceColor: Color
     @Composable
     @ReadOnlyComposable
     get() =
         if (NuvioTheme.currentTheme == AppTheme.WHITE) {
-            Color(0xFF40464D)
+            SettingsNeutralSurfaceColor
         } else {
-            NuvioColors.BackgroundCard
+            lerp(
+                SettingsNeutralSurfaceColor,
+                NuvioColors.Secondary,
+                0.38f
+            )
         }
 
 internal val SettingsRightSurfaceFocusedColor: Color
@@ -238,9 +246,13 @@ internal val SettingsRightSurfaceFocusedColor: Color
     @ReadOnlyComposable
     get() =
         if (NuvioTheme.currentTheme == AppTheme.WHITE) {
-            Color(0xFF5B636C)
+            SettingsNeutralSurfaceFocusedColor
         } else {
-            NuvioColors.FocusBackground
+            lerp(
+                SettingsNeutralSurfaceFocusedColor,
+                NuvioColors.Secondary,
+                0.50f
+            )
         }
 
 internal val SettingsGlassGroupColor = Color.White.copy(alpha = 0.025f)
@@ -256,18 +268,6 @@ internal fun SettingsGlassBackdrop(
     modifier: Modifier = Modifier
 ) {
     val bitmap = LocalSettingsBackdropBitmap.current
-    val canvasBrush =
-        if (NuvioTheme.currentTheme == AppTheme.WHITE) {
-            SettingsGlassCanvasBrush
-        } else {
-            Brush.verticalGradient(
-                colors = listOf(
-                    NuvioColors.BackgroundElevated.copy(alpha = 0.68f),
-                    NuvioColors.Background.copy(alpha = 0.62f),
-                    NuvioColors.BackgroundCard.copy(alpha = 0.66f)
-                )
-            )
-        }
 
     Box(modifier = modifier) {
         if (bitmap != null && !bitmap.isRecycled) {
@@ -288,7 +288,7 @@ internal fun SettingsGlassBackdrop(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(canvasBrush)
+                .background(SettingsGlassCanvasBrush)
         )
     }
 }
@@ -530,7 +530,7 @@ internal fun SettingsRailButton(
         if (NuvioTheme.currentTheme == AppTheme.WHITE) {
             Color.White.copy(alpha = 0.18f)
         } else {
-            NuvioColors.FocusBackground
+            SettingsRightSurfaceFocusedColor
         }
     val focusBackground by animateColorAsState(
         targetValue =
