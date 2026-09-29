@@ -222,7 +222,9 @@ private fun DebugGenerateLibraryGroup(
                 placeholder = stringResource(
                     R.string.debug_generate_library_placeholder
                 ),
-                keyboardType = KeyboardType.Number
+                keyboardType = KeyboardType.Number,
+                containerColor = SettingsRightSurfaceFocusedColor,
+                focusedContainerColor = SettingsRightSurfaceFocusedColor
             )
         }
 
@@ -286,7 +288,9 @@ private fun DebugSignInGroup(
                     placeholder = stringResource(
                         R.string.debug_email_placeholder
                     ),
-                    keyboardType = KeyboardType.Email
+                    keyboardType = KeyboardType.Email,
+                    containerColor = SettingsRightSurfaceFocusedColor,
+                    focusedContainerColor = SettingsRightSurfaceFocusedColor
                 )
 
                 InputField(
@@ -295,7 +299,9 @@ private fun DebugSignInGroup(
                     placeholder = stringResource(
                         R.string.debug_password_placeholder
                     ),
-                    isPassword = true
+                    isPassword = true,
+                    containerColor = SettingsRightSurfaceFocusedColor,
+                    focusedContainerColor = SettingsRightSurfaceFocusedColor
                 )
             }
         }
