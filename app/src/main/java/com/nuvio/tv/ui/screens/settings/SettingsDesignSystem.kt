@@ -223,9 +223,11 @@ internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
 )
 internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
 internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
+internal val SettingsDialogGlassIdleColor = Color.Transparent
 internal val SettingsDialogGlassSelectedColor: Color
     @Composable
     get() = NuvioColors.Secondary.copy(alpha = 0.42f)
+internal val SettingsDialogPillShape = RoundedCornerShape(32.dp)
 internal const val SettingsDialogFocusScale = 1.045f
 internal const val SettingsDialogPressedScale = 0.99f
 internal val SettingsDialogGlassInsetColor =
@@ -1042,7 +1044,7 @@ internal fun SettingsResetButton(
         colors = androidx.tv.material3.ButtonDefaults.colors(
             containerColor =
                 if (useDialogGlass) {
-                    SettingsGlassRowColor
+                    SettingsDialogGlassIdleColor
                 } else {
                     SettingsRightSurfaceColor
                 },
@@ -1059,7 +1061,13 @@ internal fun SettingsResetButton(
             border = Border.None,
             focusedBorder = Border.None
         ),
-        shape = androidx.tv.material3.ButtonDefaults.shape(shape),
+        shape = androidx.tv.material3.ButtonDefaults.shape(
+            if (useDialogGlass) {
+                SettingsDialogPillShape
+            } else {
+                shape
+            }
+        ),
         scale = androidx.tv.material3.ButtonDefaults.scale(
             focusedScale =
                 if (useDialogGlass) {
@@ -1154,11 +1162,15 @@ internal fun <T> SettingsSingleChoiceDialog(
                                 if (isSelected) {
                                     SettingsDialogGlassSelectedColor
                                 } else {
-                                    SettingsGlassRowColor
+                                    SettingsDialogGlassIdleColor
                                 },
                             focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
-                        shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
+                        border = CardDefaults.border(
+                            border = Border.None,
+                            focusedBorder = Border.None
+                        ),
+                        shape = CardDefaults.shape(SettingsDialogPillShape),
                         scale = CardDefaults.scale(
                             focusedScale = SettingsDialogFocusScale,
                             pressedScale = SettingsDialogPressedScale
@@ -1234,11 +1246,15 @@ internal fun <T> SettingsMultiChoiceDialog(
                                 if (isSelected) {
                                     SettingsDialogGlassSelectedColor
                                 } else {
-                                    SettingsGlassRowColor
+                                    SettingsDialogGlassIdleColor
                                 },
                                 focusedContainerColor = SettingsGlassRowFocusedColor
                             ),
-                            shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
+                            border = CardDefaults.border(
+                            border = Border.None,
+                            focusedBorder = Border.None
+                        ),
+                        shape = CardDefaults.shape(SettingsDialogPillShape),
                             scale = CardDefaults.scale(
                             focusedScale = SettingsDialogFocusScale,
                             pressedScale = SettingsDialogPressedScale
@@ -1292,21 +1308,41 @@ internal fun SettingsDialogActionButton(
     var isFocused by remember { mutableStateOf(false) }
     val containerColor =
         when {
-            isFocused && primary -> NuvioColors.Secondary.copy(alpha = 0.36f)
             isFocused -> SettingsGlassRowFocusedColor
-            primary -> SettingsGlassControlSelectedColor
-            else -> SettingsGlassRowColor
+            primary -> SettingsDialogGlassSelectedColor
+            else -> SettingsDialogGlassIdleColor
+        }
+    val contentColor =
+        if (isFocused || primary) {
+            NuvioColors.TextPrimary
+        } else {
+            NuvioColors.TextSecondary
         }
 
     Button(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
-        colors = ButtonDefaults.buttonColors(
+        colors = ButtonDefaults.colors(
             containerColor = containerColor,
-            contentColor = NuvioColors.TextPrimary
+            focusedContainerColor = SettingsGlassRowFocusedColor,
+            contentColor = contentColor,
+            focusedContentColor = NuvioColors.TextPrimary
+        ),
+        border = ButtonDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
+        shape = ButtonDefaults.shape(SettingsDialogPillShape),
+        scale = ButtonDefaults.scale(
+            focusedScale = SettingsDialogFocusScale,
+            pressedScale = SettingsDialogPressedScale
         )
     ) {
-        Text(text = text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(
+            text = text,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
