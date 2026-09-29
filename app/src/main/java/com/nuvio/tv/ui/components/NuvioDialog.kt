@@ -30,8 +30,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -44,6 +46,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.theme.NuvioColors
 import dev.chrisbanes.haze.hazeChild
+import kotlin.math.roundToInt
 
 private val NuvioDialogGlassBrush = Brush.verticalGradient(
     colors = listOf(
@@ -55,6 +58,31 @@ private val NuvioDialogGlassBrush = Brush.verticalGradient(
 
 private val NuvioDialogGlassBorderColor =
     Color.White.copy(alpha = 0.09f)
+
+internal fun Modifier.glassDialogAppearanceTransform(
+    scale: Float,
+    alpha: Float,
+    clipShape: Shape
+): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints)
+    val safeScale = scale.coerceIn(0.01f, 1f)
+    val scaledWidth =
+        (placeable.width * safeScale).roundToInt().coerceAtLeast(1)
+    val scaledHeight =
+        (placeable.height * safeScale).roundToInt().coerceAtLeast(1)
+
+    layout(scaledWidth, scaledHeight) {
+        val x = (scaledWidth - placeable.width) / 2
+        val y = (scaledHeight - placeable.height) / 2
+        placeable.placeWithLayer(x, y) {
+            scaleX = safeScale
+            scaleY = safeScale
+            this.alpha = alpha
+            shape = clipShape
+            clip = true
+        }
+    }
+}
 
 @Composable
 internal fun Modifier.glassDialogFocusTransform(
@@ -207,30 +235,28 @@ fun NuvioDialog(
                 },
             contentAlignment = Alignment.Center
         ) {
+        val animatedScale =
+            if (useEnhancedGlass) {
+                0.96f + (0.04f * appearanceProgress.value)
+            } else {
+                1f
+            }
+        val animatedAlpha =
+            if (useEnhancedGlass) {
+                appearanceProgress.value
+            } else {
+                1f
+            }
+
         Box(
             modifier = Modifier
+                .glassDialogAppearanceTransform(
+                    scale = animatedScale,
+                    alpha = animatedAlpha,
+                    clipShape = dialogShape
+                )
                 .width(width)
                 .then(blurModifier)
-                .graphicsLayer {
-                    shape = dialogShape
-                    clip = true
-                    alpha =
-                        if (useEnhancedGlass) {
-                            appearanceProgress.value
-                        } else {
-                            1f
-                        }
-                    val animatedScale =
-                        if (useEnhancedGlass) {
-                            0.96f +
-                                (0.04f * appearanceProgress.value)
-                        } else {
-                            1f
-                        }
-                    scaleX = animatedScale
-                    scaleY = animatedScale
-                }
-                
                 .clip(dialogShape)
                 .then(
                     when {
