@@ -442,8 +442,7 @@ private fun MDBListApiKeyDialog(
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 ,
-    focusedContentColor = Color.White
-)
+    focusedContentColor = Color.White)
             ,
     scale = ButtonDefaults.scale(
         focusedScale = SettingsDialogFocusScale,
@@ -460,8 +459,7 @@ private fun MDBListApiKeyDialog(
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 ,
-    focusedContentColor = Color.White
-)
+    focusedContentColor = Color.White)
             ,
     scale = ButtonDefaults.scale(
         focusedScale = SettingsDialogFocusScale,
@@ -478,8 +476,7 @@ private fun MDBListApiKeyDialog(
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 ,
-    focusedContentColor = Color.White
-)
+    focusedContentColor = Color.White)
             ,
     scale = ButtonDefaults.scale(
         focusedScale = SettingsDialogFocusScale,
