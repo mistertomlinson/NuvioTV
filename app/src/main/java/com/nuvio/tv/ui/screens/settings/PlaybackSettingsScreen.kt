@@ -1184,17 +1184,17 @@ internal fun ColorSelectionDialog(
                 onClick = onDismiss,
                 colors = CardDefaults.colors(
                     containerColor = SettingsGlassRowColor,
-                    focusedContainerColor = SettingsGlassRowFocusedColor
-                ),
+                    focusedContainerColor = SettingsGlassRowFocusedColor),
                 border = CardDefaults.border(
-                    focusedBorder = Border(
-                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                        shape = RoundedCornerShape(8.dp)
-                    )
-                ),
+                    focusedBorder = Border.None),
                 shape = CardDefaults.shape(shape = RoundedCornerShape(8.dp)),
                 modifier = Modifier.fillMaxWidth()
-            ) {
+            ,
+    scale = CardDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(
                     text = stringResource(R.string.action_cancel),
                     style = MaterialTheme.typography.bodyLarge,
