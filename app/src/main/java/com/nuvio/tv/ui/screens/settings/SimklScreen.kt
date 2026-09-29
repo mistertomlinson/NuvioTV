@@ -433,8 +433,17 @@ fun SimklScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    )
-                ) {
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.simkl_disconnect))
                 }
 
@@ -445,8 +454,17 @@ fun SimklScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    )
-                ) {
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.simkl_cancel))
                 }
             }
