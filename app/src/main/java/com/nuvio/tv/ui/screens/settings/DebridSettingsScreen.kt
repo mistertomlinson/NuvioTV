@@ -2264,7 +2264,7 @@ private fun QrCodeOverlay(
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
                 colors = CardDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor),
                 shape = CardDefaults.shape(
                     RoundedCornerShape(10.dp)
