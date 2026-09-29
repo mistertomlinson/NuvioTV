@@ -500,7 +500,7 @@ internal fun RenderTypeSettingsItem(
                         isSelected ->
                             SettingsDialogGlassSelectedColor
                         else ->
-                            SettingsGlassRowColor
+                            SettingsDialogGlassIdleColor
                     }
                 } else if (isFocused) {
                     SettingsRightSurfaceFocusedColor
@@ -727,7 +727,7 @@ internal fun SliderSettingsItem(
                     if (isFocused) {
                         SettingsGlassRowFocusedColor
                     } else {
-                        SettingsGlassRowColor
+                        SettingsDialogGlassIdleColor
                     }
                 } else if (isFocused) {
                     SettingsRightSurfaceFocusedColor
@@ -826,6 +826,13 @@ internal fun SliderSettingsItem(
                         }
                     },
                     modifier = Modifier
+                        .then(
+                            if (useDialogGlass) {
+                                Modifier.glassDialogFocusTransform()
+                            } else {
+                                Modifier
+                            }
+                        )
                         .onFocusChanged { state ->
                             val nowFocused = state.hasFocus
                             if (decreaseFocused != nowFocused) {
@@ -834,7 +841,12 @@ internal fun SliderSettingsItem(
                             }
                         },
                     colors = CardDefaults.colors(
-                        containerColor = SettingsGlassControlIdleColor,
+                        containerColor =
+                            if (useDialogGlass) {
+                                SettingsDialogGlassIdleColor
+                            } else {
+                                SettingsGlassControlIdleColor
+                            },
                         focusedContainerColor =
                             if (useDialogGlass) {
                                 SettingsGlassRowFocusedColor
@@ -860,16 +872,11 @@ internal fun SliderSettingsItem(
                     scale = CardDefaults.scale(
                         focusedScale =
                             if (useDialogGlass) {
-                                SettingsDialogFocusScale
+                                1f
                             } else {
                                 1.1f
                             },
-                        pressedScale =
-                            if (useDialogGlass) {
-                                SettingsDialogPressedScale
-                            } else {
-                                1f
-                            }
+                        pressedScale = 1f
                     )
                 ) {
                     Box(
@@ -879,7 +886,16 @@ internal fun SliderSettingsItem(
                         Icon(
                             imageVector = Icons.Default.Remove,
                             contentDescription = stringResource(R.string.cd_decrease),
-                            tint = (if (decreaseFocused) NuvioColors.OnPrimary else NuvioColors.TextPrimary).copy(alpha = contentAlpha),
+                            tint =
+                                (
+                                    if (decreaseFocused) {
+                                        NuvioColors.TextPrimary
+                                    } else if (useDialogGlass) {
+                                        NuvioColors.TextSecondary
+                                    } else {
+                                        NuvioColors.TextPrimary
+                                    }
+                                ).copy(alpha = contentAlpha),
                             modifier = Modifier.size(20.dp)
                         )
                     }
@@ -930,10 +946,18 @@ internal fun SliderSettingsItem(
                             }
                     ),
                     border = CardDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = CircleShape
-                        )
+                        focusedBorder =
+                            if (useDialogGlass) {
+                                Border.None
+                            } else {
+                                Border(
+                                    border = BorderStroke(
+                                        2.dp,
+                                        NuvioColors.FocusRing
+                                    ),
+                                    shape = CircleShape
+                                )
+                            }
                     ),
                     shape = CardDefaults.shape(shape = CircleShape),
                     scale = CardDefaults.scale(
@@ -958,7 +982,16 @@ internal fun SliderSettingsItem(
                         Icon(
                             imageVector = Icons.Default.Add,
                             contentDescription = stringResource(R.string.cd_increase),
-                            tint = (if (increaseFocused) NuvioColors.OnPrimary else NuvioColors.TextPrimary).copy(alpha = contentAlpha),
+                            tint =
+                                (
+                                    if (increaseFocused) {
+                                        NuvioColors.TextPrimary
+                                    } else if (useDialogGlass) {
+                                        NuvioColors.TextSecondary
+                                    } else {
+                                        NuvioColors.TextPrimary
+                                    }
+                                ).copy(alpha = contentAlpha),
                             modifier = Modifier.size(20.dp)
                         )
                     }
