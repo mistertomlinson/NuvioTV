@@ -45,10 +45,12 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.AuthState
+import com.nuvio.tv.ui.screens.settings.SettingsGroupPosition
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceColor
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
 import com.nuvio.tv.ui.screens.settings.SettingsRowGap
 import com.nuvio.tv.ui.screens.settings.SettingsSecondaryCardRadius
+import com.nuvio.tv.ui.screens.settings.settingsGroupShape
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 
@@ -83,7 +85,7 @@ fun AccountSettingsContent(
     ) {
         when (val authState = uiState.authState) {
             is AuthState.Loading -> {
-                AccountInfoSurface {
+                AccountInfoSurface(groupPosition = SettingsGroupPosition.SINGLE) {
                     Text(
                         text = stringResource(R.string.account_loading),
                         style = MaterialTheme.typography.bodyMedium,
@@ -93,7 +95,7 @@ fun AccountSettingsContent(
             }
 
             is AuthState.SignedOut -> {
-                AccountInfoSurface {
+                AccountInfoSurface(groupPosition = SettingsGroupPosition.TOP) {
                     Text(
                         text = stringResource(R.string.account_sync_description),
                         style = MaterialTheme.typography.bodySmall,
@@ -109,12 +111,13 @@ fun AccountSettingsContent(
                     icon = Icons.Default.VpnKey,
                     title = stringResource(R.string.account_signin_qr_title),
                     subtitle = stringResource(R.string.account_signin_qr_subtitle),
-                    onClick = onNavigateToAuthQrSignIn
+                    onClick = onNavigateToAuthQrSignIn,
+                    groupPosition = SettingsGroupPosition.BOTTOM
                 )
             }
 
             is AuthState.FullAccount -> {
-                AccountInfoSurface {
+                AccountInfoSurface(groupPosition = SettingsGroupPosition.TOP) {
                     AccountStatusLine(
                         label = stringResource(R.string.account_signed_in_label),
                         value = authState.email
@@ -137,7 +140,8 @@ fun AccountSettingsContent(
                 }
 
                 SignOutSettingsButton(
-                    onClick = { viewModel.signOut() }
+                    onClick = { viewModel.signOut() },
+                    groupPosition = SettingsGroupPosition.BOTTOM
                 )
             }
         }
@@ -146,12 +150,14 @@ fun AccountSettingsContent(
 
 @Composable
 private fun AccountInfoSurface(
+    groupPosition: SettingsGroupPosition,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val shape = settingsGroupShape(groupPosition)
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(SettingsSecondaryCardRadius))
+            .clip(shape)
             .background(SettingsRightSurfaceColor)
             .padding(horizontal = 14.dp, vertical = 12.dp),
         content = content
@@ -313,10 +319,11 @@ private fun SettingsActionButton(
     icon: ImageVector,
     title: String,
     subtitle: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    groupPosition: SettingsGroupPosition
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    val shape = RoundedCornerShape(SettingsSecondaryCardRadius)
+    val shape = settingsGroupShape(groupPosition)
 
     Card(
         onClick = onClick,
@@ -365,8 +372,11 @@ private fun SettingsActionButton(
 }
 
 @Composable
-private fun SignOutSettingsButton(onClick: () -> Unit) {
-    val shape = RoundedCornerShape(SettingsSecondaryCardRadius)
+private fun SignOutSettingsButton(
+    onClick: () -> Unit,
+    groupPosition: SettingsGroupPosition
+) {
+    val shape = settingsGroupShape(groupPosition)
 
     Card(
         onClick = onClick,
