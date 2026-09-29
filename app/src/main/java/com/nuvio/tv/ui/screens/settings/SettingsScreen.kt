@@ -542,19 +542,17 @@ private fun PluginsSettingsContent() {
             title = stringResource(R.string.settings_plugins),
             subtitle = stringResource(R.string.settings_plugins_section_subtitle)
         )
-        SettingsGroupCard(modifier = Modifier.fillMaxSize()) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentAlignment = Alignment.TopStart
-            ) {
-                PluginScreenContent(
-                    uiState = pluginUiState,
-                    viewModel = pluginViewModel,
-                    showHeader = false
-                )
-            }
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            contentAlignment = Alignment.TopStart
+        ) {
+            PluginScreenContent(
+                uiState = pluginUiState,
+                viewModel = pluginViewModel,
+                showHeader = false
+            )
         }
     }
 }
