@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -46,23 +47,40 @@ fun TmdbSettingsScreen(
 @Composable
 fun TmdbSettingsContent(
     viewModel: TmdbSettingsViewModel = hiltViewModel(),
-    initialFocusRequester: FocusRequester? = null
+    initialFocusRequester: FocusRequester? = null,
+    embedded: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showLanguageDialog by remember { mutableStateOf(false) }
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier =
+            if (embedded) {
+                Modifier
+                    .fillMaxWidth()
+                    .height(360.dp)
+            } else {
+                Modifier.fillMaxSize()
+            },
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        SettingsDetailHeader(
+        if (!embedded) {
+            SettingsDetailHeader(
             title = stringResource(R.string.tmdb_title),
             subtitle = stringResource(R.string.tmdb_subtitle)
-        )
+            )
+        }
 
         SettingsGroupCard(
             modifier = Modifier
-                .fillMaxWidth(),
+                .fillMaxWidth()
+                .then(
+                    if (embedded) {
+                        Modifier.weight(1f)
+                    } else {
+                        Modifier
+                    }
+                ),
             segmented = true
         ) {
             val tmdbListState = rememberLazyListState()
