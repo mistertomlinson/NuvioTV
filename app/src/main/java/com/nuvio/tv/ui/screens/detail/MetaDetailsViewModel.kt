@@ -1282,7 +1282,8 @@ class MetaDetailsViewModel @Inject constructor(
                 tmdbMetadataService.fetchEnrichment(
                     tmdbId = tmdbId,
                     contentType = tmdbContentType,
-                    language = settings.language
+                    language = settings.language,
+                    includeTrailers = settings.useTrailers
                 )
             }
             val episodes = if (needsEpisodes) {
