@@ -160,8 +160,10 @@ internal fun PlaybackSettingsSections(
     val strSectionAudioDesc = stringResource(R.string.playback_section_audio_desc)
     val strSectionSubtitles = stringResource(R.string.playback_section_subtitles)
     val strSectionSubtitlesDesc = stringResource(R.string.playback_section_subtitles_desc)
+
     val generalUi = PlaybackGeneralUi(
-        isExternalPlayer = playerSettings.playerPreference == PlayerPreference.EXTERNAL,
+        isExternalPlayer =
+            playerSettings.playerPreference == PlayerPreference.EXTERNAL,
         frameRateMatchingLabel = frameRateMatchingModeLabel(
             mode = playerSettings.frameRateMatchingMode,
             off = strAfrOff,
@@ -171,29 +173,44 @@ internal fun PlaybackSettingsSections(
     )
     val streamSelectionUi = PlaybackStreamSelectionUi(
         playerPreferenceLabel = when (playerSettings.playerPreference) {
-            PlayerPreference.INTERNAL -> stringResource(R.string.playback_player_internal)
-            PlayerPreference.EXTERNAL -> stringResource(R.string.playback_player_external)
-            PlayerPreference.ASK_EVERY_TIME -> stringResource(R.string.playback_player_ask)
+            PlayerPreference.INTERNAL ->
+                stringResource(R.string.playback_player_internal)
+            PlayerPreference.EXTERNAL ->
+                stringResource(R.string.playback_player_external)
+            PlayerPreference.ASK_EVERY_TIME ->
+                stringResource(R.string.playback_player_ask)
         }
     )
 
     LaunchedEffect(generalExpanded, focusedSection) {
-        if (!generalExpanded && focusedSection == PlaybackSection.GENERAL) {
+        if (
+            !generalExpanded &&
+            focusedSection == PlaybackSection.GENERAL
+        ) {
             generalHeaderFocus.requestFocus()
         }
     }
     LaunchedEffect(streamExpanded, focusedSection) {
-        if (!streamExpanded && focusedSection == PlaybackSection.STREAM_SELECTION) {
+        if (
+            !streamExpanded &&
+            focusedSection == PlaybackSection.STREAM_SELECTION
+        ) {
             streamHeaderFocus.requestFocus()
         }
     }
     LaunchedEffect(audioTrailerExpanded, focusedSection) {
-        if (!audioTrailerExpanded && focusedSection == PlaybackSection.AUDIO_TRAILER) {
+        if (
+            !audioTrailerExpanded &&
+            focusedSection == PlaybackSection.AUDIO_TRAILER
+        ) {
             audioTrailerHeaderFocus.requestFocus()
         }
     }
     LaunchedEffect(subtitlesExpanded, focusedSection) {
-        if (!subtitlesExpanded && focusedSection == PlaybackSection.SUBTITLES) {
+        if (
+            !subtitlesExpanded &&
+            focusedSection == PlaybackSection.SUBTITLES
+        ) {
             subtitlesHeaderFocus.requestFocus()
         }
     }
@@ -204,209 +221,344 @@ internal fun PlaybackSettingsSections(
             state = playbackListState,
             modifier = Modifier.fillMaxWidth(),
             contentPadding = PaddingValues(0.dp),
-            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+            verticalArrangement =
+                Arrangement.spacedBy(SettingsRowGap)
         ) {
-        playbackCollapsibleSection(
-            keyPrefix = "general",
-            title = strSectionGeneral,
-            description = strSectionGeneralDesc,
-            expanded = generalExpanded,
-            onToggle = { generalExpanded = !generalExpanded },
-            focusRequester = generalHeaderFocus,
-            onHeaderFocused = { focusedSection = PlaybackSection.GENERAL }
-        ) {
-            item(key = "general_loading_overlay") {
-                ToggleSettingsItem(
-                    icon = Icons.Default.Image,
-                    title = stringResource(R.string.playback_loading_overlay),
-                    subtitle = stringResource(R.string.playback_loading_overlay_sub),
-                    isChecked = playerSettings.loadingOverlayEnabled,
-                    onCheckedChange = onSetLoadingOverlayEnabled,
-                    onFocused = { focusedSection = PlaybackSection.GENERAL },
-                    enabled = !generalUi.isExternalPlayer
-                )
+            item(key = "general_group") {
+                PlaybackExpandableGroup(
+                    title = strSectionGeneral,
+                    description = strSectionGeneralDesc,
+                    expanded = generalExpanded,
+                    onToggle = {
+                        generalExpanded = !generalExpanded
+                    },
+                    focusRequester = generalHeaderFocus,
+                    onHeaderFocused = {
+                        focusedSection = PlaybackSection.GENERAL
+                    }
+                ) {
+                    ToggleSettingsItem(
+                        icon = Icons.Default.Image,
+                        title = stringResource(
+                            R.string.playback_loading_overlay
+                        ),
+                        subtitle = stringResource(
+                            R.string.playback_loading_overlay_sub
+                        ),
+                        isChecked = playerSettings.loadingOverlayEnabled,
+                        onCheckedChange = onSetLoadingOverlayEnabled,
+                        onFocused = {
+                            focusedSection = PlaybackSection.GENERAL
+                        },
+                        enabled = !generalUi.isExternalPlayer
+                    )
+
+                    ToggleSettingsItem(
+                        icon = Icons.Default.PauseCircle,
+                        title = stringResource(
+                            R.string.playback_pause_overlay
+                        ),
+                        subtitle = stringResource(
+                            R.string.playback_pause_overlay_sub
+                        ),
+                        isChecked = playerSettings.pauseOverlayEnabled,
+                        onCheckedChange = onSetPauseOverlayEnabled,
+                        onFocused = {
+                            focusedSection = PlaybackSection.GENERAL
+                        },
+                        enabled = !generalUi.isExternalPlayer
+                    )
+
+                    ToggleSettingsItem(
+                        icon = Icons.Default.Timer,
+                        title = stringResource(
+                            R.string.playback_osd_clock
+                        ),
+                        subtitle = stringResource(
+                            R.string.playback_show_clock_sub
+                        ),
+                        isChecked = playerSettings.osdClockEnabled,
+                        onCheckedChange = onSetOsdClockEnabled,
+                        onFocused = {
+                            focusedSection = PlaybackSection.GENERAL
+                        },
+                        enabled = !generalUi.isExternalPlayer
+                    )
+
+                    ToggleSettingsItem(
+                        icon = Icons.Default.History,
+                        title = stringResource(
+                            R.string.playback_skip_intro
+                        ),
+                        subtitle = stringResource(
+                            R.string.playback_skip_intro_sub
+                        ),
+                        isChecked = playerSettings.skipIntroEnabled,
+                        onCheckedChange = onSetSkipIntroEnabled,
+                        onFocused = {
+                            focusedSection = PlaybackSection.GENERAL
+                        },
+                        enabled = !generalUi.isExternalPlayer
+                    )
+
+                    PlaybackExpandableGroup(
+                        title = stringResource(
+                            R.string.playback_auto_frame_rate
+                        ),
+                        description = generalUi.frameRateMatchingLabel,
+                        expanded = afrExpanded,
+                        onToggle = {
+                            afrExpanded = !afrExpanded
+                        },
+                        focusRequester = afrHeaderFocus,
+                        onHeaderFocused = {
+                            focusedSection = PlaybackSection.GENERAL
+                        },
+                        enabled = !generalUi.isExternalPlayer
+                    ) {
+                        FrameRateMatchingModeOptions(
+                            selectedMode =
+                                playerSettings.frameRateMatchingMode,
+                            resolutionMatchingEnabled =
+                                playerSettings.resolutionMatchingEnabled,
+                            onSelect = onSetFrameRateMatchingMode,
+                            onSetResolutionMatchingEnabled =
+                                onSetResolutionMatchingEnabled,
+                            onFocused = {
+                                focusedSection =
+                                    PlaybackSection.GENERAL
+                            },
+                            enabled = !generalUi.isExternalPlayer
+                        )
+                    }
+                }
             }
 
-            item(key = "general_pause_overlay") {
-                ToggleSettingsItem(
-                    icon = Icons.Default.PauseCircle,
-                    title = stringResource(R.string.playback_pause_overlay),
-                    subtitle = stringResource(R.string.playback_pause_overlay_sub),
-                    isChecked = playerSettings.pauseOverlayEnabled,
-                    onCheckedChange = onSetPauseOverlayEnabled,
-                    onFocused = { focusedSection = PlaybackSection.GENERAL },
-                    enabled = !generalUi.isExternalPlayer
-                )
+            item(key = "stream_selection_group") {
+                PlaybackExpandableGroup(
+                    title = strSectionPlayer,
+                    description = strSectionPlayerDesc,
+                    expanded = streamExpanded,
+                    onToggle = {
+                        streamExpanded = !streamExpanded
+                    },
+                    focusRequester = streamHeaderFocus,
+                    onHeaderFocused = {
+                        focusedSection =
+                            PlaybackSection.STREAM_SELECTION
+                    }
+                ) {
+                    NavigationSettingsItem(
+                        icon = Icons.Default.PlayArrow,
+                        title = stringResource(R.string.playback_player),
+                        subtitle =
+                            streamSelectionUi.playerPreferenceLabel,
+                        onClick = onShowPlayerPreferenceDialog,
+                        onFocused = {
+                            focusedSection =
+                                PlaybackSection.STREAM_SELECTION
+                        }
+                    )
+
+                    autoPlaySettingsItems(
+                        playerSettings = playerSettings,
+                        onShowModeDialog =
+                            onShowStreamAutoPlayModeDialog,
+                        onShowSourceDialog =
+                            onShowStreamAutoPlaySourceDialog,
+                        onShowAddonSelectionDialog =
+                            onShowStreamAutoPlayAddonSelectionDialog,
+                        onShowPluginSelectionDialog =
+                            onShowStreamAutoPlayPluginSelectionDialog,
+                        onShowRegexDialog =
+                            onShowStreamRegexDialog,
+                        onShowNextEpisodeThresholdModeDialog =
+                            onShowNextEpisodeThresholdModeDialog,
+                        onShowReuseLastLinkCacheDialog =
+                            onShowReuseLastLinkCacheDialog,
+                        onSetStreamAutoPlayNextEpisodeEnabled =
+                            onSetStreamAutoPlayNextEpisodeEnabled,
+                        onSetStreamAutoPlayPreferBingeGroupForNextEpisode =
+                            onSetStreamAutoPlayPreferBingeGroupForNextEpisode,
+                        onSetNextEpisodeThresholdPercent =
+                            onSetNextEpisodeThresholdPercent,
+                        onSetNextEpisodeThresholdMinutesBeforeEnd =
+                            onSetNextEpisodeThresholdMinutesBeforeEnd,
+                        onSetStreamAutoPlayTimeoutSeconds =
+                            onSetStreamAutoPlayTimeoutSeconds,
+                        onSetReuseLastLinkEnabled =
+                            onSetReuseLastLinkEnabled,
+                        onItemFocused = {
+                            focusedSection =
+                                PlaybackSection.STREAM_SELECTION
+                        }
+                    )
+                }
             }
 
-            item(key = "general_osd_clock") {
-                ToggleSettingsItem(
-                    icon = Icons.Default.Timer,
-                    title = stringResource(R.string.playback_osd_clock),
-                    subtitle = stringResource(R.string.playback_show_clock_sub),
-                    isChecked = playerSettings.osdClockEnabled,
-                    onCheckedChange = onSetOsdClockEnabled,
-                    onFocused = { focusedSection = PlaybackSection.GENERAL },
-                    enabled = !generalUi.isExternalPlayer
-                )
+            item(key = "audio_trailer_group") {
+                PlaybackExpandableGroup(
+                    title = strSectionAudio,
+                    description = strSectionAudioDesc,
+                    expanded = audioTrailerExpanded,
+                    onToggle = {
+                        audioTrailerExpanded =
+                            !audioTrailerExpanded
+                    },
+                    focusRequester = audioTrailerHeaderFocus,
+                    onHeaderFocused = {
+                        focusedSection =
+                            PlaybackSection.AUDIO_TRAILER
+                    }
+                ) {
+                    trailerAndAudioSettingsItems(
+                        playerSettings = playerSettings,
+                        trailerSettings = trailerSettings,
+                        onShowAudioLanguageDialog =
+                            onShowAudioLanguageDialog,
+                        onShowSecondaryAudioLanguageDialog =
+                            onShowSecondaryAudioLanguageDialog,
+                        onShowDecoderPriorityDialog =
+                            onShowDecoderPriorityDialog,
+                        onSetTrailerEnabled = onSetTrailerEnabled,
+                        onSetTrailerDelaySeconds =
+                            onSetTrailerDelaySeconds,
+                        onSetSkipSilence = onSetSkipSilence,
+                        onSetTunnelingEnabled =
+                            onSetTunnelingEnabled,
+                        onSetMapDV7ToHevc = onSetMapDV7ToHevc,
+                        onItemFocused = {
+                            focusedSection =
+                                PlaybackSection.AUDIO_TRAILER
+                        },
+                        enabled = !generalUi.isExternalPlayer
+                    )
+                }
             }
 
-            item(key = "general_skip_intro") {
-                ToggleSettingsItem(
-                    icon = Icons.Default.History,
-                    title = stringResource(R.string.playback_skip_intro),
-                    subtitle = stringResource(R.string.playback_skip_intro_sub),
-                    isChecked = playerSettings.skipIntroEnabled,
-                    onCheckedChange = onSetSkipIntroEnabled,
-                    onFocused = { focusedSection = PlaybackSection.GENERAL },
-                    enabled = !generalUi.isExternalPlayer
-                )
-            }
-
-            item(key = "general_afr_header") {
-                PlaybackSectionHeader(
-                    title = stringResource(R.string.playback_auto_frame_rate),
-                    description = generalUi.frameRateMatchingLabel,
-                    expanded = afrExpanded,
-                    onToggle = { afrExpanded = !afrExpanded },
-                    focusRequester = afrHeaderFocus,
-                    onFocused = { focusedSection = PlaybackSection.GENERAL },
-                    enabled = !generalUi.isExternalPlayer
-                )
-            }
-
-            if (afrExpanded) {
-                item(key = "general_afr_options") {
-                    FrameRateMatchingModeOptions(
-                        selectedMode = playerSettings.frameRateMatchingMode,
-                        resolutionMatchingEnabled = playerSettings.resolutionMatchingEnabled,
-                        onSelect = onSetFrameRateMatchingMode,
-                        onSetResolutionMatchingEnabled = onSetResolutionMatchingEnabled,
-                        onFocused = { focusedSection = PlaybackSection.GENERAL },
+            item(key = "subtitles_group") {
+                PlaybackExpandableGroup(
+                    title = strSectionSubtitles,
+                    description = strSectionSubtitlesDesc,
+                    expanded = subtitlesExpanded,
+                    onToggle = {
+                        subtitlesExpanded = !subtitlesExpanded
+                    },
+                    focusRequester = subtitlesHeaderFocus,
+                    onHeaderFocused = {
+                        focusedSection =
+                            PlaybackSection.SUBTITLES
+                    }
+                ) {
+                    subtitleSettingsItems(
+                        playerSettings = playerSettings,
+                        onShowLanguageDialog =
+                            onShowLanguageDialog,
+                        onShowSecondaryLanguageDialog =
+                            onShowSecondaryLanguageDialog,
+                        onShowSubtitleStartupModeDialog =
+                            onShowSubtitleStartupModeDialog,
+                        onShowTextColorDialog =
+                            onShowTextColorDialog,
+                        onShowBackgroundColorDialog =
+                            onShowBackgroundColorDialog,
+                        onShowOutlineColorDialog =
+                            onShowOutlineColorDialog,
+                        onSetSubtitleSize = onSetSubtitleSize,
+                        onSetSubtitleVerticalOffset =
+                            onSetSubtitleVerticalOffset,
+                        onSetSubtitleBold = onSetSubtitleBold,
+                        onSetSubtitleOutlineEnabled =
+                            onSetSubtitleOutlineEnabled,
+                        onSetUseLibass = onSetUseLibass,
+                        onSetLibassRenderType =
+                            onSetLibassRenderType,
+                        onItemFocused = {
+                            focusedSection =
+                                PlaybackSection.SUBTITLES
+                        },
                         enabled = !generalUi.isExternalPlayer
                     )
                 }
             }
         }
 
-        playbackCollapsibleSection(
-            keyPrefix = "stream_selection",
-            title = strSectionPlayer,
-            description = strSectionPlayerDesc,
-            expanded = streamExpanded,
-            onToggle = { streamExpanded = !streamExpanded },
-            focusRequester = streamHeaderFocus,
-            onHeaderFocused = { focusedSection = PlaybackSection.STREAM_SELECTION }
-        ) {
-            item(key = "stream_player_preference") {
-                NavigationSettingsItem(
-                    icon = Icons.Default.PlayArrow,
-                    title = stringResource(R.string.playback_player),
-                    subtitle = streamSelectionUi.playerPreferenceLabel,
-                    onClick = onShowPlayerPreferenceDialog,
-                    onFocused = { focusedSection = PlaybackSection.STREAM_SELECTION }
-                )
-            }
-
-            autoPlaySettingsItems(
-                playerSettings = playerSettings,
-                onShowModeDialog = onShowStreamAutoPlayModeDialog,
-                onShowSourceDialog = onShowStreamAutoPlaySourceDialog,
-                onShowAddonSelectionDialog = onShowStreamAutoPlayAddonSelectionDialog,
-                onShowPluginSelectionDialog = onShowStreamAutoPlayPluginSelectionDialog,
-                onShowRegexDialog = onShowStreamRegexDialog,
-                onShowNextEpisodeThresholdModeDialog = onShowNextEpisodeThresholdModeDialog,
-                onShowReuseLastLinkCacheDialog = onShowReuseLastLinkCacheDialog,
-                onSetStreamAutoPlayNextEpisodeEnabled = onSetStreamAutoPlayNextEpisodeEnabled,
-                onSetStreamAutoPlayPreferBingeGroupForNextEpisode = onSetStreamAutoPlayPreferBingeGroupForNextEpisode,
-                onSetNextEpisodeThresholdPercent = onSetNextEpisodeThresholdPercent,
-                onSetNextEpisodeThresholdMinutesBeforeEnd = onSetNextEpisodeThresholdMinutesBeforeEnd,
-                onSetStreamAutoPlayTimeoutSeconds = onSetStreamAutoPlayTimeoutSeconds,
-                onSetReuseLastLinkEnabled = onSetReuseLastLinkEnabled,
-                onItemFocused = { focusedSection = PlaybackSection.STREAM_SELECTION }
-            )
-        }
-
-        playbackCollapsibleSection(
-            keyPrefix = "audio_trailer",
-            title = strSectionAudio,
-            description = strSectionAudioDesc,
-            expanded = audioTrailerExpanded,
-            onToggle = { audioTrailerExpanded = !audioTrailerExpanded },
-            focusRequester = audioTrailerHeaderFocus,
-            onHeaderFocused = { focusedSection = PlaybackSection.AUDIO_TRAILER }
-        ) {
-            trailerAndAudioSettingsItems(
-                playerSettings = playerSettings,
-                trailerSettings = trailerSettings,
-                onShowAudioLanguageDialog = onShowAudioLanguageDialog,
-                onShowSecondaryAudioLanguageDialog = onShowSecondaryAudioLanguageDialog,
-                onShowDecoderPriorityDialog = onShowDecoderPriorityDialog,
-                onSetTrailerEnabled = onSetTrailerEnabled,
-                onSetTrailerDelaySeconds = onSetTrailerDelaySeconds,
-                onSetSkipSilence = onSetSkipSilence,
-                onSetTunnelingEnabled = onSetTunnelingEnabled,
-                onSetMapDV7ToHevc = onSetMapDV7ToHevc,
-                onItemFocused = { focusedSection = PlaybackSection.AUDIO_TRAILER },
-                enabled = !generalUi.isExternalPlayer
-            )
-        }
-
-        playbackCollapsibleSection(
-            keyPrefix = "subtitles",
-            title = strSectionSubtitles,
-            description = strSectionSubtitlesDesc,
-            expanded = subtitlesExpanded,
-            onToggle = { subtitlesExpanded = !subtitlesExpanded },
-            focusRequester = subtitlesHeaderFocus,
-            onHeaderFocused = { focusedSection = PlaybackSection.SUBTITLES }
-        ) {
-            subtitleSettingsItems(
-                playerSettings = playerSettings,
-                onShowLanguageDialog = onShowLanguageDialog,
-                onShowSecondaryLanguageDialog = onShowSecondaryLanguageDialog,
-                onShowSubtitleStartupModeDialog = onShowSubtitleStartupModeDialog,
-                onShowTextColorDialog = onShowTextColorDialog,
-                onShowBackgroundColorDialog = onShowBackgroundColorDialog,
-                onShowOutlineColorDialog = onShowOutlineColorDialog,
-                onSetSubtitleSize = onSetSubtitleSize,
-                onSetSubtitleVerticalOffset = onSetSubtitleVerticalOffset,
-                onSetSubtitleBold = onSetSubtitleBold,
-                onSetSubtitleOutlineEnabled = onSetSubtitleOutlineEnabled,
-                onSetUseLibass = onSetUseLibass,
-                onSetLibassRenderType = onSetLibassRenderType,
-                onItemFocused = { focusedSection = PlaybackSection.SUBTITLES },
-                enabled = !generalUi.isExternalPlayer
-            )
-        }
-        }
         SettingsVerticalScrollIndicators(state = playbackListState)
     }
 }
 
-private fun LazyListScope.playbackCollapsibleSection(
-    keyPrefix: String,
+@Composable
+private fun PlaybackExpandableGroup(
     title: String,
     description: String,
     expanded: Boolean,
     onToggle: () -> Unit,
     focusRequester: FocusRequester,
     onHeaderFocused: () -> Unit,
-    content: LazyListScope.() -> Unit
+    enabled: Boolean = true,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    item(key = "${keyPrefix}_header") {
+    var previousExpanded by remember {
+        mutableStateOf(expanded)
+    }
+    val opening = expanded && !previousExpanded
+    val closing = !expanded && previousExpanded
+
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            previousExpanded = true
+        } else if (previousExpanded) {
+            kotlinx.coroutines.delay(240L)
+            previousExpanded = false
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(
+            if (expanded || closing) SettingsRowGap else 0.dp
+        )
+    ) {
         PlaybackSectionHeader(
             title = title,
             description = description,
             expanded = expanded,
             onToggle = onToggle,
             focusRequester = focusRequester,
-            onFocused = onHeaderFocused
+            onFocused = onHeaderFocused,
+            enabled = enabled,
+            groupPosition =
+                if (expanded || closing) {
+                    SettingsGroupPosition.TOP
+                } else {
+                    SettingsGroupPosition.SINGLE
+                },
+            animateBottomFlatten = opening
         )
-    }
 
-    if (expanded) {
-        content()
+        androidx.compose.animation.AnimatedVisibility(
+            visible = expanded,
+            enter = androidx.compose.animation.expandVertically(
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 240,
+                    easing =
+                        androidx.compose.animation.core.FastOutSlowInEasing
+                ),
+                expandFrom = Alignment.Top
+            ),
+            exit = androidx.compose.animation.shrinkVertically(
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 240,
+                    easing =
+                        androidx.compose.animation.core.FastOutSlowInEasing
+                ),
+                shrinkTowards = Alignment.Top
+            )
+        ) {
+            SettingsExpandedSectionSurface {
+                content()
+            }
+        }
     }
 }
 
@@ -418,20 +570,35 @@ private fun PlaybackSectionHeader(
     onToggle: () -> Unit,
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    groupPosition: SettingsGroupPosition =
+        SettingsGroupPosition.SINGLE,
+    animateBottomFlatten: Boolean = false
 ) {
     SettingsActionRow(
         title = title,
         subtitle = description,
-        value = if (expanded) stringResource(R.string.playback_afr_open) else stringResource(R.string.playback_afr_closed),
+        value =
+            if (expanded) {
+                stringResource(R.string.playback_afr_open)
+            } else {
+                stringResource(R.string.playback_afr_closed)
+            },
         onClick = onToggle,
         modifier = Modifier
             .fillMaxWidth()
             .focusRequester(focusRequester),
         onFocused = onFocused,
         enabled = enabled,
-        trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
-        showDivider = true
+        trailingIcon =
+            if (expanded) {
+                Icons.Default.ExpandMore
+            } else {
+                Icons.Default.ChevronRight
+            },
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateBottomFlatten = animateBottomFlatten
     )
 }
 
