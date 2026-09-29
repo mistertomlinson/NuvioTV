@@ -24,7 +24,6 @@ import androidx.lifecycle.lifecycleScope
 import java.util.Locale
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
@@ -87,9 +86,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.Painter
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -797,10 +794,7 @@ private fun LegacySidebarScaffold(
     var pendingSidebarFocusRequest by remember { mutableStateOf(false) }
     var legacyLeftAtEdge by remember { mutableStateOf(false) }
     var legacyLeftReleasedSinceEdge by remember { mutableStateOf(false) }
-    val legacyRootTransitionScope = rememberCoroutineScope()
-    val legacyRootTransitionAlpha = remember { Animatable(0f) }
-    var legacyRootTransitionBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var legacyRootTransitionTarget by remember { mutableStateOf<String?>(null) }
+    val legacyNavigationScope = rememberCoroutineScope()
     val legacyHostView = LocalView.current
     val legacyActivity = LocalContext.current as? Activity
     var settingsBackdropBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -834,45 +828,6 @@ private fun LegacySidebarScaffold(
             isLegacySidebarOpen = true
         }
     }
-    LaunchedEffect(
-        currentRoute,
-        legacyRootTransitionTarget,
-        legacyRootTransitionBitmap
-    ) {
-        val targetRoute = legacyRootTransitionTarget
-        val frozenBitmap = legacyRootTransitionBitmap
-        if (
-            targetRoute != null &&
-            frozenBitmap != null &&
-            currentRoute == targetRoute
-        ) {
-            /*
-             * Let the incoming SettingsGlassScreen-backed destination finish
-             * establishing its blurred backdrop and haze environment before
-             * revealing it.
-             */
-            repeat(3) { withFrameNanos { } }
-            legacyRootTransitionAlpha.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 300,
-                    easing = LinearEasing
-                )
-            )
-
-            legacyRootTransitionBitmap = null
-            legacyRootTransitionTarget = null
-            legacyRootTransitionAlpha.snapTo(0f)
-
-            if (
-                frozenBitmap !== settingsBackdropBitmap &&
-                !frozenBitmap.isRecycled
-            ) {
-                frozenBitmap.recycle()
-            }
-        }
-    }
-
     val legacySidebarHazeState = remember { HazeState() }
     val legacySidebarBlurEnabled =
         android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
@@ -1223,98 +1178,33 @@ private fun LegacySidebarScaffold(
                                     pendingContentFocusTransfer =
                                         stayingOnCurrentRoute
 
-                                    when {
-                                        stayingOnCurrentRoute -> {
+                                    if (stayingOnCurrentRoute) {
+                                        navigateToDrawerRoute(
+                                            navController = navController,
+                                            currentRoute = currentRoute,
+                                            targetRoute = targetRoute
+                                        )
+                                    } else if (targetRoute == Screen.Home.route) {
+                                        navigateToDrawerRoute(
+                                            navController = navController,
+                                            currentRoute = currentRoute,
+                                            targetRoute = targetRoute
+                                        )
+                                    } else {
+                                        /*
+                                         * Legacy sidebar owns a 260ms close animation.
+                                         * Let that visual layer clear before starting the
+                                         * NavHost's 280ms root cross-dissolve; otherwise
+                                         * the drawer/haze masks the fade and the route
+                                         * change reads as a snap.
+                                         */
+                                        legacyNavigationScope.launch {
+                                            delay(280L)
                                             navigateToDrawerRoute(
                                                 navController = navController,
                                                 currentRoute = currentRoute,
                                                 targetRoute = targetRoute
                                             )
-                                        }
-
-                                        targetRoute == Screen.Home.route -> {
-                                            navigateToDrawerRoute(
-                                                navController = navController,
-                                                currentRoute = currentRoute,
-                                                targetRoute = targetRoute
-                                            )
-                                        }
-
-                                        else -> {
-                                            legacyRootTransitionTarget =
-                                                targetRoute
-
-                                            legacyRootTransitionScope.launch {
-                                                /*
-                                                 * Legacy drawer takes 260ms to close.
-                                                 * Capture only after it and its haze are
-                                                 * fully gone so the frozen frame contains
-                                                 * the clean outgoing destination.
-                                                 */
-                                                delay(280L)
-                                                repeat(2) {
-                                                    withFrameNanos { }
-                                                }
-
-                                                captureSettingsBackdrop(
-                                                    window =
-                                                        legacyActivity?.window,
-                                                    view = legacyHostView
-                                                ) { captured ->
-                                                    if (captured == null) {
-                                                        legacyRootTransitionTarget =
-                                                            null
-                                                        navigateToDrawerRoute(
-                                                            navController =
-                                                                navController,
-                                                            currentRoute =
-                                                                currentRoute,
-                                                            targetRoute =
-                                                                targetRoute
-                                                        )
-                                                    } else {
-                                                        legacyRootTransitionBitmap =
-                                                            captured
-
-                                                        legacyRootTransitionScope.launch {
-                                                            legacyRootTransitionAlpha
-                                                                .snapTo(1f)
-
-                                                            /*
-                                                             * Ensure the frozen frame has
-                                                             * actually rendered before the
-                                                             * route changes underneath it.
-                                                             */
-                                                            withFrameNanos { }
-
-                                                            val previousBackdrop =
-                                                                settingsBackdropBitmap
-                                                            settingsBackdropBitmap =
-                                                                captured
-
-                                                            if (
-                                                                previousBackdrop != null &&
-                                                                previousBackdrop !==
-                                                                    captured &&
-                                                                previousBackdrop !==
-                                                                    legacyRootTransitionBitmap &&
-                                                                !previousBackdrop.isRecycled
-                                                            ) {
-                                                                previousBackdrop.recycle()
-                                                            }
-
-                                                            navigateToDrawerRoute(
-                                                                navController =
-                                                                    navController,
-                                                                currentRoute =
-                                                                    currentRoute,
-                                                                targetRoute =
-                                                                    targetRoute
-                                                            )
-                                                        }
-                                                    }
-                                                }
-                                            }
                                         }
                                     }
                                 },
@@ -1400,29 +1290,6 @@ private fun LegacySidebarScaffold(
                     hideBuiltInHeaders = hideBuiltInHeaders
                 )
             }
-        }
-
-        val frozenLegacyRootBitmap = legacyRootTransitionBitmap
-        if (
-            frozenLegacyRootBitmap != null &&
-            !frozenLegacyRootBitmap.isRecycled
-        ) {
-            val frozenLegacyRootImage =
-                remember(frozenLegacyRootBitmap) {
-                    frozenLegacyRootBitmap.asImageBitmap()
-                }
-
-            Image(
-                bitmap = frozenLegacyRootImage,
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .zIndex(2f)
-                    .graphicsLayer {
-                        alpha = legacyRootTransitionAlpha.value
-                    }
-            )
         }
     }
 }
@@ -1596,10 +1463,6 @@ private fun ModernSidebarScaffold(
     var leftReleasedSinceEdge by remember { mutableStateOf(false) }
     var isFloatingPillIconOnly by remember { mutableStateOf(false) }
     var sidebarRootNavigationInProgress by remember { mutableStateOf(false) }
-    val sidebarRootTransitionScope = rememberCoroutineScope()
-    val sidebarRootTransitionAlpha = remember { Animatable(0f) }
-    var sidebarRootTransitionBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    var sidebarRootTransitionTarget by remember { mutableStateOf<String?>(null) }
     val modernHostView = LocalView.current
     val modernActivity = LocalContext.current as? Activity
     var settingsBackdropBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -1646,51 +1509,11 @@ private fun ModernSidebarScaffold(
     LaunchedEffect(currentRoute) {
         if (sidebarRootNavigationInProgress) {
             /*
-             * Keep sidebar rendering suppressed until the frozen-frame
-             * dissolve has completed.
+             * Keep sidebar rendering suppressed until its longest 395ms
+             * collapse channel has settled offscreen.
              */
             delay(400L)
             sidebarRootNavigationInProgress = false
-        }
-    }
-
-    LaunchedEffect(
-        currentRoute,
-        sidebarRootTransitionTarget,
-        sidebarRootTransitionBitmap
-    ) {
-        val targetRoute = sidebarRootTransitionTarget
-        val frozenBitmap = sidebarRootTransitionBitmap
-        if (
-            targetRoute != null &&
-            frozenBitmap != null &&
-            currentRoute == targetRoute
-        ) {
-            /*
-             * Keep the outgoing frame fully opaque until the incoming root,
-             * including its blur/haze layers, has produced a few real frames.
-             * The fade then reveals a finished destination instead of exposing
-             * blur initialization as a visual snap.
-             */
-            repeat(3) { withFrameNanos { } }
-            sidebarRootTransitionAlpha.animateTo(
-                targetValue = 0f,
-                animationSpec = tween(
-                    durationMillis = 300,
-                    easing = LinearEasing
-                )
-            )
-
-            sidebarRootTransitionBitmap = null
-            sidebarRootTransitionTarget = null
-            sidebarRootTransitionAlpha.snapTo(0f)
-
-            if (
-                frozenBitmap !== settingsBackdropBitmap &&
-                !frozenBitmap.isRecycled
-            ) {
-                frozenBitmap.recycle()
-            }
         }
     }
 
@@ -1935,23 +1758,6 @@ private fun ModernSidebarScaffold(
             }
         }
 
-        val frozenRootBitmap = sidebarRootTransitionBitmap
-        if (frozenRootBitmap != null && !frozenRootBitmap.isRecycled) {
-            val frozenRootImage = remember(frozenRootBitmap) {
-                frozenRootBitmap.asImageBitmap()
-            }
-            Image(
-                bitmap = frozenRootImage,
-                contentDescription = null,
-                contentScale = ContentScale.FillBounds,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = sidebarRootTransitionAlpha.value
-                    }
-            )
-        }
-
         if (
             showSidebar &&
             !sidebarRootNavigationInProgress &&
@@ -2022,83 +1828,14 @@ private fun ModernSidebarScaffold(
                             isSidebarExpanded = false
                             sidebarCollapsePending = false
                             pendingContentFocusTransfer = stayingOnCurrentRoute
-
-                            when {
-                                stayingOnCurrentRoute -> {
-                                    navigateToDrawerRoute(
-                                        navController = navController,
-                                        currentRoute = currentRoute,
-                                        targetRoute = targetRoute
-                                    )
-                                }
-
-                                targetRoute == Screen.Home.route -> {
-                                    sidebarRootNavigationInProgress = true
-                                    navigateToDrawerRoute(
-                                        navController = navController,
-                                        currentRoute = currentRoute,
-                                        targetRoute = targetRoute
-                                    )
-                                }
-
-                                else -> {
-                                    sidebarRootNavigationInProgress = true
-                                    sidebarRootTransitionTarget = targetRoute
-
-                                    /*
-                                     * Remove the sidebar first, then capture the exact
-                                     * outgoing root with no drawer pixels in the frame.
-                                     */
-                                    sidebarRootTransitionScope.launch {
-                                        repeat(2) { withFrameNanos { } }
-
-                                        captureSettingsBackdrop(
-                                            window = modernActivity?.window,
-                                            view = modernHostView
-                                        ) { captured ->
-                                            if (captured == null) {
-                                                sidebarRootTransitionTarget = null
-                                                navigateToDrawerRoute(
-                                                    navController = navController,
-                                                    currentRoute = currentRoute,
-                                                    targetRoute = targetRoute
-                                                )
-                                            } else {
-                                                sidebarRootTransitionBitmap = captured
-
-                                                sidebarRootTransitionScope.launch {
-                                                    /*
-                                                     * Put the frozen frame on screen before
-                                                     * changing the backdrop source or route.
-                                                     */
-                                                    sidebarRootTransitionAlpha.snapTo(1f)
-                                                    withFrameNanos { }
-
-                                                    val previousBackdrop =
-                                                        settingsBackdropBitmap
-                                                    settingsBackdropBitmap = captured
-
-                                                    if (
-                                                        previousBackdrop != null &&
-                                                        previousBackdrop !== captured &&
-                                                        previousBackdrop !==
-                                                            sidebarRootTransitionBitmap &&
-                                                        !previousBackdrop.isRecycled
-                                                    ) {
-                                                        previousBackdrop.recycle()
-                                                    }
-
-                                                    navigateToDrawerRoute(
-                                                        navController = navController,
-                                                        currentRoute = currentRoute,
-                                                        targetRoute = targetRoute
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
+                            if (!stayingOnCurrentRoute) {
+                                sidebarRootNavigationInProgress = true
                             }
+                            navigateToDrawerRoute(
+                                navController = navController,
+                                currentRoute = currentRoute,
+                                targetRoute = targetRoute
+                            )
                         },
                         activeProfileName = activeProfileName,
                         activeProfileColorHex = activeProfileColorHex,
