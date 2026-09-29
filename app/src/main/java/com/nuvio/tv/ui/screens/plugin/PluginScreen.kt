@@ -71,6 +71,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
@@ -573,24 +574,24 @@ private fun EmbeddedAddRepositoryRow(
         }
     }
 
-    Card(
+    androidx.tv.material3.Card(
         onClick = { isEditing = true },
         modifier = Modifier
             .fillMaxWidth()
             .onFocusChanged { state ->
                 isFocused = state.isFocused || state.hasFocus
             },
-        colors = CardDefaults.colors(
+        colors = androidx.tv.material3.CardDefaults.colors(
             containerColor = SettingsRightSurfaceColor,
             focusedContainerColor =
                 SettingsRightSurfaceFocusedColor
         ),
-        border = CardDefaults.border(
+        border = androidx.tv.material3.CardDefaults.border(
             border = Border.None,
             focusedBorder = Border.None
         ),
-        shape = CardDefaults.shape(shape),
-        scale = CardDefaults.scale(
+        shape = androidx.tv.material3.CardDefaults.shape(shape),
+        scale = androidx.tv.material3.CardDefaults.scale(
             focusedScale = 1f,
             pressedScale = 1f
         )
@@ -721,22 +722,22 @@ private fun EmbeddedRepositoryRow(
         }
 
         if (!isReadOnly) {
-            Card(
+            androidx.tv.material3.Card(
                 onClick = onRefresh,
                 enabled = !isLoading,
-                colors = CardDefaults.colors(
+                colors = androidx.tv.material3.CardDefaults.colors(
                     containerColor = Color.Transparent,
                     focusedContainerColor =
                         SettingsRightSurfaceFocusedColor
                 ),
-                border = CardDefaults.border(
+                border = androidx.tv.material3.CardDefaults.border(
                     border = Border.None,
                     focusedBorder = Border.None
                 ),
-                shape = CardDefaults.shape(
+                shape = androidx.tv.material3.CardDefaults.shape(
                     RoundedCornerShape(10.dp)
                 ),
-                scale = CardDefaults.scale(
+                scale = androidx.tv.material3.CardDefaults.scale(
                     focusedScale = 1f,
                     pressedScale = 1f
                 )
@@ -751,22 +752,22 @@ private fun EmbeddedRepositoryRow(
                 )
             }
 
-            Card(
+            androidx.tv.material3.Card(
                 onClick = onRemove,
                 enabled = !isLoading,
-                colors = CardDefaults.colors(
+                colors = androidx.tv.material3.CardDefaults.colors(
                     containerColor = Color.Transparent,
                     focusedContainerColor =
                         SettingsRightSurfaceFocusedColor
                 ),
-                border = CardDefaults.border(
+                border = androidx.tv.material3.CardDefaults.border(
                     border = Border.None,
                     focusedBorder = Border.None
                 ),
-                shape = CardDefaults.shape(
+                shape = androidx.tv.material3.CardDefaults.shape(
                     RoundedCornerShape(10.dp)
                 ),
-                scale = CardDefaults.scale(
+                scale = androidx.tv.material3.CardDefaults.scale(
                     focusedScale = 1f,
                     pressedScale = 1f
                 )
