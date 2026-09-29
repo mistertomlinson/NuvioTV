@@ -1153,7 +1153,8 @@ fun ContinueWatchingOptionsDialog(
             Box(
                 modifier = Modifier
                     .width(520.dp)
-                    .graphicsLayer {
+                    .then(blurModifier)
+                .graphicsLayer {
                         shape = panelShape
                         clip = true
                         alpha = appearanceProgress.value
@@ -1162,7 +1163,7 @@ fun ContinueWatchingOptionsDialog(
                         scaleX = animatedScale
                         scaleY = animatedScale
                     }
-                    .then(blurModifier)
+                    
                     .clip(panelShape)
                     .background(CwDialogGlassBrush, panelShape)
                     .border(1.dp, CwDialogGlassBorderColor, panelShape)
