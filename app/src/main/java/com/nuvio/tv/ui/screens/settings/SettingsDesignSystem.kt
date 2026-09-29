@@ -1039,6 +1039,78 @@ internal fun SettingsResetButton(
     } else {
         RoundedCornerShape(SettingsSecondaryCardRadius)
     }
+    val focusModifier =
+        if (useDialogGlass) {
+            Modifier.glassDialogFocusTransform { focused ->
+                if (focused) onFocused()
+            }
+        } else {
+            Modifier.onFocusChanged {
+                if (it.isFocused) onFocused()
+            }
+        }
+
+    androidx.tv.material3.Button(
+        onClick = onClick,
+        modifier = modifier.then(focusModifier),
+        colors = androidx.tv.material3.ButtonDefaults.colors(
+            containerColor =
+                if (useDialogGlass) {
+                    SettingsDialogGlassIdleColor
+                } else {
+                    SettingsRightSurfaceColor
+                },
+            focusedContainerColor =
+                if (useDialogGlass) {
+                    SettingsGlassRowFocusedColor
+                } else {
+                    SettingsRightSurfaceFocusedColor
+                },
+            contentColor =
+                if (useDialogGlass) {
+                    NuvioColors.TextSecondary
+                } else {
+                    NuvioColors.TextPrimary
+                },
+            focusedContentColor = NuvioColors.TextPrimary
+        ),
+        border = androidx.tv.material3.ButtonDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
+        shape = androidx.tv.material3.ButtonDefaults.shape(
+            if (useDialogGlass) {
+                SettingsDialogPillShape
+            } else {
+                shape
+            }
+        ),
+        scale = androidx.tv.material3.ButtonDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
+    ) {
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = stringResource(R.string.layout_reset_default),
+                style = MaterialTheme.typography.titleMedium,
+                color = androidx.tv.material3.LocalContentColor.current,
+                maxLines = 1
+            )
+        }
+    }
+},
+    groupPosition: SettingsGroupPosition? = null,
+    useDialogGlass: Boolean = false
+) {
+    val shape = if (groupPosition != null) {
+        animatedSettingsGroupShape(groupPosition)
+    } else {
+        RoundedCornerShape(SettingsSecondaryCardRadius)
+    }
     androidx.tv.material3.Button(
         onClick = onClick,
         modifier = modifier.onFocusChanged { if (it.isFocused) onFocused() },
