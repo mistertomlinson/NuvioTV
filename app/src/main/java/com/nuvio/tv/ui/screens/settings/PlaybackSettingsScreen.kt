@@ -753,7 +753,7 @@ internal fun SliderSettingsItem(
                         },
                     colors = CardDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
-                        focusedContainerColor = SettingsGlassRowFocusedColor
+                        focusedContainerColor = SettingsRightSurfaceFocusedColor
                     ),
                     border = CardDefaults.border(
                         focusedBorder = Border(
@@ -814,7 +814,7 @@ internal fun SliderSettingsItem(
                         },
                     colors = CardDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
-                        focusedContainerColor = SettingsGlassRowFocusedColor
+                        focusedContainerColor = SettingsRightSurfaceFocusedColor
                     ),
                     border = CardDefaults.border(
                         focusedBorder = Border(
@@ -1048,8 +1048,8 @@ private fun LanguageOptionItem(
             .then(modifier)
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowFocusedColor
+            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
         scale = CardDefaults.scale(focusedScale = 1f)
@@ -1137,8 +1137,8 @@ internal fun ColorSelectionDialog(
             Card(
                 onClick = onDismiss,
                 colors = CardDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
-                    focusedContainerColor = SettingsGlassRowFocusedColor
+                    containerColor = SettingsRightSurfaceColor,
+                    focusedContainerColor = SettingsRightSurfaceFocusedColor
                 ),
                 border = CardDefaults.border(
                     focusedBorder = Border(
