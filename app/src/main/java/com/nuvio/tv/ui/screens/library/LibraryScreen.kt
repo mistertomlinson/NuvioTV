@@ -92,6 +92,8 @@ import com.nuvio.tv.ui.screens.settings.SettingsInsetControlColor
 import com.nuvio.tv.ui.screens.settings.SettingsInsetControlFocusedColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
+import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
+import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
 
 private const val KEY_REPEAT_THROTTLE_MS = 80L
 
@@ -741,8 +743,14 @@ private fun ManageListsDialog(
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (selected) SettingsGlassRowFocusedColor else SettingsGlassRowColor,
                                     contentColor = NuvioColors.TextPrimary
-                                )
-                            ) {
+                                ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+,
+    focusedContentColor = Color.White
+)
+                            ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) {
                                 Text(
                                     text = tab.title,
                                     maxLines = 1,
@@ -761,8 +769,12 @@ private fun ManageListsDialog(
                             containerColor = SettingsGlassRowColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) { Text(stringResource(R.string.library_list_create)) }
+                        ,
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) { Text(stringResource(R.string.library_list_create)) }
                     Button(
                         onClick = onEdit,
                         enabled = !pending && selectedKey != null,
@@ -770,8 +782,12 @@ private fun ManageListsDialog(
                             containerColor = SettingsGlassRowColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) { Text(stringResource(R.string.library_list_edit)) }
+                        ,
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) { Text(stringResource(R.string.library_list_edit)) }
                     Button(
                         onClick = onMoveUp,
                         enabled = !pending && selectedKey != null,
@@ -779,8 +795,12 @@ private fun ManageListsDialog(
                             containerColor = SettingsGlassRowColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) { Text(stringResource(R.string.library_list_move_up)) }
+                        ,
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) { Text(stringResource(R.string.library_list_move_up)) }
                     Button(
                         onClick = onMoveDown,
                         enabled = !pending && selectedKey != null,
@@ -788,8 +808,12 @@ private fun ManageListsDialog(
                             containerColor = SettingsGlassRowColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) { Text(stringResource(R.string.library_list_move_down)) }
+                        ,
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) { Text(stringResource(R.string.library_list_move_down)) }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -799,8 +823,14 @@ private fun ManageListsDialog(
                         colors = ButtonDefaults.colors(
                             containerColor = Color(0xFF4A2323),
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) { Text(stringResource(R.string.library_list_delete)) }
+                        ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+,
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) { Text(stringResource(R.string.library_list_delete)) }
                     Button(
                         onClick = onDismiss,
                         enabled = !pending,
@@ -809,8 +839,12 @@ private fun ManageListsDialog(
                             containerColor = SettingsGlassRowColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) { Text(stringResource(R.string.library_list_close)) }
+                        ,
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) { Text(stringResource(R.string.library_list_close)) }
                 }
         }
     }
@@ -949,8 +983,14 @@ private fun ListEditorDialog(
                     colors = ButtonDefaults.colors(
                         containerColor = if (selected) SettingsGlassRowFocusedColor else SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    )
-                ) {
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+,
+    focusedContentColor = Color.White
+)
+                ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) {
                     Text(privacy.apiValue.replaceFirstChar { it.uppercase() })
                 }
             }
@@ -964,8 +1004,12 @@ private fun ListEditorDialog(
                 containerColor = SettingsGlassRowColor,
                 focusedContainerColor = SettingsGlassRowFocusedColor,
                 contentColor = NuvioColors.TextPrimary
-            )
-        ) {
+            ,
+    focusedContentColor = Color.White
+)
+        ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) {
             Text(if (pending) "Saving..." else "Save")
         }
     }
@@ -994,8 +1038,14 @@ private fun ConfirmDeleteDialog(
             colors = ButtonDefaults.colors(
                 containerColor = Color(0xFF4A2323),
                 contentColor = NuvioColors.TextPrimary
-            )
-        ) {
+            ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+,
+    focusedContentColor = Color.White
+)
+        ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) {
             Text(stringResource(R.string.library_list_delete))
         }
     }
