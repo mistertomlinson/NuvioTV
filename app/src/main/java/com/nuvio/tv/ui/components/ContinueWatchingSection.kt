@@ -89,7 +89,7 @@ private val BadgeShape = RoundedCornerShape(4.dp)
 private val CwNewEpisodeBadgeColor = Color(0xFF1D4ED8)
 internal val CwNewSeasonBadgeColor = Color(0xFFB45309)
 
-private val CwDialogGlassRowColor = Color.White.copy(alpha = 0.065f)
+private val CwDialogGlassRowColor = Color.Transparent
 private val CwDialogGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
 private val CwDialogGlassBrush = Brush.verticalGradient(
     colors = listOf(
