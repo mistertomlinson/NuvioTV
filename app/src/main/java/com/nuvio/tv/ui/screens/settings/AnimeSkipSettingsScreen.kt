@@ -254,7 +254,7 @@ private fun AnimeSkipClientIdDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 ,
@@ -269,7 +269,7 @@ private fun AnimeSkipClientIdDialog(
             Button(
                 onClick = onClear,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 ,
@@ -284,7 +284,7 @@ private fun AnimeSkipClientIdDialog(
             Button(
                 onClick = { if (!validating) viewModel.validateAndSave(value, onSaved) },
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 ,
