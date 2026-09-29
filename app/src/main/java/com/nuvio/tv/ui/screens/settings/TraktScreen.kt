@@ -61,6 +61,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 import java.util.concurrent.TimeUnit
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 
 @Composable
 fun TraktScreen(
@@ -368,7 +369,7 @@ fun TraktScreen(
                                     viewModel.onContinueWatchingDaysCapSelected(days)
                                     showDaysCapDialog = false
                                 },
-                                modifier = Modifier.weight(1f),
+                                modifier = (Modifier.weight(1f)).glassDialogFocusTransform(),
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                                     contentColor = NuvioColors.TextPrimary
@@ -377,11 +378,11 @@ fun TraktScreen(
                         focusedContentColor = Color.White
 )
                             ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                                 Text(cwWindowFormatter(days))
                             }
                         }
@@ -405,11 +406,13 @@ fun TraktScreen(
                         focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
@@ -440,13 +443,12 @@ fun TraktScreen(
     focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = Color.White
 ),
-                    modifier = Modifier.fillMaxWidth()
-                ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                    modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.trakt_show_unaired))
                 }
                 Button(
@@ -461,13 +463,12 @@ fun TraktScreen(
     focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = Color.White
 ),
-                    modifier = Modifier.fillMaxWidth()
-                ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                    modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.trakt_hide_unaired))
                 }
                 Row(
@@ -484,11 +485,13 @@ fun TraktScreen(
                         focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
@@ -519,13 +522,12 @@ fun TraktScreen(
     focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = Color.White
 ),
-                    modifier = Modifier.fillMaxWidth()
-                ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                    modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.trakt_setting_on))
                 }
                 Button(
@@ -540,13 +542,12 @@ fun TraktScreen(
     focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = Color.White
 ),
-                    modifier = Modifier.fillMaxWidth()
-                ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                    modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.trakt_setting_off))
                 }
                 Row(
@@ -563,11 +564,13 @@ fun TraktScreen(
                         focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
@@ -601,11 +604,13 @@ fun TraktScreen(
                         focusedContentColor = Color.White
 )
                 ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.trakt_disconnect))
                 }
                 Button(
@@ -618,11 +623,13 @@ fun TraktScreen(
                         focusedContentColor = Color.White
 )
                 ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.action_cancel))
                 }
             }
