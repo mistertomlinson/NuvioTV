@@ -294,15 +294,57 @@ fun LayoutSettingsContent(
                 before - section
             }
 
-        if (!expanded) {
-            beginBoundaryReturnAnimation(
-                roundedPairReturnBoundaries(before, after)
-            )
-        } else {
+        if (expanded) {
+            /*
+             * Opening owns its shape transition immediately. If the same
+             * section was reopened during a pending collapse, dropping it
+             * from the deferred set also prevents that old collapse from
+             * releasing its corners later.
+             */
+            deferredCornerCollapseSections =
+                deferredCornerCollapseSections - section
             animatedFlattenBoundaries = emptySet()
+            applySectionExpandedState(section, true)
+            return
         }
 
-        applySectionExpandedState(section, expanded)
+        val returnBoundaries =
+            roundedPairReturnBoundaries(before, after)
+
+        /*
+         * Universal collapse rule:
+         *
+         * 1. Keep the section in the shape calculation so its header and
+         *    neighboring header corners remain exactly as they were while
+         *    AnimatedVisibility shrinks the child rows.
+         * 2. Collapse the content.
+         * 3. Only after the shrink duration has completed, release the held
+         *    group geometry.
+         * 4. At that point rounded+rounded boundaries animate together;
+         *    a rounded edge meeting an already-flat edge snaps flat.
+         */
+        deferredCornerCollapseSections =
+            deferredCornerCollapseSections + section
+        applySectionExpandedState(section, false)
+
+        layoutAnimationScope.launch {
+            delay(DEFAULT_SECTION_COLLAPSE_MILLIS.toLong())
+
+            /*
+             * A rapid reopen removes the section from the deferred set.
+             * In that case this stale collapse must not alter its corners.
+             */
+            if (section !in deferredCornerCollapseSections) {
+                return@launch
+            }
+
+            androidx.compose.runtime.withFrameNanos { }
+            beginBoundaryReturnAnimation(returnBoundaries)
+            androidx.compose.runtime.withFrameNanos { }
+
+            deferredCornerCollapseSections =
+                deferredCornerCollapseSections - section
+        }
     }
 
     fun animateTopFlattenFor(
