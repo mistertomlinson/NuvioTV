@@ -174,6 +174,7 @@ fun NuvioDialog(
         Box(
             modifier = Modifier
                 .width(width)
+                .then(blurModifier)
                 .graphicsLayer {
                     shape = dialogShape
                     clip = true
@@ -193,7 +194,7 @@ fun NuvioDialog(
                     scaleX = animatedScale
                     scaleY = animatedScale
                 }
-                .then(blurModifier)
+                
                 .clip(dialogShape)
                 .then(
                     when {
