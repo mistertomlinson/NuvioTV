@@ -399,8 +399,8 @@ private fun DebugDialogButton(
             )
         ),
         scale = CardDefaults.scale(
-            focusedScale = 1f,
-            pressedScale = 1f
+            focusedScale = SettingsDialogFocusScale,
+            pressedScale = SettingsDialogPressedScale
         )
     ) {
         Text(
