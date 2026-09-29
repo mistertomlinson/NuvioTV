@@ -92,6 +92,7 @@ import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaCastMember
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.MDBListRatings
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.domain.model.NextToWatch
@@ -113,6 +114,7 @@ private enum class RestoreTarget {
     EPISODE,
     CAST_MEMBER,
     MORE_LIKE_THIS,
+    TRAILER,
     COLLECTION
 }
 
@@ -120,6 +122,7 @@ private enum class PeopleSectionTab {
     CAST,
     RATINGS,
     MORE_LIKE_THIS,
+    TRAILER,
     COLLECTION
 }
 
@@ -175,12 +178,6 @@ private fun applyDither(bmp: android.graphics.Bitmap) {
             (b + noise).coerceIn(0, 255))
     }
     bmp.setPixels(pixels, 0, bmp.width, 0, 0, bmp.width, bmp.height)
-}
-
-@Stable
-private class TrailerSeekOverlayState {
-    var positionMs by mutableLongStateOf(0L)
-    var durationMs by mutableLongStateOf(0L)
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -241,9 +238,13 @@ fun MetaDetailsScreen(
             initialValue = true
         )
     var restorePlayFocusAfterTrailerBackToken by rememberSaveable { mutableIntStateOf(0) }
+    var restoreSharedTrailerFocusToken by rememberSaveable { mutableIntStateOf(0) }
 
     BackHandler {
-        if (uiState.isTrailerPlaying) {
+        if (uiState.isSharedTrailerOverlayVisible) {
+            restoreSharedTrailerFocusToken += 1
+            viewModel.onEvent(MetaDetailsEvent.OnDismissSharedTrailer)
+        } else if (uiState.isTrailerPlaying) {
             restorePlayFocusAfterTrailerBackToken += 1
             viewModel.onEvent(MetaDetailsEvent.OnTrailerEnded)
         } else {
@@ -502,6 +503,12 @@ fun MetaDetailsScreen(
                     showTrailerControls = uiState.showTrailerControls,
                     hideLogoDuringTrailer = uiState.hideLogoDuringTrailer,
                     trailerButtonEnabled = uiState.trailerButtonEnabled,
+                    isSharedTrailerOverlayVisible = uiState.isSharedTrailerOverlayVisible,
+                    isSharedTrailerLoading = uiState.isSharedTrailerLoading,
+                    sharedTrailerUrl = uiState.sharedTrailerUrl,
+                    sharedTrailerAudioUrl = uiState.sharedTrailerAudioUrl,
+                    sharedTrailerErrorMessage = uiState.sharedTrailerErrorMessage,
+                    selectedSharedTrailer = uiState.selectedSharedTrailer,
                     trailerSeekToken = trailerSeekToken,
                     trailerSeekDeltaMs = trailerSeekDeltaMs,
                     onTrailerControlKey = { keyCode, action, repeatCount ->
@@ -547,7 +554,12 @@ fun MetaDetailsScreen(
                     onTrailerProgressChanged = onTrailerProgressChanged,
                     onTrailerEnded = { viewModel.onEvent(MetaDetailsEvent.OnTrailerEnded) },
                     onTrailerButtonClick = { viewModel.onEvent(MetaDetailsEvent.OnTrailerButtonClick) },
+                    onSharedTrailerSelected = { viewModel.onEvent(MetaDetailsEvent.OnSharedTrailerSelected(it)) },
+                    onDismissSharedTrailer = { viewModel.onEvent(MetaDetailsEvent.OnDismissSharedTrailer) },
+                    onRetrySharedTrailer = { viewModel.onEvent(MetaDetailsEvent.OnRetrySharedTrailer) },
                     restorePlayFocusAfterTrailerBackToken = restorePlayFocusAfterTrailerBackToken,
+                    restoreSharedTrailerFocusToken = restoreSharedTrailerFocusToken,
+                    onSharedTrailerFocusRestored = { restoreSharedTrailerFocusToken = 0 },
                     onRetryComments = { viewModel.onEvent(MetaDetailsEvent.OnRetryComments) },
                     onLoadMoreComments = { viewModel.onEvent(MetaDetailsEvent.OnLoadMoreComments) },
                     onCommentClick = { viewModel.onEvent(MetaDetailsEvent.OnCommentSelected(it)) },
@@ -680,13 +692,24 @@ private fun MetaDetailsContent(
     showTrailerControls: Boolean,
     hideLogoDuringTrailer: Boolean,
     trailerButtonEnabled: Boolean,
+    isSharedTrailerOverlayVisible: Boolean,
+    isSharedTrailerLoading: Boolean,
+    sharedTrailerUrl: String?,
+    sharedTrailerAudioUrl: String?,
+    sharedTrailerErrorMessage: String?,
+    selectedSharedTrailer: MetaTrailer?,
     trailerSeekToken: Int,
     trailerSeekDeltaMs: Long,
     onTrailerControlKey: (keyCode: Int, action: Int, repeatCount: Int) -> Boolean,
     onTrailerProgressChanged: (Long, Long) -> Unit,
     onTrailerEnded: () -> Unit,
     onTrailerButtonClick: () -> Unit,
+    onSharedTrailerSelected: (MetaTrailer) -> Unit,
+    onDismissSharedTrailer: () -> Unit,
+    onRetrySharedTrailer: () -> Unit,
     restorePlayFocusAfterTrailerBackToken: Int,
+    restoreSharedTrailerFocusToken: Int,
+    onSharedTrailerFocusRestored: () -> Unit,
     onRetryComments: () -> Unit = {},
     onLoadMoreComments: () -> Unit = {},
     onCommentClick: (TraktCommentReview) -> Unit = {},
@@ -839,6 +862,8 @@ private fun MetaDetailsContent(
     val heroPlayFocusRequester = remember { FocusRequester() }
     val castTabFocusRequester = remember { FocusRequester() }
     val moreLikeTabFocusRequester = remember { FocusRequester() }
+    val trailerTabFocusRequester = remember { FocusRequester() }
+    val trailerSectionFocusRequester = remember { FocusRequester() }
     val collectionTabFocusRequester = remember { FocusRequester() }
     val ratingsTabFocusRequester = remember { FocusRequester() }
     val ratingsContentFocusRequester = remember { FocusRequester() }
@@ -1052,19 +1077,23 @@ private fun MetaDetailsContent(
     }
     val hasCastSection = directorWriterMembers.isNotEmpty() || normalCastMembers.isNotEmpty()
     val hasMoreLikeThisSection = moreLikeThis.isNotEmpty()
+    val hasTrailerSection = remember(meta.trailers) { meta.trailers.any { !it.ytId.isNullOrBlank() } }
     val hasRatingsSection = isTvShow
     val strTabCast = stringResource(R.string.detail_tab_cast)
     val strTabRatings = stringResource(R.string.detail_tab_ratings)
     val strTabMoreLikeThis = stringResource(R.string.detail_tab_more_like_this)
+    val strTabTrailer = stringResource(R.string.detail_tab_trailer)
     val strTabCollection = stringResource(R.string.tmdb_collections_title)
     val peopleTabItems = remember(
         hasCastSection,
         hasMoreLikeThisSection,
+        hasTrailerSection,
         hasRatingsSection,
         collection,
         castTabFocusRequester,
         ratingsTabFocusRequester,
         moreLikeTabFocusRequester,
+        trailerTabFocusRequester,
         collectionTabFocusRequester,
         collectionName
     ) {
@@ -1093,6 +1122,15 @@ private fun MetaDetailsContent(
                         tab = PeopleSectionTab.MORE_LIKE_THIS,
                         label = strTabMoreLikeThis,
                         focusRequester = moreLikeTabFocusRequester
+                    )
+                )
+            }
+            if (hasTrailerSection) {
+                add(
+                    PeopleTabItem(
+                        tab = PeopleSectionTab.TRAILER,
+                        label = strTabTrailer,
+                        focusRequester = trailerTabFocusRequester
                     )
                 )
             }
@@ -1549,6 +1587,20 @@ private fun MetaDetailsContent(
                                     }
                                 )
                             }
+
+                            PeopleSectionTab.TRAILER -> {
+                                TrailerSection(
+                                    trailers = meta.trailers,
+                                    upFocusRequester = if (hasPeopleTabs) trailerTabFocusRequester else seasonDownFocusRequester ?: heroPlayFocusRequester,
+                                    sectionFocusRequester = trailerSectionFocusRequester,
+                                    restoreTrailerId = if (restoreSharedTrailerFocusToken > 0) selectedSharedTrailer?.ytId else null,
+                                    restoreFocusToken = restoreSharedTrailerFocusToken,
+                                    onRestoreFocusHandled = onSharedTrailerFocusRestored,
+                                    onTrailerClick = { trailer ->
+                                        onSharedTrailerSelected(trailer)
+                                    }
+                                )
+                            }
                             
                             PeopleSectionTab.COLLECTION -> {
                                 CollectionSection(
@@ -1684,6 +1736,20 @@ private fun MetaDetailsContent(
             onDismiss = onDismissCommentOverlay
         )
     }
+
+    if (isSharedTrailerOverlayVisible) {
+        SharedTrailerOverlay(
+            title = selectedSharedTrailer?.name?.takeIf { it.isNotBlank() }
+                ?: selectedSharedTrailer?.type?.takeIf { it.isNotBlank() }
+                ?: stringResource(R.string.detail_tab_trailer),
+            trailerUrl = sharedTrailerUrl,
+            trailerAudioUrl = sharedTrailerAudioUrl,
+            isLoading = isSharedTrailerLoading,
+            errorMessage = sharedTrailerErrorMessage,
+            onDismiss = onDismissSharedTrailer,
+            onRetry = onRetrySharedTrailer
+        )
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -1817,32 +1883,48 @@ private fun PeopleSectionTabs(
 
     val defaultRequester = tabs.first().focusRequester
     val restorerRequester = tabs.firstOrNull { it.tab == activeTab }?.focusRequester ?: defaultRequester
+    val shouldSplitCollection = tabs.size > 3 && tabs.any { it.tab == PeopleSectionTab.COLLECTION }
+    val firstRowTabs = if (shouldSplitCollection) tabs.filterNot { it.tab == PeopleSectionTab.COLLECTION } else tabs
+    val secondRowTabs = if (shouldSplitCollection) tabs.filter { it.tab == PeopleSectionTab.COLLECTION } else emptyList()
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 20.dp, start = 48.dp, end = 48.dp)
             .focusRestorer(restorerRequester),
-        verticalAlignment = Alignment.CenterVertically
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        tabs.forEachIndexed { index, item ->
-            if (index > 0) {
-                Text(
-                    text = "|",
-                    style = MaterialTheme.typography.titleLarge,
-                    color = NuvioColors.TextPrimary.copy(alpha = 0.45f),
-                    modifier = Modifier.padding(horizontal = 10.dp)
+        @Composable
+        fun androidx.compose.foundation.layout.RowScope.renderTabs(items: List<PeopleTabItem>) {
+            items.forEachIndexed { index, item ->
+                if (index > 0) {
+                    Text(
+                        text = "|",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = NuvioColors.TextPrimary.copy(alpha = 0.45f),
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    )
+                }
+
+                PeopleSectionTabButton(
+                    label = item.label,
+                    selected = activeTab == item.tab,
+                    focusRequester = item.focusRequester,
+                    upFocusRequester = upFocusRequester,
+                    downFocusRequester = if (item.tab == PeopleSectionTab.RATINGS) ratingsDownFocusRequester else null,
+                    onFocused = { onTabFocused(item.tab) }
                 )
             }
+        }
 
-            PeopleSectionTabButton(
-                label = item.label,
-                selected = activeTab == item.tab,
-                focusRequester = item.focusRequester,
-                upFocusRequester = upFocusRequester,
-                downFocusRequester = if (item.tab == PeopleSectionTab.RATINGS) ratingsDownFocusRequester else null,
-                onFocused = { onTabFocused(item.tab) }
-            )
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            renderTabs(firstRowTabs)
+        }
+
+        if (secondRowTabs.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                renderTabs(secondRowTabs)
+            }
         }
     }
 }
@@ -1898,90 +1980,6 @@ private fun PeopleSectionTabButton(
             },
             modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
         )
-    }
-}
-
-@Composable
-private fun TrailerSeekOverlayHost(
-    visible: Boolean,
-    overlayState: TrailerSeekOverlayState,
-    modifier: Modifier = Modifier
-) {
-    androidx.compose.animation.AnimatedVisibility(
-        visible = visible,
-        enter = androidx.compose.animation.fadeIn(animationSpec = tween(150)),
-        exit = androidx.compose.animation.fadeOut(animationSpec = tween(150)),
-        modifier = modifier
-    ) {
-        TrailerSeekOverlay(
-            currentPosition = overlayState.positionMs,
-            duration = overlayState.durationMs
-        )
-    }
-}
-
-@Composable
-private fun TrailerSeekOverlay(
-    currentPosition: Long,
-    duration: Long
-) {
-    val progress = if (duration > 0) {
-        (currentPosition.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val animatedProgress by animateFloatAsState(
-        targetValue = progress,
-        animationSpec = tween(100),
-        label = "trailerSeekProgress"
-    )
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 32.dp, vertical = 24.dp)
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(6.dp)
-                .clip(RoundedCornerShape(3.dp))
-                .background(Color.White.copy(alpha = 0.3f))
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxHeight()
-                    .fillMaxWidth(animatedProgress)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(NuvioColors.Secondary)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "${formatPlaybackTime(currentPosition)} / ${formatPlaybackTime(duration)}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = 0.9f)
-            )
-        }
-    }
-}
-
-private fun formatPlaybackTime(milliseconds: Long): String {
-    val totalSeconds = (milliseconds / 1000).coerceAtLeast(0)
-    val hours = totalSeconds / 3600
-    val minutes = (totalSeconds % 3600) / 60
-    val seconds = totalSeconds % 60
-    return if (hours > 0) {
-        String.format("%d:%02d:%02d", hours, minutes, seconds)
-    } else {
-        String.format("%02d:%02d", minutes, seconds)
     }
 }
 
