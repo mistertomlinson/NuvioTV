@@ -25,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -39,6 +40,7 @@ import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.simkl.SimklConnectionMode
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun TrackingSettingsScreen(
@@ -94,6 +96,7 @@ fun TrackingSettingsContent(
         trackingViewModel.uiState.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
+    val trackingAnimationScope = rememberCoroutineScope()
     val accountsParentFocusRequester = remember { FocusRequester() }
     val sourcesParentFocusRequester = remember { FocusRequester() }
     val traktFocusRequester = remember { FocusRequester() }
@@ -101,8 +104,40 @@ fun TrackingSettingsContent(
 
     var accountsExpanded by remember { mutableStateOf(false) }
     var sourcesExpanded by remember { mutableStateOf(false) }
+    var accountsClosing by remember { mutableStateOf(false) }
+    var sourcesClosing by remember { mutableStateOf(false) }
     var librarySourceExpanded by remember { mutableStateOf(false) }
     var watchProgressExpanded by remember { mutableStateOf(false) }
+
+    fun toggleAccounts() {
+        if (accountsExpanded) {
+            accountsClosing = true
+            accountsExpanded = false
+            trackingAnimationScope.launch {
+                delay(240L)
+                accountsClosing = false
+            }
+        } else {
+            accountsClosing = false
+            accountsExpanded = true
+        }
+    }
+
+    fun toggleSources() {
+        if (sourcesExpanded) {
+            sourcesClosing = true
+            librarySourceExpanded = false
+            watchProgressExpanded = false
+            sourcesExpanded = false
+            trackingAnimationScope.launch {
+                delay(240L)
+                sourcesClosing = false
+            }
+        } else {
+            sourcesClosing = false
+            sourcesExpanded = true
+        }
+    }
 
     /*
      * A Tracking detail destination is removed from composition while Trakt
@@ -110,22 +145,41 @@ fun TrackingSettingsContent(
      * then restore that row instead of allowing Settings to fall back to rail.
      */
     LaunchedEffect(returnFocusAccount) {
-        val target = returnFocusAccount ?: return@LaunchedEffect
+        val target =
+            returnFocusAccount ?: return@LaunchedEffect
+        accountsClosing = false
         accountsExpanded = true
 
-        delay(280L)
+        // The pop transition is 350 ms. Restore only after Settings is
+        // genuinely visible again so the outgoing account screen cannot
+        // steal or visually replay this focus request.
+        delay(380L)
+
         val requester = when (target) {
             "trakt" -> traktFocusRequester
             "simkl" -> simklFocusRequester
             else -> null
         }
 
-        if (requester != null) {
-            runCatching { requester.requestFocus() }
-            delay(80L)
-            runCatching { requester.requestFocus() }
+        if (requester == null) {
+            onReturnFocusConsumed()
+            return@LaunchedEffect
         }
-        onReturnFocusConsumed()
+
+        var focused = runCatching {
+            requester.requestFocus()
+        }.getOrDefault(false)
+
+        if (!focused) {
+            androidx.compose.runtime.withFrameNanos { }
+            focused = runCatching {
+                requester.requestFocus()
+            }.getOrDefault(false)
+        }
+
+        if (focused) {
+            onReturnFocusConsumed()
+        }
     }
 
     Column(
@@ -148,7 +202,8 @@ fun TrackingSettingsContent(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                verticalArrangement =
+                    Arrangement.spacedBy(SettingsRowGap)
             ) {
                 item(key = "tracking_accounts") {
                     TrackingExpandableGroup(
@@ -159,9 +214,20 @@ fun TrackingSettingsContent(
                             R.string.tracking_accounts_subtitle
                         ),
                         expanded = accountsExpanded,
-                        onToggle = {
-                            accountsExpanded = !accountsExpanded
-                        },
+                        closing = accountsClosing,
+                        closedPosition =
+                            if (sourcesExpanded) {
+                                SettingsGroupPosition.SINGLE
+                            } else {
+                                SettingsGroupPosition.TOP
+                            },
+                        expandedPosition =
+                            SettingsGroupPosition.TOP,
+                        closingPosition =
+                            SettingsGroupPosition.TOP,
+                        forceAnimateBottomFlatten =
+                            sourcesClosing,
+                        onToggle = ::toggleAccounts,
                         focusRequester =
                             initialFocusRequester
                                 ?: accountsParentFocusRequester
@@ -203,13 +269,24 @@ fun TrackingSettingsContent(
                             R.string.tracking_sources_subtitle_compact
                         ),
                         expanded = sourcesExpanded,
-                        onToggle = {
-                            if (sourcesExpanded) {
-                                librarySourceExpanded = false
-                                watchProgressExpanded = false
-                            }
-                            sourcesExpanded = !sourcesExpanded
-                        },
+                        closing = sourcesClosing,
+                        closedPosition =
+                            if (accountsExpanded) {
+                                SettingsGroupPosition.SINGLE
+                            } else {
+                                SettingsGroupPosition.BOTTOM
+                            },
+                        expandedPosition =
+                            SettingsGroupPosition.TOP,
+                        closingPosition =
+                            if (accountsExpanded) {
+                                SettingsGroupPosition.TOP
+                            } else {
+                                SettingsGroupPosition.MIDDLE
+                            },
+                        forceAnimateTopFlatten =
+                            accountsClosing,
+                        onToggle = ::toggleSources,
                         focusRequester = sourcesParentFocusRequester
                     ) {
                         TrackingNestedSourceRow(
@@ -311,6 +388,12 @@ private fun TrackingExpandableGroup(
     title: String,
     subtitle: String,
     expanded: Boolean,
+    closing: Boolean,
+    closedPosition: SettingsGroupPosition,
+    expandedPosition: SettingsGroupPosition,
+    closingPosition: SettingsGroupPosition,
+    forceAnimateTopFlatten: Boolean = false,
+    forceAnimateBottomFlatten: Boolean = false,
     onToggle: () -> Unit,
     focusRequester: FocusRequester,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
@@ -319,15 +402,15 @@ private fun TrackingExpandableGroup(
         mutableStateOf(expanded)
     }
     val opening = expanded && !previousExpanded
-    val closing = !expanded && previousExpanded
 
     LaunchedEffect(expanded) {
-        if (expanded) {
-            previousExpanded = true
-        } else if (previousExpanded) {
-            delay(240L)
-            previousExpanded = false
-        }
+        previousExpanded = expanded
+    }
+
+    val position = when {
+        expanded -> expandedPosition
+        closing -> closingPosition
+        else -> closedPosition
     }
 
     Column(
@@ -348,13 +431,19 @@ private fun TrackingExpandableGroup(
                 },
             modifier = Modifier.focusRequester(focusRequester),
             showDivider = false,
-            groupPosition =
-                if (expanded || closing) {
-                    SettingsGroupPosition.TOP
-                } else {
-                    SettingsGroupPosition.SINGLE
-                },
-            animateBottomFlatten = opening
+            groupPosition = position,
+            /*
+             * Flattening always uses the same 240 ms shape animation.
+             * Rounding outward already animates automatically.
+             */
+            animateTopFlatten =
+                forceAnimateTopFlatten ||
+                    (opening &&
+                        position == SettingsGroupPosition.MIDDLE),
+            animateBottomFlatten =
+                forceAnimateBottomFlatten ||
+                    (opening &&
+                        position == SettingsGroupPosition.TOP)
         )
 
         AnimatedVisibility(
