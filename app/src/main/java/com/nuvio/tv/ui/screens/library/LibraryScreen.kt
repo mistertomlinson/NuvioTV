@@ -1,6 +1,9 @@
 package com.nuvio.tv.ui.screens.library
 
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -47,6 +50,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -92,6 +96,7 @@ import com.nuvio.tv.ui.screens.settings.SettingsInsetControlColor
 import com.nuvio.tv.ui.screens.settings.SettingsInsetControlFocusedColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassSelectedColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
 
@@ -522,14 +527,11 @@ private fun LibraryDropdownPicker(
                     border = BorderStroke(1.dp, SettingsGlassBorderColor),
                     shape = RoundedCornerShape(14.dp)
                 ),
-                focusedBorder = androidx.tv.material3.Border(
-                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                    shape = RoundedCornerShape(14.dp)
-                )
+                focusedBorder = androidx.tv.material3.Border.None
             ),
             scale = CardDefaults.scale(
-                focusedScale = 1.0f,
-                pressedScale = 1.0f
+                focusedScale = SettingsDialogFocusScale,
+                pressedScale = SettingsDialogPressedScale
             )
         ) {
             Column(
@@ -558,7 +560,7 @@ private fun LibraryDropdownPicker(
                     Icon(
                         imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
                         contentDescription = if (expanded) "Collapse $title" else "Expand $title",
-                        tint = if (isFocused) NuvioColors.FocusRing else NuvioColors.TextSecondary
+                        tint = if (isFocused) NuvioColors.Secondary else NuvioColors.TextSecondary
                     )
                 }
             }
@@ -582,20 +584,33 @@ private fun LibraryDropdownPicker(
             options.forEach { option ->
                 val isSelected = option.value == selectedValue
                 val isOptionFocused = option.value == focusedOptionValue
-                val itemTextColor = when {
-                    isOptionFocused -> NuvioColors.OnSecondary
-                    isSelected -> NuvioColors.TextPrimary
-                    else -> NuvioColors.TextPrimary
-                }
+                val itemTextColor = NuvioColors.TextPrimary
                 val itemBackgroundColor = when {
-                    isOptionFocused -> NuvioColors.Secondary
-                    isSelected -> SettingsGlassRowFocusedColor
+                    isOptionFocused -> SettingsGlassRowFocusedColor
+                    isSelected -> SettingsDialogGlassSelectedColor
                     else -> Color.Transparent
                 }
+                val optionScale by animateFloatAsState(
+                    targetValue =
+                        if (isOptionFocused) {
+                            SettingsDialogFocusScale
+                        } else {
+                            1f
+                        },
+                    animationSpec = tween(
+                        durationMillis = 160,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "libraryDropdownOptionScale"
+                )
 
                 DropdownMenuItem(
                     modifier = Modifier
                         .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .graphicsLayer {
+                            scaleX = optionScale
+                            scaleY = optionScale
+                        }
                         .background(
                             color = itemBackgroundColor,
                             shape = RoundedCornerShape(10.dp)
@@ -741,7 +756,7 @@ private fun ManageListsDialog(
                                     Modifier.fillMaxWidth()
                                 },
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (selected) SettingsGlassRowFocusedColor else SettingsGlassRowColor,
+                                    containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
                                     contentColor = NuvioColors.TextPrimary
                                 ,
     focusedContainerColor = SettingsGlassRowFocusedColor
@@ -922,11 +937,11 @@ private fun ListEditorDialog(
                 unfocusedTextColor = NuvioColors.TextPrimary,
                 focusedContainerColor = SettingsDialogGlassInsetFocusedColor,
                 unfocusedContainerColor = SettingsDialogGlassInsetColor,
-                focusedBorderColor = NuvioColors.FocusRing,
+                focusedBorderColor = SettingsGlassBorderColor,
                 unfocusedBorderColor = SettingsGlassBorderColor,
                 focusedLabelColor = NuvioColors.TextSecondary,
                 unfocusedLabelColor = NuvioColors.TextTertiary,
-                cursorColor = NuvioColors.FocusRing
+                cursorColor = NuvioColors.Secondary
             )
         )
 
@@ -960,11 +975,11 @@ private fun ListEditorDialog(
                 unfocusedTextColor = NuvioColors.TextPrimary,
                 focusedContainerColor = SettingsDialogGlassInsetFocusedColor,
                 unfocusedContainerColor = SettingsDialogGlassInsetColor,
-                focusedBorderColor = NuvioColors.FocusRing,
+                focusedBorderColor = SettingsGlassBorderColor,
                 unfocusedBorderColor = SettingsGlassBorderColor,
                 focusedLabelColor = NuvioColors.TextSecondary,
                 unfocusedLabelColor = NuvioColors.TextTertiary,
-                cursorColor = NuvioColors.FocusRing
+                cursorColor = NuvioColors.Secondary
             )
         )
 
@@ -981,7 +996,7 @@ private fun ListEditorDialog(
                     onClick = { onPrivacyChanged(privacy) },
                     enabled = !pending,
                     colors = ButtonDefaults.colors(
-                        containerColor = if (selected) SettingsGlassRowFocusedColor else SettingsGlassRowColor,
+                        containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor
