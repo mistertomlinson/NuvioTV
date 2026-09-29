@@ -1,6 +1,8 @@
 @file:OptIn(ExperimentalTvMaterial3Api::class)
 
 package com.nuvio.tv.ui.screens.settings
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
 
 import android.view.KeyEvent
 import androidx.compose.foundation.BorderStroke
@@ -510,8 +512,8 @@ private fun NextEpisodeThresholdModeDialog(
                             .fillMaxWidth()
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
-                            focusedContainerColor = SettingsRightSurfaceFocusedColor
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
@@ -616,8 +618,8 @@ private fun StreamAutoPlayModeDialog(
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)
                             .onFocusChanged { isFocused = it.isFocused },
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
-                            focusedContainerColor = SettingsRightSurfaceFocusedColor
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
@@ -706,8 +708,8 @@ private fun StreamReuseLastLinkCacheDurationDialog(
                             .fillMaxWidth()
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
-                            focusedContainerColor = SettingsRightSurfaceFocusedColor
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
@@ -800,8 +802,8 @@ private fun StreamAutoPlaySourceDialog(
                             .fillMaxWidth()
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
-                            focusedContainerColor = SettingsRightSurfaceFocusedColor
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
@@ -1046,8 +1048,8 @@ private fun StreamRegexDialog(
                             },
                             modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
                             colors = CardDefaults.colors(
-                                containerColor = SettingsRightSurfaceColor,
-                                focusedContainerColor = SettingsRightSurfaceFocusedColor
+                                containerColor = SettingsGlassRowColor,
+                                focusedContainerColor = SettingsGlassRowFocusedColor
                             ),
                             border = CardDefaults.border(
                                 focusedBorder = Border(
@@ -1074,8 +1076,8 @@ private fun StreamRegexDialog(
                         .fillMaxWidth()
                         .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
                     colors = CardDefaults.colors(
-                        containerColor = SettingsInsetControlColor,
-                        focusedContainerColor = SettingsInsetControlFocusedColor
+                        containerColor = SettingsDialogGlassInsetColor,
+                        focusedContainerColor = SettingsDialogGlassInsetFocusedColor
                     ),
                     border = CardDefaults.border(
                         border = Border(
@@ -1143,9 +1145,9 @@ private fun StreamRegexDialog(
                     Button(
                         onClick = onDismiss,
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsRightSurfaceColor,
+                            containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary,
-                            focusedContainerColor = SettingsRightSurfaceFocusedColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
                         shape = ButtonDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
@@ -1159,9 +1161,9 @@ private fun StreamRegexDialog(
                             regexError = null
                         },
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsRightSurfaceColor,
+                            containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary,
-                            focusedContainerColor = SettingsRightSurfaceFocusedColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
                         shape = ButtonDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
@@ -1182,9 +1184,9 @@ private fun StreamRegexDialog(
                             onSave(value)
                         },
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsRightSurfaceColor,
+                            containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary,
-                            focusedContainerColor = SettingsRightSurfaceFocusedColor,
+                            focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
                         shape = ButtonDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(10.dp))
