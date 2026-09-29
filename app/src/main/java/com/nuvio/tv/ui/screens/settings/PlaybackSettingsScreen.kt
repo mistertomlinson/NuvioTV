@@ -396,18 +396,8 @@ internal fun ToggleSettingsItem(
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(
-            focusedScale =
-                if (useDialogGlass) {
-                    SettingsDialogFocusScale
-                } else {
-                    1f
-                },
-            pressedScale =
-                if (useDialogGlass) {
-                    SettingsDialogPressedScale
-                } else {
-                    1f
-                }
+            focusedScale = 1f,
+            pressedScale = 1f
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
