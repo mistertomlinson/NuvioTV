@@ -30,7 +30,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
@@ -40,8 +39,8 @@ import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
@@ -59,10 +58,12 @@ fun GridContentCard(
     isWatched: Boolean = false,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
+    depthSurface: CardDepthSurface = CardDepthSurface.POSTERS,
     onLongPress: (() -> Unit)? = null,
     onFocused: () -> Unit = {}
 ) {
     val cardShape = remember(posterCardStyle.cornerRadius) { RoundedCornerShape(posterCardStyle.cornerRadius) }
+    val cardDepthStyle = LocalCardDepthStyle.current
     val density = LocalDensity.current
     val requestWidthPx = remember(density, posterCardStyle.width) { with(density) { posterCardStyle.width.roundToPx() } }
     val requestHeightPx = remember(density, posterCardStyle.height) { with(density) { posterCardStyle.height.roundToPx() } }
@@ -140,6 +141,11 @@ fun GridContentCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(cardShape)
+                    .nuvioCardDepth(
+                        shape = cardShape,
+                        surface = depthSurface,
+                        style = cardDepthStyle
+                    )
             ) {
                 val context = LocalContext.current
                 val imageModel = remember(item.poster, requestWidthPx, requestHeightPx) {
@@ -183,12 +189,11 @@ fun GridContentCard(
         }
 
         if (showLabel) {
-            Text(
+            FocusMarqueeText(
                 text = item.name,
+                focused = isFocused,
                 style = MaterialTheme.typography.titleMedium,
                 color = NuvioColors.TextPrimary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
                     .width(posterCardStyle.width)
                     .padding(top = 8.dp, start = 2.dp, end = 2.dp)
