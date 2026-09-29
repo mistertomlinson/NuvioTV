@@ -30,7 +30,6 @@ import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GridView
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.People
@@ -179,13 +178,6 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
-        category = SettingsCategory.ABOUT,
-        title = stringResource(R.string.about_title),
-        icon = Icons.Default.Info,
-        subtitle = stringResource(R.string.settings_about_subtitle),
-        destination = SettingsSectionDestination.Inline
-    ),
-    SettingsSectionSpec(
         category = SettingsCategory.ADVANCED,
         title = stringResource(R.string.settings_advanced),
         icon = Icons.Default.Build,
@@ -278,7 +270,8 @@ private fun SettingsScreenContent(
                 SettingsCategory.TRACKING to FocusRequester(),
                 SettingsCategory.PLAYBACK to FocusRequester(),
                 SettingsCategory.ADVANCED to FocusRequester(),
-                SettingsCategory.ABOUT to FocusRequester()
+                SettingsCategory.ABOUT to FocusRequester(),
+                SettingsCategory.DEBUG to FocusRequester()
             )
     }
     val railContainerFocusRequester = remember { FocusRequester() }
@@ -571,7 +564,16 @@ private fun SettingsScreenContent(
                         SettingsCategory.ACCOUNT -> AccountSettingsInline(
                             onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn
                         )
-                        SettingsCategory.DEBUG -> DebugSettingsContent()
+                        SettingsCategory.DEBUG -> DebugSettingsContent(
+                            initialFocusRequester =
+                                if (allowDetailAutofocus) {
+                                    contentFocusRequesters[
+                                        SettingsCategory.DEBUG
+                                    ]
+                                } else {
+                                    null
+                                }
+                        )
                         SettingsCategory.TRACKING -> TrackingSettingsContent(
                             onNavigateToTrakt = onNavigateToTrakt,
                             onNavigateToSimkl = onNavigateToSimkl,
