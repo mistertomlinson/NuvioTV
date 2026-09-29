@@ -754,7 +754,57 @@ private fun DebridEmbeddedSettingsBody(
     var expandedSection by remember {
         mutableStateOf<String?>(null)
     }
+    var pendingSectionFocusRestore by remember {
+        mutableStateOf<String?>(null)
+    }
+    val accountsSectionFocusRequester = remember {
+        FocusRequester()
+    }
+    val prepareSectionFocusRequester = remember {
+        FocusRequester()
+    }
+    val formattingSectionFocusRequester = remember {
+        FocusRequester()
+    }
+    val filtersSectionFocusRequester = remember {
+        FocusRequester()
+    }
     val activeResolverProvider = uiState.activeResolverProvider
+
+    fun subsectionFocusRequester(
+        section: String
+    ): FocusRequester? = when (section) {
+        "accounts" -> accountsSectionFocusRequester
+        "prepare" -> prepareSectionFocusRequester
+        "formatting" -> formattingSectionFocusRequester
+        "filters" -> filtersSectionFocusRequester
+        else -> null
+    }
+
+    LaunchedEffect(
+        pendingSectionFocusRestore,
+        expandedSection
+    ) {
+        val section =
+            pendingSectionFocusRestore
+                ?: return@LaunchedEffect
+        if (expandedSection != null) {
+            return@LaunchedEffect
+        }
+
+        androidx.compose.runtime.withFrameNanos { }
+        subsectionFocusRequester(section)?.let { requester ->
+            runCatching { requester.requestFocus() }
+        }
+        pendingSectionFocusRestore = null
+    }
+
+    androidx.activity.compose.BackHandler(
+        enabled = expandedSection != null
+    ) {
+        pendingSectionFocusRestore = expandedSection
+        expandedSection = null
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -797,6 +847,7 @@ private fun DebridEmbeddedSettingsBody(
         DebridEmbeddedSection(
             title = stringResource(R.string.debrid_section_account),
             expanded = expandedSection == "accounts",
+            focusRequester = accountsSectionFocusRequester,
             onToggle = {
                 expandedSection =
                     if (expandedSection == "accounts") {
@@ -870,6 +921,7 @@ private fun DebridEmbeddedSettingsBody(
                     R.string.debrid_section_instant_playback
                 ),
                 expanded = expandedSection == "prepare",
+                focusRequester = prepareSectionFocusRequester,
                 onToggle = {
                     expandedSection =
                         if (expandedSection == "prepare") {
@@ -920,6 +972,7 @@ private fun DebridEmbeddedSettingsBody(
                 R.string.debrid_section_formatting
             ),
             expanded = expandedSection == "formatting",
+            focusRequester = formattingSectionFocusRequester,
             onToggle = {
                 expandedSection =
                     if (expandedSection == "formatting") {
@@ -965,6 +1018,7 @@ private fun DebridEmbeddedSettingsBody(
                     R.string.debrid_section_filters
                 ),
                 expanded = expandedSection == "filters",
+                focusRequester = filtersSectionFocusRequester,
                 onToggle = {
                     expandedSection =
                         if (expandedSection == "filters") {
@@ -1079,19 +1133,19 @@ private fun DebridEmbeddedSettingsBody(
 private fun DebridEmbeddedSection(
     title: String,
     expanded: Boolean,
+    focusRequester: FocusRequester,
     onToggle: () -> Unit,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     /*
-     * Keep the parent bottom edge physically attached to its child rows.
-     * Opening: SINGLE -> TOP animates rounded -> flat immediately.
-     * Closing: hold TOP through the 240 ms child shrink, then TOP -> SINGLE
-     * animates the bottom corners back out only after the children are gone.
+     * Closed subsection headers remain flat inside the parent service group.
+     * Opening: MIDDLE -> TOP rounds only the parent's top edge.
+     * Closing: hold TOP through child shrink, then TOP -> MIDDLE flattens
+     * that top edge again after the child rows are gone.
      */
     var previousExpanded by remember {
         mutableStateOf(expanded)
     }
-    val opening = expanded && !previousExpanded
     val closing = !expanded && previousExpanded
 
     LaunchedEffect(expanded) {
@@ -1122,14 +1176,17 @@ private fun DebridEmbeddedSection(
                 } else {
                     Icons.Default.ChevronRight
                 },
+            modifier = Modifier.focusRequester(
+                focusRequester
+            ),
             showDivider = false,
             groupPosition =
                 if (keepParentBottomFlat) {
                     SettingsGroupPosition.TOP
                 } else {
-                    SettingsGroupPosition.SINGLE
+                    SettingsGroupPosition.MIDDLE
                 },
-            animateBottomFlatten = opening
+            animateTopFlatten = true
         )
 
         AnimatedVisibility(
