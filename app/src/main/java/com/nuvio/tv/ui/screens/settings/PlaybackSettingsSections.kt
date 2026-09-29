@@ -846,6 +846,7 @@ private fun PlaybackSectionHeader(
     enabled: Boolean = true,
     groupPosition: SettingsGroupPosition =
         SettingsGroupPosition.SINGLE,
+    animateTopFlatten: Boolean = false,
     animateBottomFlatten: Boolean = false
 ) {
     SettingsActionRow(
@@ -871,6 +872,7 @@ private fun PlaybackSectionHeader(
             },
         showDivider = false,
         groupPosition = groupPosition,
+        animateTopFlatten = animateTopFlatten,
         animateBottomFlatten = animateBottomFlatten
     )
 }
