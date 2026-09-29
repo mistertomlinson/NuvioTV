@@ -1454,10 +1454,9 @@ private fun DebridTextListDialog(
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.colors(
                 containerColor = SettingsDialogGlassInsetColor,
-                focusedContainerColor = SettingsDialogGlassInsetFocusedColor
-            ),
+                focusedContainerColor = SettingsGlassRowFocusedColor),
             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-            scale = CardDefaults.scale(focusedScale = 1f)
+            scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
         ) {
             Box(modifier = Modifier.padding(14.dp)) {
                 BasicTextField(
@@ -2092,20 +2091,15 @@ private fun DebridApiKeyDialog(
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
                 containerColor = SettingsDialogGlassInsetColor,
-                focusedContainerColor = SettingsDialogGlassInsetFocusedColor
-            ),
+                focusedContainerColor = SettingsGlassRowFocusedColor),
             border = CardDefaults.border(
                 border = Border(
                     border = BorderStroke(1.dp, NuvioColors.Border),
                     shape = RoundedCornerShape(10.dp)
                 ),
-                focusedBorder = Border(
-                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                    shape = RoundedCornerShape(10.dp)
-                )
-            ),
+                focusedBorder = Border.None),
             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-            scale = CardDefaults.scale(focusedScale = 1f)
+            scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
         ) {
             Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 BasicTextField(
@@ -2271,15 +2265,13 @@ private fun QrCodeOverlay(
                     .focusRequester(focusRequester),
                 colors = CardDefaults.colors(
                     containerColor = SettingsGlassRowColor,
-                    focusedContainerColor =
-                        SettingsGlassRowFocusedColor
-                ),
+                    focusedContainerColor = SettingsGlassRowFocusedColor),
                 shape = CardDefaults.shape(
                     RoundedCornerShape(10.dp)
                 ),
                 scale = CardDefaults.scale(
-                    focusedScale = 1.018f,
-                    pressedScale = 0.99f
+                    focusedScale = SettingsDialogFocusScale,
+                    pressedScale = SettingsDialogPressedScale
                 )
             ) {
                 Text(
