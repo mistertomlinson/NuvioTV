@@ -281,8 +281,8 @@ private fun AudioLanguageSelectionDialog(
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)
                             .onFocusChanged { isFocused = it.isFocused },
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
-                            focusedContainerColor = SettingsGlassRowFocusedColor
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
+                            focusedContainerColor = SettingsRightSurfaceFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
@@ -364,8 +364,8 @@ private fun DecoderPriorityDialog(
                             .fillMaxWidth()
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
-                            focusedContainerColor = SettingsGlassRowFocusedColor
+                            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
+                            focusedContainerColor = SettingsRightSurfaceFocusedColor
                         ),
                         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = 1f)
