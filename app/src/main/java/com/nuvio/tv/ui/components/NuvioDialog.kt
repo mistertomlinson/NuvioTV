@@ -45,9 +45,9 @@ import dev.chrisbanes.haze.hazeChild
 
 private val NuvioDialogGlassBrush = Brush.verticalGradient(
     colors = listOf(
-        Color(0xAD2A3038),
-        Color(0x9E20252C),
-        Color(0xA824292F)
+        Color(0x842A3038),
+        Color(0x7720252C),
+        Color(0x7F24292F)
     )
 )
 
