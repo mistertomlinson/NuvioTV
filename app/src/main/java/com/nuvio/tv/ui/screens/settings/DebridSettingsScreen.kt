@@ -771,6 +771,47 @@ private fun DebridEmbeddedSettingsBody(
     }
     val activeResolverProvider = uiState.activeResolverProvider
 
+    val visibleSubsections = buildList {
+        add("accounts")
+        if (uiState.canResolvePlayableLinks) {
+            add("prepare")
+        }
+        add("formatting")
+        if (uiState.canResolvePlayableLinks) {
+            add("filters")
+        }
+    }
+
+    fun subsectionPosition(
+        section: String
+    ): SettingsGroupPosition {
+        val active = expandedSection
+            ?: return SettingsGroupPosition.MIDDLE
+        val activeIndex = visibleSubsections.indexOf(active)
+        val index = visibleSubsections.indexOf(section)
+        return when {
+            index < 0 || activeIndex < 0 ->
+                SettingsGroupPosition.MIDDLE
+            section == active ->
+                SettingsGroupPosition.TOP
+            index == activeIndex - 1 ->
+                SettingsGroupPosition.BOTTOM
+            index == activeIndex + 1 ->
+                SettingsGroupPosition.TOP
+            else ->
+                SettingsGroupPosition.MIDDLE
+        }
+    }
+
+    fun toggleSubsection(section: String) {
+        if (expandedSection == section) {
+            pendingSectionFocusRestore = section
+            expandedSection = null
+        } else {
+            expandedSection = section
+        }
+    }
+
     fun subsectionFocusRequester(
         section: String
     ): FocusRequester? = when (section) {
@@ -841,21 +882,22 @@ private fun DebridEmbeddedSettingsBody(
                     )
                 )
             },
-            enabled = uiState.hasResolverProvider
+            enabled = uiState.hasResolverProvider,
+            groupPosition =
+                if (expandedSection == "accounts") {
+                    SettingsGroupPosition.BOTTOM
+                } else {
+                    SettingsGroupPosition.MIDDLE
+                },
+            animateBottomFlatten = true
         )
 
         DebridEmbeddedSection(
             title = stringResource(R.string.debrid_section_account),
             expanded = expandedSection == "accounts",
+            groupPosition = subsectionPosition("accounts"),
             focusRequester = accountsSectionFocusRequester,
-            onToggle = {
-                expandedSection =
-                    if (expandedSection == "accounts") {
-                        null
-                    } else {
-                        "accounts"
-                    }
-            }
+            onToggle = { toggleSubsection("accounts") }
         ) {
             if (!uiState.hasResolverProvider) {
                 DebridInfoText(
@@ -921,15 +963,9 @@ private fun DebridEmbeddedSettingsBody(
                     R.string.debrid_section_instant_playback
                 ),
                 expanded = expandedSection == "prepare",
+                groupPosition = subsectionPosition("prepare"),
                 focusRequester = prepareSectionFocusRequester,
-                onToggle = {
-                    expandedSection =
-                        if (expandedSection == "prepare") {
-                            null
-                        } else {
-                            "prepare"
-                        }
-                }
+                onToggle = { toggleSubsection("prepare") }
             ) {
                 val prepareEnabled =
                     uiState.instantPlaybackPreparationLimit > 0
@@ -972,15 +1008,9 @@ private fun DebridEmbeddedSettingsBody(
                 R.string.debrid_section_formatting
             ),
             expanded = expandedSection == "formatting",
+            groupPosition = subsectionPosition("formatting"),
             focusRequester = formattingSectionFocusRequester,
-            onToggle = {
-                expandedSection =
-                    if (expandedSection == "formatting") {
-                        null
-                    } else {
-                        "formatting"
-                    }
-            }
+            onToggle = { toggleSubsection("formatting") }
         ) {
             SettingsActionRow(
                 title = stringResource(
@@ -1018,15 +1048,9 @@ private fun DebridEmbeddedSettingsBody(
                     R.string.debrid_section_filters
                 ),
                 expanded = expandedSection == "filters",
+                groupPosition = subsectionPosition("filters"),
                 focusRequester = filtersSectionFocusRequester,
-                onToggle = {
-                    expandedSection =
-                        if (expandedSection == "filters") {
-                            null
-                        } else {
-                            "filters"
-                        }
-                }
+                onToggle = { toggleSubsection("filters") }
             ) {
                 SettingsActionRow(
                     title = stringResource(
@@ -1133,16 +1157,11 @@ private fun DebridEmbeddedSettingsBody(
 private fun DebridEmbeddedSection(
     title: String,
     expanded: Boolean,
+    groupPosition: SettingsGroupPosition,
     focusRequester: FocusRequester,
     onToggle: () -> Unit,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    /*
-     * Closed subsection headers remain flat inside the parent service group.
-     * Opening: MIDDLE -> TOP rounds only the parent's top edge.
-     * Closing: hold TOP through child shrink, then TOP -> MIDDLE flattens
-     * that top edge again after the child rows are gone.
-     */
     var previousExpanded by remember {
         mutableStateOf(expanded)
     }
@@ -1152,13 +1171,10 @@ private fun DebridEmbeddedSection(
         if (expanded) {
             previousExpanded = true
         } else if (previousExpanded) {
-            delay(240)
+            delay(240L)
             previousExpanded = false
         }
     }
-
-    val keepParentBottomFlat =
-        expanded || closing
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -1176,17 +1192,13 @@ private fun DebridEmbeddedSection(
                 } else {
                     Icons.Default.ChevronRight
                 },
-            modifier = Modifier.focusRequester(
-                focusRequester
-            ),
+            modifier = Modifier.focusRequester(focusRequester),
             showDivider = false,
-            groupPosition =
-                if (keepParentBottomFlat) {
-                    SettingsGroupPosition.TOP
-                } else {
-                    SettingsGroupPosition.MIDDLE
-                },
-            animateTopFlatten = true
+            groupPosition = groupPosition,
+            // Every shared boundary is allowed to flatten over the same
+            // 240 ms interval instead of snapping one side independently.
+            animateTopFlatten = true,
+            animateBottomFlatten = true
         )
 
         AnimatedVisibility(
@@ -1206,7 +1218,22 @@ private fun DebridEmbeddedSection(
                 shrinkTowards = Alignment.Top
             )
         ) {
-            SettingsExpandedSectionSurface {
+            val childShape = animatedSettingsGroupShape(
+                position =
+                    if (expanded) {
+                        SettingsGroupPosition.BOTTOM
+                    } else {
+                        SettingsGroupPosition.MIDDLE
+                    },
+                animateBottomFlatten = true
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(childShape),
+                verticalArrangement =
+                    Arrangement.spacedBy(SettingsRowGap)
+            ) {
                 content()
             }
         }
