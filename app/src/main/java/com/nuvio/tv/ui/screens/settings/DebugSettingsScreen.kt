@@ -34,6 +34,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 import com.nuvio.tv.ui.screens.account.InputField
 import com.nuvio.tv.ui.theme.NuvioColors
 
@@ -381,32 +382,38 @@ private fun DebugDialogButton(
     text: String,
     onClick: () -> Unit
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+
     Card(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassDialogFocusTransform { focused ->
+                isFocused = focused
+            },
         colors = CardDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor =
-                SettingsGlassRowFocusedColor
+            containerColor = SettingsDialogGlassIdleColor,
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             border = Border.None,
             focusedBorder = Border.None
         ),
-        shape = CardDefaults.shape(
-            settingsGroupShape(
-                SettingsGroupPosition.SINGLE
-            )
-        ),
+        shape = CardDefaults.shape(SettingsDialogPillShape),
         scale = CardDefaults.scale(
-            focusedScale = SettingsDialogFocusScale,
-            pressedScale = SettingsDialogPressedScale
+            focusedScale = 1f,
+            pressedScale = 1f
         )
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.bodyMedium,
-            color = NuvioColors.TextPrimary,
+            color =
+                if (isFocused) {
+                    NuvioColors.TextPrimary
+                } else {
+                    NuvioColors.TextSecondary
+                },
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
