@@ -36,6 +36,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -63,6 +64,8 @@ import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.TrailerSettings
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 private enum class PlaybackSection {
     GENERAL,
@@ -139,6 +142,201 @@ internal fun PlaybackSettingsSections(
     var streamExpanded by rememberSaveable { mutableStateOf(false) }
     var audioTrailerExpanded by rememberSaveable { mutableStateOf(false) }
     var subtitlesExpanded by rememberSaveable { mutableStateOf(false) }
+
+    val playbackAnimationScope = rememberCoroutineScope()
+    var animatedFlattenBoundaries by remember {
+        mutableStateOf<Set<Int>>(emptySet())
+    }
+    var deferredBottomCornerSections by remember {
+        mutableStateOf<Set<PlaybackSection>>(emptySet())
+    }
+
+    val visibleSections = listOf(
+        PlaybackSection.GENERAL,
+        PlaybackSection.STREAM_SELECTION,
+        PlaybackSection.AUDIO_TRAILER,
+        PlaybackSection.SUBTITLES
+    )
+
+    val expandedSections = buildSet {
+        if (generalExpanded) add(PlaybackSection.GENERAL)
+        if (streamExpanded) add(PlaybackSection.STREAM_SELECTION)
+        if (audioTrailerExpanded) add(PlaybackSection.AUDIO_TRAILER)
+        if (subtitlesExpanded) add(PlaybackSection.SUBTITLES)
+    }
+
+    fun groupPositionFor(
+        section: PlaybackSection,
+        expanded: Set<PlaybackSection> = expandedSections
+    ): SettingsGroupPosition {
+        val index = visibleSections.indexOf(section)
+        if (index < 0) return SettingsGroupPosition.SINGLE
+        if (section in expanded) return SettingsGroupPosition.TOP
+
+        val startsGroup =
+            index == 0 || visibleSections[index - 1] in expanded
+        val endsGroup =
+            index == visibleSections.lastIndex ||
+                visibleSections[index + 1] in expanded
+
+        return when {
+            startsGroup && endsGroup -> SettingsGroupPosition.SINGLE
+            startsGroup -> SettingsGroupPosition.TOP
+            endsGroup -> SettingsGroupPosition.BOTTOM
+            else -> SettingsGroupPosition.MIDDLE
+        }
+    }
+
+    fun headerTopRounded(
+        section: PlaybackSection,
+        expanded: Set<PlaybackSection>
+    ): Boolean {
+        return when (groupPositionFor(section, expanded)) {
+            SettingsGroupPosition.SINGLE,
+            SettingsGroupPosition.TOP -> true
+            SettingsGroupPosition.MIDDLE,
+            SettingsGroupPosition.BOTTOM -> false
+        }
+    }
+
+    fun headerBottomRounded(
+        section: PlaybackSection,
+        expanded: Set<PlaybackSection>
+    ): Boolean {
+        return when (groupPositionFor(section, expanded)) {
+            SettingsGroupPosition.SINGLE,
+            SettingsGroupPosition.BOTTOM -> true
+            SettingsGroupPosition.TOP,
+            SettingsGroupPosition.MIDDLE -> false
+        }
+    }
+
+    fun applySectionExpandedState(
+        section: PlaybackSection,
+        expanded: Boolean
+    ) {
+        when (section) {
+            PlaybackSection.GENERAL ->
+                generalExpanded = expanded
+            PlaybackSection.STREAM_SELECTION ->
+                streamExpanded = expanded
+            PlaybackSection.AUDIO_TRAILER ->
+                audioTrailerExpanded = expanded
+            PlaybackSection.SUBTITLES ->
+                subtitlesExpanded = expanded
+        }
+    }
+
+    fun beginBoundaryReturnAnimation(
+        boundaries: Set<Int>
+    ) {
+        animatedFlattenBoundaries = boundaries
+        if (boundaries.isNotEmpty()) {
+            playbackAnimationScope.launch {
+                delay(260L)
+                if (animatedFlattenBoundaries == boundaries) {
+                    animatedFlattenBoundaries = emptySet()
+                }
+            }
+        }
+    }
+
+    fun immediateFlattenBoundariesForCollapse(
+        section: PlaybackSection,
+        before: Set<PlaybackSection>,
+        after: Set<PlaybackSection>
+    ): Set<Int> {
+        val sectionIndex = visibleSections.indexOf(section)
+        if (sectionIndex < 0) return emptySet()
+
+        return listOf(sectionIndex - 1, sectionIndex)
+            .filter { boundaryIndex ->
+                boundaryIndex >= 0 &&
+                    boundaryIndex < visibleSections.lastIndex
+            }
+            .filter { boundaryIndex ->
+                val upper = visibleSections[boundaryIndex]
+                val lower = visibleSections[boundaryIndex + 1]
+
+                val upperRoundedBefore =
+                    headerBottomRounded(upper, before)
+                val lowerRoundedBefore =
+                    headerTopRounded(lower, before)
+                val upperRoundedAfter =
+                    headerBottomRounded(upper, after)
+                val lowerRoundedAfter =
+                    headerTopRounded(lower, after)
+
+                val finalBoundaryIsFlat =
+                    !upperRoundedAfter && !lowerRoundedAfter
+                val roundedEdgeNeedsToFlatten =
+                    (upperRoundedBefore && !upperRoundedAfter) ||
+                        (lowerRoundedBefore && !lowerRoundedAfter)
+
+                finalBoundaryIsFlat &&
+                    roundedEdgeNeedsToFlatten
+            }
+            .toSet()
+    }
+
+    fun setSectionExpandedWithCornerPolicy(
+        section: PlaybackSection,
+        expanded: Boolean
+    ) {
+        val before = expandedSections
+        val after =
+            if (expanded) {
+                before + section
+            } else {
+                before - section
+            }
+
+        if (expanded) {
+            deferredBottomCornerSections =
+                deferredBottomCornerSections - section
+            animatedFlattenBoundaries = emptySet()
+            applySectionExpandedState(section, true)
+            return
+        }
+
+        beginBoundaryReturnAnimation(
+            immediateFlattenBoundariesForCollapse(
+                section = section,
+                before = before,
+                after = after
+            )
+        )
+
+        deferredBottomCornerSections =
+            deferredBottomCornerSections + section
+        applySectionExpandedState(section, false)
+
+        playbackAnimationScope.launch {
+            delay(240L)
+            if (section in deferredBottomCornerSections) {
+                androidx.compose.runtime.withFrameNanos { }
+                deferredBottomCornerSections =
+                    deferredBottomCornerSections - section
+            }
+        }
+    }
+
+    fun animateTopFlattenFor(
+        section: PlaybackSection
+    ): Boolean {
+        val index = visibleSections.indexOf(section)
+        return index > 0 &&
+            (index - 1) in animatedFlattenBoundaries
+    }
+
+    fun animateBottomFlattenFor(
+        section: PlaybackSection
+    ): Boolean {
+        val index = visibleSections.indexOf(section)
+        return index >= 0 &&
+            index < visibleSections.lastIndex &&
+            index in animatedFlattenBoundaries
+    }
 
     val defaultGeneralHeaderFocus = remember { FocusRequester() }
     val afrHeaderFocus = remember { FocusRequester() }
@@ -230,9 +428,24 @@ internal fun PlaybackSettingsSections(
                     description = strSectionGeneralDesc,
                     expanded = generalExpanded,
                     onToggle = {
-                        generalExpanded = !generalExpanded
+                        setSectionExpandedWithCornerPolicy(
+                            PlaybackSection.GENERAL,
+                            !generalExpanded
+                        )
                     },
                     focusRequester = generalHeaderFocus,
+                    groupPosition = groupPositionFor(
+                        PlaybackSection.GENERAL
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        PlaybackSection.GENERAL
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        PlaybackSection.GENERAL
+                    ),
+                    deferBottomCorner =
+                        PlaybackSection.GENERAL in
+                            deferredBottomCornerSections,
                     onHeaderFocused = {
                         focusedSection = PlaybackSection.GENERAL
                     }
@@ -314,7 +527,8 @@ internal fun PlaybackSettingsSections(
                         onHeaderFocused = {
                             focusedSection = PlaybackSection.GENERAL
                         },
-                        enabled = !generalUi.isExternalPlayer
+                        enabled = !generalUi.isExternalPlayer,
+                        groupPosition = SettingsGroupPosition.BOTTOM
                     ) {
                         FrameRateMatchingModeOptions(
                             selectedMode =
@@ -340,9 +554,24 @@ internal fun PlaybackSettingsSections(
                     description = strSectionPlayerDesc,
                     expanded = streamExpanded,
                     onToggle = {
-                        streamExpanded = !streamExpanded
+                        setSectionExpandedWithCornerPolicy(
+                            PlaybackSection.STREAM_SELECTION,
+                            !streamExpanded
+                        )
                     },
                     focusRequester = streamHeaderFocus,
+                    groupPosition = groupPositionFor(
+                        PlaybackSection.STREAM_SELECTION
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        PlaybackSection.STREAM_SELECTION
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        PlaybackSection.STREAM_SELECTION
+                    ),
+                    deferBottomCorner =
+                        PlaybackSection.STREAM_SELECTION in
+                            deferredBottomCornerSections,
                     onHeaderFocused = {
                         focusedSection =
                             PlaybackSection.STREAM_SELECTION
@@ -402,10 +631,24 @@ internal fun PlaybackSettingsSections(
                     description = strSectionAudioDesc,
                     expanded = audioTrailerExpanded,
                     onToggle = {
-                        audioTrailerExpanded =
+                        setSectionExpandedWithCornerPolicy(
+                            PlaybackSection.AUDIO_TRAILER,
                             !audioTrailerExpanded
+                        )
                     },
                     focusRequester = audioTrailerHeaderFocus,
+                    groupPosition = groupPositionFor(
+                        PlaybackSection.AUDIO_TRAILER
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        PlaybackSection.AUDIO_TRAILER
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        PlaybackSection.AUDIO_TRAILER
+                    ),
+                    deferBottomCorner =
+                        PlaybackSection.AUDIO_TRAILER in
+                            deferredBottomCornerSections,
                     onHeaderFocused = {
                         focusedSection =
                             PlaybackSection.AUDIO_TRAILER
@@ -442,9 +685,24 @@ internal fun PlaybackSettingsSections(
                     description = strSectionSubtitlesDesc,
                     expanded = subtitlesExpanded,
                     onToggle = {
-                        subtitlesExpanded = !subtitlesExpanded
+                        setSectionExpandedWithCornerPolicy(
+                            PlaybackSection.SUBTITLES,
+                            !subtitlesExpanded
+                        )
                     },
                     focusRequester = subtitlesHeaderFocus,
+                    groupPosition = groupPositionFor(
+                        PlaybackSection.SUBTITLES
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        PlaybackSection.SUBTITLES
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        PlaybackSection.SUBTITLES
+                    ),
+                    deferBottomCorner =
+                        PlaybackSection.SUBTITLES in
+                            deferredBottomCornerSections,
                     onHeaderFocused = {
                         focusedSection =
                             PlaybackSection.SUBTITLES
@@ -496,27 +754,45 @@ private fun PlaybackExpandableGroup(
     focusRequester: FocusRequester,
     onHeaderFocused: () -> Unit,
     enabled: Boolean = true,
+    groupPosition: SettingsGroupPosition =
+        SettingsGroupPosition.SINGLE,
+    animateTopFlatten: Boolean = false,
+    animateBottomFlatten: Boolean = false,
+    deferBottomCorner: Boolean = false,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     var previousExpanded by remember {
         mutableStateOf(expanded)
     }
     val opening = expanded && !previousExpanded
-    val closing = !expanded && previousExpanded
 
     LaunchedEffect(expanded) {
-        if (expanded) {
-            previousExpanded = true
-        } else if (previousExpanded) {
-            kotlinx.coroutines.delay(240L)
-            previousExpanded = false
+        previousExpanded = expanded
+    }
+
+    val effectiveHeaderPosition = when {
+        expanded -> SettingsGroupPosition.TOP
+        deferBottomCorner -> when (groupPosition) {
+            SettingsGroupPosition.SINGLE ->
+                SettingsGroupPosition.TOP
+            SettingsGroupPosition.BOTTOM ->
+                SettingsGroupPosition.MIDDLE
+            SettingsGroupPosition.TOP ->
+                SettingsGroupPosition.TOP
+            SettingsGroupPosition.MIDDLE ->
+                SettingsGroupPosition.MIDDLE
         }
+        else -> groupPosition
     }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(
-            if (expanded || closing) SettingsRowGap else 0.dp
+            if (expanded || deferBottomCorner) {
+                SettingsRowGap
+            } else {
+                0.dp
+            }
         )
     ) {
         PlaybackSectionHeader(
@@ -527,13 +803,10 @@ private fun PlaybackExpandableGroup(
             focusRequester = focusRequester,
             onFocused = onHeaderFocused,
             enabled = enabled,
-            groupPosition =
-                if (expanded || closing) {
-                    SettingsGroupPosition.TOP
-                } else {
-                    SettingsGroupPosition.SINGLE
-                },
-            animateBottomFlatten = opening
+            groupPosition = effectiveHeaderPosition,
+            animateTopFlatten = animateTopFlatten,
+            animateBottomFlatten =
+                animateBottomFlatten || opening
         )
 
         androidx.compose.animation.AnimatedVisibility(
