@@ -3,8 +3,10 @@
 package com.nuvio.tv.ui.screens.settings
 
 import android.os.Build
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.CompositionLocalProvider
@@ -65,6 +67,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -476,6 +479,21 @@ internal fun SettingsRailButton(
         modifier
     }
     val focusShape = RoundedCornerShape(SettingsRailFocusRadius)
+    val focusBackground by animateColorAsState(
+        targetValue =
+            if (isFocused) {
+                Color.White.copy(alpha = 0.18f)
+            } else {
+                Color.Transparent
+            },
+        animationSpec = tween(durationMillis = 180),
+        label = "settingsRailFocusBackground"
+    )
+    val focusedTextScale by animateFloatAsState(
+        targetValue = if (isFocused) 1.06f else 1f,
+        animationSpec = tween(durationMillis = 180),
+        label = "settingsRailTextScale"
+    )
 
     Card(
         onClick = onClick,
@@ -490,14 +508,12 @@ internal fun SettingsRailButton(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = Color.Transparent,
-            focusedContainerColor = Color.Transparent
+            containerColor = focusBackground,
+            focusedContainerColor = focusBackground
         ),
         border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, SettingsGlassFocusBorderColor),
-                shape = focusShape
-            )
+            border = Border.None,
+            focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(focusShape),
         scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
@@ -534,9 +550,18 @@ internal fun SettingsRailButton(
 
             Text(
                 text = title,
+                modifier = Modifier.graphicsLayer {
+                    scaleX = focusedTextScale
+                    scaleY = focusedTextScale
+                    transformOrigin = TransformOrigin(0f, 0.5f)
+                },
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = if (isSelected || isFocused) FontWeight.SemiBold else FontWeight.Medium,
-                color = if (isSelected || isFocused) NuvioColors.TextPrimary else NuvioColors.TextSecondary,
+                color = when {
+                    isFocused -> Color.White
+                    isSelected -> NuvioColors.TextPrimary
+                    else -> NuvioColors.TextSecondary
+                },
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
