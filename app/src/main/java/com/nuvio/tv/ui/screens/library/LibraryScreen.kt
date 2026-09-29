@@ -101,6 +101,8 @@ import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassSelectedColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassIdleColor
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
+import com.nuvio.tv.ui.screens.settings.SettingsDialogPillShape
 
 private const val KEY_REPEAT_THROTTLE_MS = 80L
 
@@ -750,13 +752,13 @@ private fun ManageListsDialog(
                             Button(
                                 onClick = { onSelect(tab.key) },
                                 enabled = !pending,
-                                modifier = if (tab.key == personalTabs.firstOrNull()?.key) {
+                                modifier = (if (tab.key == personalTabs.firstOrNull()?.key) {
                                     Modifier
                                         .fillMaxWidth()
                                         .focusRequester(firstFocusRequester)
                                 } else {
                                     Modifier.fillMaxWidth()
-                                },
+                                }).glassDialogFocusTransform(),
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                                     contentColor = NuvioColors.TextPrimary
@@ -766,8 +768,11 @@ private fun ManageListsDialog(
     focusedContentColor = Color.White
 )
                             ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                                 Text(
                                     text = tab.title,
                                     maxLines = 1,
@@ -790,8 +795,13 @@ private fun ManageListsDialog(
     focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) { Text(stringResource(R.string.library_list_create)) }
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) { Text(stringResource(R.string.library_list_create)) }
                     Button(
                         onClick = onEdit,
                         enabled = !pending && selectedKey != null,
@@ -803,8 +813,13 @@ private fun ManageListsDialog(
     focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) { Text(stringResource(R.string.library_list_edit)) }
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) { Text(stringResource(R.string.library_list_edit)) }
                     Button(
                         onClick = onMoveUp,
                         enabled = !pending && selectedKey != null,
@@ -816,8 +831,13 @@ private fun ManageListsDialog(
     focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) { Text(stringResource(R.string.library_list_move_up)) }
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) { Text(stringResource(R.string.library_list_move_up)) }
                     Button(
                         onClick = onMoveDown,
                         enabled = !pending && selectedKey != null,
@@ -829,8 +849,13 @@ private fun ManageListsDialog(
     focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) { Text(stringResource(R.string.library_list_move_down)) }
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) { Text(stringResource(R.string.library_list_move_down)) }
                 }
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -846,12 +871,17 @@ private fun ManageListsDialog(
     focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) { Text(stringResource(R.string.library_list_delete)) }
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) { Text(stringResource(R.string.library_list_delete)) }
                     Button(
                         onClick = onDismiss,
                         enabled = !pending,
-                        modifier = Modifier.focusRequester(closeFocusRequester),
+                        modifier = (Modifier.focusRequester(closeFocusRequester)).glassDialogFocusTransform(),
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -860,8 +890,11 @@ private fun ManageListsDialog(
     focusedContentColor = Color.White
 )
                     ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) { Text(stringResource(R.string.library_list_close)) }
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) { Text(stringResource(R.string.library_list_close)) }
                 }
         }
     }
@@ -1006,8 +1039,13 @@ private fun ListEditorDialog(
     focusedContentColor = Color.White
 )
                 ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(privacy.apiValue.replaceFirstChar { it.uppercase() })
                 }
             }
@@ -1016,7 +1054,7 @@ private fun ListEditorDialog(
         Button(
             onClick = onSave,
             enabled = !pending,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
             colors = ButtonDefaults.colors(
                 containerColor = SettingsDialogGlassIdleColor,
                 focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -1025,8 +1063,11 @@ private fun ListEditorDialog(
     focusedContentColor = Color.White
 )
         ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
             Text(if (pending) "Saving..." else "Save")
         }
     }
@@ -1051,7 +1092,7 @@ private fun ConfirmDeleteDialog(
         Button(
             onClick = onConfirm,
             enabled = !pending,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
             colors = ButtonDefaults.colors(
                 containerColor = Color(0xFF4A2323),
                 contentColor = NuvioColors.TextPrimary
@@ -1061,8 +1102,11 @@ private fun ConfirmDeleteDialog(
     focusedContentColor = Color.White
 )
         ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
             Text(stringResource(R.string.library_list_delete))
         }
     }
