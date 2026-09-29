@@ -370,7 +370,7 @@ fun TraktScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                                    containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                                     contentColor = NuvioColors.TextPrimary
                                 ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -398,7 +398,7 @@ fun TraktScreen(
                     Button(
                         onClick = { showDaysCapDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -434,7 +434,7 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -455,7 +455,7 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (!uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (!uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -477,7 +477,7 @@ fun TraktScreen(
                     Button(
                         onClick = { showUnairedNextUpDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -513,7 +513,7 @@ fun TraktScreen(
                         showCommentsDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -534,7 +534,7 @@ fun TraktScreen(
                         showCommentsDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (!uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (!uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -556,7 +556,7 @@ fun TraktScreen(
                     Button(
                         onClick = { showCommentsDialog = false },
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -594,7 +594,7 @@ fun TraktScreen(
                         viewModel.onDisconnectClick()
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = SettingsGlassRowColor,
+                        containerColor = SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -611,7 +611,7 @@ fun TraktScreen(
                 Button(
                     onClick = { showDisconnectConfirm = false },
                     colors = ButtonDefaults.colors(
-                        containerColor = SettingsGlassRowColor,
+                        containerColor = SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
