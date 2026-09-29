@@ -94,6 +94,8 @@ import com.nuvio.tv.domain.model.DebridStreamVisualTag
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.CancellationException
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
 import kotlinx.coroutines.delay
 
 @Composable
@@ -1451,8 +1453,8 @@ private fun DebridTextListDialog(
             onClick = { inputFocusRequester.requestFocus() },
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.colors(
-                containerColor = SettingsInsetControlColor,
-                focusedContainerColor = SettingsInsetControlFocusedColor
+                containerColor = SettingsDialogGlassInsetColor,
+                focusedContainerColor = SettingsDialogGlassInsetFocusedColor
             ),
             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
             scale = CardDefaults.scale(focusedScale = 1f)
@@ -2089,8 +2091,8 @@ private fun DebridApiKeyDialog(
                 .fillMaxWidth()
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
-                containerColor = SettingsInsetControlColor,
-                focusedContainerColor = SettingsInsetControlFocusedColor
+                containerColor = SettingsDialogGlassInsetColor,
+                focusedContainerColor = SettingsDialogGlassInsetFocusedColor
             ),
             border = CardDefaults.border(
                 border = Border(
