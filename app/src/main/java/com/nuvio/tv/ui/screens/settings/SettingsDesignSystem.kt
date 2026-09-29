@@ -23,8 +23,8 @@ import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Button
+import androidx.tv.material3.ButtonDefaults
+import androidx.tv.material3.Button
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.foundation.lazy.rememberLazyListState
