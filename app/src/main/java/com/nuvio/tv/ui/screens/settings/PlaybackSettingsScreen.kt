@@ -1174,25 +1174,26 @@ private fun LanguageOptionItem(
         modifier = Modifier
             .fillMaxWidth()
             .then(modifier)
-            .onFocusChanged { isFocused = it.isFocused },
+            .glassDialogFocusTransform { focused ->
+                isFocused = focused
+            },
         colors = CardDefaults.colors(
             containerColor =
                 if (isSelected) {
                     SettingsDialogGlassSelectedColor
                 } else {
-                    SettingsGlassRowColor
+                    SettingsDialogGlassIdleColor
                 },
-            focusedContainerColor =
-                if (isSelected) {
-                    SettingsGlassControlSelectedColor
-                } else {
-                    SettingsGlassRowFocusedColor
-                }
+            focusedContainerColor = SettingsGlassRowFocusedColor
         ),
-        shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
+        shape = CardDefaults.shape(shape = SettingsDialogPillShape),
         scale = CardDefaults.scale(
-            focusedScale = SettingsDialogFocusScale,
-            pressedScale = SettingsDialogPressedScale
+            focusedScale = 1f,
+            pressedScale = 1f
         )
     ) {
         Row(
@@ -1204,7 +1205,12 @@ private fun LanguageOptionItem(
             Text(
                 text = name,
                 style = MaterialTheme.typography.bodyLarge,
-                color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                color =
+                    if (isFocused || isSelected) {
+                        NuvioColors.TextPrimary
+                    } else {
+                        NuvioColors.TextSecondary
+                    },
                 modifier = Modifier.weight(1f)
             )
             
@@ -1315,22 +1321,32 @@ private fun ColorOption(
         onClick = onClick,
         modifier = Modifier
             .size(48.dp)
-            .onFocusChanged { isFocused = it.isFocused },
+            .glassDialogFocusTransform { focused ->
+                isFocused = focused
+            },
         colors = CardDefaults.colors(
             containerColor = Color.Transparent
         ),
         border = CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(3.dp, NuvioColors.FocusRing),
-                shape = CircleShape
-            ),
-            border = if (isSelected) Border(
-                border = BorderStroke(3.dp, NuvioColors.Primary),
-                shape = CircleShape
-            ) else Border.None
+            focusedBorder = Border.None,
+            border =
+                if (isSelected) {
+                    Border(
+                        border = BorderStroke(
+                            3.dp,
+                            NuvioColors.Primary
+                        ),
+                        shape = CircleShape
+                    )
+                } else {
+                    Border.None
+                }
         ),
         shape = CardDefaults.shape(shape = CircleShape),
-        scale = CardDefaults.scale(focusedScale = 1.15f)
+        scale = CardDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
     ) {
         Box(
             contentAlignment = Alignment.Center,
