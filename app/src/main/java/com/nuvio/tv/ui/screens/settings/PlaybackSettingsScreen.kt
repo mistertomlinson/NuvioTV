@@ -465,7 +465,12 @@ internal fun RenderTypeSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
+    val rowShape =
+        if (useDialogGlass) {
+            SettingsDialogPillShape
+        } else {
+            RoundedCornerShape(SettingsInnerRowRadius)
+        }
 
     Card(
         onClick = { if (enabled) onClick() },
@@ -506,7 +511,20 @@ internal fun RenderTypeSettingsItem(
             focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = rowShape),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(
+            focusedScale =
+                if (useDialogGlass) {
+                    SettingsDialogFocusScale
+                } else {
+                    1f
+                },
+            pressedScale =
+                if (useDialogGlass) {
+                    SettingsDialogPressedScale
+                } else {
+                    1f
+                }
+        )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -519,8 +537,18 @@ internal fun RenderTypeSettingsItem(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = (if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary)
-                            .copy(alpha = contentAlpha),
+                        color =
+                            (
+                                if (
+                                    useDialogGlass &&
+                                    !isFocused &&
+                                    !isSelected
+                                ) {
+                                    NuvioColors.TextSecondary
+                                } else {
+                                    NuvioColors.TextPrimary
+                                }
+                            ).copy(alpha = contentAlpha),
                         maxLines = 2,
                         overflow = TextOverflow.Clip
                     )
@@ -542,7 +570,9 @@ internal fun RenderTypeSettingsItem(
                     )
                 }
             }
-            SettingsRowDivider()
+            if (!useDialogGlass) {
+                SettingsRowDivider()
+            }
         }
     }
 }
@@ -651,7 +681,12 @@ internal fun SliderSettingsItem(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
+    val rowShape =
+        if (useDialogGlass) {
+            SettingsDialogPillShape
+        } else {
+            RoundedCornerShape(SettingsInnerRowRadius)
+        }
 
     Card(
         onClick = { },
@@ -746,7 +781,14 @@ internal fun SliderSettingsItem(
                     Text(
                         text = title,
                         style = MaterialTheme.typography.bodyLarge,
-                        color = NuvioColors.TextPrimary.copy(alpha = contentAlpha),
+                        color =
+                            (
+                                if (useDialogGlass && !isFocused) {
+                                    NuvioColors.TextSecondary
+                                } else {
+                                    NuvioColors.TextPrimary
+                                }
+                            ).copy(alpha = contentAlpha),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -928,7 +970,9 @@ internal fun SliderSettingsItem(
                 }
             }
             }
-            SettingsRowDivider()
+            if (!useDialogGlass) {
+                SettingsRowDivider()
+            }
         }
     }
 }
