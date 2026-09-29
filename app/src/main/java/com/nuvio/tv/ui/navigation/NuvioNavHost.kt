@@ -9,7 +9,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
@@ -357,26 +356,16 @@ fun NuvioNavHost(
                     EnterTransition.None
 
                 /*
-                 * Sidebar destinations enter over the still-opaque screen
-                 * beneath them. A short eased fade plus a very small glide
-                 * keeps the transition visible without the muddy long dissolve.
+                 * Sidebar roots use a true cross-dissolve: the destination
+                 * fades in while the previous root fades out at the same rate.
                  */
                 isSidebarRootTransition(from, to) ->
                     if (to == Screen.Home.route) {
                         EnterTransition.None
                     } else {
                         fadeIn(
-                            initialAlpha = 0.18f,
                             animationSpec = tween(
-                                durationMillis = 260,
-                                easing = FastOutSlowInEasing
-                            )
-                        ) + slideInHorizontally(
-                            initialOffsetX = { fullWidth ->
-                                (fullWidth / 48).coerceAtLeast(1)
-                            },
-                            animationSpec = tween(
-                                durationMillis = 260,
+                                durationMillis = 280,
                                 easing = FastOutSlowInEasing
                             )
                         )
@@ -396,22 +385,16 @@ fun NuvioNavHost(
                     ExitTransition.None
 
                 /*
-                 * Opening keeps the outgoing root opaque while the glass screen
-                 * fades over it. Returning keeps Home opaque underneath and
-                 * dissolves the outgoing glass screen away. Fading both layers
-                 * at once can expose the NavHost background between them.
+                 * Match the incoming root fade for a true cross-dissolve.
+                 * Home return keeps its existing outer-layer-owned behavior.
                  */
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
-                            )
+                    fadeOut(
+                        animationSpec = tween(
+                            durationMillis = if (to == Screen.Home.route) 300 else 280,
+                            easing = if (to == Screen.Home.route) LinearEasing else FastOutSlowInEasing
                         )
-                    } else {
-                        ExitTransition.None
-                    }
+                    )
 
                 else -> fadeOut(animationSpec = tween(350))
             }
@@ -433,17 +416,8 @@ fun NuvioNavHost(
                         EnterTransition.None
                     } else {
                         fadeIn(
-                            initialAlpha = 0.18f,
                             animationSpec = tween(
-                                durationMillis = 260,
-                                easing = FastOutSlowInEasing
-                            )
-                        ) + slideInHorizontally(
-                            initialOffsetX = { fullWidth ->
-                                (fullWidth / 48).coerceAtLeast(1)
-                            },
-                            animationSpec = tween(
-                                durationMillis = 260,
+                                durationMillis = 280,
                                 easing = FastOutSlowInEasing
                             )
                         )
