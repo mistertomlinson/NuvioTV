@@ -54,6 +54,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -93,8 +94,10 @@ import coil.compose.rememberAsyncImagePainter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
 import com.nuvio.tv.R
+import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.LocalSettingsBackdropBitmap
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.theme.NuvioTheme
 
 internal val SettingsContainerRadius = 28.dp
 internal val SettingsPillRadius = 999.dp
@@ -219,8 +222,27 @@ internal val SettingsGlassCanvasBrush = Brush.verticalGradient(
 )
 internal val SettingsGlassRowColor = Color.White.copy(alpha = 0.065f)
 internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
-internal val SettingsRightSurfaceColor = Color(0xFF40464D)
-internal val SettingsRightSurfaceFocusedColor = Color(0xFF5B636C)
+
+internal val SettingsRightSurfaceColor: Color
+    @Composable
+    @ReadOnlyComposable
+    get() =
+        if (NuvioTheme.currentTheme == AppTheme.WHITE) {
+            Color(0xFF40464D)
+        } else {
+            NuvioColors.BackgroundCard
+        }
+
+internal val SettingsRightSurfaceFocusedColor: Color
+    @Composable
+    @ReadOnlyComposable
+    get() =
+        if (NuvioTheme.currentTheme == AppTheme.WHITE) {
+            Color(0xFF5B636C)
+        } else {
+            NuvioColors.FocusBackground
+        }
+
 internal val SettingsGlassGroupColor = Color.White.copy(alpha = 0.025f)
 internal val SettingsGlassBorderColor = Color.White.copy(alpha = 0.09f)
 internal val SettingsGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
@@ -491,10 +513,16 @@ internal fun SettingsRailButton(
         modifier
     }
     val focusShape = RoundedCornerShape(SettingsRailFocusRadius)
+    val focusedRailColor =
+        if (NuvioTheme.currentTheme == AppTheme.WHITE) {
+            Color.White.copy(alpha = 0.18f)
+        } else {
+            NuvioColors.FocusBackground
+        }
     val focusBackground by animateColorAsState(
         targetValue =
             if (isFocused) {
-                Color.White.copy(alpha = 0.18f)
+                focusedRailColor
             } else {
                 Color.Transparent
             },
