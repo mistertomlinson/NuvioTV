@@ -1769,7 +1769,12 @@ private fun HomeLibraryListPickerDialog(
                     colors = ButtonDefaults.colors(
                         containerColor = if (selected) NuvioColors.Secondary.copy(alpha = 0.42f) else Color.Transparent,
                         focusedContainerColor = HomeDialogGlassRowFocusedColor,
-                        contentColor = NuvioColors.TextSecondary,
+                        contentColor =
+                            if (selected) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            },
                         focusedContentColor = NuvioColors.TextPrimary
                     ),
                     border = ButtonDefaults.border(
@@ -1795,6 +1800,7 @@ private fun HomeLibraryListPickerDialog(
             Button(
                 onClick = onSave,
                 enabled = !isPending,
+                modifier = Modifier.glassDialogFocusTransform(),
                 colors = ButtonDefaults.colors(
                     containerColor = Color.Transparent,
                     focusedContainerColor = HomeDialogGlassRowFocusedColor,
