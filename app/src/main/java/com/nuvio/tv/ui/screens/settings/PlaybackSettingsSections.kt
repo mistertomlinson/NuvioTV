@@ -1135,7 +1135,7 @@ private fun PlayerPreferenceDialog(
                             .fillMaxWidth()
                             .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier),
                         colors = CardDefaults.colors(
-                            containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                            containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor),
                         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
                         scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
