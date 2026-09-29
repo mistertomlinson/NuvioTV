@@ -1566,6 +1566,7 @@ private fun HomePosterOptionsDialog(
         Box(
             modifier = Modifier
                 .width(520.dp)
+                .then(blurModifier)
                 .graphicsLayer {
                     shape = panelShape
                     clip = true
@@ -1574,7 +1575,7 @@ private fun HomePosterOptionsDialog(
                     scaleX = animatedScale
                     scaleY = animatedScale
                 }
-                .then(blurModifier)
+                
                 .clip(panelShape)
                 .background(HomeDialogGlassBrush, panelShape)
                 .border(1.dp, HomeDialogGlassBorderColor, panelShape)
