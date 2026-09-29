@@ -223,8 +223,8 @@ private fun DebugGenerateLibraryGroup(
                     R.string.debug_generate_library_placeholder
                 ),
                 keyboardType = KeyboardType.Number,
-                containerColor = SettingsRightSurfaceFocusedColor,
-                focusedContainerColor = SettingsRightSurfaceFocusedColor
+                containerColor = SettingsInsetControlColor,
+                focusedContainerColor = SettingsInsetControlFocusedColor
             )
         }
 
@@ -289,8 +289,8 @@ private fun DebugSignInGroup(
                         R.string.debug_email_placeholder
                     ),
                     keyboardType = KeyboardType.Email,
-                    containerColor = SettingsRightSurfaceFocusedColor,
-                    focusedContainerColor = SettingsRightSurfaceFocusedColor
+                    containerColor = SettingsInsetControlColor,
+                    focusedContainerColor = SettingsInsetControlFocusedColor
                 )
 
                 InputField(
@@ -300,8 +300,8 @@ private fun DebugSignInGroup(
                         R.string.debug_password_placeholder
                     ),
                     isPassword = true,
-                    containerColor = SettingsRightSurfaceFocusedColor,
-                    focusedContainerColor = SettingsRightSurfaceFocusedColor
+                    containerColor = SettingsInsetControlColor,
+                    focusedContainerColor = SettingsInsetControlFocusedColor
                 )
             }
         }
