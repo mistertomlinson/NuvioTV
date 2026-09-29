@@ -63,37 +63,35 @@ fun DebugSettingsContent(
             LazyColumn(
                 state = debugListState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                contentPadding = PaddingValues(bottom = 12.dp)
             ) {
-                item(key = "debug_playback_error") {
-                    SettingsActionRow(
-                        title = stringResource(
-                            R.string.debug_playback_error_title
-                        ),
-                        subtitle = stringResource(
-                            R.string.debug_playback_error_subtitle
-                        ),
-                        onClick = { showErrorDialog = true },
-                        modifier =
-                            if (initialFocusRequester != null) {
-                                Modifier.focusRequester(
-                                    initialFocusRequester
-                                )
-                            } else {
-                                Modifier
-                            },
-                        showDivider = false,
-                        groupPosition = SettingsGroupPosition.SINGLE
-                    )
-                }
-
-                item(key = "debug_feature_toggles") {
+                item(key = "debug_settings_group") {
                     Column(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement =
                             Arrangement.spacedBy(SettingsRowGap)
                     ) {
+                        SettingsActionRow(
+                            title = stringResource(
+                                R.string.debug_playback_error_title
+                            ),
+                            subtitle = stringResource(
+                                R.string.debug_playback_error_subtitle
+                            ),
+                            onClick = { showErrorDialog = true },
+                            modifier =
+                                if (initialFocusRequester != null) {
+                                    Modifier.focusRequester(
+                                        initialFocusRequester
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            showDivider = false,
+                            groupPosition =
+                                SettingsGroupPosition.TOP
+                        )
+
                         SettingsToggleRow(
                             title = stringResource(
                                 R.string.debug_account_tab_title
@@ -110,7 +108,8 @@ fun DebugSettingsContent(
                                 )
                             },
                             showDivider = false,
-                            groupPosition = SettingsGroupPosition.TOP
+                            groupPosition =
+                                SettingsGroupPosition.MIDDLE
                         )
 
                         SettingsToggleRow(
@@ -133,37 +132,35 @@ fun DebugSettingsContent(
                             },
                             showDivider = false,
                             groupPosition =
-                                SettingsGroupPosition.BOTTOM
+                                SettingsGroupPosition.MIDDLE
+                        )
+
+                        DebugGenerateLibraryGroup(
+                            isLoading =
+                                uiState.generateLibraryLoading,
+                            result =
+                                uiState.generateLibraryResult,
+                            onGenerate = { count ->
+                                viewModel.onEvent(
+                                    DebugSettingsEvent
+                                        .GenerateLibraryItems(count)
+                                )
+                            }
+                        )
+
+                        DebugSignInGroup(
+                            isLoading = uiState.signInLoading,
+                            result = uiState.signInResult,
+                            onSignIn = { email, password ->
+                                viewModel.onEvent(
+                                    DebugSettingsEvent.SignIn(
+                                        email,
+                                        password
+                                    )
+                                )
+                            }
                         )
                     }
-                }
-
-                item(key = "debug_generate_library") {
-                    DebugGenerateLibraryGroup(
-                        isLoading = uiState.generateLibraryLoading,
-                        result = uiState.generateLibraryResult,
-                        onGenerate = { count ->
-                            viewModel.onEvent(
-                                DebugSettingsEvent
-                                    .GenerateLibraryItems(count)
-                            )
-                        }
-                    )
-                }
-
-                item(key = "debug_sign_in") {
-                    DebugSignInGroup(
-                        isLoading = uiState.signInLoading,
-                        result = uiState.signInResult,
-                        onSignIn = { email, password ->
-                            viewModel.onEvent(
-                                DebugSettingsEvent.SignIn(
-                                    email,
-                                    password
-                                )
-                            )
-                        }
-                    )
                 }
             }
 
@@ -206,7 +203,8 @@ private fun DebugGenerateLibraryGroup(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
     ) {
-        DebugFormTopSurface(
+        DebugFormSurface(
+            groupPosition = SettingsGroupPosition.MIDDLE,
             title = stringResource(
                 R.string.debug_generate_library_title
             ),
@@ -250,7 +248,7 @@ private fun DebugGenerateLibraryGroup(
                     count != null &&
                     count > 0,
             showDivider = false,
-            groupPosition = SettingsGroupPosition.BOTTOM
+            groupPosition = SettingsGroupPosition.MIDDLE
         )
     }
 }
@@ -268,7 +266,8 @@ private fun DebugSignInGroup(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
     ) {
-        DebugFormTopSurface(
+        DebugFormSurface(
+            groupPosition = SettingsGroupPosition.MIDDLE,
             title = stringResource(
                 R.string.debug_manual_signin_title
             ),
@@ -326,15 +325,14 @@ private fun DebugSignInGroup(
 }
 
 @Composable
-private fun DebugFormTopSurface(
+private fun DebugFormSurface(
+    groupPosition: SettingsGroupPosition,
     title: String,
     subtitle: String,
     result: String?,
     content: @Composable () -> Unit
 ) {
-    val shape = settingsGroupShape(
-        SettingsGroupPosition.TOP
-    )
+    val shape = settingsGroupShape(groupPosition)
 
     Column(
         modifier = Modifier
