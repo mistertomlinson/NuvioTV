@@ -6,6 +6,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -77,6 +78,7 @@ import androidx.compose.material.icons.filled.Tune
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import com.nuvio.tv.domain.model.CardDepthStyle
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_COVERAGE
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
@@ -111,6 +113,7 @@ private enum class LayoutSettingsSection {
 
 private const val DEFAULT_SECTION_COLLAPSE_MILLIS = 240
 private const val POSTER_CARD_STYLE_COLLAPSE_MILLIS = 240
+private const val POSTER_CARD_STYLE_LIST_SETTLE_MILLIS = 520
 
 @Composable
 fun LayoutSettingsContent(
@@ -137,6 +140,7 @@ fun LayoutSettingsContent(
 
     var focusedSection by remember { mutableStateOf<LayoutSettingsSection?>(null) }
     val layoutAnimationScope = rememberCoroutineScope()
+    val posterListSettleOffsetY = remember { Animatable(0f) }
     var animatedFlattenBoundaries by remember {
         mutableStateOf<Set<Int>>(emptySet())
     }
@@ -247,23 +251,6 @@ fun LayoutSettingsContent(
         }
     }
 
-    fun roundedPairReturnBoundaries(
-        before: Set<LayoutSettingsSection>,
-        after: Set<LayoutSettingsSection>
-    ): Set<Int> {
-        return (0 until visibleSections.lastIndex)
-            .filter { boundaryIndex ->
-                val upper = visibleSections[boundaryIndex]
-                val lower = visibleSections[boundaryIndex + 1]
-
-                headerBottomRounded(upper, before) &&
-                    headerTopRounded(lower, before) &&
-                    !headerBottomRounded(upper, after) &&
-                    !headerTopRounded(lower, after)
-            }
-            .toSet()
-    }
-
     fun beginBoundaryReturnAnimation(
         boundaries: Set<Int>
     ) {
@@ -278,37 +265,48 @@ fun LayoutSettingsContent(
         }
     }
 
-    fun beginImmediateTopBoundaryReturn(
+    fun immediateFlattenBoundariesForCollapse(
         section: LayoutSettingsSection,
         before: Set<LayoutSettingsSection>,
         after: Set<LayoutSettingsSection>
-    ) {
+    ): Set<Int> {
         val sectionIndex = visibleSections.indexOf(section)
-        if (sectionIndex <= 0) {
-            animatedFlattenBoundaries = emptySet()
-            return
-        }
+        if (sectionIndex < 0) return emptySet()
 
-        val boundaryIndex = sectionIndex - 1
-        val upper = visibleSections[boundaryIndex]
-        val lower = visibleSections[sectionIndex]
-        val bothRoundedBefore =
-            headerBottomRounded(upper, before) &&
-                headerTopRounded(lower, before)
-        val bothFlatAfter =
-            !headerBottomRounded(upper, after) &&
-                !headerTopRounded(lower, after)
+        return listOf(sectionIndex - 1, sectionIndex)
+            .filter { boundaryIndex ->
+                boundaryIndex >= 0 &&
+                    boundaryIndex < visibleSections.lastIndex
+            }
+            .filter { boundaryIndex ->
+                val upper = visibleSections[boundaryIndex]
+                val lower = visibleSections[boundaryIndex + 1]
 
-        if (bothRoundedBefore && bothFlatAfter) {
-            /*
-             * This is the boundary ABOVE the collapsing child list. It can
-             * begin returning immediately because no disappearing rows sit
-             * between these two header edges.
-             */
-            beginBoundaryReturnAnimation(setOf(boundaryIndex))
-        } else {
-            animatedFlattenBoundaries = emptySet()
-        }
+                val upperRoundedBefore =
+                    headerBottomRounded(upper, before)
+                val lowerRoundedBefore =
+                    headerTopRounded(lower, before)
+                val upperRoundedAfter =
+                    headerBottomRounded(upper, after)
+                val lowerRoundedAfter =
+                    headerTopRounded(lower, after)
+
+                val finalBoundaryIsFlat =
+                    !upperRoundedAfter && !lowerRoundedAfter
+                val aRoundedEdgeNeedsToFlatten =
+                    (upperRoundedBefore && !upperRoundedAfter) ||
+                        (lowerRoundedBefore && !lowerRoundedAfter)
+
+                /*
+                 * Start flattening NOW whenever a rounded persistent header
+                 * edge will eventually meet a flat edge after the collapsing
+                 * child rows disappear. By the time physical contact occurs,
+                 * both sides are already flat; no late snap is needed.
+                 */
+                finalBoundaryIsFlat &&
+                    aRoundedEdgeNeedsToFlatten
+            }
+            .toSet()
     }
 
     fun prepareSectionCollapseCorners(
@@ -317,20 +315,21 @@ fun LayoutSettingsContent(
         after: Set<LayoutSettingsSection>
     ) {
         /*
-         * The top boundary is independent of the child rows, so let it move
-         * to its final state immediately. A rounded+rounded pair returning
-         * to flat animates here.
+         * Every persistent header edge that will need to be flat at contact
+         * begins its rounded -> flat animation at collapse start.
          */
-        beginImmediateTopBoundaryReturn(section, before, after)
+        beginBoundaryReturnAnimation(
+            immediateFlattenBoundariesForCollapse(
+                section = section,
+                before = before,
+                after = after
+            )
+        )
 
         /*
-         * The parent's BOTTOM edge is physically attached to the collapsing
-         * child list. Hold only that edge flat until the rows are gone.
-         *
-         * Because the rest of the headers already use the final grouping,
-         * a lower sibling whose rounded top will ultimately meet this flat
-         * parent bottom snaps flat NOW, before the rows begin shrinking.
-         * That prevents a rounded edge from surviving until contact.
+         * The collapsing parent's bottom edge is different: the child list
+         * still occupies that edge, so it must remain flat until the rows are
+         * completely gone. Only then may its final outside rounding animate.
          */
         deferredBottomCornerSections =
             deferredBottomCornerSections + section
@@ -417,7 +416,11 @@ fun LayoutSettingsContent(
         ) {
         LazyColumn(
             state = layoutListState,
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    translationY = posterListSettleOffsetY.value
+                },
             contentPadding = PaddingValues(bottom = 12.dp),
             verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
         ) {
@@ -877,6 +880,15 @@ fun LayoutSettingsContent(
                                     LayoutSettingsSection.POSTER_CARD_STYLE
                                 val before = expandedSections
                                 val after = before - section
+                                val posterOffsetBefore =
+                                    layoutListState.layoutInfo
+                                        .visibleItemsInfo
+                                        .firstOrNull {
+                                            it.key ==
+                                                "poster_style_section"
+                                        }
+                                        ?.offset
+                                        ?.toFloat()
 
                                 prepareSectionCollapseCorners(
                                     section = section,
@@ -885,22 +897,42 @@ fun LayoutSettingsContent(
                                 )
 
                                 layoutAnimationScope.launch {
+                                    posterListSettleOffsetY.stop()
+                                    posterListSettleOffsetY.snapTo(0f)
+
                                     /*
-                                     * Exact return-scroll choreography from
-                                     * the revision that eliminated the snap:
-                                     * start LazyList's own smooth return,
-                                     * give it one rendered frame of ownership,
-                                     * then begin the normal 240 ms shrink.
+                                     * Put LazyColumn into the legal final
+                                     * scroll state BEFORE its content becomes
+                                     * short enough to clamp. Then counter that
+                                     * internal jump with an equal GPU
+                                     * translation. Visually nothing has moved
+                                     * yet, but there is no remaining scroll
+                                     * offset for LazyColumn to snap later.
                                      */
-                                    val returnScroll = launch {
-                                        layoutListState.animateScrollToItem(
-                                            index = 0,
-                                            scrollOffset = 0
+                                    layoutListState.scrollToItem(
+                                        index = 0,
+                                        scrollOffset = 0
+                                    )
+
+                                    val posterOffsetAfter =
+                                        layoutListState.layoutInfo
+                                            .visibleItemsInfo
+                                            .firstOrNull {
+                                                it.key ==
+                                                    "poster_style_section"
+                                            }
+                                            ?.offset
+                                            ?.toFloat()
+
+                                    if (
+                                        posterOffsetBefore != null &&
+                                        posterOffsetAfter != null
+                                    ) {
+                                        posterListSettleOffsetY.snapTo(
+                                            posterOffsetBefore -
+                                                posterOffsetAfter
                                         )
                                     }
-
-                                    androidx.compose.runtime
-                                        .withFrameNanos { }
 
                                     applySectionExpandedState(
                                         section,
@@ -911,7 +943,21 @@ fun LayoutSettingsContent(
                                         POSTER_CARD_STYLE_COLLAPSE_MILLIS
                                     )
 
-                                    returnScroll.join()
+                                    /*
+                                     * The remaining parent list now glides
+                                     * into its true final position slowly,
+                                     * independent of the child-row shrink and
+                                     * independent of LazyColumn's max-scroll
+                                     * clamp.
+                                     */
+                                    posterListSettleOffsetY.animateTo(
+                                        targetValue = 0f,
+                                        animationSpec = tween(
+                                            durationMillis =
+                                                POSTER_CARD_STYLE_LIST_SETTLE_MILLIS,
+                                            easing = FastOutSlowInEasing
+                                        )
+                                    )
                                 }
                             } else {
                                 setSectionExpandedWithCornerPolicy(
