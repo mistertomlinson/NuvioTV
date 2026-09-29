@@ -51,6 +51,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 
 @Composable
 fun MDBListSettingsContent(
@@ -383,21 +384,15 @@ private fun MDBListApiKeyDialog(
     ) {
         Card(
             onClick = { inputFocusRequester.requestFocus() },
-            modifier = Modifier
+            modifier = (Modifier
                 .fillMaxWidth()
-                .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
+                .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus }).glassDialogFocusTransform(),
             colors = CardDefaults.colors(
                 containerColor = SettingsDialogGlassInsetColor,
                 focusedContainerColor = SettingsGlassRowFocusedColor),
-            border = CardDefaults.border(
-                border = Border(
-                    border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
-                ),
-                focusedBorder = Border.None),
-            shape = CardDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
-            scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
-        ) {
+            border = CardDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None),
+            shape = CardDefaults.shape(SettingsDialogPillShape),
+            scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)) {
             Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 BasicTextField(
                     value = value,
@@ -445,11 +440,13 @@ private fun MDBListApiKeyDialog(
                 ,
     focusedContentColor = Color.White)
             ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                 Text(stringResource(R.string.action_cancel))
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -462,11 +459,13 @@ private fun MDBListApiKeyDialog(
                 ,
     focusedContentColor = Color.White)
             ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                 Text(stringResource(R.string.action_clear))
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -479,11 +478,13 @@ private fun MDBListApiKeyDialog(
                 ,
     focusedContentColor = Color.White)
             ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                 Text(if (validating) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
             }
         }
