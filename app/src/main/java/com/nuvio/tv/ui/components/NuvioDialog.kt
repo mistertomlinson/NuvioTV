@@ -150,7 +150,11 @@ fun NuvioDialog(
                     shape = shape,
                     tint = Color.Unspecified,
                     blurRadius =
-                        (1f + (29f * appearanceProgress.value)).dp,
+                        if (glassEnvironment.backdropAlreadyBlurred) {
+                            (1f + (7f * appearanceProgress.value)).dp
+                        } else {
+                            (1f + (29f * appearanceProgress.value)).dp
+                        },
                     noiseFactor =
                         0.025f * appearanceProgress.value
                 )
