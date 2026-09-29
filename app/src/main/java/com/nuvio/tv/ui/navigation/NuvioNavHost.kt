@@ -4,6 +4,7 @@ import android.util.Log
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
@@ -360,15 +361,25 @@ fun NuvioNavHost(
                  * entrance without exposing the NavHost background.
                  */
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        EnterTransition.None
-                    } else {
-                        fadeIn(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
+                    when (to) {
+                        Screen.Home.route ->
+                            EnterTransition.None
+
+                        Screen.Settings.route ->
+                            fadeIn(
+                                animationSpec = tween(
+                                    durationMillis = 180,
+                                    easing = FastOutSlowInEasing
+                                )
                             )
-                        )
+
+                        else ->
+                            fadeIn(
+                                animationSpec = tween(
+                                    durationMillis = 300,
+                                    easing = LinearEasing
+                                )
+                            )
                     }
 
                 else -> fadeIn(animationSpec = tween(350))
@@ -417,16 +428,27 @@ fun NuvioNavHost(
                     EnterTransition.None
 
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        /* Home's outer layer owns the visible return dissolve. */
-                        EnterTransition.None
-                    } else {
-                        fadeIn(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
+                    when (to) {
+                        Screen.Home.route -> {
+                            /* Home's outer layer owns the visible return dissolve. */
+                            EnterTransition.None
+                        }
+
+                        Screen.Settings.route ->
+                            fadeIn(
+                                animationSpec = tween(
+                                    durationMillis = 180,
+                                    easing = FastOutSlowInEasing
+                                )
                             )
-                        )
+
+                        else ->
+                            fadeIn(
+                                animationSpec = tween(
+                                    durationMillis = 300,
+                                    easing = LinearEasing
+                                )
+                            )
                     }
 
                 else -> fadeIn(animationSpec = tween(350))
