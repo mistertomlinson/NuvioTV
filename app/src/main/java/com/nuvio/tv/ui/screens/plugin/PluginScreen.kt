@@ -733,8 +733,9 @@ private fun EmbeddedRepositoryRow(
 
         if (!isReadOnly) {
             androidx.tv.material3.Card(
-                onClick = onRefresh,
-                enabled = !isLoading,
+                onClick = {
+                    if (!isLoading) onRefresh()
+                },
                 colors = androidx.tv.material3.CardDefaults.colors(
                     containerColor = Color.Transparent,
                     focusedContainerColor =
@@ -763,8 +764,9 @@ private fun EmbeddedRepositoryRow(
             }
 
             androidx.tv.material3.Card(
-                onClick = onRemove,
-                enabled = !isLoading,
+                onClick = {
+                    if (!isLoading) onRemove()
+                },
                 colors = androidx.tv.material3.CardDefaults.colors(
                     containerColor = Color.Transparent,
                     focusedContainerColor =
@@ -822,7 +824,6 @@ private fun EmbeddedScraperRow(
                 }
             },
             modifier = Modifier.weight(1f),
-            enabled = !isReadOnly,
             colors = androidx.tv.material3.CardDefaults.colors(
                 containerColor = Color.Transparent,
                 focusedContainerColor =
@@ -896,8 +897,9 @@ private fun EmbeddedScraperRow(
         if (!isReadOnly) {
             Spacer(modifier = Modifier.width(4.dp))
             androidx.tv.material3.Card(
-                onClick = onTest,
-                enabled = !isTesting,
+                onClick = {
+                    if (!isTesting) onTest()
+                },
                 colors = androidx.tv.material3.CardDefaults.colors(
                     containerColor = Color.Transparent,
                     focusedContainerColor =
