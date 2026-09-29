@@ -87,7 +87,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.trailerAndAudioSetti
             icon = Icons.Default.Timer,
             title = stringResource(R.string.audio_trailer_delay),
             value = trailerSettings.delaySeconds,
-            valueText = "\${trailerSettings.delaySeconds}s",
+            valueText = "${trailerSettings.delaySeconds}s",
             minValue = 3,
             maxValue = 15,
             step = 1,
