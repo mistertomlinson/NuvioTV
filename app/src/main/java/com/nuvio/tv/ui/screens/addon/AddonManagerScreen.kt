@@ -105,6 +105,8 @@ import com.nuvio.tv.ui.screens.settings.SettingsRowGap
 import com.nuvio.tv.ui.screens.settings.settingsGroupShape
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
 import kotlinx.coroutines.delay
+import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
+import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -834,12 +836,12 @@ private fun QrCodeOverlay(
                     .focusRequester(focusRequester),
                 colors = ButtonDefaults.colors(
                     containerColor = SettingsGlassRowColor,
-                    focusedContainerColor =
-                        SettingsGlassRowFocusedColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
-                    focusedContentColor = NuvioColors.TextPrimary
-                )
-            ) {
+                    focusedContentColor = Color.White)
+            ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = null,
@@ -1053,12 +1055,12 @@ private fun ConfirmAddonChangesDialog(
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassRowColor,
-                        focusedContainerColor =
-                            SettingsGlassRowFocusedColor,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
-                        focusedContentColor = NuvioColors.TextPrimary
-                    )
-                ) {
+                        focusedContentColor = Color.White)
+                ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) {
                     Text(stringResource(R.string.addon_confirm_reject))
                 }
 
@@ -1069,12 +1071,12 @@ private fun ConfirmAddonChangesDialog(
                         .focusRequester(focusRequester),
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.Secondary,
-                        focusedContainerColor =
-                            NuvioColors.SecondaryVariant,
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.OnSecondary,
-                        focusedContentColor = NuvioColors.OnSecondary
-                    )
-                ) {
+                        focusedContentColor = Color.White)
+                ,
+    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
+) {
                     Text(stringResource(R.string.addon_confirm_confirm))
                 }
             }
