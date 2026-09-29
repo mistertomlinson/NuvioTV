@@ -1097,7 +1097,7 @@ private fun SupporterDetailsDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = Color.White),
@@ -1224,7 +1224,7 @@ private fun ContributorDetailsDialog(
                 Button(
                     onClick = { showSupportQr = !showSupportQr },
                     colors = ButtonDefaults.colors(
-                        containerColor = SettingsGlassRowColor,
+                        containerColor = SettingsDialogGlassIdleColor,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
                         focusedContentColor = Color.White),
@@ -1250,7 +1250,7 @@ private fun ContributorDetailsDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = Color.White),
