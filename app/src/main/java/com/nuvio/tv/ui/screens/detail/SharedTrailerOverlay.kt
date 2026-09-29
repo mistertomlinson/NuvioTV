@@ -304,7 +304,7 @@ fun TrailerSeekOverlay(
                 )
             }
     
-            Spacer(modifier = Modifier.height(12.dp)
+            Spacer(modifier = Modifier.height(12.dp))
     
             Row(
                 modifier = Modifier.fillMaxWidth(),
