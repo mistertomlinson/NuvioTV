@@ -356,20 +356,12 @@ fun NuvioNavHost(
                     EnterTransition.None
 
                 /*
-                 * Sidebar roots use a true cross-dissolve: the destination
-                 * fades in while the previous root fades out at the same rate.
+                 * Non-Home sidebar-root changes are visually owned by the
+                 * frozen-frame dissolve in MainActivity. Keep Navigation
+                 * Compose out of that animation so haze/blur cannot fight it.
                  */
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        EnterTransition.None
-                    } else {
-                        fadeIn(
-                            animationSpec = tween(
-                                durationMillis = 280,
-                                easing = FastOutSlowInEasing
-                            )
-                        )
-                    }
+                    EnterTransition.None
 
                 else -> fadeIn(animationSpec = tween(350))
             }
@@ -384,17 +376,17 @@ fun NuvioNavHost(
                 isStreamToPlayer(from, to) && isAutoPlayNav ->
                     ExitTransition.None
 
-                /*
-                 * Match the incoming root fade for a true cross-dissolve.
-                 * Home return keeps its existing outer-layer-owned behavior.
-                 */
                 isSidebarRootTransition(from, to) ->
-                    fadeOut(
-                        animationSpec = tween(
-                            durationMillis = if (to == Screen.Home.route) 300 else 280,
-                            easing = if (to == Screen.Home.route) LinearEasing else FastOutSlowInEasing
+                    if (to == Screen.Home.route) {
+                        fadeOut(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                easing = LinearEasing
+                            )
                         )
-                    )
+                    } else {
+                        ExitTransition.None
+                    }
 
                 else -> fadeOut(animationSpec = tween(350))
             }
@@ -411,17 +403,7 @@ fun NuvioNavHost(
                     EnterTransition.None
 
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        /* Home's outer layer owns the visible return dissolve. */
-                        EnterTransition.None
-                    } else {
-                        fadeIn(
-                            animationSpec = tween(
-                                durationMillis = 280,
-                                easing = FastOutSlowInEasing
-                            )
-                        )
-                    }
+                    EnterTransition.None
 
                 else -> fadeIn(animationSpec = tween(350))
             }
@@ -443,15 +425,17 @@ fun NuvioNavHost(
                 from.startsWith("detail/") &&
                     to == Screen.Home.route -> ExitTransition.None
 
-                // Preserve the same cross-dissolve when restored navigation
-                // turns a sidebar-root change into a pop.
                 isSidebarRootTransition(from, to) ->
-                    fadeOut(
-                        animationSpec = tween(
-                            durationMillis = if (to == Screen.Home.route) 300 else 280,
-                            easing = if (to == Screen.Home.route) LinearEasing else FastOutSlowInEasing
+                    if (to == Screen.Home.route) {
+                        fadeOut(
+                            animationSpec = tween(
+                                durationMillis = 300,
+                                easing = LinearEasing
+                            )
                         )
-                    )
+                    } else {
+                        ExitTransition.None
+                    }
 
                 else -> fadeOut(animationSpec = tween(350))
             }
