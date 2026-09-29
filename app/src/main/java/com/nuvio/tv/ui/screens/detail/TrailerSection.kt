@@ -43,7 +43,7 @@ private data class TrailerListItem(
 @Composable
 fun TrailerSection(
     trailers: List<MetaTrailer>,
-    posterCardCornerRadius: Dp = NuvioTheme.spacing.md,
+    posterCardCornerRadius: Dp = 12.dp,
     upFocusRequester: FocusRequester? = null,
     sectionFocusRequester: FocusRequester? = null,
     restoreTrailerId: String? = null,
@@ -110,7 +110,7 @@ fun TrailerSection(
             width = 260.dp,
             height = 146.dp,
             cornerRadius = posterCardCornerRadius,
-            focusedBorderWidth = NuvioTheme.spacing.xxs,
+            focusedBorderWidth = 2.dp,
             focusedScale = 1.02f
         )
     }
@@ -118,7 +118,7 @@ fun TrailerSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = NuvioTheme.spacing.sm, bottom = NuvioTheme.spacing.sm)
+            .padding(top = 8.dp, bottom = 8.dp)
     ) {
         LazyRow(
             modifier = Modifier
@@ -126,8 +126,8 @@ fun TrailerSection(
                 .then(if (sectionFocusRequester != null) Modifier.focusRequester(sectionFocusRequester) else Modifier)
                 .focusRestorer { firstItemFocusRequester }
                 .focusGroup(),
-            contentPadding = PaddingValues(horizontal = NuvioTheme.spacing.xxxl, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+            contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             itemsIndexed(
                 items = trailerItems,
