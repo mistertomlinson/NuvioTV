@@ -680,7 +680,9 @@ private fun CatalogOrderCard(
         ) {
             Button(
                         onClick = onTogglePickup,
-                        modifier = Modifier.onPreviewKeyEvent { event ->
+                        modifier = Modifier
+                            .size(32.dp)
+                            .onPreviewKeyEvent { event ->
                             if (!isPickedUp) {
                                 return@onPreviewKeyEvent false
                             }
@@ -751,10 +753,7 @@ private fun CatalogOrderCard(
                             )
                         ),
                         shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                        contentPadding = PaddingValues(
-                            horizontal = 4.dp,
-                            vertical = 4.dp
-                        )
+                        contentPadding = PaddingValues(0.dp)
                     ) {
                         Canvas(modifier = Modifier.size(22.dp)) {
                             val stroke = 2.dp.toPx()
@@ -877,11 +876,12 @@ private fun CatalogOrderCard(
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
                     onClick = onMoveToTop,
+                    modifier = Modifier.size(32.dp),
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
@@ -897,7 +897,7 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = NuvioR.drawable.ic_move_to_top),
@@ -908,6 +908,7 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onMoveUp,
+                    modifier = Modifier.size(32.dp),
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
@@ -923,7 +924,7 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
@@ -934,6 +935,7 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onMoveDown,
+                    modifier = Modifier.size(32.dp),
                     enabled = item.canMoveDown,
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
@@ -949,7 +951,7 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
@@ -960,6 +962,7 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onToggleNumbered,
+                    modifier = Modifier.size(32.dp),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (
@@ -981,7 +984,7 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     val hashFont = when (item.numberStyle) {
                         com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE -> FontFamily(Font(R.font.sf_distant_galaxy_outline))
@@ -994,17 +997,13 @@ private fun CatalogOrderCard(
                             fontSize = 22.sp,
                             lineHeight = 22.sp
                         ),
-                        modifier = Modifier.padding(
-                            top = if (
-                                item.numberStyle ==
-                                com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE
-                            ) 4.dp else 5.dp
-                        )
+                        modifier = Modifier
                     )
                 }
 
                 if (!globalLandscapeEnabled) Button(
                     onClick = onToggleLandscape,
+                    modifier = Modifier.size(32.dp),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (item.isLandscape) {
@@ -1023,7 +1022,7 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_landscape_poster),
@@ -1034,6 +1033,7 @@ private fun CatalogOrderCard(
 
                 if (!item.isGroup) Button(
                     onClick = onToggleShuffle,
+                    modifier = Modifier.size(32.dp),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (item.isShuffled) {
@@ -1052,7 +1052,7 @@ private fun CatalogOrderCard(
                         )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_shuffle_catalog),
