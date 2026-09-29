@@ -28,7 +28,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -638,25 +637,27 @@ private fun AppearanceThemeSelector(
             color = NuvioColors.TextPrimary
         )
 
-        LazyRow(
+        Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            itemsIndexed(
-                items = themes,
-                key = { _, theme -> theme.name }
-            ) { index, theme ->
+            themes.forEachIndexed { index, theme ->
                 AppearanceThemeSwatch(
                     theme = theme,
                     selected = theme == selectedTheme,
                     onClick = { onThemeSelected(theme) },
-                    modifier = if (
-                        index == 0 && focusRequester != null
-                    ) {
-                        Modifier.focusRequester(focusRequester)
-                    } else {
-                        Modifier
-                    }
+                    modifier = Modifier
+                        .weight(1f)
+                        .then(
+                            if (
+                                index == 0 &&
+                                focusRequester != null
+                            ) {
+                                Modifier.focusRequester(focusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
                 )
             }
         }
@@ -677,7 +678,6 @@ private fun AppearanceThemeSwatch(
     Card(
         onClick = onClick,
         modifier = modifier
-            .width(76.dp)
             .height(62.dp)
             .onFocusChanged { state ->
                 isFocused = state.isFocused
