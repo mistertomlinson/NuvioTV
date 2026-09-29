@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -89,7 +90,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun DebridSettingsContent(
     viewModel: DebridSettingsViewModel = hiltViewModel(),
-    initialFocusRequester: FocusRequester? = null
+    initialFocusRequester: FocusRequester? = null,
+    embedded: Boolean = false
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var activeApiKeyDialog by remember { mutableStateOf<String?>(null) }
@@ -106,17 +108,28 @@ fun DebridSettingsContent(
     }
 
     Column(
+        modifier =
+            if (embedded) {
+                Modifier
+                    .fillMaxWidth()
+                    .height(420.dp)
+            } else {
+                Modifier
+            },
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        SettingsDetailHeader(
+        if (!embedded) {
+            SettingsDetailHeader(
             title = stringResource(R.string.debrid_title),
             subtitle = stringResource(R.string.debrid_subtitle)
-        )
+            )
+        }
 
         SettingsGroupCard(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f)
+                .weight(1f),
+            segmented = embedded
         ) {
             val state = rememberLazyListState()
             Box(modifier = Modifier.fillMaxSize()) {
