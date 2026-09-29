@@ -659,6 +659,35 @@ private fun IntegrationSettingsContent(
 
     val hubEntryFocusRequester =
         initialFocusRequester ?: hubFocusRequester
+    val tmdbParentFocusRequester = remember { FocusRequester() }
+    val mdbListParentFocusRequester = remember { FocusRequester() }
+    val animeSkipParentFocusRequester = remember { FocusRequester() }
+
+    fun parentFocusRequesterFor(
+        section: IntegrationSettingsSection
+    ): FocusRequester = when (section) {
+        IntegrationSettingsSection.Debrid ->
+            hubEntryFocusRequester
+        IntegrationSettingsSection.Tmdb ->
+            tmdbParentFocusRequester
+        IntegrationSettingsSection.MdbList ->
+            mdbListParentFocusRequester
+        IntegrationSettingsSection.AnimeSkip ->
+            animeSkipParentFocusRequester
+        IntegrationSettingsSection.Hub ->
+            hubEntryFocusRequester
+    }
+
+    fun restoreCollapsedParentFocus(
+        section: IntegrationSettingsSection
+    ) {
+        integrationAnimationScope.launch {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching {
+                parentFocusRequesterFor(section).requestFocus()
+            }
+        }
+    }
 
     val visibleSections = listOf(
         IntegrationSettingsSection.Debrid,
@@ -849,6 +878,7 @@ private fun IntegrationSettingsContent(
             onSelectSection(
                 IntegrationSettingsSection.Hub
             )
+            restoreCollapsedParentFocus(section)
             releaseDeferredBottomAfterCollapse(section)
             return
         }
@@ -878,6 +908,7 @@ private fun IntegrationSettingsContent(
             onSelectSection(
                 IntegrationSettingsSection.Hub
             )
+            restoreCollapsedParentFocus(section)
             releaseDeferredBottomAfterCollapse(section)
 
             integrationListSettleOffsetY.animateTo(
@@ -1034,6 +1065,7 @@ private fun IntegrationSettingsContent(
                                 "integration_tmdb"
                             )
                         },
+                        focusRequester = tmdbParentFocusRequester,
                         groupPosition = groupPositionFor(
                             IntegrationSettingsSection.Tmdb
                         ),
@@ -1072,6 +1104,7 @@ private fun IntegrationSettingsContent(
                                 "integration_mdblist"
                             )
                         },
+                        focusRequester = mdbListParentFocusRequester,
                         groupPosition = groupPositionFor(
                             IntegrationSettingsSection.MdbList
                         ),
@@ -1110,6 +1143,7 @@ private fun IntegrationSettingsContent(
                                 "integration_animeskip"
                             )
                         },
+                        focusRequester = animeSkipParentFocusRequester,
                         groupPosition = groupPositionFor(
                             IntegrationSettingsSection.AnimeSkip
                         ),
