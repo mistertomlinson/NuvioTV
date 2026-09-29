@@ -354,11 +354,22 @@ internal fun ToggleSettingsItem(
     isChecked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
     onFocused: () -> Unit = {},
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    groupPosition: SettingsGroupPosition? = null,
+    animateTopFlatten: Boolean = false,
+    animateBottomFlatten: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
+    val rowShape = if (groupPosition != null) {
+        animatedSettingsGroupShape(
+            position = groupPosition,
+            animateTopFlatten = animateTopFlatten,
+            animateBottomFlatten = animateBottomFlatten
+        )
+    } else {
+        RoundedCornerShape(SettingsInnerRowRadius)
+    }
 
     Card(
         onClick = { if (enabled) onCheckedChange(!isChecked) },
