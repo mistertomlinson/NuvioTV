@@ -343,7 +343,8 @@ private fun SettingsGlassScreenContent(
     ) {
         HomePopupGlassEnvironment(
             hazeState = dialogHazeState,
-            blurEnabled = dialogBlurEnabled
+            blurEnabled = dialogBlurEnabled,
+            backdropAlreadyBlurred = true
         )
     }
 
@@ -398,7 +399,8 @@ private fun SettingsStandaloneScaffoldContent(
     ) {
         HomePopupGlassEnvironment(
             hazeState = dialogHazeState,
-            blurEnabled = dialogBlurEnabled
+            blurEnabled = dialogBlurEnabled,
+            backdropAlreadyBlurred = true
         )
     }
 
