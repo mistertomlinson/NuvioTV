@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.runtime.Composable
@@ -38,11 +39,6 @@ import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.simkl.SimklConnectionMode
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import kotlinx.coroutines.delay
-
-private enum class TrackingSourceSection {
-    LIBRARY,
-    WATCH_PROGRESS
-}
 
 @Composable
 fun TrackingSettingsScreen(
@@ -98,21 +94,36 @@ fun TrackingSettingsContent(
         trackingViewModel.uiState.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
+    val accountsParentFocusRequester = remember { FocusRequester() }
+    val sourcesParentFocusRequester = remember { FocusRequester() }
+    val traktFocusRequester = remember { FocusRequester() }
     val simklFocusRequester = remember { FocusRequester() }
-    var expandedSource by remember {
-        mutableStateOf<TrackingSourceSection?>(null)
-    }
 
+    var accountsExpanded by remember { mutableStateOf(false) }
+    var sourcesExpanded by remember { mutableStateOf(false) }
+    var librarySourceExpanded by remember { mutableStateOf(false) }
+    var watchProgressExpanded by remember { mutableStateOf(false) }
+
+    /*
+     * A Tracking detail destination is removed from composition while Trakt
+     * or Simkl is on top. Re-open Accounts first so the exact child row exists,
+     * then restore that row instead of allowing Settings to fall back to rail.
+     */
     LaunchedEffect(returnFocusAccount) {
         val target = returnFocusAccount ?: return@LaunchedEffect
-        delay(90L)
-        when (target) {
-            "trakt" -> initialFocusRequester?.let { requester ->
-                runCatching { requester.requestFocus() }
-            }
-            "simkl" -> runCatching {
-                simklFocusRequester.requestFocus()
-            }
+        accountsExpanded = true
+
+        delay(280L)
+        val requester = when (target) {
+            "trakt" -> traktFocusRequester
+            "simkl" -> simklFocusRequester
+            else -> null
+        }
+
+        if (requester != null) {
+            runCatching { requester.requestFocus() }
+            delay(80L)
+            runCatching { requester.requestFocus() }
         }
         onReturnFocusConsumed()
     }
@@ -140,43 +151,38 @@ fun TrackingSettingsContent(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item(key = "tracking_accounts") {
-                    SettingsGroupCard(
+                    TrackingExpandableGroup(
                         title = stringResource(
                             R.string.tracking_accounts_title
                         ),
                         subtitle = stringResource(
                             R.string.tracking_accounts_subtitle
                         ),
-                        segmented = true
+                        expanded = accountsExpanded,
+                        onToggle = {
+                            accountsExpanded = !accountsExpanded
+                        },
+                        focusRequester =
+                            initialFocusRequester
+                                ?: accountsParentFocusRequester
                     ) {
                         SettingsActionRow(
                             title = stringResource(R.string.trakt_name),
-                            subtitle =
-                                traktAccountSubtitle(traktState),
-                            value =
-                                traktAccountStatus(traktState),
+                            subtitle = traktAccountSubtitle(traktState),
+                            value = traktAccountStatus(traktState),
                             onClick = onNavigateToTrakt,
-                            modifier =
-                                if (
-                                    initialFocusRequester != null
-                                ) {
-                                    Modifier.focusRequester(
-                                        initialFocusRequester
-                                    )
-                                } else {
-                                    Modifier
-                                },
+                            modifier = Modifier.focusRequester(
+                                traktFocusRequester
+                            ),
                             showDivider = false,
                             groupPosition =
-                                SettingsGroupPosition.TOP
+                                SettingsGroupPosition.MIDDLE
                         )
 
                         SettingsActionRow(
                             title = stringResource(R.string.simkl_name),
-                            subtitle =
-                                simklAccountSubtitle(simklState),
-                            value =
-                                simklAccountStatus(simklState),
+                            subtitle = simklAccountSubtitle(simklState),
+                            value = simklAccountStatus(simklState),
                             onClick = onNavigateToSimkl,
                             modifier = Modifier.focusRequester(
                                 simklFocusRequester
@@ -189,130 +195,106 @@ fun TrackingSettingsContent(
                 }
 
                 item(key = "tracking_sources") {
-                    SettingsGroupCard(
+                    TrackingExpandableGroup(
                         title = stringResource(
                             R.string.tracking_sources_title
                         ),
                         subtitle = stringResource(
                             R.string.tracking_sources_subtitle_compact
                         ),
-                        segmented = true
-                    ) {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement =
-                                Arrangement.spacedBy(SettingsRowGap)
-                        ) {
-                            TrackingExpandableSourceRow(
-                                title = stringResource(
-                                    R.string.trakt_library_source_title
-                                ),
-                                subtitle = stringResource(
-                                    R.string.trakt_library_source_subtitle_compact
-                                ),
-                                value = librarySourceLabel(
-                                    trackingState.librarySourceMode
-                                ),
-                                enabled = trackingState.isReady,
-                                expanded =
-                                    expandedSource ==
-                                        TrackingSourceSection.LIBRARY,
-                                groupPosition = when (expandedSource) {
-                                    TrackingSourceSection.LIBRARY ->
-                                        SettingsGroupPosition.TOP
-                                    TrackingSourceSection.WATCH_PROGRESS ->
-                                        SettingsGroupPosition.SINGLE
-                                    null ->
-                                        SettingsGroupPosition.TOP
-                                },
-                                onToggle = {
-                                    expandedSource =
-                                        if (
-                                            expandedSource ==
-                                            TrackingSourceSection.LIBRARY
-                                        ) {
-                                            null
-                                        } else {
-                                            TrackingSourceSection.LIBRARY
-                                        }
-                                }
-                            ) {
-                                trackingState
-                                    .availableLibrarySourceModes
-                                    .forEach { mode ->
-                                        TrackingChoiceRow(
-                                            title =
-                                                librarySourceLabel(mode),
-                                            selected =
-                                                mode ==
-                                                    trackingState
-                                                        .librarySourceMode,
-                                            onClick = {
-                                                trackingViewModel
-                                                    .selectLibrarySourceMode(
-                                                        mode
-                                                    )
-                                                expandedSource = null
-                                            }
-                                        )
-                                    }
+                        expanded = sourcesExpanded,
+                        onToggle = {
+                            if (sourcesExpanded) {
+                                librarySourceExpanded = false
+                                watchProgressExpanded = false
                             }
-
-                            TrackingExpandableSourceRow(
-                                title = stringResource(
-                                    R.string.trakt_watch_progress_title
-                                ),
-                                subtitle = stringResource(
-                                    R.string.trakt_watch_progress_subtitle_compact
-                                ),
-                                value = watchProgressSourceLabel(
-                                    trackingState.watchProgressSource
-                                ),
-                                enabled = trackingState.isReady,
-                                expanded =
-                                    expandedSource ==
-                                        TrackingSourceSection.WATCH_PROGRESS,
-                                groupPosition = when (expandedSource) {
-                                    TrackingSourceSection.WATCH_PROGRESS ->
-                                        SettingsGroupPosition.TOP
-                                    TrackingSourceSection.LIBRARY ->
-                                        SettingsGroupPosition.SINGLE
-                                    null ->
-                                        SettingsGroupPosition.BOTTOM
-                                },
-                                onToggle = {
-                                    expandedSource =
-                                        if (
-                                            expandedSource ==
-                                            TrackingSourceSection.WATCH_PROGRESS
-                                        ) {
-                                            null
-                                        } else {
-                                            TrackingSourceSection.WATCH_PROGRESS
+                            sourcesExpanded = !sourcesExpanded
+                        },
+                        focusRequester = sourcesParentFocusRequester
+                    ) {
+                        TrackingNestedSourceRow(
+                            title = stringResource(
+                                R.string.trakt_library_source_title
+                            ),
+                            subtitle = stringResource(
+                                R.string.trakt_library_source_subtitle_compact
+                            ),
+                            value = librarySourceLabel(
+                                trackingState.librarySourceMode
+                            ),
+                            enabled = trackingState.isReady,
+                            expanded = librarySourceExpanded,
+                            collapsedPosition =
+                                SettingsGroupPosition.MIDDLE,
+                            onToggle = {
+                                librarySourceExpanded =
+                                    !librarySourceExpanded
+                            }
+                        ) {
+                            trackingState.availableLibrarySourceModes
+                                .forEach { mode ->
+                                    TrackingChoiceRow(
+                                        title = librarySourceLabel(mode),
+                                        selected =
+                                            mode ==
+                                                trackingState
+                                                    .librarySourceMode,
+                                        groupPosition =
+                                            SettingsGroupPosition.MIDDLE,
+                                        onClick = {
+                                            trackingViewModel
+                                                .selectLibrarySourceMode(
+                                                    mode
+                                                )
+                                            librarySourceExpanded = false
                                         }
+                                    )
                                 }
-                            ) {
-                                trackingState
-                                    .availableWatchProgressSources
-                                    .forEach { source ->
-                                        TrackingChoiceRow(
-                                            title =
-                                                watchProgressSourceLabel(
-                                                    source
-                                                ),
-                                            selected =
-                                                source ==
-                                                    trackingState
-                                                        .watchProgressSource,
-                                            onClick = {
-                                                trackingViewModel
-                                                    .selectWatchProgressSource(
-                                                        source
-                                                    )
-                                                expandedSource = null
-                                            }
-                                        )
+                        }
+
+                        TrackingNestedSourceRow(
+                            title = stringResource(
+                                R.string.trakt_watch_progress_title
+                            ),
+                            subtitle = stringResource(
+                                R.string.trakt_watch_progress_subtitle_compact
+                            ),
+                            value = watchProgressSourceLabel(
+                                trackingState.watchProgressSource
+                            ),
+                            enabled = trackingState.isReady,
+                            expanded = watchProgressExpanded,
+                            collapsedPosition =
+                                SettingsGroupPosition.BOTTOM,
+                            onToggle = {
+                                watchProgressExpanded =
+                                    !watchProgressExpanded
+                            }
+                        ) {
+                            val choices =
+                                trackingState.availableWatchProgressSources
+                            choices.forEachIndexed { index, source ->
+                                TrackingChoiceRow(
+                                    title =
+                                        watchProgressSourceLabel(source),
+                                    selected =
+                                        source ==
+                                            trackingState
+                                                .watchProgressSource,
+                                    groupPosition =
+                                        if (index == choices.lastIndex) {
+                                            SettingsGroupPosition.BOTTOM
+                                        } else {
+                                            SettingsGroupPosition.MIDDLE
+                                        },
+                                    onClick = {
+                                        trackingViewModel
+                                            .selectWatchProgressSource(
+                                                source
+                                            )
+                                        watchProgressExpanded = false
                                     }
+                                )
                             }
                         }
                     }
@@ -325,27 +307,38 @@ fun TrackingSettingsContent(
 }
 
 @Composable
-private fun TrackingExpandableSourceRow(
+private fun TrackingExpandableGroup(
     title: String,
     subtitle: String,
-    value: String,
-    enabled: Boolean,
     expanded: Boolean,
-    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit,
+    focusRequester: FocusRequester,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
+    var previousExpanded by remember {
+        mutableStateOf(expanded)
+    }
+    val opening = expanded && !previousExpanded
+    val closing = !expanded && previousExpanded
+
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            previousExpanded = true
+        } else if (previousExpanded) {
+            delay(240L)
+            previousExpanded = false
+        }
+    }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(
-            if (expanded) SettingsRowGap else 0.dp
+            if (expanded || closing) SettingsRowGap else 0.dp
         )
     ) {
         SettingsActionRow(
             title = title,
             subtitle = subtitle,
-            value = value,
-            enabled = enabled,
             onClick = onToggle,
             trailingIcon =
                 if (expanded) {
@@ -353,13 +346,15 @@ private fun TrackingExpandableSourceRow(
                 } else {
                     Icons.Default.ChevronRight
                 },
+            modifier = Modifier.focusRequester(focusRequester),
             showDivider = false,
             groupPosition =
-                if (expanded) {
+                if (expanded || closing) {
                     SettingsGroupPosition.TOP
                 } else {
-                    groupPosition
-                }
+                    SettingsGroupPosition.SINGLE
+                },
+            animateBottomFlatten = opening
         )
 
         AnimatedVisibility(
@@ -379,7 +374,101 @@ private fun TrackingExpandableSourceRow(
                 shrinkTowards = Alignment.Top
             )
         ) {
-            SettingsExpandedSectionSurface {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement =
+                    Arrangement.spacedBy(SettingsRowGap)
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackingNestedSourceRow(
+    title: String,
+    subtitle: String,
+    value: String,
+    enabled: Boolean,
+    expanded: Boolean,
+    collapsedPosition: SettingsGroupPosition,
+    onToggle: () -> Unit,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
+) {
+    var previousExpanded by remember {
+        mutableStateOf(expanded)
+    }
+    val opening = expanded && !previousExpanded
+    val closing = !expanded && previousExpanded
+
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            previousExpanded = true
+        } else if (previousExpanded) {
+            delay(240L)
+            previousExpanded = false
+        }
+    }
+
+    val effectivePosition =
+        if (
+            (expanded || closing) &&
+            collapsedPosition == SettingsGroupPosition.BOTTOM
+        ) {
+            SettingsGroupPosition.MIDDLE
+        } else {
+            collapsedPosition
+        }
+
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(
+            if (expanded || closing) SettingsRowGap else 0.dp
+        )
+    ) {
+        SettingsActionRow(
+            title = title,
+            subtitle = subtitle,
+            value = value,
+            enabled = enabled,
+            onClick = onToggle,
+            trailingIcon =
+                if (expanded) {
+                    Icons.Default.ExpandMore
+                } else {
+                    Icons.Default.ChevronRight
+                },
+            showDivider = false,
+            groupPosition = effectivePosition,
+            animateBottomFlatten =
+                opening &&
+                    collapsedPosition ==
+                        SettingsGroupPosition.BOTTOM
+        )
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                ),
+                expandFrom = Alignment.Top
+            ),
+            exit = shrinkVertically(
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                ),
+                shrinkTowards = Alignment.Top
+            )
+        ) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement =
+                    Arrangement.spacedBy(SettingsRowGap)
+            ) {
                 content()
             }
         }
@@ -390,21 +479,22 @@ private fun TrackingExpandableSourceRow(
 private fun TrackingChoiceRow(
     title: String,
     selected: Boolean,
+    groupPosition: SettingsGroupPosition,
     onClick: () -> Unit
 ) {
     SettingsActionRow(
         title = title,
         subtitle = null,
-        value =
-            if (selected) {
-                stringResource(R.string.cd_selected)
-            } else {
-                null
-            },
+        value = null,
         onClick = onClick,
-        trailingIcon = Icons.Default.ChevronRight,
+        trailingIcon =
+            if (selected) {
+                Icons.Default.Check
+            } else {
+                Icons.Default.ChevronRight
+            },
         showDivider = false,
-        groupPosition = SettingsGroupPosition.MIDDLE
+        groupPosition = groupPosition
     )
 }
 
