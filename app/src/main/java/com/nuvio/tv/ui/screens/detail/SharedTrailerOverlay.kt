@@ -193,7 +193,7 @@ fun SharedTrailerOverlay(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl),
+                    .padding(horizontal = 32.dp, vertical = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
                 Text(
@@ -221,9 +221,9 @@ fun SharedTrailerOverlay(
                 Column(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .padding(horizontal = NuvioTheme.spacing.xxl),
+                        .padding(horizontal = 32.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(NuvioTheme.spacing.md)
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         text = errorMessage,
@@ -286,7 +286,7 @@ fun TrailerSeekOverlay(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = NuvioTheme.spacing.xxl, vertical = NuvioTheme.spacing.xl)
+                .padding(horizontal = 32.dp, vertical = 24.dp)
         ) {
             Box(
                 modifier = Modifier
@@ -304,7 +304,7 @@ fun TrailerSeekOverlay(
                 )
             }
     
-            Spacer(modifier = Modifier.height(NuvioTheme.spacing.md))
+            Spacer(modifier = Modifier.height(12.dp)
     
             Row(
                 modifier = Modifier.fillMaxWidth(),
