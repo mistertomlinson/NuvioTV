@@ -1492,7 +1492,12 @@ fun NuvioNavHost(
                     targetRoute = targetState.destination.route
                 )
             }
-        ) {
+        ) { settingsBackStackEntry ->
+            val trackingReturnFocusAccount by
+                settingsBackStackEntry.savedStateHandle
+                    .getStateFlow("settings_tracking_return_focus", "")
+                    .collectAsState()
+
             SidebarRootBackToHome { popSidebarRootToHome() }
             RecordSidebarRootFrame(sidebarRootReturnLayer) {
                 SettingsScreen(
@@ -1501,10 +1506,24 @@ fun NuvioNavHost(
                         navController.navigate(Screen.Tracking.route)
                     },
                     onNavigateToTrakt = {
+                        settingsBackStackEntry.savedStateHandle[
+                            "settings_tracking_return_focus"
+                        ] = "trakt"
                         navController.navigate(Screen.Trakt.route)
                     },
                     onNavigateToSimkl = {
+                        settingsBackStackEntry.savedStateHandle[
+                            "settings_tracking_return_focus"
+                        ] = "simkl"
                         navController.navigate(Screen.Simkl.route)
+                    },
+                    trackingReturnFocusAccount =
+                        trackingReturnFocusAccount
+                            .takeIf { it.isNotBlank() },
+                    onTrackingReturnFocusConsumed = {
+                        settingsBackStackEntry.savedStateHandle[
+                            "settings_tracking_return_focus"
+                        ] = ""
                     },
                     onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
                     onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
