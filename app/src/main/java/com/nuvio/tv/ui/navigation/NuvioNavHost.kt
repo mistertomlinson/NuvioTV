@@ -9,6 +9,7 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.collectAsState
@@ -356,30 +357,29 @@ fun NuvioNavHost(
                     EnterTransition.None
 
                 /*
-                 * Sidebar destinations dissolve over the still-opaque screen
-                 * beneath them. This gives the glass workspace a deliberate
-                 * entrance without exposing the NavHost background.
+                 * Sidebar destinations enter over the still-opaque screen
+                 * beneath them. A short eased fade plus a very small glide
+                 * keeps the transition visible without the muddy long dissolve.
                  */
                 isSidebarRootTransition(from, to) ->
-                    when (to) {
-                        Screen.Home.route ->
-                            EnterTransition.None
-
-                        Screen.Settings.route ->
-                            fadeIn(
-                                animationSpec = tween(
-                                    durationMillis = 180,
-                                    easing = FastOutSlowInEasing
-                                )
+                    if (to == Screen.Home.route) {
+                        EnterTransition.None
+                    } else {
+                        fadeIn(
+                            initialAlpha = 0.18f,
+                            animationSpec = tween(
+                                durationMillis = 260,
+                                easing = FastOutSlowInEasing
                             )
-
-                        else ->
-                            fadeIn(
-                                animationSpec = tween(
-                                    durationMillis = 300,
-                                    easing = LinearEasing
-                                )
+                        ) + slideInHorizontally(
+                            initialOffsetX = { fullWidth ->
+                                (fullWidth / 48).coerceAtLeast(1)
+                            },
+                            animationSpec = tween(
+                                durationMillis = 260,
+                                easing = FastOutSlowInEasing
                             )
+                        )
                     }
 
                 else -> fadeIn(animationSpec = tween(350))
@@ -428,27 +428,25 @@ fun NuvioNavHost(
                     EnterTransition.None
 
                 isSidebarRootTransition(from, to) ->
-                    when (to) {
-                        Screen.Home.route -> {
-                            /* Home's outer layer owns the visible return dissolve. */
-                            EnterTransition.None
-                        }
-
-                        Screen.Settings.route ->
-                            fadeIn(
-                                animationSpec = tween(
-                                    durationMillis = 180,
-                                    easing = FastOutSlowInEasing
-                                )
+                    if (to == Screen.Home.route) {
+                        /* Home's outer layer owns the visible return dissolve. */
+                        EnterTransition.None
+                    } else {
+                        fadeIn(
+                            initialAlpha = 0.18f,
+                            animationSpec = tween(
+                                durationMillis = 260,
+                                easing = FastOutSlowInEasing
                             )
-
-                        else ->
-                            fadeIn(
-                                animationSpec = tween(
-                                    durationMillis = 300,
-                                    easing = LinearEasing
-                                )
+                        ) + slideInHorizontally(
+                            initialOffsetX = { fullWidth ->
+                                (fullWidth / 48).coerceAtLeast(1)
+                            },
+                            animationSpec = tween(
+                                durationMillis = 260,
+                                easing = FastOutSlowInEasing
                             )
+                        )
                     }
 
                 else -> fadeIn(animationSpec = tween(350))
