@@ -256,6 +256,19 @@ internal fun SettingsGlassBackdrop(
     modifier: Modifier = Modifier
 ) {
     val bitmap = LocalSettingsBackdropBitmap.current
+    val canvasBrush =
+        if (NuvioTheme.currentTheme == AppTheme.WHITE) {
+            SettingsGlassCanvasBrush
+        } else {
+            Brush.verticalGradient(
+                colors = listOf(
+                    NuvioColors.BackgroundElevated.copy(alpha = 0.68f),
+                    NuvioColors.Background.copy(alpha = 0.62f),
+                    NuvioColors.BackgroundCard.copy(alpha = 0.66f)
+                )
+            )
+        }
+
     Box(modifier = modifier) {
         if (bitmap != null && !bitmap.isRecycled) {
             val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
@@ -275,7 +288,7 @@ internal fun SettingsGlassBackdrop(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(SettingsGlassCanvasBrush)
+                .background(canvasBrush)
         )
     }
 }
