@@ -131,7 +131,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
     val timeoutText = when (timeoutSec) {
         0 -> stringResource(R.string.autoplay_timeout_instant)
         11 -> stringResource(R.string.autoplay_timeout_unlimited)
-        else -> "\${timeoutSec}s"
+        else -> "${timeoutSec}s"
     }
 
     SliderSettingsItem(
@@ -206,7 +206,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                             .nextEpisodeThresholdPercent * 2f
                         ).roundToInt(),
                 valueText =
-                    "\${formatHalfStepValue(playerSettings.nextEpisodeThresholdPercent)}%",
+                    "${formatHalfStepValue(playerSettings.nextEpisodeThresholdPercent)}%",
                 minValue = 194,
                 maxValue = 199,
                 step = 1,
@@ -233,7 +233,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                             2f
                         ).roundToInt(),
                 valueText =
-                    "\${formatHalfStepValue(playerSettings.nextEpisodeThresholdMinutesBeforeEnd)} min",
+                    "${formatHalfStepValue(playerSettings.nextEpisodeThresholdMinutesBeforeEnd)} min",
                 minValue = 2,
                 maxValue = 7,
                 step = 1,
@@ -281,7 +281,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 ) {
                     stringResource(R.string.autoplay_all_addons)
                 } else {
-                    "\${playerSettings.streamAutoPlaySelectedAddons.size} selected"
+                    "${playerSettings.streamAutoPlaySelectedAddons.size} selected"
                 }
 
             NavigationSettingsItem(
@@ -307,7 +307,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 ) {
                     stringResource(R.string.autoplay_all_plugins)
                 } else {
-                    "\${playerSettings.streamAutoPlaySelectedPlugins.size} selected"
+                    "${playerSettings.streamAutoPlaySelectedPlugins.size} selected"
                 }
 
             NavigationSettingsItem(
