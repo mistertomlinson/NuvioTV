@@ -24,6 +24,7 @@ import androidx.lifecycle.lifecycleScope
 import java.util.Locale
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.animateDp
 import androidx.compose.animation.core.animateFloat
@@ -68,6 +69,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -85,7 +87,9 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -1439,6 +1443,10 @@ private fun ModernSidebarScaffold(
     var leftReleasedSinceEdge by remember { mutableStateOf(false) }
     var isFloatingPillIconOnly by remember { mutableStateOf(false) }
     var sidebarRootNavigationInProgress by remember { mutableStateOf(false) }
+    val sidebarRootTransitionScope = rememberCoroutineScope()
+    val sidebarRootTransitionAlpha = remember { Animatable(0f) }
+    var sidebarRootTransitionBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var sidebarRootTransitionTarget by remember { mutableStateOf<String?>(null) }
     val modernHostView = LocalView.current
     val modernActivity = LocalContext.current as? Activity
     var settingsBackdropBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -1485,11 +1493,51 @@ private fun ModernSidebarScaffold(
     LaunchedEffect(currentRoute) {
         if (sidebarRootNavigationInProgress) {
             /*
-             * Keep sidebar rendering suppressed until its longest 395ms
-             * collapse channel has settled offscreen.
+             * Keep sidebar rendering suppressed until the frozen-frame
+             * dissolve has completed.
              */
             delay(400L)
             sidebarRootNavigationInProgress = false
+        }
+    }
+
+    LaunchedEffect(
+        currentRoute,
+        sidebarRootTransitionTarget,
+        sidebarRootTransitionBitmap
+    ) {
+        val targetRoute = sidebarRootTransitionTarget
+        val frozenBitmap = sidebarRootTransitionBitmap
+        if (
+            targetRoute != null &&
+            frozenBitmap != null &&
+            currentRoute == targetRoute
+        ) {
+            /*
+             * Keep the outgoing frame fully opaque until the incoming root,
+             * including its blur/haze layers, has produced a few real frames.
+             * The fade then reveals a finished destination instead of exposing
+             * blur initialization as a visual snap.
+             */
+            repeat(3) { withFrameNanos { } }
+            sidebarRootTransitionAlpha.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 300,
+                    easing = LinearEasing
+                )
+            )
+
+            sidebarRootTransitionBitmap = null
+            sidebarRootTransitionTarget = null
+            sidebarRootTransitionAlpha.snapTo(0f)
+
+            if (
+                frozenBitmap !== settingsBackdropBitmap &&
+                !frozenBitmap.isRecycled
+            ) {
+                frozenBitmap.recycle()
+            }
         }
     }
 
@@ -1734,6 +1782,23 @@ private fun ModernSidebarScaffold(
             }
         }
 
+        val frozenRootBitmap = sidebarRootTransitionBitmap
+        if (frozenRootBitmap != null && !frozenRootBitmap.isRecycled) {
+            val frozenRootImage = remember(frozenRootBitmap) {
+                frozenRootBitmap.asImageBitmap()
+            }
+            Image(
+                bitmap = frozenRootImage,
+                contentDescription = null,
+                contentScale = ContentScale.FillBounds,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        alpha = sidebarRootTransitionAlpha.value
+                    }
+            )
+        }
+
         if (
             showSidebar &&
             !sidebarRootNavigationInProgress &&
@@ -1804,14 +1869,83 @@ private fun ModernSidebarScaffold(
                             isSidebarExpanded = false
                             sidebarCollapsePending = false
                             pendingContentFocusTransfer = stayingOnCurrentRoute
-                            if (!stayingOnCurrentRoute) {
-                                sidebarRootNavigationInProgress = true
+
+                            when {
+                                stayingOnCurrentRoute -> {
+                                    navigateToDrawerRoute(
+                                        navController = navController,
+                                        currentRoute = currentRoute,
+                                        targetRoute = targetRoute
+                                    )
+                                }
+
+                                targetRoute == Screen.Home.route -> {
+                                    sidebarRootNavigationInProgress = true
+                                    navigateToDrawerRoute(
+                                        navController = navController,
+                                        currentRoute = currentRoute,
+                                        targetRoute = targetRoute
+                                    )
+                                }
+
+                                else -> {
+                                    sidebarRootNavigationInProgress = true
+                                    sidebarRootTransitionTarget = targetRoute
+
+                                    /*
+                                     * Remove the sidebar first, then capture the exact
+                                     * outgoing root with no drawer pixels in the frame.
+                                     */
+                                    sidebarRootTransitionScope.launch {
+                                        repeat(2) { withFrameNanos { } }
+
+                                        captureSettingsBackdrop(
+                                            window = modernActivity?.window,
+                                            view = modernHostView
+                                        ) { captured ->
+                                            if (captured == null) {
+                                                sidebarRootTransitionTarget = null
+                                                navigateToDrawerRoute(
+                                                    navController = navController,
+                                                    currentRoute = currentRoute,
+                                                    targetRoute = targetRoute
+                                                )
+                                            } else {
+                                                sidebarRootTransitionBitmap = captured
+
+                                                sidebarRootTransitionScope.launch {
+                                                    /*
+                                                     * Put the frozen frame on screen before
+                                                     * changing the backdrop source or route.
+                                                     */
+                                                    sidebarRootTransitionAlpha.snapTo(1f)
+                                                    withFrameNanos { }
+
+                                                    val previousBackdrop =
+                                                        settingsBackdropBitmap
+                                                    settingsBackdropBitmap = captured
+
+                                                    if (
+                                                        previousBackdrop != null &&
+                                                        previousBackdrop !== captured &&
+                                                        previousBackdrop !==
+                                                            sidebarRootTransitionBitmap &&
+                                                        !previousBackdrop.isRecycled
+                                                    ) {
+                                                        previousBackdrop.recycle()
+                                                    }
+
+                                                    navigateToDrawerRoute(
+                                                        navController = navController,
+                                                        currentRoute = currentRoute,
+                                                        targetRoute = targetRoute
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
-                            navigateToDrawerRoute(
-                                navController = navController,
-                                currentRoute = currentRoute,
-                                targetRoute = targetRoute
-                            )
                         },
                         activeProfileName = activeProfileName,
                         activeProfileColorHex = activeProfileColorHex,
