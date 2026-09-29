@@ -103,6 +103,7 @@ import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
 import com.nuvio.tv.ui.screens.settings.SettingsInsetControlColor
 import com.nuvio.tv.ui.screens.settings.SettingsRowGap
 import com.nuvio.tv.ui.screens.settings.settingsGroupShape
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -832,9 +833,9 @@ private fun QrCodeOverlay(
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsRightSurfaceColor,
+                    containerColor = SettingsGlassRowColor,
                     focusedContainerColor =
-                        SettingsRightSurfaceFocusedColor,
+                        SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = NuvioColors.TextPrimary
                 )
@@ -879,7 +880,7 @@ private fun ConfirmAddonChangesDialog(
                 .fillMaxWidth()
                 .heightIn(max = 260.dp)
                 .background(
-                    color = SettingsInsetControlColor,
+                    color = SettingsDialogGlassInsetColor,
                     shape = RoundedCornerShape(12.dp)
                 )
         ) {
@@ -1051,9 +1052,9 @@ private fun ConfirmAddonChangesDialog(
                     onClick = onReject,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.colors(
-                        containerColor = SettingsRightSurfaceColor,
+                        containerColor = SettingsGlassRowColor,
                         focusedContainerColor =
-                            SettingsRightSurfaceFocusedColor,
+                            SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
                         focusedContentColor = NuvioColors.TextPrimary
                     )
