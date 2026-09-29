@@ -1706,7 +1706,8 @@ private fun CardDepthFineTuneDialog(
                     maxValue = 70,
                     step = 1,
                     onValueChange = onEdgeStrengthChange,
-                    modifier = Modifier.focusRequester(initialFocusRequester)
+                    modifier = Modifier.focusRequester(initialFocusRequester),
+                    useDialogGlass = true
                 )
 
                 SliderSettingsItem(
@@ -1723,7 +1724,8 @@ private fun CardDepthFineTuneDialog(
                     maxValue = 25,
                     step = 1,
                     onValueChange =
-                        onSheenStrengthChange
+                        onSheenStrengthChange,
+                    useDialogGlass = true
                 )
 
                 SliderSettingsItem(
@@ -1738,7 +1740,8 @@ private fun CardDepthFineTuneDialog(
                     maxValue = 100,
                     step = 1,
                     onValueChange =
-                        onEdgeCoverageChange
+                        onEdgeCoverageChange,
+                    useDialogGlass = true
                 )
 
                 SettingsResetButton(
