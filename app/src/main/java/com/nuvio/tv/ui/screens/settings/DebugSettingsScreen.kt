@@ -385,9 +385,9 @@ private fun DebugDialogButton(
         onClick = onClick,
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.colors(
-            containerColor = SettingsRightSurfaceColor,
+            containerColor = SettingsGlassRowColor,
             focusedContainerColor =
-                SettingsRightSurfaceFocusedColor
+                SettingsGlassRowFocusedColor
         ),
         border = CardDefaults.border(
             border = Border.None,
