@@ -51,6 +51,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
@@ -629,13 +631,29 @@ private fun CatalogOrderCard(
         animateTopFlatten = true,
         animateBottomFlatten = true
     )
+    val liftAnimation = tween<Float>(
+        durationMillis = 180,
+        easing = FastOutSlowInEasing
+    )
+    val pickedScale by animateFloatAsState(
+        targetValue = if (isPickedUp) 1.025f else 1f,
+        animationSpec = liftAnimation,
+        label = "catalogPickedScale"
+    )
+    val pickedElevation by animateDpAsState(
+        targetValue = if (isPickedUp) 12.dp else 0.dp,
+        animationSpec = tween(
+            durationMillis = 180,
+            easing = FastOutSlowInEasing
+        ),
+        label = "catalogPickedElevation"
+    )
 
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .zIndex(if (isPickedUp) 1f else 0f)
             .graphicsLayer {
-                val pickedScale = if (isPickedUp) 1.025f else 1f
                 scaleX = pickedScale
                 scaleY = pickedScale
             },
@@ -649,7 +667,7 @@ private fun CatalogOrderCard(
             }
         ),
         elevation = CardDefaults.cardElevation(
-            defaultElevation = if (isPickedUp) 12.dp else 0.dp
+            defaultElevation = pickedElevation
         ),
         shape = cardShape
     ) {
