@@ -1137,8 +1137,8 @@ internal fun ColorSelectionDialog(
             Card(
                 onClick = onDismiss,
                 colors = CardDefaults.colors(
-                    containerColor = SettingsRightSurfaceColor,
-                    focusedContainerColor = SettingsRightSurfaceFocusedColor
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor = SettingsGlassRowFocusedColor
                 ),
                 border = CardDefaults.border(
                     focusedBorder = Border(
