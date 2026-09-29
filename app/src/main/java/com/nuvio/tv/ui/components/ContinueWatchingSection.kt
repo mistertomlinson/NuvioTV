@@ -103,6 +103,7 @@ private val CwDialogGlassBorderColor = Color.White.copy(alpha = 0.09f)
 internal data class HomePopupGlassEnvironment(
     val hazeState: HazeState? = null,
     val blurEnabled: Boolean = false,
+    val backdropAlreadyBlurred: Boolean = false,
     val onPopupVisibilityChanged: (Boolean) -> Unit = {},
     val catalogOptionsVisible: Boolean = false,
     val preserveCatalogTrailerPlayback: Boolean = false,
