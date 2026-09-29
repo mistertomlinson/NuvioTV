@@ -344,11 +344,7 @@ private fun WatchedRatingButton(
             border = androidx.tv.material3.Border.None,
             focusedBorder = androidx.tv.material3.Border.None
         ),
-        shape = IconButtonDefaults.shape(shape = CircleShape),
-        scale = IconButtonDefaults.scale(
-            focusedScale = 1f,
-            pressedScale = 1f
-        )
+        shape = IconButtonDefaults.shape(shape = CircleShape)
     ) {
         Icon(
             painter = painter,
