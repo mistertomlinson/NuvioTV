@@ -98,6 +98,7 @@ import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.data.local.TrailerSettings
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.launch
 import androidx.compose.material.icons.filled.PlayCircle
@@ -476,6 +477,13 @@ internal fun RenderTypeSettingsItem(
         onClick = { if (enabled) onClick() },
         modifier = Modifier
             .fillMaxWidth()
+            .then(
+                if (useDialogGlass) {
+                    Modifier.glassDialogFocusTransform()
+                } else {
+                    Modifier
+                }
+            )
             .onFocusChanged { state ->
                 val nowFocused = state.hasFocus
                 if (isFocused != nowFocused) {
@@ -512,18 +520,8 @@ internal fun RenderTypeSettingsItem(
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(
-            focusedScale =
-                if (useDialogGlass) {
-                    SettingsDialogFocusScale
-                } else {
-                    1f
-                },
-            pressedScale =
-                if (useDialogGlass) {
-                    SettingsDialogPressedScale
-                } else {
-                    1f
-                }
+            focusedScale = 1f,
+            pressedScale = 1f
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
@@ -692,6 +690,13 @@ internal fun SliderSettingsItem(
         onClick = { },
         modifier = modifier
             .fillMaxWidth()
+            .then(
+                if (useDialogGlass) {
+                    Modifier.glassDialogFocusTransform()
+                } else {
+                    Modifier
+                }
+            )
             .onFocusChanged { state ->
                 val nowFocused = state.hasFocus
                 if (isFocused != nowFocused) {
@@ -742,18 +747,8 @@ internal fun SliderSettingsItem(
         ),
         shape = CardDefaults.shape(shape = rowShape),
         scale = CardDefaults.scale(
-            focusedScale =
-                if (useDialogGlass) {
-                    SettingsDialogFocusScale
-                } else {
-                    1f
-                },
-            pressedScale =
-                if (useDialogGlass) {
-                    SettingsDialogPressedScale
-                } else {
-                    1f
-                }
+            focusedScale = 1f,
+            pressedScale = 1f
         )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
