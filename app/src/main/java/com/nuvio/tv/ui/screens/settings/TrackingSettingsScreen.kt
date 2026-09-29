@@ -285,7 +285,11 @@ fun TrackingSettingsContent(
                                 SettingsGroupPosition.MIDDLE
                             },
                         forceAnimateTopFlatten =
-                            accountsClosing,
+                            accountsClosing ||
+                                (
+                                    sourcesClosing &&
+                                        !accountsExpanded
+                                    ),
                         onToggle = ::toggleSources,
                         focusRequester = sourcesParentFocusRequester
                     ) {
