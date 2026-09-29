@@ -682,11 +682,22 @@ internal fun SettingsToggleRow(
     modifier: Modifier = Modifier,
     onFocused: () -> Unit = {},
     enabled: Boolean = true,
-    showDivider: Boolean = true
+    showDivider: Boolean = true,
+    groupPosition: SettingsGroupPosition? = null,
+    animateTopFlatten: Boolean = false,
+    animateBottomFlatten: Boolean = false
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
     var isFocused by remember { mutableStateOf(false) }
-    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
+    val rowShape = if (groupPosition != null) {
+        animatedSettingsGroupShape(
+            position = groupPosition,
+            animateTopFlatten = animateTopFlatten,
+            animateBottomFlatten = animateBottomFlatten
+        )
+    } else {
+        RoundedCornerShape(SettingsInnerRowRadius)
+    }
 
     Column(modifier = Modifier.fillMaxWidth()) {
         Card(
