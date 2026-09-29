@@ -83,6 +83,7 @@ import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_SHEEN_STRENGTH
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.cardDepthVisual
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -133,6 +134,9 @@ fun LayoutSettingsContent(
 
     var focusedSection by remember { mutableStateOf<LayoutSettingsSection?>(null) }
     val layoutAnimationScope = rememberCoroutineScope()
+    var animatedFlattenBoundaries by remember {
+        mutableStateOf<Set<Int>>(emptySet())
+    }
 
     LaunchedEffect(homeContentExpanded, focusedSection) {
         if (!homeContentExpanded && focusedSection == LayoutSettingsSection.HOME_CONTENT) {
@@ -174,19 +178,126 @@ fun LayoutSettingsContent(
         if (focusedPosterExpanded) add(LayoutSettingsSection.FOCUSED_POSTER)
         if (posterCardStyleExpanded) add(LayoutSettingsSection.POSTER_CARD_STYLE)
     }
-    fun groupPositionFor(section: LayoutSettingsSection): SettingsGroupPosition {
+    fun groupPositionFor(
+        section: LayoutSettingsSection,
+        expanded: Set<LayoutSettingsSection> = expandedSections
+    ): SettingsGroupPosition {
         val index = visibleSections.indexOf(section)
         if (index < 0) return SettingsGroupPosition.SINGLE
-        if (section in expandedSections) return SettingsGroupPosition.TOP
+        if (section in expanded) return SettingsGroupPosition.TOP
 
-        val startsGroup = index == 0 || visibleSections[index - 1] in expandedSections
-        val endsGroup = index == visibleSections.lastIndex || visibleSections[index + 1] in expandedSections
+        val startsGroup =
+            index == 0 || visibleSections[index - 1] in expanded
+        val endsGroup =
+            index == visibleSections.lastIndex ||
+                visibleSections[index + 1] in expanded
         return when {
             startsGroup && endsGroup -> SettingsGroupPosition.SINGLE
             startsGroup -> SettingsGroupPosition.TOP
             endsGroup -> SettingsGroupPosition.BOTTOM
             else -> SettingsGroupPosition.MIDDLE
         }
+    }
+
+    fun headerTopRounded(
+        section: LayoutSettingsSection,
+        expanded: Set<LayoutSettingsSection>
+    ): Boolean {
+        return when (groupPositionFor(section, expanded)) {
+            SettingsGroupPosition.SINGLE,
+            SettingsGroupPosition.TOP -> true
+            SettingsGroupPosition.MIDDLE,
+            SettingsGroupPosition.BOTTOM -> false
+        }
+    }
+
+    fun headerBottomRounded(
+        section: LayoutSettingsSection,
+        expanded: Set<LayoutSettingsSection>
+    ): Boolean {
+        return when (groupPositionFor(section, expanded)) {
+            SettingsGroupPosition.SINGLE,
+            SettingsGroupPosition.BOTTOM -> true
+            SettingsGroupPosition.TOP,
+            SettingsGroupPosition.MIDDLE -> false
+        }
+    }
+
+    fun applySectionExpandedState(
+        section: LayoutSettingsSection,
+        expanded: Boolean
+    ) {
+        when (section) {
+            LayoutSettingsSection.HOME_CONTENT ->
+                homeContentExpanded = expanded
+            LayoutSettingsSection.CONTINUE_WATCHING ->
+                continueWatchingExpanded = expanded
+            LayoutSettingsSection.DETAIL_PAGE ->
+                detailPageExpanded = expanded
+            LayoutSettingsSection.FOCUSED_POSTER ->
+                focusedPosterExpanded = expanded
+            LayoutSettingsSection.POSTER_CARD_STYLE ->
+                posterCardStyleExpanded = expanded
+        }
+    }
+
+    fun setSectionExpandedWithCornerPolicy(
+        section: LayoutSettingsSection,
+        expanded: Boolean
+    ) {
+        val before = expandedSections
+        val after =
+            if (expanded) {
+                before + section
+            } else {
+                before - section
+            }
+
+        if (!expanded) {
+            val roundPairReturns =
+                (0 until visibleSections.lastIndex)
+                    .filter { boundaryIndex ->
+                        val upper = visibleSections[boundaryIndex]
+                        val lower = visibleSections[boundaryIndex + 1]
+
+                        headerBottomRounded(upper, before) &&
+                            headerTopRounded(lower, before) &&
+                            !headerBottomRounded(upper, after) &&
+                            !headerTopRounded(lower, after)
+                    }
+                    .toSet()
+
+            animatedFlattenBoundaries = roundPairReturns
+            if (roundPairReturns.isNotEmpty()) {
+                layoutAnimationScope.launch {
+                    delay(260)
+                    if (animatedFlattenBoundaries == roundPairReturns) {
+                        animatedFlattenBoundaries = emptySet()
+                    }
+                }
+            }
+        } else {
+            animatedFlattenBoundaries = emptySet()
+        }
+
+        applySectionExpandedState(section, expanded)
+    }
+
+    fun animateTopFlattenFor(
+        section: LayoutSettingsSection
+    ): Boolean {
+        val index = visibleSections.indexOf(section)
+        return index > 0 &&
+            (index - 1) in animatedFlattenBoundaries
+    }
+
+    fun animateBottomFlattenFor(
+        section: LayoutSettingsSection
+    ): Boolean {
+        val index = visibleSections.indexOf(section)
+        return index >= 0 &&
+            index < visibleSections.lastIndex &&
+            index in animatedFlattenBoundaries
     }
 
     Column(
@@ -215,10 +326,23 @@ fun LayoutSettingsContent(
                     title = stringResource(R.string.layout_section_content),
                     description = stringResource(R.string.layout_section_content_desc),
                     expanded = homeContentExpanded,
-                    onToggle = { homeContentExpanded = !homeContentExpanded },
+                    onToggle = {
+                        setSectionExpandedWithCornerPolicy(
+                            LayoutSettingsSection.HOME_CONTENT,
+                            !homeContentExpanded
+                        )
+                    },
                     focusRequester = homeContentHeaderFocus,
                     onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT },
-                    groupPosition = groupPositionFor(LayoutSettingsSection.HOME_CONTENT)
+                    groupPosition = groupPositionFor(
+                        LayoutSettingsSection.HOME_CONTENT
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        LayoutSettingsSection.HOME_CONTENT
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        LayoutSettingsSection.HOME_CONTENT
+                    )
                 ) {
                     CompactToggleRow(
                         title = stringResource(R.string.layout_landscape_posters),
@@ -276,13 +400,22 @@ fun LayoutSettingsContent(
                     description = stringResource(R.string.layout_section_continue_watching_desc),
                     expanded = continueWatchingExpanded,
                     onToggle = {
-                        continueWatchingExpanded = !continueWatchingExpanded
+                        setSectionExpandedWithCornerPolicy(
+                            LayoutSettingsSection.CONTINUE_WATCHING,
+                            !continueWatchingExpanded
+                        )
                     },
                     focusRequester = continueWatchingHeaderFocus,
                     onFocused = {
                         focusedSection = LayoutSettingsSection.CONTINUE_WATCHING
                     },
                     groupPosition = groupPositionFor(
+                        LayoutSettingsSection.CONTINUE_WATCHING
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        LayoutSettingsSection.CONTINUE_WATCHING
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
                         LayoutSettingsSection.CONTINUE_WATCHING
                     )
                 ) {
@@ -361,10 +494,23 @@ fun LayoutSettingsContent(
                     title = stringResource(R.string.layout_section_detail),
                     description = stringResource(R.string.layout_section_detail_desc),
                     expanded = detailPageExpanded,
-                    onToggle = { detailPageExpanded = !detailPageExpanded },
+                    onToggle = {
+                        setSectionExpandedWithCornerPolicy(
+                            LayoutSettingsSection.DETAIL_PAGE,
+                            !detailPageExpanded
+                        )
+                    },
                     focusRequester = detailPageHeaderFocus,
                     onFocused = { focusedSection = LayoutSettingsSection.DETAIL_PAGE },
-                    groupPosition = groupPositionFor(LayoutSettingsSection.DETAIL_PAGE)
+                    groupPosition = groupPositionFor(
+                        LayoutSettingsSection.DETAIL_PAGE
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        LayoutSettingsSection.DETAIL_PAGE
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        LayoutSettingsSection.DETAIL_PAGE
+                    )
                 ) {
                     CompactToggleRow(
                         title = stringResource(R.string.layout_blur_unwatched),
@@ -413,10 +559,23 @@ fun LayoutSettingsContent(
                     title = stringResource(R.string.layout_section_focused),
                     description = stringResource(R.string.layout_section_focused_desc),
                     expanded = focusedPosterExpanded,
-                    onToggle = { focusedPosterExpanded = !focusedPosterExpanded },
+                    onToggle = {
+                        setSectionExpandedWithCornerPolicy(
+                            LayoutSettingsSection.FOCUSED_POSTER,
+                            !focusedPosterExpanded
+                        )
+                    },
                     focusRequester = focusedPosterHeaderFocus,
                     onFocused = { focusedSection = LayoutSettingsSection.FOCUSED_POSTER },
-                    groupPosition = groupPositionFor(LayoutSettingsSection.FOCUSED_POSTER)
+                    groupPosition = groupPositionFor(
+                        LayoutSettingsSection.FOCUSED_POSTER
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        LayoutSettingsSection.FOCUSED_POSTER
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        LayoutSettingsSection.FOCUSED_POSTER
+                    )
                 ) {
                     val isModernLandscape = uiState.modernLandscapePostersEnabled
                     val showAutoplayRow = uiState.focusedPosterBackdropExpandEnabled || isModernLandscape
@@ -584,7 +743,10 @@ fun LayoutSettingsContent(
                     expanded = posterCardStyleExpanded,
                     onToggle = {
                         if (!posterCardStyleExpanded) {
-                            posterCardStyleExpanded = true
+                            setSectionExpandedWithCornerPolicy(
+                                LayoutSettingsSection.POSTER_CARD_STYLE,
+                                true
+                            )
                         } else {
                             val onlyPosterCardStyleExpanded =
                                 !homeContentExpanded &&
@@ -612,17 +774,31 @@ fun LayoutSettingsContent(
                                         layoutListState.animateScrollToItem(0)
                                     }
                                     androidx.compose.runtime.withFrameNanos { }
-                                    posterCardStyleExpanded = false
+                                    setSectionExpandedWithCornerPolicy(
+                                        LayoutSettingsSection.POSTER_CARD_STYLE,
+                                        false
+                                    )
                                     returnScroll.join()
                                 }
                             } else {
-                                posterCardStyleExpanded = false
+                                setSectionExpandedWithCornerPolicy(
+                                    LayoutSettingsSection.POSTER_CARD_STYLE,
+                                    false
+                                )
                             }
                         }
                     },
                     focusRequester = posterCardStyleHeaderFocus,
                     onFocused = { focusedSection = LayoutSettingsSection.POSTER_CARD_STYLE },
-                    groupPosition = groupPositionFor(LayoutSettingsSection.POSTER_CARD_STYLE)
+                    groupPosition = groupPositionFor(
+                        LayoutSettingsSection.POSTER_CARD_STYLE
+                    ),
+                    animateTopFlatten = animateTopFlattenFor(
+                        LayoutSettingsSection.POSTER_CARD_STYLE
+                    ),
+                    animateBottomFlatten = animateBottomFlattenFor(
+                        LayoutSettingsSection.POSTER_CARD_STYLE
+                    )
                 ) {
                     PosterCardStyleControls(
                         widthDp = uiState.posterCardWidthDp,
@@ -757,6 +933,8 @@ private fun CollapsibleSectionCard(
     focusRequester: FocusRequester,
     onFocused: () -> Unit,
     groupPosition: SettingsGroupPosition,
+    animateTopFlatten: Boolean = false,
+    animateBottomFlatten: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     Column(
@@ -778,7 +956,9 @@ private fun CollapsibleSectionCard(
                 SettingsGroupPosition.TOP
             } else {
                 groupPosition
-            }
+            },
+            animateTopFlatten = animateTopFlatten,
+            animateBottomFlatten = animateBottomFlatten
         )
 
         AnimatedVisibility(
