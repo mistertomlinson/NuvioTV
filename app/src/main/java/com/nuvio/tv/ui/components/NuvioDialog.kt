@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,6 +23,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -109,7 +111,6 @@ fun NuvioDialog(
                 (dialogView.parent as? DialogWindowProvider)
                     ?.window
                     ?.let { window ->
-                        window.setDimAmount(0f)
                         window.clearFlags(
                             WindowManager.LayoutParams.FLAG_DIM_BEHIND
                         )
@@ -158,6 +159,15 @@ fun NuvioDialog(
             }
 
         Box(
+            modifier =
+                if (useEnhancedGlass) {
+                    Modifier.fillMaxSize()
+                } else {
+                    Modifier
+                },
+            contentAlignment = Alignment.Center
+        ) {
+        Box(
             modifier = Modifier
                 .width(width)
                 .graphicsLayer {
@@ -190,7 +200,15 @@ fun NuvioDialog(
                     }
                 )
                 .border(1.dp, borderColor, shape)
-                .padding(if (compact) 18.dp else 24.dp)
+                .padding(
+                    if (useEnhancedGlass) {
+                        24.dp
+                    } else if (compact) {
+                        18.dp
+                    } else {
+                        24.dp
+                    }
+                )
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
                     if (suppressNextKeyUp && native.action == AndroidKeyEvent.ACTION_UP) {
@@ -204,16 +222,25 @@ fun NuvioDialog(
         ) {
             Column(
                 verticalArrangement = Arrangement.spacedBy(
-                    if (compact) 11.dp else 16.dp
+                    if (useEnhancedGlass) {
+                        16.dp
+                    } else if (compact) {
+                        11.dp
+                    } else {
+                        16.dp
+                    }
                 )
             ) {
                 Text(
                     text = title,
-                    style = if (compact) {
-                        MaterialTheme.typography.titleMedium
-                    } else {
-                        MaterialTheme.typography.titleLarge
-                    },
+                    style =
+                        if (useEnhancedGlass) {
+                            MaterialTheme.typography.titleLarge
+                        } else if (compact) {
+                            MaterialTheme.typography.titleMedium
+                        } else {
+                            MaterialTheme.typography.titleLarge
+                        },
                     color = NuvioColors.TextPrimary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -222,17 +249,21 @@ fun NuvioDialog(
                 if (subtitle != null) {
                     Text(
                         text = subtitle,
-                        style = if (compact) {
-                            MaterialTheme.typography.bodySmall
-                        } else {
-                            MaterialTheme.typography.bodyMedium
-                        },
+                        style =
+                            if (useEnhancedGlass) {
+                                MaterialTheme.typography.bodyMedium
+                            } else if (compact) {
+                                MaterialTheme.typography.bodySmall
+                            } else {
+                                MaterialTheme.typography.bodyMedium
+                            },
                         color = NuvioColors.TextSecondary
                     )
                 }
 
                 content()
             }
+        }
         }
     }
 }
