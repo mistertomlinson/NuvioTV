@@ -1059,13 +1059,13 @@ private fun DebridEmbeddedSettingsBody(
                 debridRuleRowsData(
                     uiState.streamPreferences,
                     context
-                ) { picker, title, subtitle, value ->
+                ).forEach { item ->
                     SettingsActionRow(
-                        title = title,
-                        subtitle = subtitle,
-                        value = value,
+                        title = item.title,
+                        subtitle = item.subtitle,
+                        value = item.value,
                         onClick = {
-                            onOpenStreamPicker(picker)
+                            onOpenStreamPicker(item.picker)
                         },
                         enabled = true
                     )
@@ -1421,21 +1421,42 @@ private fun LazyListScope.debridRuleRows(
     debridRuleRowsData(
         preferences = preferences,
         context = context
-    ) { picker, title, subtitle, value ->
-        row(picker, title, subtitle, value)
+    ).forEach { item ->
+        row(
+            item.picker,
+            item.title,
+            item.subtitle,
+            item.value
+        )
     }
 }
 
+private data class DebridRuleRowData(
+    val picker: DebridStreamPicker,
+    val title: String,
+    val subtitle: String?,
+    val value: String
+)
+
 private fun debridRuleRowsData(
     preferences: DebridStreamPreferences,
-    context: Context,
-    row: (
-        DebridStreamPicker,
-        String,
-        String?,
-        String
-    ) -> Unit
-) {
+    context: Context
+): List<DebridRuleRowData> {
+    val rows = mutableListOf<DebridRuleRowData>()
+
+    fun row(
+        picker: DebridStreamPicker,
+        title: String,
+        subtitle: String?,
+        value: String
+    ) {
+        rows += DebridRuleRowData(
+            picker = picker,
+            title = title,
+            subtitle = subtitle,
+            value = value
+        )
+    }
     row(
         DebridStreamPicker.PREFERRED_RESOLUTIONS,
         context.getString(R.string.debrid_picker_preferred_resolutions_title),
@@ -1574,6 +1595,7 @@ private fun debridRuleRowsData(
         context.getString(R.string.debrid_picker_excluded_release_groups_subtitle),
         selectionCountLabel(preferences.excludedReleaseGroups, context)
     )
+    return rows
 }
 
 private fun selectionCountLabel(values: List<*>, context: Context): String {
