@@ -87,7 +87,6 @@ internal enum class SettingsCategory {
     PLAYBACK,
     ADVANCED,
     TRACKING,
-    ABOUT,
     DEBUG
 }
 
@@ -270,7 +269,6 @@ private fun SettingsScreenContent(
                 SettingsCategory.TRACKING to FocusRequester(),
                 SettingsCategory.PLAYBACK to FocusRequester(),
                 SettingsCategory.ADVANCED to FocusRequester(),
-                SettingsCategory.ABOUT to FocusRequester(),
                 SettingsCategory.DEBUG to FocusRequester()
             )
     }
@@ -551,14 +549,6 @@ private fun SettingsScreenContent(
                             animeSkipFocusRequester = integrationAnimeSkipFocusRequester,
                             debridFocusRequester = integrationDebridFocusRequester,
                             autoFocusEnabled = allowDetailAutofocus
-                        )
-                        SettingsCategory.ABOUT -> AboutSettingsContent(
-                            onNavigateToSupportersContributors = onNavigateToSupportersContributors,
-                            initialFocusRequester = if (allowDetailAutofocus) {
-                                contentFocusRequesters[SettingsCategory.ABOUT]
-                            } else {
-                                null
-                            }
                         )
                         SettingsCategory.PLUGINS -> PluginsSettingsContent()
                         SettingsCategory.ACCOUNT -> AccountSettingsInline(
