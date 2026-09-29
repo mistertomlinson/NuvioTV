@@ -108,6 +108,8 @@ import kotlinx.coroutines.delay
 import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassIdleColor
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
+import com.nuvio.tv.ui.screens.settings.SettingsDialogPillShape
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -832,17 +834,20 @@ private fun QrCodeOverlay(
 
             Button(
                 onClick = onClose,
-                modifier = Modifier
+                modifier = (Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusRequester),
+                    .focusRequester(focusRequester)).glassDialogFocusTransform(),
                 colors = ButtonDefaults.colors(
                     containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = Color.White)
             ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                 Icon(
                     imageVector = Icons.Default.Close,
                     contentDescription = null,
@@ -1053,31 +1058,37 @@ private fun ConfirmAddonChangesDialog(
             ) {
                 Button(
                     onClick = onReject,
-                    modifier = Modifier.weight(1f),
+                    modifier = (Modifier.weight(1f)).glassDialogFocusTransform(),
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsDialogGlassIdleColor,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
                         focusedContentColor = Color.White)
                 ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.addon_confirm_reject))
                 }
 
                 Button(
                     onClick = onConfirm,
-                    modifier = Modifier
+                    modifier = (Modifier
                         .weight(1f)
-                        .focusRequester(focusRequester),
+                        .focusRequester(focusRequester)).glassDialogFocusTransform(),
                     colors = ButtonDefaults.colors(
                         containerColor = NuvioColors.Secondary,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.OnSecondary,
                         focusedContentColor = Color.White)
                 ,
-    scale = ButtonDefaults.scale(focusedScale = SettingsDialogFocusScale, pressedScale = SettingsDialogPressedScale)
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.addon_confirm_confirm))
                 }
             }
