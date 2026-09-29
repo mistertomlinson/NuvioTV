@@ -171,11 +171,6 @@ fun TrackingSettingsContent(
             androidx.compose.runtime.withFrameNanos { }
         }
 
-        // The pop transition is 350 ms. Restore only after Settings is
-        // genuinely visible again so the outgoing account screen cannot
-        // steal or visually replay this focus request.
-        delay(380L)
-
         val requester = when (target) {
             "trakt" -> traktFocusRequester
             "simkl" -> simklFocusRequester
@@ -187,6 +182,13 @@ fun TrackingSettingsContent(
             return@LaunchedEffect
         }
 
+        /*
+         * The return marker is written only when Back is pressed from the
+         * account screen, and Accounts is already restored by rememberSaveable.
+         * Request the exact child immediately so the rail is never shown as
+         * an intermediate focus target. Retry only if the node is not attached
+         * on this composition frame yet.
+         */
         var focusRequestCompleted = runCatching {
             requester.requestFocus()
             true
