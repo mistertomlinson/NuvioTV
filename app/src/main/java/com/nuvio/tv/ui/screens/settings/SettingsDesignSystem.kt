@@ -16,6 +16,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import androidx.compose.foundation.layout.RowScope
 import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Density
 import com.nuvio.tv.ui.screens.detail.requestFocusAfterFrames
@@ -1153,10 +1154,23 @@ internal fun <T> SettingsSingleChoiceDialog(
             ) {
                 itemsIndexed(items = options, key = { index, option -> "$index-${option.value}" }) { index, option ->
                     val isSelected = option.value == selectedValue
+                    var isOptionFocused by remember(option.value) {
+                        mutableStateOf(false)
+                    }
                     Card(
                         onClick = { onOptionSelected(option.value) },
-                        modifier = Modifier.fillMaxWidth()
-                            .then(if (index == focusedIndex) Modifier.focusRequester(focusRequester) else Modifier),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .glassDialogFocusTransform { focused ->
+                                isOptionFocused = focused
+                            }
+                            .then(
+                                if (index == focusedIndex) {
+                                    Modifier.focusRequester(focusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            ),
                         colors = CardDefaults.colors(
                             containerColor =
                                 if (isSelected) {
@@ -1172,13 +1186,22 @@ internal fun <T> SettingsSingleChoiceDialog(
                         ),
                         shape = CardDefaults.shape(SettingsDialogPillShape),
                         scale = CardDefaults.scale(
-                            focusedScale = SettingsDialogFocusScale,
-                            pressedScale = SettingsDialogPressedScale
+                            focusedScale = 1f,
+                            pressedScale = 1f
                         )
                     ) {
                         Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(text = option.title, color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary, style = MaterialTheme.typography.bodyLarge)
+                                Text(
+                                    text = option.title,
+                                    color =
+                                        if (isOptionFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
                                 if (!option.description.isNullOrBlank()) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(text = option.description, color = NuvioColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
@@ -1237,10 +1260,29 @@ internal fun <T> SettingsMultiChoiceDialog(
                 ) {
                     itemsIndexed(items = options, key = { index, option -> "$index-${option.value}" }) { index, option ->
                         val isSelected = selected.contains(option.value)
+                        var isOptionFocused by remember(option.value) {
+                            mutableStateOf(false)
+                        }
                         Card(
-                            onClick = { if (isSelected) selected.remove(option.value) else selected.add(option.value) },
-                            modifier = Modifier.fillMaxWidth()
-                                .then(if (index == firstSelectedIndex) Modifier.focusRequester(focusRequester) else Modifier),
+                            onClick = {
+                                if (isSelected) {
+                                    selected.remove(option.value)
+                                } else {
+                                    selected.add(option.value)
+                                }
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .glassDialogFocusTransform { focused ->
+                                    isOptionFocused = focused
+                                }
+                                .then(
+                                    if (index == firstSelectedIndex) {
+                                        Modifier.focusRequester(focusRequester)
+                                    } else {
+                                        Modifier
+                                    }
+                                ),
                             colors = CardDefaults.colors(
                                 containerColor =
                                 if (isSelected) {
@@ -1256,13 +1298,22 @@ internal fun <T> SettingsMultiChoiceDialog(
                         ),
                         shape = CardDefaults.shape(SettingsDialogPillShape),
                             scale = CardDefaults.scale(
-                            focusedScale = SettingsDialogFocusScale,
-                            pressedScale = SettingsDialogPressedScale
-                        )
+                                focusedScale = 1f,
+                                pressedScale = 1f
+                            )
                         ) {
                             Row(modifier = Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = option.title, color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary, style = MaterialTheme.typography.bodyLarge)
+                                    Text(
+                                        text = option.title,
+                                        color =
+                                            if (isOptionFocused || isSelected) {
+                                                NuvioColors.TextPrimary
+                                            } else {
+                                                NuvioColors.TextSecondary
+                                            },
+                                        style = MaterialTheme.typography.bodyLarge
+                                    )
                                 }
                                 if (isSelected) {
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -1322,7 +1373,9 @@ internal fun SettingsDialogActionButton(
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+        modifier = Modifier.glassDialogFocusTransform { focused ->
+            isFocused = focused
+        },
         colors = ButtonDefaults.colors(
             containerColor = containerColor,
             focusedContainerColor = SettingsGlassRowFocusedColor,
@@ -1335,8 +1388,8 @@ internal fun SettingsDialogActionButton(
         ),
         shape = ButtonDefaults.shape(SettingsDialogPillShape),
         scale = ButtonDefaults.scale(
-            focusedScale = SettingsDialogFocusScale,
-            pressedScale = SettingsDialogPressedScale
+            focusedScale = 1f,
+            pressedScale = 1f
         )
     ) {
         Text(
