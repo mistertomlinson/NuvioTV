@@ -157,15 +157,14 @@ fun WatchedRatingOverlay(
             }
             Column(
                 modifier = Modifier
+                    .glassDialogAppearanceTransform(
+                        scale =
+                            0.96f +
+                                (0.04f * appearanceProgress),
+                        alpha = appearanceProgress,
+                        clipShape = panelShape
+                    )
                     .then(blurModifier)
-                    .graphicsLayer {
-                        shape = panelShape
-                        clip = true
-                        alpha = appearanceProgress
-                        val animatedScale = 0.96f + (0.04f * appearanceProgress)
-                        scaleX = animatedScale
-                        scaleY = animatedScale
-                    }
                     .clip(panelShape)
                     .background(WatchedRatingGlassBrush, panelShape)
                     .border(1.dp, WatchedRatingGlassBorderColor, panelShape)
