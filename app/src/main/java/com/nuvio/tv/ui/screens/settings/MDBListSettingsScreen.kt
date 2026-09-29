@@ -384,8 +384,8 @@ private fun MDBListApiKeyDialog(
                 .fillMaxWidth()
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
-                containerColor = SettingsGlassRowColor,
-                focusedContainerColor = SettingsGlassRowColor
+                containerColor = SettingsInsetControlColor,
+                focusedContainerColor = SettingsInsetControlFocusedColor
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -441,7 +441,8 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = onDismiss,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsRightSurfaceColor,
+                    focusedContainerColor = SettingsRightSurfaceFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
@@ -451,7 +452,8 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = onClear,
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsRightSurfaceColor,
+                    focusedContainerColor = SettingsRightSurfaceFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
@@ -461,7 +463,8 @@ private fun MDBListApiKeyDialog(
             Button(
                 onClick = { if (!validating) viewModel.validateAndSaveApiKey(value, onSaved) },
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsRightSurfaceColor,
+                    focusedContainerColor = SettingsRightSurfaceFocusedColor,
                     contentColor = NuvioColors.TextPrimary
                 )
             ) {
