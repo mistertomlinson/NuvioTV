@@ -63,7 +63,7 @@ private val WatchedRatingGlassBrush = androidx.compose.ui.graphics.Brush.vertica
         Color(0xA824292F)
     )
 )
-private val WatchedRatingGlassRowColor = Color.White.copy(alpha = 0.065f)
+private val WatchedRatingGlassRowColor = Color.Transparent
 private val WatchedRatingGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
 private val WatchedRatingGlassBorderColor = Color.White.copy(alpha = 0.09f)
 private val WatchedRatingGlassFocusBorderColor = Color.White.copy(alpha = 0.28f)
@@ -157,13 +157,15 @@ fun WatchedRatingOverlay(
             }
             Column(
                 modifier = Modifier
+                    .then(blurModifier)
                     .graphicsLayer {
+                        shape = panelShape
+                        clip = true
                         alpha = appearanceProgress
                         val animatedScale = 0.96f + (0.04f * appearanceProgress)
                         scaleX = animatedScale
                         scaleY = animatedScale
                     }
-                    .then(blurModifier)
                     .clip(panelShape)
                     .background(WatchedRatingGlassBrush, panelShape)
                     .border(1.dp, WatchedRatingGlassBorderColor, panelShape)
@@ -234,6 +236,7 @@ fun WatchedRatingOverlay(
                 Button(
                     onClick = { if (!consumed) { consumed = true; onDismiss() } },
                     modifier = Modifier
+                        .glassDialogFocusTransform()
                         .focusRequester(dismissFocusRequester)
                         .focusProperties {
                             up = likeFocusRequester
@@ -257,7 +260,16 @@ fun WatchedRatingOverlay(
                         containerColor = WatchedRatingGlassRowColor,
                         focusedContainerColor = WatchedRatingGlassRowFocusedColor,
                         contentColor = NuvioColors.TextSecondary,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
+                    ),
+                    border = ButtonDefaults.border(
+                        border = androidx.tv.material3.Border.None,
+                        focusedBorder = androidx.tv.material3.Border.None
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
+                    scale = ButtonDefaults.scale(
+                        focusedScale = 1f,
+                        pressedScale = 1f
                     )
                 ) {
                     Icon(
@@ -294,6 +306,7 @@ private fun WatchedRatingButton(
         onClick = onClick,
         modifier = Modifier
             .size(60.dp)
+            .glassDialogFocusTransform(enabled = canFocus)
             .focusRequester(focusRequester)
             .focusProperties {
                 this.canFocus = canFocus
@@ -324,19 +337,18 @@ private fun WatchedRatingButton(
         colors = IconButtonDefaults.colors(
             containerColor = WatchedRatingGlassRowColor,
             focusedContainerColor = WatchedRatingGlassRowFocusedColor,
-            contentColor = NuvioColors.TextPrimary,
-            focusedContentColor = Color.White
+            contentColor = NuvioColors.TextSecondary,
+            focusedContentColor = NuvioColors.TextPrimary
         ),
         border = IconButtonDefaults.border(
-            focusedBorder = androidx.tv.material3.Border(
-                border = androidx.compose.foundation.BorderStroke(
-                    1.dp,
-                    WatchedRatingGlassFocusBorderColor
-                ),
-                shape = CircleShape
-            )
+            border = androidx.tv.material3.Border.None,
+            focusedBorder = androidx.tv.material3.Border.None
         ),
-        shape = IconButtonDefaults.shape(shape = CircleShape)
+        shape = IconButtonDefaults.shape(shape = CircleShape),
+        scale = IconButtonDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
     ) {
         Icon(
             painter = painter,
