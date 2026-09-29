@@ -133,7 +133,9 @@ internal fun settingsGroupShape(position: SettingsGroupPosition): RoundedCornerS
 
 @Composable
 internal fun animatedSettingsGroupShape(
-    position: SettingsGroupPosition
+    position: SettingsGroupPosition,
+    animateTopFlatten: Boolean = false,
+    animateBottomFlatten: Boolean = false
 ): RoundedCornerShape {
     val targetTop = when (position) {
         SettingsGroupPosition.SINGLE,
@@ -153,12 +155,22 @@ internal fun animatedSettingsGroupShape(
     )
     val top by animateDpAsState(
         targetValue = targetTop,
-        animationSpec = if (targetTop == 0.dp) snap() else roundedAnimation,
+        animationSpec =
+            if (targetTop == 0.dp && !animateTopFlatten) {
+                snap()
+            } else {
+                roundedAnimation
+            },
         label = "settingsTopCorner"
     )
     val bottom by animateDpAsState(
         targetValue = targetBottom,
-        animationSpec = if (targetBottom == 0.dp) snap() else roundedAnimation,
+        animationSpec =
+            if (targetBottom == 0.dp && !animateBottomFlatten) {
+                snap()
+            } else {
+                roundedAnimation
+            },
         label = "settingsBottomCorner"
     )
     return RoundedCornerShape(
@@ -753,12 +765,18 @@ internal fun SettingsActionRow(
     enabled: Boolean = true,
     trailingIcon: ImageVector = Icons.Default.ChevronRight,
     showDivider: Boolean = true,
-    groupPosition: SettingsGroupPosition? = null
+    groupPosition: SettingsGroupPosition? = null,
+    animateTopFlatten: Boolean = false,
+    animateBottomFlatten: Boolean = false
 ) {
     val contentAlpha = if (enabled) 1f else 0.4f
     var isFocused by remember { mutableStateOf(false) }
     val rowShape = if (groupPosition != null) {
-        animatedSettingsGroupShape(groupPosition)
+        animatedSettingsGroupShape(
+            position = groupPosition,
+            animateTopFlatten = animateTopFlatten,
+            animateBottomFlatten = animateBottomFlatten
+        )
     } else {
         RoundedCornerShape(SettingsInnerRowRadius)
     }
