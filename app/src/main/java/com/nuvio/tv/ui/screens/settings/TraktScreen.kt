@@ -370,10 +370,19 @@ fun TraktScreen(
                                 },
                                 modifier = Modifier.weight(1f),
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (selected) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                                    containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
                                     contentColor = NuvioColors.TextPrimary
-                                )
-                            ) {
+                                ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                                 Text(cwWindowFormatter(days))
                             }
                         }
@@ -392,8 +401,17 @@ fun TraktScreen(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) {
+                        ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
@@ -418,11 +436,20 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (uiState.showUnairedNextUp) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    ),
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+),
                     modifier = Modifier.fillMaxWidth()
-                ) {
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.trakt_show_unaired))
                 }
                 Button(
@@ -431,11 +458,20 @@ fun TraktScreen(
                         showUnairedNextUpDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (!uiState.showUnairedNextUp) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (!uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    ),
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+),
                     modifier = Modifier.fillMaxWidth()
-                ) {
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.trakt_hide_unaired))
                 }
                 Row(
@@ -447,8 +483,17 @@ fun TraktScreen(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) {
+                        ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
@@ -473,11 +518,20 @@ fun TraktScreen(
                         showCommentsDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (uiState.showMetaComments) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    ),
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+),
                     modifier = Modifier.fillMaxWidth()
-                ) {
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.trakt_setting_on))
                 }
                 Button(
@@ -486,11 +540,20 @@ fun TraktScreen(
                         showCommentsDialog = false
                     },
                     colors = ButtonDefaults.colors(
-                        containerColor = if (!uiState.showMetaComments) SettingsGlassControlSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (!uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    ),
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+),
                     modifier = Modifier.fillMaxWidth()
-                ) {
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.trakt_setting_off))
                 }
                 Row(
@@ -502,8 +565,17 @@ fun TraktScreen(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsGlassRowColor,
                             contentColor = NuvioColors.TextPrimary
-                        )
-                    ) {
+                        ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                    ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                         Text(stringResource(R.string.action_cancel))
                     }
                 }
@@ -532,8 +604,17 @@ fun TraktScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    )
-                ) {
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.trakt_disconnect))
                 }
                 Button(
@@ -541,8 +622,17 @@ fun TraktScreen(
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassRowColor,
                         contentColor = NuvioColors.TextPrimary
-                    )
-                ) {
+                    ,
+    focusedContainerColor = SettingsGlassRowFocusedColor
+
+    focusedContentColor = Color.White
+)
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(stringResource(R.string.action_cancel))
                 }
             }
