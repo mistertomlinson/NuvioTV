@@ -1451,8 +1451,8 @@ private fun DebridTextListDialog(
             onClick = { inputFocusRequester.requestFocus() },
             modifier = Modifier.fillMaxWidth(),
             colors = CardDefaults.colors(
-                containerColor = SettingsGlassRowColor,
-                focusedContainerColor = SettingsGlassRowColor
+                containerColor = SettingsInsetControlColor,
+                focusedContainerColor = SettingsInsetControlFocusedColor
             ),
             shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
             scale = CardDefaults.scale(focusedScale = 1f)
@@ -2089,8 +2089,8 @@ private fun DebridApiKeyDialog(
                 .fillMaxWidth()
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
-                containerColor = SettingsGlassRowColor,
-                focusedContainerColor = SettingsGlassRowColor
+                containerColor = SettingsInsetControlColor,
+                focusedContainerColor = SettingsInsetControlFocusedColor
             ),
             border = CardDefaults.border(
                 border = Border(
@@ -2263,8 +2263,8 @@ private fun QrCodeOverlay(
                 onClick = onClose,
                 modifier = Modifier.focusRequester(focusRequester),
                 colors = CardDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
-                    focusedContainerColor = SettingsGlassRowFocusedColor
+                    containerColor = SettingsRightSurfaceColor,
+                    focusedContainerColor = SettingsRightSurfaceFocusedColor
                 ),
                 shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
                 scale = CardDefaults.scale(focusedScale = 1f)
