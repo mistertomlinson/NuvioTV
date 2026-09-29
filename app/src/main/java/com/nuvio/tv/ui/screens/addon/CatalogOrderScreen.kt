@@ -50,6 +50,10 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.ExpandMore
@@ -60,6 +64,12 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import com.nuvio.tv.ui.screens.settings.SettingsActionRow
 import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
+import com.nuvio.tv.ui.screens.settings.SettingsGroupPosition
+import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceColor
+import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
+import com.nuvio.tv.ui.screens.settings.SettingsRowGap
+import com.nuvio.tv.ui.screens.settings.SettingsToggleRow
+import com.nuvio.tv.ui.screens.settings.animatedSettingsGroupShape
 import com.nuvio.tv.ui.screens.settings.SettingsGroupCard
 import com.nuvio.tv.R as NuvioR
 import com.nuvio.tv.R
@@ -112,6 +122,9 @@ private fun CatalogOrderScreenContent(
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    var streamingPlatformSettingsExpanded by remember {
+        mutableStateOf(false)
+    }
 
     // Pickup/drop reordering is intentionally screen-local while moving.
     // We only persist the final order when the user presses Enter to drop.
@@ -139,6 +152,57 @@ private fun CatalogOrderScreenContent(
     }
 
     val displayedItems = previewItems ?: uiState.items
+
+    fun catalogGroupPosition(index: Int): SettingsGroupPosition {
+        if (displayedItems.size == 1) {
+            return SettingsGroupPosition.SINGLE
+        }
+
+        val pickedIndex =
+            pickedUpKey?.let { key ->
+                displayedItems.indexOfFirst { it.key == key }
+                    .takeIf { it >= 0 }
+            }
+
+        if (pickedIndex == null) {
+            return when (index) {
+                0 -> SettingsGroupPosition.TOP
+                displayedItems.lastIndex ->
+                    SettingsGroupPosition.BOTTOM
+                else -> SettingsGroupPosition.MIDDLE
+            }
+        }
+
+        if (index == pickedIndex) {
+            return SettingsGroupPosition.SINGLE
+        }
+
+        if (index < pickedIndex) {
+            val segmentLast = pickedIndex - 1
+            return when {
+                segmentLast == 0 ->
+                    SettingsGroupPosition.SINGLE
+                index == 0 ->
+                    SettingsGroupPosition.TOP
+                index == segmentLast ->
+                    SettingsGroupPosition.BOTTOM
+                else ->
+                    SettingsGroupPosition.MIDDLE
+            }
+        }
+
+        val segmentFirst = pickedIndex + 1
+        return when {
+            segmentFirst == displayedItems.lastIndex ->
+                SettingsGroupPosition.SINGLE
+            index == segmentFirst ->
+                SettingsGroupPosition.TOP
+            index == displayedItems.lastIndex ->
+                SettingsGroupPosition.BOTTOM
+            else ->
+                SettingsGroupPosition.MIDDLE
+        }
+    }
 
     LaunchedEffect(uiState.items, pendingDroppedOrderKeys) {
         val pending = pendingDroppedOrderKeys ?: return@LaunchedEffect
@@ -229,7 +293,7 @@ private fun CatalogOrderScreenContent(
                     }
                 ),
             contentPadding = PaddingValues(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
         ) {
             item {
                 Text(
@@ -243,60 +307,210 @@ private fun CatalogOrderScreenContent(
                     style = MaterialTheme.typography.bodyMedium,
                     color = NuvioColors.TextSecondary
                 )
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             item {
-                var streamingPlatformSettingsExpanded by remember { mutableStateOf(false) }
-                val headerFocusRequester = remember { FocusRequester() }
-                CatalogCollapsibleSectionCard(
-                    title = "Streaming Platform Settings",
-                    description = "Controls how streaming platforms are handled",
-                    expanded = streamingPlatformSettingsExpanded,
-                    onToggle = { streamingPlatformSettingsExpanded = !streamingPlatformSettingsExpanded },
-                    focusRequester = headerFocusRequester
-                ) {
-                    AggregatePlatformsToggleRow(
-                        checked = uiState.aggregateStreamingPlatformsEnabled,
-                        onToggle = { viewModel.toggleAggregatePlatforms() }
-                    )
-                    if (uiState.aggregateStreamingPlatformsEnabled) {
-                        ShowAllCatalogsOnHomeToggleRow(
-                            checked = uiState.showAllCatalogsOnHome,
-                            onToggle = { viewModel.toggleShowAllCatalogsOnHome() }
-                        )
-                        HidePlatformNameToggleRow(
-                            checked = uiState.hidePlatformNameInCatalogTitleEnabled,
-                            onToggle = { viewModel.toggleHidePlatformNameInCatalogTitle() }
-                        )
-                        FullWidthIconRowToggleRow(
-                            checked = uiState.fullWidthIconRowEnabled,
-                            onToggle = { viewModel.toggleFullWidthIconRow() }
-                        )
-                        if (uiState.fullWidthIconRowEnabled) {
-                            HeroMetadataSizeToggleRow(
-                                checked = uiState.heroMetadataLarge,
-                                onToggle = { viewModel.toggleHeroMetadataLarge() }
-                            )
+                val headerFocusRequester = remember {
+                    FocusRequester()
+                }
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(
+                        if (streamingPlatformSettingsExpanded) {
+                            10.dp
+                        } else {
+                            SettingsRowGap
                         }
-                        HidePlatformIconsOnRowExitToggleRow(
-                            checked = uiState.hidePlatformIconsOnRowExitEnabled,
-                            onToggle = { viewModel.toggleHidePlatformIconsOnRowExit() }
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement =
+                            Arrangement.spacedBy(SettingsRowGap)
+                    ) {
+                        SettingsActionRow(
+                            title = "Streaming Platform Settings",
+                            subtitle =
+                                "Controls how streaming platforms are handled",
+                            value =
+                                if (streamingPlatformSettingsExpanded) {
+                                    stringResource(R.string.layout_open)
+                                } else {
+                                    stringResource(R.string.layout_closed)
+                                },
+                            onClick = {
+                                streamingPlatformSettingsExpanded =
+                                    !streamingPlatformSettingsExpanded
+                            },
+                            trailingIcon =
+                                if (streamingPlatformSettingsExpanded) {
+                                    Icons.Default.ExpandMore
+                                } else {
+                                    Icons.Default.ChevronRight
+                                },
+                            modifier = Modifier.focusRequester(
+                                headerFocusRequester
+                            ),
+                            showDivider = false,
+                            groupPosition =
+                                SettingsGroupPosition.TOP
                         )
-                        if (!uiState.hidePlatformIconsOnRowExitEnabled) {
-                            DimIconsOnRowExitToggleRow(
-                                checked = uiState.dimIconsOnRowExitEnabled,
-                                onToggle = { viewModel.toggleDimIconsOnRowExit() }
+
+                        AnimatedVisibility(
+                            visible =
+                                streamingPlatformSettingsExpanded,
+                            enter = expandVertically(
+                                animationSpec = tween(
+                                    durationMillis = 240,
+                                    easing = FastOutSlowInEasing
+                                ),
+                                expandFrom = Alignment.Top
+                            ),
+                            exit = shrinkVertically(
+                                animationSpec = tween(
+                                    durationMillis = 240,
+                                    easing = FastOutSlowInEasing
+                                ),
+                                shrinkTowards = Alignment.Top
                             )
+                        ) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement =
+                                    Arrangement.spacedBy(
+                                        SettingsRowGap
+                                    )
+                            ) {
+                                AggregatePlatformsToggleRow(
+                                    checked =
+                                        uiState
+                                            .aggregateStreamingPlatformsEnabled,
+                                    groupPosition =
+                                        if (
+                                            uiState
+                                                .aggregateStreamingPlatformsEnabled
+                                        ) {
+                                            SettingsGroupPosition.MIDDLE
+                                        } else {
+                                            SettingsGroupPosition.BOTTOM
+                                        },
+                                    onToggle = {
+                                        viewModel
+                                            .toggleAggregatePlatforms()
+                                    }
+                                )
+
+                                if (
+                                    uiState
+                                        .aggregateStreamingPlatformsEnabled
+                                ) {
+                                    ShowAllCatalogsOnHomeToggleRow(
+                                        checked =
+                                            uiState.showAllCatalogsOnHome,
+                                        groupPosition =
+                                            SettingsGroupPosition.MIDDLE,
+                                        onToggle = {
+                                            viewModel
+                                                .toggleShowAllCatalogsOnHome()
+                                        }
+                                    )
+                                    HidePlatformNameToggleRow(
+                                        checked =
+                                            uiState
+                                                .hidePlatformNameInCatalogTitleEnabled,
+                                        groupPosition =
+                                            SettingsGroupPosition.MIDDLE,
+                                        onToggle = {
+                                            viewModel
+                                                .toggleHidePlatformNameInCatalogTitle()
+                                        }
+                                    )
+                                    FullWidthIconRowToggleRow(
+                                        checked =
+                                            uiState
+                                                .fullWidthIconRowEnabled,
+                                        groupPosition =
+                                            SettingsGroupPosition.MIDDLE,
+                                        onToggle = {
+                                            viewModel
+                                                .toggleFullWidthIconRow()
+                                        }
+                                    )
+                                    if (
+                                        uiState.fullWidthIconRowEnabled
+                                    ) {
+                                        HeroMetadataSizeToggleRow(
+                                            checked =
+                                                uiState
+                                                    .heroMetadataLarge,
+                                            groupPosition =
+                                                SettingsGroupPosition.MIDDLE,
+                                            onToggle = {
+                                                viewModel
+                                                    .toggleHeroMetadataLarge()
+                                            }
+                                        )
+                                    }
+                                    HidePlatformIconsOnRowExitToggleRow(
+                                        checked =
+                                            uiState
+                                                .hidePlatformIconsOnRowExitEnabled,
+                                        groupPosition =
+                                            if (
+                                                uiState
+                                                    .hidePlatformIconsOnRowExitEnabled
+                                            ) {
+                                                SettingsGroupPosition.BOTTOM
+                                            } else {
+                                                SettingsGroupPosition.MIDDLE
+                                            },
+                                        onToggle = {
+                                            viewModel
+                                                .toggleHidePlatformIconsOnRowExit()
+                                        }
+                                    )
+                                    if (
+                                        !uiState
+                                            .hidePlatformIconsOnRowExitEnabled
+                                    ) {
+                                        DimIconsOnRowExitToggleRow(
+                                            checked =
+                                                uiState
+                                                    .dimIconsOnRowExitEnabled,
+                                            groupPosition =
+                                                SettingsGroupPosition.BOTTOM,
+                                            onToggle = {
+                                                viewModel
+                                                    .toggleDimIconsOnRowExit()
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
+
+                    ThemeColorToggleRow(
+                        checked = uiState.useThemeColorForNumbers,
+                        groupPosition =
+                            if (streamingPlatformSettingsExpanded) {
+                                SettingsGroupPosition.SINGLE
+                            } else {
+                                SettingsGroupPosition.BOTTOM
+                            },
+                        onToggle = {
+                            viewModel.toggleUseThemeColorForNumbers()
+                        }
+                    )
                 }
             }
 
+            // Keep the catalog rows visually separate while preserving the
+            // existing LazyColumn row start index used by pickup/reorder math.
             item {
-                ThemeColorToggleRow(
-                    checked = uiState.useThemeColorForNumbers,
-                    onToggle = { viewModel.toggleUseThemeColorForNumbers() }
-                )
+                Spacer(modifier = Modifier.height(8.dp))
             }
 
             when {
@@ -331,6 +545,8 @@ private fun CatalogOrderScreenContent(
                         CatalogOrderCard(
                             item = item,
                             isPickedUp = pickedUpKey == item.key,
+                            groupPosition =
+                                catalogGroupPosition(index),
                             onTogglePickup = {
                                 if (pickedUpKey == item.key) {
                                     // Enter while carrying = drop and persist.
@@ -395,6 +611,7 @@ private fun CatalogOrderScreenContent(
 private fun CatalogOrderCard(
     item: CatalogOrderItem,
     isPickedUp: Boolean,
+    groupPosition: SettingsGroupPosition,
     onTogglePickup: () -> Unit,
     onMovePicked: (Int) -> Unit,
     onMoveToTop: () -> Unit,
@@ -407,6 +624,11 @@ private fun CatalogOrderCard(
     globalLandscapeEnabled: Boolean
 ) {
     val lastPickedMoveTime = remember(item.key) { longArrayOf(0L) }
+    val cardShape = animatedSettingsGroupShape(
+        position = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 
     Card(
         modifier = Modifier
@@ -421,15 +643,15 @@ private fun CatalogOrderCard(
             containerColor = if (isPickedUp) {
                 // Lifted rows should read as raised/lighter, not selected by
                 // another focus ring.
-                SettingsGlassRowFocusedColor
+                SettingsRightSurfaceFocusedColor
             } else {
-                SettingsGlassRowColor
+                SettingsRightSurfaceColor
             }
         ),
         elevation = CardDefaults.cardElevation(
             defaultElevation = if (isPickedUp) 12.dp else 0.dp
         ),
-        shape = RoundedCornerShape(12.dp)
+        shape = cardShape
     ) {
         Row(
             modifier = Modifier
@@ -853,133 +1075,45 @@ private fun String.toDisplayTypeLabel(): String {
 @Composable
 private fun ShowAllCatalogsOnHomeToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
+    SettingsToggleRow(
+        title = stringResource(
+            R.string.catalog_show_all_on_home_title
         ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
+        subtitle = stringResource(
+            R.string.catalog_show_all_on_home_desc
         ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.catalog_show_all_on_home_title),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(R.string.catalog_show_all_on_home_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
-            }
-        }
-    }
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
 
 @Composable
 private fun HidePlatformNameToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
+    SettingsToggleRow(
+        title = stringResource(
+            R.string.catalog_hide_platform_name_title
         ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
+        subtitle = stringResource(
+            R.string.catalog_hide_platform_name_desc
         ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.catalog_hide_platform_name_title),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(R.string.catalog_hide_platform_name_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
-            }
-        }
-    }
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
 
 @Composable
@@ -1014,406 +1148,119 @@ private fun CatalogCollapsibleSectionCard(
 @Composable
 private fun HeroMetadataSizeToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
+    SettingsToggleRow(
+        title = stringResource(R.string.hero_metadata_large_title),
+        subtitle = stringResource(
+            R.string.hero_metadata_large_desc
         ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
-        ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.hero_metadata_large_title),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(R.string.hero_metadata_large_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
-            }
-        }
-    }
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
 
 @Composable
 private fun AggregatePlatformsToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
+    SettingsToggleRow(
+        title = stringResource(
+            R.string.catalog_aggregate_platforms_title
         ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
+        subtitle = stringResource(
+            R.string.catalog_aggregate_platforms_desc
         ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.catalog_aggregate_platforms_title),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(R.string.catalog_aggregate_platforms_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
-            }
-        }
-    }
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
 
 @Composable
 private fun FullWidthIconRowToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
+    SettingsToggleRow(
+        title = stringResource(
+            R.string.catalog_full_width_icon_row_title
         ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
+        subtitle = stringResource(
+            R.string.catalog_full_width_icon_row_desc
         ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = stringResource(R.string.catalog_full_width_icon_row_title),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = stringResource(R.string.catalog_full_width_icon_row_desc),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
-            }
-        }
-    }
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
 
 
 @Composable
 private fun HidePlatformIconsOnRowExitToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
-        ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
-        ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(
-            focusedScale = 1f,
-            pressedScale = 1f
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Hide Icons on Row Exit",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Only show platform icons while the row is active",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary
-                )
-            }
-
-            Spacer(modifier = Modifier.width(12.dp))
-
-            val pillColor =
-                if (checked) {
-                    NuvioColors.Secondary.copy(alpha = 0.35f)
-                } else {
-                    SettingsGlassBorderColor
-                }
-
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment =
-                    if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(
-                            if (checked) {
-                                NuvioColors.Secondary
-                            } else {
-                                NuvioColors.TextSecondary
-                            }
-                        )
-                )
-            }
-        }
-    }
+    SettingsToggleRow(
+        title = "Hide Icons on Row Exit",
+        subtitle = "Only show platform icons while the row is active",
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
 
 @Composable
 private fun DimIconsOnRowExitToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
-        ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
-        ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Dim Icons on Row Exit",
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = NuvioColors.TextPrimary
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = "Icons only brighten when row is active",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextSecondary
-                )
-            }
-            Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(if (checked) NuvioColors.Secondary else NuvioColors.TextSecondary)
-                )
-            }
-        }
-    }
+    SettingsToggleRow(
+        title = "Dim Icons on Row Exit",
+        subtitle = "Icons only brighten when row is active",
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
 @Composable
 private fun ThemeColorToggleRow(
     checked: Boolean,
+    groupPosition: SettingsGroupPosition,
     onToggle: () -> Unit
 ) {
-    var isFocused by remember { mutableStateOf(false) }
-    androidx.tv.material3.Card(
-        onClick = onToggle,
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(50.dp)
-            .onFocusChanged { isFocused = it.isFocused },
-        colors = androidx.tv.material3.CardDefaults.colors(
-            containerColor = SettingsGlassGroupColor,
-            focusedContainerColor = SettingsGlassGroupColor
+    SettingsToggleRow(
+        title = stringResource(
+            R.string.catalog_use_theme_color_numbers
         ),
-        border = androidx.tv.material3.CardDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(999.dp)
-            )
-        ),
-        shape = androidx.tv.material3.CardDefaults.shape(RoundedCornerShape(999.dp)),
-        scale = androidx.tv.material3.CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(
-                text = stringResource(R.string.catalog_use_theme_color_numbers),
-                style = MaterialTheme.typography.bodyLarge,
-                color = NuvioColors.TextPrimary
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-            val pillColor = if (checked) NuvioColors.Secondary.copy(alpha = 0.35f) else SettingsGlassBorderColor
-            Box(
-                modifier = Modifier
-                    .width(46.dp)
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(pillColor)
-                    .padding(2.dp),
-                contentAlignment = if (checked) Alignment.CenterEnd else Alignment.CenterStart
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(Color.White)
-                )
-            }
-        }
-    }
+        subtitle = null,
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
 }
