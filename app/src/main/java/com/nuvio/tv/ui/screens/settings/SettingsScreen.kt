@@ -959,14 +959,11 @@ private fun IntegrationSettingsContent(
         }
     }
 
-    LaunchedEffect(
-        autoFocusEnabled,
-        selectedSection
-    ) {
+    LaunchedEffect(autoFocusEnabled) {
         if (
             autoFocusEnabled &&
             selectedSection ==
-            IntegrationSettingsSection.Hub
+                IntegrationSettingsSection.Hub
         ) {
             runCatching {
                 hubEntryFocusRequester.requestFocus()
