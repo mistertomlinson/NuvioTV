@@ -120,7 +120,7 @@ fun NuvioDialog(
             onDispose { }
         }
 
-        val shape =
+        val dialogShape =
             RoundedCornerShape(if (useEnhancedGlass) 24.dp else 16.dp)
 
         val borderColor = when {
@@ -147,7 +147,7 @@ fun NuvioDialog(
             ) {
                 Modifier.hazeChild(
                     state = hazeState,
-                    shape = shape,
+                    shape = dialogShape,
                     tint = Color.Unspecified,
                     blurRadius =
                         if (glassEnvironment.backdropAlreadyBlurred) {
@@ -175,7 +175,7 @@ fun NuvioDialog(
             modifier = Modifier
                 .width(width)
                 .graphicsLayer {
-                    shape = shape
+                    shape = dialogShape
                     clip = true
                     alpha =
                         if (useEnhancedGlass) {
@@ -194,18 +194,18 @@ fun NuvioDialog(
                     scaleY = animatedScale
                 }
                 .then(blurModifier)
-                .clip(shape)
+                .clip(dialogShape)
                 .then(
                     when {
                         useEnhancedGlass ->
-                            Modifier.background(NuvioDialogGlassBrush, shape)
+                            Modifier.background(NuvioDialogGlassBrush, dialogShape)
                         glass ->
-                            Modifier.background(Color(0xD923292F), shape)
+                            Modifier.background(Color(0xD923292F), dialogShape)
                         else ->
-                            Modifier.background(NuvioColors.BackgroundElevated, shape)
+                            Modifier.background(NuvioColors.BackgroundElevated, dialogShape)
                     }
                 )
-                .border(1.dp, borderColor, shape)
+                .border(1.dp, borderColor, dialogShape)
                 .padding(
                     if (useEnhancedGlass) {
                         24.dp
