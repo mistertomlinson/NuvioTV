@@ -457,7 +457,8 @@ internal fun RenderTypeSettingsItem(
     isSelected: Boolean,
     onClick: () -> Unit,
     onFocused: () -> Unit = {},
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    useDialogGlass: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
@@ -475,12 +476,24 @@ internal fun RenderTypeSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = if (isFocused) {
-                SettingsRightSurfaceFocusedColor
-            } else {
-                SettingsRightSurfaceColor
-            },
-            focusedContainerColor = SettingsRightSurfaceFocusedColor
+            containerColor =
+                if (useDialogGlass) {
+                    if (isFocused) {
+                        SettingsGlassRowFocusedColor
+                    } else {
+                        SettingsGlassRowColor
+                    }
+                } else if (isFocused) {
+                    SettingsRightSurfaceFocusedColor
+                } else {
+                    SettingsRightSurfaceColor
+                },
+            focusedContainerColor =
+                if (useDialogGlass) {
+                    SettingsGlassRowFocusedColor
+                } else {
+                    SettingsRightSurfaceFocusedColor
+                }
         ),
         border = CardDefaults.border(
             border = Border.None,
@@ -627,7 +640,8 @@ internal fun SliderSettingsItem(
     subtitle: String? = null,
     onFocused: () -> Unit = {},
     enabled: Boolean = true,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    useDialogGlass: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
@@ -662,12 +676,24 @@ internal fun SliderSettingsItem(
                 }
             },
         colors = CardDefaults.colors(
-            containerColor = if (isFocused) {
-                SettingsRightSurfaceFocusedColor
-            } else {
-                SettingsRightSurfaceColor
-            },
-            focusedContainerColor = SettingsRightSurfaceFocusedColor
+            containerColor =
+                if (useDialogGlass) {
+                    if (isFocused) {
+                        SettingsGlassRowFocusedColor
+                    } else {
+                        SettingsGlassRowColor
+                    }
+                } else if (isFocused) {
+                    SettingsRightSurfaceFocusedColor
+                } else {
+                    SettingsRightSurfaceColor
+                },
+            focusedContainerColor =
+                if (useDialogGlass) {
+                    SettingsGlassRowFocusedColor
+                } else {
+                    SettingsRightSurfaceFocusedColor
+                }
         ),
         border = CardDefaults.border(
             border = Border.None,
@@ -753,7 +779,12 @@ internal fun SliderSettingsItem(
                         },
                     colors = CardDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
-                        focusedContainerColor = SettingsRightSurfaceFocusedColor
+                        focusedContainerColor =
+                            if (useDialogGlass) {
+                                SettingsGlassRowFocusedColor
+                            } else {
+                                SettingsRightSurfaceFocusedColor
+                            }
                     ),
                     border = CardDefaults.border(
                         focusedBorder = Border(
@@ -814,7 +845,12 @@ internal fun SliderSettingsItem(
                         },
                     colors = CardDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
-                        focusedContainerColor = SettingsRightSurfaceFocusedColor
+                        focusedContainerColor =
+                            if (useDialogGlass) {
+                                SettingsGlassRowFocusedColor
+                            } else {
+                                SettingsRightSurfaceFocusedColor
+                            }
                     ),
                     border = CardDefaults.border(
                         focusedBorder = Border(
@@ -1048,8 +1084,18 @@ private fun LanguageOptionItem(
             .then(modifier)
             .onFocusChanged { isFocused = it.isFocused },
         colors = CardDefaults.colors(
-            containerColor = if (isSelected) SettingsGlassControlSelectedColor else SettingsRightSurfaceColor,
-            focusedContainerColor = SettingsRightSurfaceFocusedColor
+            containerColor =
+                if (isSelected) {
+                    SettingsGlassControlSelectedColor
+                } else {
+                    SettingsGlassRowColor
+                },
+            focusedContainerColor =
+                if (isSelected) {
+                    SettingsGlassControlSelectedColor
+                } else {
+                    SettingsGlassRowFocusedColor
+                }
         ),
         shape = CardDefaults.shape(shape = RoundedCornerShape(10.dp)),
         scale = CardDefaults.scale(focusedScale = 1f)
