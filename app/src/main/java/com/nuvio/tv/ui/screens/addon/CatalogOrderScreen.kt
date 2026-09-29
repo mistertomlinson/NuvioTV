@@ -681,7 +681,10 @@ private fun CatalogOrderCard(
             Button(
                         onClick = onTogglePickup,
                         modifier = Modifier
-                            .size(32.dp)
+                            .size(
+                                width = 40.dp,
+                                height = 32.dp
+                            )
                             .onPreviewKeyEvent { event ->
                             if (!isPickedUp) {
                                 return@onPreviewKeyEvent false
@@ -876,12 +879,15 @@ private fun CatalogOrderCard(
             }
 
             Row(
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Button(
                     onClick = onMoveToTop,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(
+                        width = 40.dp,
+                        height = 32.dp
+                    ),
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
@@ -908,7 +914,10 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onMoveUp,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(
+                        width = 40.dp,
+                        height = 32.dp
+                    ),
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
@@ -935,7 +944,10 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onMoveDown,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(
+                        width = 40.dp,
+                        height = 32.dp
+                    ),
                     enabled = item.canMoveDown,
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
@@ -962,7 +974,10 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onToggleNumbered,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(
+                        width = 40.dp,
+                        height = 32.dp
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (
@@ -1003,7 +1018,10 @@ private fun CatalogOrderCard(
 
                 if (!globalLandscapeEnabled) Button(
                     onClick = onToggleLandscape,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(
+                        width = 40.dp,
+                        height = 32.dp
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (item.isLandscape) {
@@ -1033,7 +1051,10 @@ private fun CatalogOrderCard(
 
                 if (!item.isGroup) Button(
                     onClick = onToggleShuffle,
-                    modifier = Modifier.size(32.dp),
+                    modifier = Modifier.size(
+                        width = 40.dp,
+                        height = 32.dp
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (item.isShuffled) {
