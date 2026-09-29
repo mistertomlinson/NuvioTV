@@ -110,8 +110,7 @@ private enum class LayoutSettingsSection {
 }
 
 private const val DEFAULT_SECTION_COLLAPSE_MILLIS = 240
-private const val POSTER_CARD_STYLE_COLLAPSE_MILLIS = 340
-private const val POSTER_CARD_STYLE_CORNER_SETTLE_MILLIS = 90
+private const val POSTER_CARD_STYLE_COLLAPSE_MILLIS = 240
 
 @Composable
 fun LayoutSettingsContent(
@@ -141,7 +140,7 @@ fun LayoutSettingsContent(
     var animatedFlattenBoundaries by remember {
         mutableStateOf<Set<Int>>(emptySet())
     }
-    var deferredCornerCollapseSections by remember {
+    var deferredBottomCornerSections by remember {
         mutableStateOf<Set<LayoutSettingsSection>>(emptySet())
     }
 
@@ -185,12 +184,9 @@ fun LayoutSettingsContent(
         if (focusedPosterExpanded) add(LayoutSettingsSection.FOCUSED_POSTER)
         if (posterCardStyleExpanded) add(LayoutSettingsSection.POSTER_CARD_STYLE)
     }
-    val shapeExpandedSections =
-        expandedSections + deferredCornerCollapseSections
-
     fun groupPositionFor(
         section: LayoutSettingsSection,
-        expanded: Set<LayoutSettingsSection> = shapeExpandedSections
+        expanded: Set<LayoutSettingsSection> = expandedSections
     ): SettingsGroupPosition {
         val index = visibleSections.indexOf(section)
         if (index < 0) return SettingsGroupPosition.SINGLE
@@ -282,6 +278,82 @@ fun LayoutSettingsContent(
         }
     }
 
+    fun beginImmediateTopBoundaryReturn(
+        section: LayoutSettingsSection,
+        before: Set<LayoutSettingsSection>,
+        after: Set<LayoutSettingsSection>
+    ) {
+        val sectionIndex = visibleSections.indexOf(section)
+        if (sectionIndex <= 0) {
+            animatedFlattenBoundaries = emptySet()
+            return
+        }
+
+        val boundaryIndex = sectionIndex - 1
+        val upper = visibleSections[boundaryIndex]
+        val lower = visibleSections[sectionIndex]
+        val bothRoundedBefore =
+            headerBottomRounded(upper, before) &&
+                headerTopRounded(lower, before)
+        val bothFlatAfter =
+            !headerBottomRounded(upper, after) &&
+                !headerTopRounded(lower, after)
+
+        if (bothRoundedBefore && bothFlatAfter) {
+            /*
+             * This is the boundary ABOVE the collapsing child list. It can
+             * begin returning immediately because no disappearing rows sit
+             * between these two header edges.
+             */
+            beginBoundaryReturnAnimation(setOf(boundaryIndex))
+        } else {
+            animatedFlattenBoundaries = emptySet()
+        }
+    }
+
+    fun prepareSectionCollapseCorners(
+        section: LayoutSettingsSection,
+        before: Set<LayoutSettingsSection>,
+        after: Set<LayoutSettingsSection>
+    ) {
+        /*
+         * The top boundary is independent of the child rows, so let it move
+         * to its final state immediately. A rounded+rounded pair returning
+         * to flat animates here.
+         */
+        beginImmediateTopBoundaryReturn(section, before, after)
+
+        /*
+         * The parent's BOTTOM edge is physically attached to the collapsing
+         * child list. Hold only that edge flat until the rows are gone.
+         *
+         * Because the rest of the headers already use the final grouping,
+         * a lower sibling whose rounded top will ultimately meet this flat
+         * parent bottom snaps flat NOW, before the rows begin shrinking.
+         * That prevents a rounded edge from surviving until contact.
+         */
+        deferredBottomCornerSections =
+            deferredBottomCornerSections + section
+    }
+
+    fun releaseDeferredBottomCornerAfterCollapse(
+        section: LayoutSettingsSection,
+        collapseDurationMillis: Int =
+            DEFAULT_SECTION_COLLAPSE_MILLIS
+    ) {
+        layoutAnimationScope.launch {
+            delay(collapseDurationMillis.toLong())
+
+            if (section !in deferredBottomCornerSections) {
+                return@launch
+            }
+
+            androidx.compose.runtime.withFrameNanos { }
+            deferredBottomCornerSections =
+                deferredBottomCornerSections - section
+        }
+    }
+
     fun setSectionExpandedWithCornerPolicy(
         section: LayoutSettingsSection,
         expanded: Boolean
@@ -295,56 +367,20 @@ fun LayoutSettingsContent(
             }
 
         if (expanded) {
-            /*
-             * Opening owns its shape transition immediately. If the same
-             * section was reopened during a pending collapse, dropping it
-             * from the deferred set also prevents that old collapse from
-             * releasing its corners later.
-             */
-            deferredCornerCollapseSections =
-                deferredCornerCollapseSections - section
+            deferredBottomCornerSections =
+                deferredBottomCornerSections - section
             animatedFlattenBoundaries = emptySet()
             applySectionExpandedState(section, true)
             return
         }
 
-        val returnBoundaries =
-            roundedPairReturnBoundaries(before, after)
-
-        /*
-         * Universal collapse rule:
-         *
-         * 1. Keep the section in the shape calculation so its header and
-         *    neighboring header corners remain exactly as they were while
-         *    AnimatedVisibility shrinks the child rows.
-         * 2. Collapse the content.
-         * 3. Only after the shrink duration has completed, release the held
-         *    group geometry.
-         * 4. At that point rounded+rounded boundaries animate together;
-         *    a rounded edge meeting an already-flat edge snaps flat.
-         */
-        deferredCornerCollapseSections =
-            deferredCornerCollapseSections + section
+        prepareSectionCollapseCorners(
+            section = section,
+            before = before,
+            after = after
+        )
         applySectionExpandedState(section, false)
-
-        layoutAnimationScope.launch {
-            delay(DEFAULT_SECTION_COLLAPSE_MILLIS.toLong())
-
-            /*
-             * A rapid reopen removes the section from the deferred set.
-             * In that case this stale collapse must not alter its corners.
-             */
-            if (section !in deferredCornerCollapseSections) {
-                return@launch
-            }
-
-            androidx.compose.runtime.withFrameNanos { }
-            beginBoundaryReturnAnimation(returnBoundaries)
-            androidx.compose.runtime.withFrameNanos { }
-
-            deferredCornerCollapseSections =
-                deferredCornerCollapseSections - section
-        }
+        releaseDeferredBottomCornerAfterCollapse(section)
     }
 
     fun animateTopFlattenFor(
@@ -406,7 +442,10 @@ fun LayoutSettingsContent(
                     ),
                     animateBottomFlatten = animateBottomFlattenFor(
                         LayoutSettingsSection.HOME_CONTENT
-                    )
+                    ),
+                    deferBottomCorner =
+                        LayoutSettingsSection.HOME_CONTENT in
+                            deferredBottomCornerSections
                 ) {
                     CompactToggleRow(
                         title = stringResource(R.string.layout_landscape_posters),
@@ -481,7 +520,10 @@ fun LayoutSettingsContent(
                     ),
                     animateBottomFlatten = animateBottomFlattenFor(
                         LayoutSettingsSection.CONTINUE_WATCHING
-                    )
+                    ),
+                    deferBottomCorner =
+                        LayoutSettingsSection.CONTINUE_WATCHING in
+                            deferredBottomCornerSections
                 ) {
                     LayoutControlGroup(
                         groupPosition = SettingsGroupPosition.BOTTOM
@@ -574,7 +616,10 @@ fun LayoutSettingsContent(
                     ),
                     animateBottomFlatten = animateBottomFlattenFor(
                         LayoutSettingsSection.DETAIL_PAGE
-                    )
+                    ),
+                    deferBottomCorner =
+                        LayoutSettingsSection.DETAIL_PAGE in
+                            deferredBottomCornerSections
                 ) {
                     CompactToggleRow(
                         title = stringResource(R.string.layout_blur_unwatched),
@@ -639,7 +684,10 @@ fun LayoutSettingsContent(
                     ),
                     animateBottomFlatten = animateBottomFlattenFor(
                         LayoutSettingsSection.FOCUSED_POSTER
-                    )
+                    ),
+                    deferBottomCorner =
+                        LayoutSettingsSection.FOCUSED_POSTER in
+                            deferredBottomCornerSections
                 ) {
                     val isModernLandscape = uiState.modernLandscapePostersEnabled
                     val showAutoplayRow = uiState.focusedPosterBackdropExpandEnabled || isModernLandscape
@@ -829,40 +877,28 @@ fun LayoutSettingsContent(
                                     LayoutSettingsSection.POSTER_CARD_STYLE
                                 val before = expandedSections
                                 val after = before - section
-                                val returnBoundaries =
-                                    roundedPairReturnBoundaries(
-                                        before,
-                                        after
-                                    )
 
-                                /*
-                                 * Hold the parent/header geometry in its
-                                 * pre-collapse shape while the child rows
-                                 * shrink and the short list returns upward.
-                                 * Once both motions settle, release the held
-                                 * geometry and run the corner transition.
-                                 */
-                                deferredCornerCollapseSections =
-                                    deferredCornerCollapseSections + section
+                                prepareSectionCollapseCorners(
+                                    section = section,
+                                    before = before,
+                                    after = after
+                                )
 
                                 layoutAnimationScope.launch {
                                     /*
-                                     * Keep the built-in LazyList animation
-                                     * that previously prevented the short-list
-                                     * max-scroll clamp. The slightly longer
-                                     * section shrink below slows the combined
-                                     * visual return without replacing the
-                                     * scroll primitive.
+                                     * Exact return-scroll choreography from
+                                     * the revision that eliminated the snap:
+                                     * start LazyList's own smooth return,
+                                     * give it one rendered frame of ownership,
+                                     * then begin the normal 240 ms shrink.
                                      */
                                     val returnScroll = launch {
-                                        layoutListState.animateScrollToItem(0)
+                                        layoutListState.animateScrollToItem(
+                                            index = 0,
+                                            scrollOffset = 0
+                                        )
                                     }
 
-                                    /*
-                                     * Give the list animation ownership one
-                                     * rendered frame before its content height
-                                     * begins shrinking.
-                                     */
                                     androidx.compose.runtime
                                         .withFrameNanos { }
 
@@ -870,41 +906,12 @@ fun LayoutSettingsContent(
                                         section,
                                         false
                                     )
-
-                                    val collapseSettled = launch {
-                                        delay(
-                                            POSTER_CARD_STYLE_COLLAPSE_MILLIS
-                                                .toLong()
-                                        )
-                                    }
+                                    releaseDeferredBottomCornerAfterCollapse(
+                                        section,
+                                        POSTER_CARD_STYLE_COLLAPSE_MILLIS
+                                    )
 
                                     returnScroll.join()
-                                    collapseSettled.join()
-
-                                    /*
-                                     * The rows are now gone and the LazyColumn
-                                     * has reached its final valid position.
-                                     * Keep the old corner geometry through a
-                                     * short visual settle, then begin the
-                                     * rounded-edge rejoin as a distinct phase.
-                                     */
-                                    delay(
-                                        POSTER_CARD_STYLE_CORNER_SETTLE_MILLIS
-                                            .toLong()
-                                    )
-                                    androidx.compose.runtime
-                                        .withFrameNanos { }
-                                    androidx.compose.runtime
-                                        .withFrameNanos { }
-
-                                    beginBoundaryReturnAnimation(
-                                        returnBoundaries
-                                    )
-                                    androidx.compose.runtime
-                                        .withFrameNanos { }
-                                    deferredCornerCollapseSections =
-                                        deferredCornerCollapseSections -
-                                            section
                                 }
                             } else {
                                 setSectionExpandedWithCornerPolicy(
@@ -925,6 +932,9 @@ fun LayoutSettingsContent(
                     animateBottomFlatten = animateBottomFlattenFor(
                         LayoutSettingsSection.POSTER_CARD_STYLE
                     ),
+                    deferBottomCorner =
+                        LayoutSettingsSection.POSTER_CARD_STYLE in
+                            deferredBottomCornerSections,
                     collapseDurationMillis =
                         POSTER_CARD_STYLE_COLLAPSE_MILLIS
                 ) {
@@ -1063,6 +1073,7 @@ private fun CollapsibleSectionCard(
     groupPosition: SettingsGroupPosition,
     animateTopFlatten: Boolean = false,
     animateBottomFlatten: Boolean = false,
+    deferBottomCorner: Boolean = false,
     collapseDurationMillis: Int = DEFAULT_SECTION_COLLAPSE_MILLIS,
     content: @Composable ColumnScope.() -> Unit
 ) {
@@ -1081,10 +1092,19 @@ private fun CollapsibleSectionCard(
             modifier = Modifier.focusRequester(focusRequester),
             onFocused = onFocused,
             showDivider = false,
-            groupPosition = if (expanded) {
-                SettingsGroupPosition.TOP
-            } else {
-                groupPosition
+            groupPosition = when {
+                expanded -> SettingsGroupPosition.TOP
+                deferBottomCorner -> when (groupPosition) {
+                    SettingsGroupPosition.SINGLE ->
+                        SettingsGroupPosition.TOP
+                    SettingsGroupPosition.BOTTOM ->
+                        SettingsGroupPosition.MIDDLE
+                    SettingsGroupPosition.TOP ->
+                        SettingsGroupPosition.TOP
+                    SettingsGroupPosition.MIDDLE ->
+                        SettingsGroupPosition.MIDDLE
+                }
+                else -> groupPosition
             },
             animateTopFlatten = animateTopFlatten,
             animateBottomFlatten = animateBottomFlatten
