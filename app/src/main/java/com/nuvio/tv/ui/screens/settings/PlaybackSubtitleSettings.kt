@@ -144,7 +144,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.subtitleSettingsItem
         icon = Icons.Default.FormatSize,
         title = stringResource(R.string.sub_size),
         value = playerSettings.subtitleStyle.size,
-        valueText = "\${playerSettings.subtitleStyle.size}%",
+        valueText = "${playerSettings.subtitleStyle.size}%",
         minValue = 50,
         maxValue = 200,
         step = 10,
@@ -158,7 +158,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.subtitleSettingsItem
         title = stringResource(R.string.sub_vertical_offset),
         value = playerSettings.subtitleStyle.verticalOffset,
         valueText =
-            "\${playerSettings.subtitleStyle.verticalOffset}%",
+            "${playerSettings.subtitleStyle.verticalOffset}%",
         minValue = -20,
         maxValue = 50,
         step = 1,
