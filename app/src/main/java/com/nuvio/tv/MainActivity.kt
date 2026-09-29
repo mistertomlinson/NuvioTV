@@ -1389,7 +1389,9 @@ private fun LegacySidebarScaffold(
                 LocalSidebarFocusRestoreActive provides
                     (
                         legacyDrawerVisible ||
-                            pendingContentFocusTransfer
+                            pendingContentFocusTransfer ||
+                            legacyRootTransitionTarget != null ||
+                            legacyRootTransitionBitmap != null
                     ),
                 LocalRowFocusRestorer provides rowFocusRestorer,
                 LocalSettingsBackdropBitmap provides settingsBackdropBitmap
