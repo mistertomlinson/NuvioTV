@@ -407,11 +407,19 @@ private fun SettingsScreenContent(
                             }
                         }
                         .onPreviewKeyEvent { event ->
-                            if (event.type == KeyEventType.KeyDown && event.key == Key.DirectionRight) {
-                                allowDetailAutofocus = true
-                                false
-                            } else {
-                                false
+                            when {
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionLeft -> {
+                                    // Settings owns the full workspace; never
+                                    // let LEFT escape to the app sidebar.
+                                    true
+                                }
+                                event.type == KeyEventType.KeyDown &&
+                                    event.key == Key.DirectionRight -> {
+                                    allowDetailAutofocus = true
+                                    false
+                                }
+                                else -> false
                             }
                         },
                     verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
