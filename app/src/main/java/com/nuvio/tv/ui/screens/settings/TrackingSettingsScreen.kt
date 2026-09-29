@@ -8,7 +8,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
@@ -39,21 +40,9 @@ fun TrackingSettingsScreen(
     onNavigateToSimkl: () -> Unit,
     onBackPress: () -> Unit
 ) {
-    val traktState by traktViewModel.uiState.collectAsStateWithLifecycle()
-    val simklState by simklViewModel.uiState.collectAsStateWithLifecycle()
-    val trackingState by trackingViewModel.uiState.collectAsStateWithLifecycle()
-
     val firstFocusRequester = remember { FocusRequester() }
-    val listState = rememberLazyListState()
 
-    var showLibrarySourceDialog by remember { mutableStateOf(false) }
-    var showWatchProgressDialog by remember { mutableStateOf(false) }
-
-    val hasDialog = showLibrarySourceDialog || showWatchProgressDialog
-
-    BackHandler(enabled = !hasDialog) {
-        onBackPress()
-    }
+    BackHandler { onBackPress() }
 
     LaunchedEffect(Unit) {
         delay(160L)
@@ -62,63 +51,159 @@ fun TrackingSettingsScreen(
 
     SettingsStandaloneScaffold(
         title = stringResource(R.string.settings_tracking_title),
-        subtitle = stringResource(R.string.settings_tracking_description)
+        subtitle = stringResource(
+            R.string.settings_tracking_description_compact
+        )
+    ) {
+        TrackingSettingsContent(
+            traktViewModel = traktViewModel,
+            simklViewModel = simklViewModel,
+            trackingViewModel = trackingViewModel,
+            onNavigateToTrakt = onNavigateToTrakt,
+            onNavigateToSimkl = onNavigateToSimkl,
+            initialFocusRequester = firstFocusRequester
+        )
+    }
+}
+
+@Composable
+fun TrackingSettingsContent(
+    traktViewModel: TraktViewModel = hiltViewModel(),
+    simklViewModel: SimklSettingsViewModel = hiltViewModel(),
+    trackingViewModel: TrackingSettingsViewModel = hiltViewModel(),
+    onNavigateToTrakt: () -> Unit,
+    onNavigateToSimkl: () -> Unit,
+    initialFocusRequester: FocusRequester? = null
+) {
+    val traktState by
+        traktViewModel.uiState.collectAsStateWithLifecycle()
+    val simklState by
+        simklViewModel.uiState.collectAsStateWithLifecycle()
+    val trackingState by
+        trackingViewModel.uiState.collectAsStateWithLifecycle()
+
+    val listState = rememberLazyListState()
+    var showLibrarySourceDialog by remember {
+        mutableStateOf(false)
+    }
+    var showWatchProgressDialog by remember {
+        mutableStateOf(false)
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         SettingsDetailHeader(
             title = stringResource(R.string.settings_tracking_title),
-            subtitle = stringResource(R.string.settings_tracking_description)
+            subtitle = stringResource(
+                R.string.settings_tracking_description_compact
+            )
         )
 
-        Box(modifier = Modifier.fillMaxSize()) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+        ) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                contentPadding = PaddingValues(bottom = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 item(key = "tracking_accounts") {
                     SettingsGroupCard(
-                        title = stringResource(R.string.tracking_accounts_title),
-                        subtitle = stringResource(R.string.tracking_accounts_subtitle)
+                        title = stringResource(
+                            R.string.tracking_accounts_title
+                        ),
+                        subtitle = stringResource(
+                            R.string.tracking_accounts_subtitle
+                        ),
+                        segmented = true
                     ) {
                         SettingsActionRow(
                             title = stringResource(R.string.trakt_name),
-                            subtitle = traktAccountSubtitle(traktState),
-                            value = traktAccountStatus(traktState),
+                            subtitle =
+                                traktAccountSubtitle(traktState),
+                            value =
+                                traktAccountStatus(traktState),
                             onClick = onNavigateToTrakt,
-                            modifier = Modifier.focusRequester(firstFocusRequester)
+                            modifier =
+                                if (
+                                    initialFocusRequester != null
+                                ) {
+                                    Modifier.focusRequester(
+                                        initialFocusRequester
+                                    )
+                                } else {
+                                    Modifier
+                                },
+                            showDivider = false,
+                            groupPosition =
+                                SettingsGroupPosition.TOP
                         )
 
                         SettingsActionRow(
                             title = stringResource(R.string.simkl_name),
-                            subtitle = simklAccountSubtitle(simklState),
-                            value = simklAccountStatus(simklState),
-                            onClick = onNavigateToSimkl
+                            subtitle =
+                                simklAccountSubtitle(simklState),
+                            value =
+                                simklAccountStatus(simklState),
+                            onClick = onNavigateToSimkl,
+                            showDivider = false,
+                            groupPosition =
+                                SettingsGroupPosition.BOTTOM
                         )
                     }
                 }
 
                 item(key = "tracking_sources") {
                     SettingsGroupCard(
-                        title = stringResource(R.string.tracking_sources_title),
-                        subtitle = stringResource(R.string.tracking_sources_subtitle)
+                        title = stringResource(
+                            R.string.tracking_sources_title
+                        ),
+                        subtitle = stringResource(
+                            R.string.tracking_sources_subtitle_compact
+                        ),
+                        segmented = true
                     ) {
                         SettingsActionRow(
-                            title = stringResource(R.string.trakt_library_source_title),
-                            subtitle = stringResource(R.string.trakt_library_source_subtitle),
-                            value = librarySourceLabel(trackingState.librarySourceMode),
+                            title = stringResource(
+                                R.string.trakt_library_source_title
+                            ),
+                            subtitle = stringResource(
+                                R.string.trakt_library_source_subtitle_compact
+                            ),
+                            value = librarySourceLabel(
+                                trackingState.librarySourceMode
+                            ),
                             enabled = trackingState.isReady,
-                            onClick = { showLibrarySourceDialog = true }
+                            onClick = {
+                                showLibrarySourceDialog = true
+                            },
+                            showDivider = false,
+                            groupPosition =
+                                SettingsGroupPosition.TOP
                         )
 
                         SettingsActionRow(
-                            title = stringResource(R.string.trakt_watch_progress_title),
-                            subtitle = stringResource(R.string.trakt_watch_progress_subtitle),
+                            title = stringResource(
+                                R.string.trakt_watch_progress_title
+                            ),
+                            subtitle = stringResource(
+                                R.string.trakt_watch_progress_subtitle_compact
+                            ),
                             value = watchProgressSourceLabel(
                                 trackingState.watchProgressSource
                             ),
                             enabled = trackingState.isReady,
-                            onClick = { showWatchProgressDialog = true }
+                            onClick = {
+                                showWatchProgressDialog = true
+                            },
+                            showDivider = false,
+                            groupPosition =
+                                SettingsGroupPosition.BOTTOM
                         )
                     }
                 }
@@ -130,22 +215,27 @@ fun TrackingSettingsScreen(
 
     if (showLibrarySourceDialog) {
         SettingsSingleChoiceDialog(
-            title = stringResource(R.string.trakt_library_source_dialog_title),
+            title = stringResource(
+                R.string.trakt_library_source_dialog_title
+            ),
             subtitle = stringResource(
                 R.string.tracking_library_source_dialog_subtitle
             ),
-            options = trackingState.availableLibrarySourceModes.map { mode ->
-                SettingsPickerOption(
-                    value = mode,
-                    title = librarySourceLabel(mode)
-                )
-            },
+            options =
+                trackingState.availableLibrarySourceModes.map { mode ->
+                    SettingsPickerOption(
+                        value = mode,
+                        title = librarySourceLabel(mode)
+                    )
+                },
             selectedValue = trackingState.librarySourceMode,
             onOptionSelected = { mode ->
                 trackingViewModel.selectLibrarySourceMode(mode)
                 showLibrarySourceDialog = false
             },
-            onDismiss = { showLibrarySourceDialog = false },
+            onDismiss = {
+                showLibrarySourceDialog = false
+            },
             width = 620.dp,
             maxHeight = 340.dp
         )
@@ -153,22 +243,28 @@ fun TrackingSettingsScreen(
 
     if (showWatchProgressDialog) {
         SettingsSingleChoiceDialog(
-            title = stringResource(R.string.trakt_watch_progress_dialog_title),
+            title = stringResource(
+                R.string.trakt_watch_progress_dialog_title
+            ),
             subtitle = stringResource(
                 R.string.tracking_watch_progress_dialog_subtitle
             ),
-            options = trackingState.availableWatchProgressSources.map { source ->
-                SettingsPickerOption(
-                    value = source,
-                    title = watchProgressSourceLabel(source)
-                )
-            },
+            options =
+                trackingState.availableWatchProgressSources.map {
+                    source ->
+                    SettingsPickerOption(
+                        value = source,
+                        title = watchProgressSourceLabel(source)
+                    )
+                },
             selectedValue = trackingState.watchProgressSource,
             onOptionSelected = { source ->
                 trackingViewModel.selectWatchProgressSource(source)
                 showWatchProgressDialog = false
             },
-            onDismiss = { showWatchProgressDialog = false },
+            onDismiss = {
+                showWatchProgressDialog = false
+            },
             width = 660.dp,
             maxHeight = 360.dp
         )
@@ -180,19 +276,21 @@ private fun traktAccountSubtitle(state: TraktUiState): String {
     return when (state.mode) {
         TraktConnectionMode.CONNECTED -> stringResource(
             R.string.trakt_connected_as,
-            state.username ?: stringResource(R.string.trakt_user_fallback)
+            state.username
+                ?: stringResource(R.string.trakt_user_fallback)
         )
         TraktConnectionMode.AWAITING_APPROVAL ->
             stringResource(R.string.trakt_awaiting_instruction)
         TraktConnectionMode.DISCONNECTED ->
-            stringResource(R.string.trakt_description)
+            stringResource(R.string.tracking_trakt_subtitle_compact)
     }
 }
 
 @Composable
 private fun traktAccountStatus(state: TraktUiState): String {
     return when {
-        state.isLoading && state.mode != TraktConnectionMode.CONNECTED ->
+        state.isLoading &&
+            state.mode != TraktConnectionMode.CONNECTED ->
             stringResource(R.string.tracking_status_connecting)
         state.mode == TraktConnectionMode.CONNECTED ->
             stringResource(R.string.tracking_status_connected)
@@ -204,23 +302,29 @@ private fun traktAccountStatus(state: TraktUiState): String {
 }
 
 @Composable
-private fun simklAccountSubtitle(state: SimklSettingsUiState): String {
+private fun simklAccountSubtitle(
+    state: SimklSettingsUiState
+): String {
     return when (state.mode) {
         SimklConnectionMode.CONNECTED -> stringResource(
             R.string.simkl_connected_as,
-            state.username ?: stringResource(R.string.simkl_user_fallback)
+            state.username
+                ?: stringResource(R.string.simkl_user_fallback)
         )
         SimklConnectionMode.AWAITING_APPROVAL ->
             stringResource(R.string.simkl_awaiting_instruction)
         SimklConnectionMode.DISCONNECTED ->
-            stringResource(R.string.simkl_description)
+            stringResource(R.string.tracking_simkl_subtitle_compact)
     }
 }
 
 @Composable
-private fun simklAccountStatus(state: SimklSettingsUiState): String {
+private fun simklAccountStatus(
+    state: SimklSettingsUiState
+): String {
     return when {
-        state.isLoading && state.mode != SimklConnectionMode.CONNECTED ->
+        state.isLoading &&
+            state.mode != SimklConnectionMode.CONNECTED ->
             stringResource(R.string.tracking_status_connecting)
         state.mode == SimklConnectionMode.CONNECTED ->
             stringResource(R.string.tracking_status_connected)
@@ -232,20 +336,30 @@ private fun simklAccountStatus(state: SimklSettingsUiState): String {
 }
 
 @Composable
-private fun watchProgressSourceLabel(source: WatchProgressSource): String {
+private fun watchProgressSourceLabel(
+    source: WatchProgressSource
+): String {
     return when (source) {
-        WatchProgressSource.TRAKT -> stringResource(R.string.trakt_name)
-        WatchProgressSource.SIMKL -> stringResource(R.string.simkl_name)
+        WatchProgressSource.TRAKT ->
+            stringResource(R.string.trakt_name)
+        WatchProgressSource.SIMKL ->
+            stringResource(R.string.simkl_name)
         WatchProgressSource.NUVIO_SYNC ->
-            stringResource(R.string.trakt_watch_progress_source_nuvio)
+            stringResource(
+                R.string.trakt_watch_progress_source_nuvio
+            )
     }
 }
 
 @Composable
-private fun librarySourceLabel(mode: LibrarySourceMode): String {
+private fun librarySourceLabel(
+    mode: LibrarySourceMode
+): String {
     return when (mode) {
-        LibrarySourceMode.TRAKT -> stringResource(R.string.trakt_name)
-        LibrarySourceMode.SIMKL -> stringResource(R.string.simkl_name)
+        LibrarySourceMode.TRAKT ->
+            stringResource(R.string.trakt_name)
+        LibrarySourceMode.SIMKL ->
+            stringResource(R.string.simkl_name)
         LibrarySourceMode.LOCAL ->
             stringResource(R.string.trakt_library_source_nuvio)
     }
