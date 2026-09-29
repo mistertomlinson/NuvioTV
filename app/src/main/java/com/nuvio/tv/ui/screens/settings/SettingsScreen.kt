@@ -4,6 +4,12 @@ package com.nuvio.tv.ui.screens.settings
 
 import android.os.Build
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.annotation.RawRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -21,6 +27,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Build
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
@@ -39,11 +47,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -65,6 +75,7 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 internal enum class SettingsCategory {
     ACCOUNT,
@@ -592,104 +603,574 @@ private fun IntegrationSettingsContent(
     debridFocusRequester: FocusRequester,
     autoFocusEnabled: Boolean
 ) {
-    BackHandler(enabled = selectedSection != IntegrationSettingsSection.Hub) {
-        onSelectSection(IntegrationSettingsSection.Hub)
+    val integrationAnimationScope = rememberCoroutineScope()
+    val integrationListState = rememberLazyListState()
+    val integrationListSettleOffsetY = remember { Animatable(0f) }
+    var animatedFlattenBoundaries by remember {
+        mutableStateOf<Set<Int>>(emptySet())
     }
-    val hubEntryFocusRequester = initialFocusRequester ?: hubFocusRequester
+    var deferredBottomCornerSections by remember {
+        mutableStateOf<Set<IntegrationSettingsSection>>(emptySet())
+    }
 
-    LaunchedEffect(selectedSection, autoFocusEnabled) {
-        if (!autoFocusEnabled) return@LaunchedEffect
-        val requester = when (selectedSection) {
-            IntegrationSettingsSection.Hub -> hubEntryFocusRequester
-            IntegrationSettingsSection.Debrid -> debridFocusRequester
-            IntegrationSettingsSection.Tmdb -> tmdbFocusRequester
-            IntegrationSettingsSection.MdbList -> mdbListFocusRequester
-            IntegrationSettingsSection.AnimeSkip -> animeSkipFocusRequester
+    val hubEntryFocusRequester =
+        initialFocusRequester ?: hubFocusRequester
+
+    val visibleSections = listOf(
+        IntegrationSettingsSection.Debrid,
+        IntegrationSettingsSection.Tmdb,
+        IntegrationSettingsSection.MdbList,
+        IntegrationSettingsSection.AnimeSkip
+    )
+    val expandedSections =
+        if (selectedSection == IntegrationSettingsSection.Hub) {
+            emptySet()
+        } else {
+            setOf(selectedSection)
         }
-        runCatching { requester.requestFocus() }
+
+    fun groupPositionFor(
+        section: IntegrationSettingsSection,
+        expanded: Set<IntegrationSettingsSection> =
+            expandedSections
+    ): SettingsGroupPosition {
+        val index = visibleSections.indexOf(section)
+        if (index < 0) return SettingsGroupPosition.SINGLE
+        if (section in expanded) {
+            return SettingsGroupPosition.TOP
+        }
+
+        val startsGroup =
+            index == 0 ||
+                visibleSections[index - 1] in expanded
+        val endsGroup =
+            index == visibleSections.lastIndex ||
+                visibleSections[index + 1] in expanded
+        return when {
+            startsGroup && endsGroup ->
+                SettingsGroupPosition.SINGLE
+            startsGroup -> SettingsGroupPosition.TOP
+            endsGroup -> SettingsGroupPosition.BOTTOM
+            else -> SettingsGroupPosition.MIDDLE
+        }
     }
 
-    when (selectedSection) {
-        IntegrationSettingsSection.Hub -> {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                SettingsDetailHeader(
-                    title = stringResource(R.string.settings_integrations_section),
-                    subtitle = stringResource(R.string.settings_integrations_section_subtitle)
-                )
+    fun headerTopRounded(
+        section: IntegrationSettingsSection,
+        expanded: Set<IntegrationSettingsSection>
+    ): Boolean {
+        return when (groupPositionFor(section, expanded)) {
+            SettingsGroupPosition.SINGLE,
+            SettingsGroupPosition.TOP -> true
+            SettingsGroupPosition.MIDDLE,
+            SettingsGroupPosition.BOTTOM -> false
+        }
+    }
 
-                SettingsGroupCard(
-                    modifier = Modifier
-                        .fillMaxWidth(),
-                    segmented = true
-                ) {
-                    val integrationHubState = rememberLazyListState()
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        LazyColumn(
-                            state = integrationHubState,
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
-                        ) {
-                            item(key = "integration_hub_debrid") {
-                                SettingsActionRow(
-                                    title = stringResource(R.string.debrid_title),
-                                    subtitle = stringResource(R.string.debrid_subtitle),
-                                    onClick = { onSelectSection(IntegrationSettingsSection.Debrid) },
-                                    modifier = Modifier.focusRequester(hubEntryFocusRequester)
-                                )
-                            }
-                            item(key = "integration_hub_tmdb") {
-                                SettingsActionRow(
-                                    title = "TMDB",
-                                    subtitle = stringResource(R.string.settings_tmdb_subtitle),
-                                    onClick = { onSelectSection(IntegrationSettingsSection.Tmdb) }
-                                )
-                            }
-                            item(key = "integration_hub_mdblist") {
-                                SettingsActionRow(
-                                    title = "MDBList",
-                                    subtitle = stringResource(R.string.settings_mdblist_subtitle),
-                                    onClick = { onSelectSection(IntegrationSettingsSection.MdbList) }
-                                )
-                            }
-                            item(key = "integration_hub_animeskip") {
-                                SettingsActionRow(
-                                    title = "Anime-Skip",
-                                    subtitle = stringResource(R.string.settings_animeskip_subtitle),
-                                    onClick = { onSelectSection(IntegrationSettingsSection.AnimeSkip) }
-                                )
-                            }
-                        }
-                        SettingsVerticalScrollIndicators(state = integrationHubState)
-                    }
+    fun headerBottomRounded(
+        section: IntegrationSettingsSection,
+        expanded: Set<IntegrationSettingsSection>
+    ): Boolean {
+        return when (groupPositionFor(section, expanded)) {
+            SettingsGroupPosition.SINGLE,
+            SettingsGroupPosition.BOTTOM -> true
+            SettingsGroupPosition.TOP,
+            SettingsGroupPosition.MIDDLE -> false
+        }
+    }
+
+    fun beginBoundaryReturnAnimation(
+        boundaries: Set<Int>
+    ) {
+        animatedFlattenBoundaries = boundaries
+        if (boundaries.isNotEmpty()) {
+            integrationAnimationScope.launch {
+                delay(260)
+                if (animatedFlattenBoundaries == boundaries) {
+                    animatedFlattenBoundaries = emptySet()
                 }
             }
         }
+    }
 
-        IntegrationSettingsSection.Debrid -> {
-            DebridSettingsContent(
-                initialFocusRequester = debridFocusRequester
+    fun immediateFlattenBoundariesForCollapse(
+        section: IntegrationSettingsSection,
+        before: Set<IntegrationSettingsSection>,
+        after: Set<IntegrationSettingsSection>
+    ): Set<Int> {
+        val sectionIndex = visibleSections.indexOf(section)
+        if (sectionIndex < 0) return emptySet()
+
+        return listOf(sectionIndex - 1, sectionIndex)
+            .filter {
+                it >= 0 && it < visibleSections.lastIndex
+            }
+            .filter { boundaryIndex ->
+                val upper = visibleSections[boundaryIndex]
+                val lower =
+                    visibleSections[boundaryIndex + 1]
+
+                val upperRoundedBefore =
+                    headerBottomRounded(upper, before)
+                val lowerRoundedBefore =
+                    headerTopRounded(lower, before)
+                val upperRoundedAfter =
+                    headerBottomRounded(upper, after)
+                val lowerRoundedAfter =
+                    headerTopRounded(lower, after)
+
+                val finalBoundaryIsFlat =
+                    !upperRoundedAfter &&
+                        !lowerRoundedAfter
+                val roundedEdgeNeedsToFlatten =
+                    (
+                        upperRoundedBefore &&
+                            !upperRoundedAfter
+                        ) ||
+                        (
+                            lowerRoundedBefore &&
+                                !lowerRoundedAfter
+                            )
+
+                finalBoundaryIsFlat &&
+                    roundedEdgeNeedsToFlatten
+            }
+            .toSet()
+    }
+
+    fun animateTopFlattenFor(
+        section: IntegrationSettingsSection
+    ): Boolean {
+        val index = visibleSections.indexOf(section)
+        return index > 0 &&
+            (index - 1) in animatedFlattenBoundaries
+    }
+
+    fun animateBottomFlattenFor(
+        section: IntegrationSettingsSection
+    ): Boolean {
+        val index = visibleSections.indexOf(section)
+        return index >= 0 &&
+            index < visibleSections.lastIndex &&
+            index in animatedFlattenBoundaries
+    }
+
+    fun releaseDeferredBottomAfterCollapse(
+        section: IntegrationSettingsSection
+    ) {
+        integrationAnimationScope.launch {
+            delay(240)
+            if (
+                section !in deferredBottomCornerSections
+            ) {
+                return@launch
+            }
+            androidx.compose.runtime.withFrameNanos { }
+            deferredBottomCornerSections =
+                deferredBottomCornerSections - section
+        }
+    }
+
+    fun collapseSection(
+        section: IntegrationSettingsSection,
+        itemKey: String
+    ) {
+        val before = expandedSections
+        val after = emptySet<IntegrationSettingsSection>()
+
+        beginBoundaryReturnAnimation(
+            immediateFlattenBoundariesForCollapse(
+                section = section,
+                before = before,
+                after = after
             )
+        )
+        deferredBottomCornerSections =
+            deferredBottomCornerSections + section
+
+        val listHasBeenScrolled =
+            integrationListState.firstVisibleItemIndex > 0 ||
+                integrationListState
+                    .firstVisibleItemScrollOffset > 0
+        val itemOffsetBefore =
+            integrationListState.layoutInfo.visibleItemsInfo
+                .firstOrNull { it.key == itemKey }
+                ?.offset
+                ?.toFloat()
+
+        if (
+            !listHasBeenScrolled ||
+            itemOffsetBefore == null
+        ) {
+            onSelectSection(
+                IntegrationSettingsSection.Hub
+            )
+            releaseDeferredBottomAfterCollapse(section)
+            return
         }
 
-        IntegrationSettingsSection.Tmdb -> {
-            TmdbSettingsContent(
-                initialFocusRequester = tmdbFocusRequester
+        integrationAnimationScope.launch {
+            integrationListSettleOffsetY.stop()
+            integrationListSettleOffsetY.snapTo(0f)
+
+            integrationListState.scrollToItem(
+                index = 0,
+                scrollOffset = 0
+            )
+
+            val itemOffsetAfter =
+                integrationListState.layoutInfo
+                    .visibleItemsInfo
+                    .firstOrNull { it.key == itemKey }
+                    ?.offset
+                    ?.toFloat()
+
+            if (itemOffsetAfter != null) {
+                integrationListSettleOffsetY.snapTo(
+                    itemOffsetBefore - itemOffsetAfter
+                )
+            }
+
+            onSelectSection(
+                IntegrationSettingsSection.Hub
+            )
+            releaseDeferredBottomAfterCollapse(section)
+
+            integrationListSettleOffsetY.animateTo(
+                targetValue = 0f,
+                animationSpec = tween(
+                    durationMillis = 520,
+                    easing = FastOutSlowInEasing
+                )
             )
         }
+    }
 
-        IntegrationSettingsSection.MdbList -> {
-            MDBListSettingsContent(
-                initialFocusRequester = mdbListFocusRequester
+    fun toggleSection(
+        section: IntegrationSettingsSection,
+        itemKey: String
+    ) {
+        if (selectedSection == section) {
+            collapseSection(section, itemKey)
+        } else {
+            deferredBottomCornerSections =
+                deferredBottomCornerSections - section
+            animatedFlattenBoundaries = emptySet()
+            onSelectSection(section)
+        }
+    }
+
+    BackHandler(
+        enabled =
+            selectedSection != IntegrationSettingsSection.Hub
+    ) {
+        val section = selectedSection
+        if (section != IntegrationSettingsSection.Hub) {
+            collapseSection(
+                section = section,
+                itemKey = when (section) {
+                    IntegrationSettingsSection.Debrid ->
+                        "integration_debrid"
+                    IntegrationSettingsSection.Tmdb ->
+                        "integration_tmdb"
+                    IntegrationSettingsSection.MdbList ->
+                        "integration_mdblist"
+                    IntegrationSettingsSection.AnimeSkip ->
+                        "integration_animeskip"
+                    IntegrationSettingsSection.Hub ->
+                        "integration_debrid"
+                }
             )
         }
+    }
 
-        IntegrationSettingsSection.AnimeSkip -> {
-            AnimeSkipSettingsContent(
-                initialFocusRequester = animeSkipFocusRequester
+    LaunchedEffect(
+        autoFocusEnabled,
+        selectedSection
+    ) {
+        if (
+            autoFocusEnabled &&
+            selectedSection ==
+            IntegrationSettingsSection.Hub
+        ) {
+            runCatching {
+                hubEntryFocusRequester.requestFocus()
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
+        SettingsDetailHeader(
+            title = stringResource(
+                R.string.settings_integrations_section
+            ),
+            subtitle = stringResource(
+                R.string.settings_integrations_section_subtitle
             )
+        )
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clipToBounds()
+        ) {
+            LazyColumn(
+                state = integrationListState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer {
+                        translationY =
+                            integrationListSettleOffsetY.value
+                    },
+                contentPadding =
+                    androidx.compose.foundation.layout.PaddingValues(
+                        bottom = 12.dp
+                    ),
+                verticalArrangement =
+                    Arrangement.spacedBy(SettingsRowGap)
+            ) {
+                item(key = "integration_debrid") {
+                    IntegrationExpandableSection(
+                        title = stringResource(
+                            R.string.debrid_title
+                        ),
+                        subtitle = stringResource(
+                            R.string.debrid_subtitle
+                        ),
+                        expanded =
+                            selectedSection ==
+                                IntegrationSettingsSection.Debrid,
+                        onToggle = {
+                            toggleSection(
+                                IntegrationSettingsSection.Debrid,
+                                "integration_debrid"
+                            )
+                        },
+                        focusRequester =
+                            hubEntryFocusRequester,
+                        groupPosition = groupPositionFor(
+                            IntegrationSettingsSection.Debrid
+                        ),
+                        animateTopFlatten =
+                            animateTopFlattenFor(
+                                IntegrationSettingsSection.Debrid
+                            ),
+                        animateBottomFlatten =
+                            animateBottomFlattenFor(
+                                IntegrationSettingsSection.Debrid
+                            ),
+                        deferBottomCorner =
+                            IntegrationSettingsSection.Debrid in
+                                deferredBottomCornerSections
+                    ) {
+                        DebridSettingsContent(
+                            initialFocusRequester =
+                                debridFocusRequester,
+                            embedded = true
+                        )
+                    }
+                }
+
+                item(key = "integration_tmdb") {
+                    IntegrationExpandableSection(
+                        title = "TMDB",
+                        subtitle = stringResource(
+                            R.string.settings_tmdb_subtitle
+                        ),
+                        expanded =
+                            selectedSection ==
+                                IntegrationSettingsSection.Tmdb,
+                        onToggle = {
+                            toggleSection(
+                                IntegrationSettingsSection.Tmdb,
+                                "integration_tmdb"
+                            )
+                        },
+                        groupPosition = groupPositionFor(
+                            IntegrationSettingsSection.Tmdb
+                        ),
+                        animateTopFlatten =
+                            animateTopFlattenFor(
+                                IntegrationSettingsSection.Tmdb
+                            ),
+                        animateBottomFlatten =
+                            animateBottomFlattenFor(
+                                IntegrationSettingsSection.Tmdb
+                            ),
+                        deferBottomCorner =
+                            IntegrationSettingsSection.Tmdb in
+                                deferredBottomCornerSections
+                    ) {
+                        TmdbSettingsContent(
+                            initialFocusRequester =
+                                tmdbFocusRequester,
+                            embedded = true
+                        )
+                    }
+                }
+
+                item(key = "integration_mdblist") {
+                    IntegrationExpandableSection(
+                        title = "MDBList",
+                        subtitle = stringResource(
+                            R.string.settings_mdblist_subtitle
+                        ),
+                        expanded =
+                            selectedSection ==
+                                IntegrationSettingsSection.MdbList,
+                        onToggle = {
+                            toggleSection(
+                                IntegrationSettingsSection.MdbList,
+                                "integration_mdblist"
+                            )
+                        },
+                        groupPosition = groupPositionFor(
+                            IntegrationSettingsSection.MdbList
+                        ),
+                        animateTopFlatten =
+                            animateTopFlattenFor(
+                                IntegrationSettingsSection.MdbList
+                            ),
+                        animateBottomFlatten =
+                            animateBottomFlattenFor(
+                                IntegrationSettingsSection.MdbList
+                            ),
+                        deferBottomCorner =
+                            IntegrationSettingsSection.MdbList in
+                                deferredBottomCornerSections
+                    ) {
+                        MDBListSettingsContent(
+                            initialFocusRequester =
+                                mdbListFocusRequester,
+                            embedded = true
+                        )
+                    }
+                }
+
+                item(key = "integration_animeskip") {
+                    IntegrationExpandableSection(
+                        title = "Anime-Skip",
+                        subtitle = stringResource(
+                            R.string.settings_animeskip_subtitle
+                        ),
+                        expanded =
+                            selectedSection ==
+                                IntegrationSettingsSection.AnimeSkip,
+                        onToggle = {
+                            toggleSection(
+                                IntegrationSettingsSection.AnimeSkip,
+                                "integration_animeskip"
+                            )
+                        },
+                        groupPosition = groupPositionFor(
+                            IntegrationSettingsSection.AnimeSkip
+                        ),
+                        animateTopFlatten =
+                            animateTopFlattenFor(
+                                IntegrationSettingsSection.AnimeSkip
+                            ),
+                        animateBottomFlatten =
+                            animateBottomFlattenFor(
+                                IntegrationSettingsSection.AnimeSkip
+                            ),
+                        deferBottomCorner =
+                            IntegrationSettingsSection.AnimeSkip in
+                                deferredBottomCornerSections
+                    ) {
+                        AnimeSkipSettingsContent(
+                            initialFocusRequester =
+                                animeSkipFocusRequester,
+                            embedded = true
+                        )
+                    }
+                }
+            }
+
+            SettingsVerticalScrollIndicators(
+                state = integrationListState
+            )
+        }
+    }
+}
+
+@Composable
+private fun IntegrationExpandableSection(
+    title: String,
+    subtitle: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    groupPosition: SettingsGroupPosition,
+    animateTopFlatten: Boolean,
+    animateBottomFlatten: Boolean,
+    deferBottomCorner: Boolean,
+    focusRequester: FocusRequester? = null,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(
+            if (expanded) SettingsRowGap else 0.dp
+        )
+    ) {
+        SettingsActionRow(
+            title = title,
+            subtitle = subtitle,
+            onClick = onToggle,
+            trailingIcon =
+                if (expanded) {
+                    Icons.Default.ExpandMore
+                } else {
+                    Icons.Default.ChevronRight
+                },
+            modifier =
+                if (focusRequester != null) {
+                    Modifier.focusRequester(focusRequester)
+                } else {
+                    Modifier
+                },
+            showDivider = false,
+            groupPosition = when {
+                expanded -> SettingsGroupPosition.TOP
+                deferBottomCorner -> when (groupPosition) {
+                    SettingsGroupPosition.SINGLE ->
+                        SettingsGroupPosition.TOP
+                    SettingsGroupPosition.BOTTOM ->
+                        SettingsGroupPosition.MIDDLE
+                    SettingsGroupPosition.TOP ->
+                        SettingsGroupPosition.TOP
+                    SettingsGroupPosition.MIDDLE ->
+                        SettingsGroupPosition.MIDDLE
+                }
+                else -> groupPosition
+            },
+            animateTopFlatten = animateTopFlatten,
+            animateBottomFlatten = animateBottomFlatten
+        )
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                ),
+                expandFrom = Alignment.Top
+            ),
+            exit = shrinkVertically(
+                animationSpec = tween(
+                    durationMillis = 240,
+                    easing = FastOutSlowInEasing
+                ),
+                shrinkTowards = Alignment.Top
+            )
+        ) {
+            SettingsExpandedSectionSurface {
+                content()
+            }
         }
     }
 }
