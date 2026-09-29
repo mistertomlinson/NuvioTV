@@ -395,7 +395,20 @@ internal fun ToggleSettingsItem(
             focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = rowShape),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(
+            focusedScale =
+                if (useDialogGlass) {
+                    SettingsDialogFocusScale
+                } else {
+                    1f
+                },
+            pressedScale =
+                if (useDialogGlass) {
+                    SettingsDialogPressedScale
+                } else {
+                    1f
+                }
+        )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Row(
@@ -700,7 +713,20 @@ internal fun SliderSettingsItem(
             focusedBorder = Border.None
         ),
         shape = CardDefaults.shape(shape = rowShape),
-        scale = CardDefaults.scale(focusedScale = 1f, pressedScale = 1f)
+        scale = CardDefaults.scale(
+            focusedScale =
+                if (useDialogGlass) {
+                    SettingsDialogFocusScale
+                } else {
+                    1f
+                },
+            pressedScale =
+                if (useDialogGlass) {
+                    SettingsDialogPressedScale
+                } else {
+                    1f
+                }
+        )
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             Column(
@@ -787,13 +813,34 @@ internal fun SliderSettingsItem(
                             }
                     ),
                     border = CardDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = CircleShape
-                        )
+                        focusedBorder =
+                            if (useDialogGlass) {
+                                Border.None
+                            } else {
+                                Border(
+                                    border = BorderStroke(
+                                        2.dp,
+                                        NuvioColors.FocusRing
+                                    ),
+                                    shape = CircleShape
+                                )
+                            }
                     ),
                     shape = CardDefaults.shape(shape = CircleShape),
-                    scale = CardDefaults.scale(focusedScale = 1.1f)
+                    scale = CardDefaults.scale(
+                        focusedScale =
+                            if (useDialogGlass) {
+                                SettingsDialogFocusScale
+                            } else {
+                                1.1f
+                            },
+                        pressedScale =
+                            if (useDialogGlass) {
+                                SettingsDialogPressedScale
+                            } else {
+                                1f
+                            }
+                    )
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
@@ -859,7 +906,20 @@ internal fun SliderSettingsItem(
                         )
                     ),
                     shape = CardDefaults.shape(shape = CircleShape),
-                    scale = CardDefaults.scale(focusedScale = 1.1f)
+                    scale = CardDefaults.scale(
+                        focusedScale =
+                            if (useDialogGlass) {
+                                SettingsDialogFocusScale
+                            } else {
+                                1.1f
+                            },
+                        pressedScale =
+                            if (useDialogGlass) {
+                                SettingsDialogPressedScale
+                            } else {
+                                1f
+                            }
+                    )
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
