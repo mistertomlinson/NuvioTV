@@ -60,6 +60,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.glassDialogFocusTransform
+import com.nuvio.tv.ui.components.glassDialogAppearanceTransform
 import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
@@ -1566,17 +1567,15 @@ private fun HomePosterOptionsDialog(
 
         Box(
             modifier = Modifier
+                .glassDialogAppearanceTransform(
+                    scale =
+                        0.96f +
+                            (0.04f * appearanceProgress.value),
+                    alpha = appearanceProgress.value,
+                    clipShape = panelShape
+                )
                 .width(520.dp)
                 .then(blurModifier)
-                .graphicsLayer {
-                    shape = panelShape
-                    clip = true
-                    alpha = appearanceProgress.value
-                    val animatedScale = 0.96f + (0.04f * appearanceProgress.value)
-                    scaleX = animatedScale
-                    scaleY = animatedScale
-                }
-                
                 .clip(panelShape)
                 .background(HomeDialogGlassBrush, panelShape)
                 .border(1.dp, HomeDialogGlassBorderColor, panelShape)
