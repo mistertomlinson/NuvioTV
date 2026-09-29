@@ -327,6 +327,14 @@ private fun SettingsScreenContent(
         runCatching { railContainerFocusRequester.requestFocus() }
     }
 
+    LaunchedEffect(trackingReturnFocusAccount) {
+        if (!trackingReturnFocusAccount.isNullOrBlank()) {
+            allowDetailAutofocus = true
+            selectedCategory = SettingsCategory.TRACKING
+            railReturnFocusCategory = SettingsCategory.TRACKING
+        }
+    }
+
     LaunchedEffect(pendingContentFocusRequestId) {
         val category = pendingContentFocusCategory ?: return@LaunchedEffect
         delay(SETTINGS_DETAIL_FOCUS_DELAY_MS)
@@ -559,13 +567,9 @@ private fun SettingsScreenContent(
                             onNavigateToTrakt = onNavigateToTrakt,
                             onNavigateToSimkl = onNavigateToSimkl,
                             initialFocusRequester =
-                                if (allowDetailAutofocus) {
-                                    contentFocusRequesters[
-                                        SettingsCategory.TRACKING
-                                    ]
-                                } else {
-                                    null
-                                },
+                                contentFocusRequesters[
+                                    SettingsCategory.TRACKING
+                                ],
                             returnFocusAccount =
                                 trackingReturnFocusAccount,
                             onReturnFocusConsumed =
