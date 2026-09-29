@@ -109,17 +109,10 @@ private const val SETTINGS_DETAIL_ANIM_OUT_DURATION_MS = 180
 @Composable
 private fun rememberSettingsSectionSpecs() = listOf(
     SettingsSectionSpec(
-        category = SettingsCategory.ACCOUNT,
-        title = stringResource(R.string.settings_account),
-        icon = Icons.Default.Person,
-        subtitle = stringResource(R.string.settings_account_subtitle),
-        destination = SettingsSectionDestination.Inline
-    ),
-    SettingsSectionSpec(
-        category = SettingsCategory.PROFILES,
-        title = stringResource(R.string.settings_profiles),
-        icon = Icons.Default.People,
-        subtitle = stringResource(R.string.settings_profiles_subtitle),
+        category = SettingsCategory.LAYOUT,
+        title = stringResource(R.string.settings_layout),
+        icon = Icons.Default.GridView,
+        subtitle = stringResource(R.string.settings_layout_subtitle),
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
@@ -130,10 +123,10 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
-        category = SettingsCategory.LAYOUT,
-        title = stringResource(R.string.settings_layout),
-        icon = Icons.Default.GridView,
-        subtitle = stringResource(R.string.settings_layout_subtitle),
+        category = SettingsCategory.PLAYBACK,
+        title = stringResource(R.string.settings_playback),
+        icon = Icons.Default.Settings,
+        subtitle = stringResource(R.string.settings_playback_subtitle),
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
@@ -151,18 +144,25 @@ private fun rememberSettingsSectionSpecs() = listOf(
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
-        category = SettingsCategory.PLAYBACK,
-        title = stringResource(R.string.settings_playback),
-        icon = Icons.Default.Settings,
-        subtitle = stringResource(R.string.settings_playback_subtitle),
-        destination = SettingsSectionDestination.Inline
-    ),
-    SettingsSectionSpec(
         category = SettingsCategory.TRACKING,
         title = stringResource(R.string.settings_tracking_title),
         icon = Icons.Default.Link,
         subtitle = stringResource(R.string.settings_tracking_description),
         destination = SettingsSectionDestination.External
+    ),
+    SettingsSectionSpec(
+        category = SettingsCategory.PROFILES,
+        title = stringResource(R.string.settings_profiles),
+        icon = Icons.Default.People,
+        subtitle = stringResource(R.string.settings_profiles_subtitle),
+        destination = SettingsSectionDestination.Inline
+    ),
+    SettingsSectionSpec(
+        category = SettingsCategory.ACCOUNT,
+        title = stringResource(R.string.settings_account),
+        icon = Icons.Default.Person,
+        subtitle = stringResource(R.string.settings_account_subtitle),
+        destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
         category = SettingsCategory.ABOUT,
