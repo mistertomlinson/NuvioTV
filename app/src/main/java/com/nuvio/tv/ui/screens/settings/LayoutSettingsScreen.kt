@@ -1746,7 +1746,8 @@ private fun CardDepthFineTuneDialog(
 
                 SettingsResetButton(
                     onClick = onReset,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    useDialogGlass = true
                 )
             }
         }
