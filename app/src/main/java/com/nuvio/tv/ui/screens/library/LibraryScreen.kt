@@ -100,6 +100,7 @@ import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetFocusedColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassSelectedColor
 import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassIdleColor
 
 private const val KEY_REPEAT_THROTTLE_MS = 80L
 
@@ -757,7 +758,7 @@ private fun ManageListsDialog(
                                     Modifier.fillMaxWidth()
                                 },
                                 colors = ButtonDefaults.colors(
-                                    containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                                    containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                                     contentColor = NuvioColors.TextPrimary
                                 ,
     focusedContainerColor = SettingsGlassRowFocusedColor
@@ -782,7 +783,7 @@ private fun ManageListsDialog(
                         onClick = onCreate,
                         enabled = !pending,
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
@@ -795,7 +796,7 @@ private fun ManageListsDialog(
                         onClick = onEdit,
                         enabled = !pending && selectedKey != null,
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
@@ -808,7 +809,7 @@ private fun ManageListsDialog(
                         onClick = onMoveUp,
                         enabled = !pending && selectedKey != null,
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
@@ -821,7 +822,7 @@ private fun ManageListsDialog(
                         onClick = onMoveDown,
                         enabled = !pending && selectedKey != null,
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
@@ -852,7 +853,7 @@ private fun ManageListsDialog(
                         enabled = !pending,
                         modifier = Modifier.focusRequester(closeFocusRequester),
                         colors = ButtonDefaults.colors(
-                            containerColor = SettingsGlassRowColor,
+                            containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             contentColor = NuvioColors.TextPrimary
                         ,
@@ -997,7 +998,7 @@ private fun ListEditorDialog(
                     onClick = { onPrivacyChanged(privacy) },
                     enabled = !pending,
                     colors = ButtonDefaults.colors(
-                        containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsGlassRowColor,
+                        containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                         contentColor = NuvioColors.TextPrimary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor
@@ -1017,7 +1018,7 @@ private fun ListEditorDialog(
             enabled = !pending,
             modifier = Modifier.fillMaxWidth(),
             colors = ButtonDefaults.colors(
-                containerColor = SettingsGlassRowColor,
+                containerColor = SettingsDialogGlassIdleColor,
                 focusedContainerColor = SettingsGlassRowFocusedColor,
                 contentColor = NuvioColors.TextPrimary
             ,
