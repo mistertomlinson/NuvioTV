@@ -171,7 +171,7 @@ fun TrailerSection(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier
                                 .width(landscapeStyle.width)
-                                .padding(start = NuvioTheme.spacing.xxs, end = NuvioTheme.spacing.xxs, top = NuvioTheme.spacing.xxs)
+                                .padding(start = 2.dp, end = 2.dp, top = 2.dp)
                         )
                     }
                 }
