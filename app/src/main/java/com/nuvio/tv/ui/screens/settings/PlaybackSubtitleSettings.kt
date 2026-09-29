@@ -474,7 +474,8 @@ private fun AddonSubtitleStartupModeDialog(
                     subtitle = description,
                     isSelected = mode == selectedMode,
                     onClick = { onModeSelected(mode) },
-                    onFocused = {}
+                    onFocused = {},
+                    useDialogGlass = true
                 )
             }
         }
