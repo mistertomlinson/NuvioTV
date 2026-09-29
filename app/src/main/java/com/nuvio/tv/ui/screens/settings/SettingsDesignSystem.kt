@@ -226,6 +226,8 @@ internal val SettingsGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
 internal val SettingsDialogGlassSelectedColor: Color
     @Composable
     get() = NuvioColors.Secondary.copy(alpha = 0.42f)
+internal const val SettingsDialogFocusScale = 1.045f
+internal const val SettingsDialogPressedScale = 0.99f
 internal val SettingsDialogGlassInsetColor =
     Color.Black.copy(alpha = 0.16f)
 internal val SettingsDialogGlassInsetFocusedColor =
