@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
@@ -26,6 +27,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -53,6 +55,40 @@ private val NuvioDialogGlassBrush = Brush.verticalGradient(
 
 private val NuvioDialogGlassBorderColor =
     Color.White.copy(alpha = 0.09f)
+
+@Composable
+internal fun Modifier.glassDialogFocusTransform(
+    enabled: Boolean = true,
+    onFocusedChanged: (Boolean) -> Unit = {}
+): Modifier {
+    var isFocused by remember { mutableStateOf(false) }
+    val focusScale by animateFloatAsState(
+        targetValue =
+            if (enabled && isFocused) {
+                1.045f
+            } else {
+                1f
+            },
+        animationSpec = tween(
+            durationMillis = 160,
+            easing = FastOutSlowInEasing
+        ),
+        label = "glassDialogFocusScale"
+    )
+
+    return this
+        .graphicsLayer {
+            scaleX = focusScale
+            scaleY = focusScale
+        }
+        .onFocusChanged { state ->
+            val focused = state.isFocused
+            if (focused != isFocused) {
+                isFocused = focused
+                onFocusedChanged(focused)
+            }
+        }
+}
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
