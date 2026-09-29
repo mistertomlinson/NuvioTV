@@ -60,6 +60,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 import java.util.concurrent.TimeUnit
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 
 @Composable
 fun SimklScreen(
@@ -438,11 +439,13 @@ fun SimklScreen(
                         focusedContentColor = Color.White
 )
                 ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.simkl_disconnect))
                 }
 
@@ -458,11 +461,13 @@ fun SimklScreen(
                         focusedContentColor = Color.White
 )
                 ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ,
+        shape = ButtonDefaults.shape(SettingsDialogPillShape)
+    ) {
                     Text(stringResource(R.string.simkl_cancel))
                 }
             }
