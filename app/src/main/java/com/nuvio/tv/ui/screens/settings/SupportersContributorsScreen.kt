@@ -83,6 +83,7 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 
 private val DONATIONS_URL: String
     get() = BuildConfig.DONATIONS_BASE_URL
@@ -1078,19 +1079,16 @@ private fun SupporterDetailsDialog(
                         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(DONATIONS_URL)))
                     }
                 },
-                modifier = Modifier.focusRequester(primaryFocusRequester),
+                modifier = (Modifier.focusRequester(primaryFocusRequester)).glassDialogFocusTransform(),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.Secondary,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.OnSecondary,
                     focusedContentColor = Color.White),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                shape = ButtonDefaults.shape(SettingsDialogPillShape),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
                 Text(text = stringResource(R.string.supporters_open_donations))
             }
 
@@ -1101,13 +1099,12 @@ private fun SupporterDetailsDialog(
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = Color.White),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                shape = ButtonDefaults.shape(SettingsDialogPillShape),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
                 Text(text = stringResource(R.string.action_close))
             }
         }
@@ -1204,19 +1201,16 @@ private fun ContributorDetailsDialog(
                     }
                 },
                 enabled = contributor.profileUrl != null,
-                modifier = Modifier.focusRequester(primaryFocusRequester),
+                modifier = (Modifier.focusRequester(primaryFocusRequester)).glassDialogFocusTransform(),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.Secondary,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.OnSecondary,
                     focusedContentColor = Color.White),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                shape = ButtonDefaults.shape(SettingsDialogPillShape),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
                 Text(text = stringResource(R.string.contributors_open_github))
             }
 
@@ -1228,13 +1222,12 @@ private fun ContributorDetailsDialog(
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
                         focusedContentColor = Color.White),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(50))
-                ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                    shape = ButtonDefaults.shape(SettingsDialogPillShape),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
                     Text(
                         text = stringResource(
                             if (showSupportQr) {
@@ -1254,13 +1247,12 @@ private fun ContributorDetailsDialog(
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = Color.White),
-                shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ,
-    scale = ButtonDefaults.scale(
-        focusedScale = SettingsDialogFocusScale,
-        pressedScale = SettingsDialogPressedScale
-    )
-) {
+                shape = ButtonDefaults.shape(SettingsDialogPillShape),
+    scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
+        modifier = Modifier.glassDialogFocusTransform()
+    ,
+        border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
+    ) {
                 Text(text = stringResource(R.string.action_close))
             }
         }
