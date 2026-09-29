@@ -1082,10 +1082,34 @@ private fun DebridEmbeddedSection(
     onToggle: () -> Unit,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
+    /*
+     * Keep the parent bottom edge physically attached to its child rows.
+     * Opening: SINGLE -> TOP animates rounded -> flat immediately.
+     * Closing: hold TOP through the 240 ms child shrink, then TOP -> SINGLE
+     * animates the bottom corners back out only after the children are gone.
+     */
+    var previousExpanded by remember {
+        mutableStateOf(expanded)
+    }
+    val opening = expanded && !previousExpanded
+    val closing = !expanded && previousExpanded
+
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            previousExpanded = true
+        } else if (previousExpanded) {
+            delay(240)
+            previousExpanded = false
+        }
+    }
+
+    val keepParentBottomFlat =
+        expanded || closing
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(
-            if (expanded) SettingsRowGap else 0.dp
+            if (expanded || closing) SettingsRowGap else 0.dp
         )
     ) {
         SettingsActionRow(
@@ -1099,7 +1123,13 @@ private fun DebridEmbeddedSection(
                     Icons.Default.ChevronRight
                 },
             showDivider = false,
-            groupPosition = SettingsGroupPosition.MIDDLE
+            groupPosition =
+                if (keepParentBottomFlat) {
+                    SettingsGroupPosition.TOP
+                } else {
+                    SettingsGroupPosition.SINGLE
+                },
+            animateBottomFlatten = opening
         )
 
         AnimatedVisibility(
@@ -1119,11 +1149,7 @@ private fun DebridEmbeddedSection(
                 shrinkTowards = Alignment.Top
             )
         ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement =
-                    Arrangement.spacedBy(SettingsRowGap)
-            ) {
+            SettingsExpandedSectionSurface {
                 content()
             }
         }
