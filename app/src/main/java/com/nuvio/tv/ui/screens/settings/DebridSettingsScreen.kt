@@ -2226,33 +2226,35 @@ private fun QrCodeOverlay(
     onClose: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { focusRequester.requestFocus() }
-    androidx.activity.compose.BackHandler { onClose() }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.85f)),
-        contentAlignment = Alignment.Center
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    NuvioDialog(
+        glass = true,
+        enhancedGlass = true,
+        compact = false,
+        onDismiss = onClose,
+        title = stringResource(R.string.debrid_formatter_title),
+        subtitle = instruction,
+        width = 520.dp,
+        suppressFirstKeyUp = false
     ) {
         Column(
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-            modifier = Modifier.padding(32.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Text(
-                text = instruction,
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuvioColors.TextSecondary,
-                textAlign = TextAlign.Center
-            )
             if (qrBitmap != null) {
                 Image(
                     bitmap = qrBitmap.asImageBitmap(),
                     contentDescription = stringResource(R.string.cd_qr_code),
-                    modifier = Modifier.size(220.dp),
+                    modifier = Modifier.size(240.dp),
                     contentScale = ContentScale.Fit
                 )
             }
+
             if (!serverUrl.isNullOrBlank()) {
                 Text(
                     text = serverUrl,
@@ -2261,21 +2263,36 @@ private fun QrCodeOverlay(
                     textAlign = TextAlign.Center
                 )
             }
+
             Card(
                 onClick = onClose,
-                modifier = Modifier.focusRequester(focusRequester),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
                 colors = CardDefaults.colors(
-                    containerColor = SettingsRightSurfaceColor,
-                    focusedContainerColor = SettingsRightSurfaceFocusedColor
+                    containerColor = SettingsGlassRowColor,
+                    focusedContainerColor =
+                        SettingsGlassRowFocusedColor
                 ),
-                shape = CardDefaults.shape(RoundedCornerShape(10.dp)),
-                scale = CardDefaults.scale(focusedScale = 1f)
+                shape = CardDefaults.shape(
+                    RoundedCornerShape(10.dp)
+                ),
+                scale = CardDefaults.scale(
+                    focusedScale = 1.018f,
+                    pressedScale = 0.99f
+                )
             ) {
                 Text(
                     text = stringResource(R.string.action_cancel),
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            horizontal = 24.dp,
+                            vertical = 12.dp
+                        ),
                     color = NuvioColors.TextPrimary,
-                    style = MaterialTheme.typography.bodyMedium
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center
                 )
             }
         }
