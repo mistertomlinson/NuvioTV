@@ -207,6 +207,8 @@ fun SettingsScreen(
     onNavigateToTracking: () -> Unit = {},
     onNavigateToTrakt: () -> Unit = {},
     onNavigateToSimkl: () -> Unit = {},
+    trackingReturnFocusAccount: String? = null,
+    onTrackingReturnFocusConsumed: () -> Unit = {},
     onNavigateToAuthQrSignIn: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
@@ -218,6 +220,9 @@ fun SettingsScreen(
             onNavigateToTracking = onNavigateToTracking,
             onNavigateToTrakt = onNavigateToTrakt,
             onNavigateToSimkl = onNavigateToSimkl,
+            trackingReturnFocusAccount = trackingReturnFocusAccount,
+            onTrackingReturnFocusConsumed =
+                onTrackingReturnFocusConsumed,
             onNavigateToAuthQrSignIn = onNavigateToAuthQrSignIn,
             onNavigateToManageProfiles = onNavigateToManageProfiles,
             onNavigateToSupportersContributors = onNavigateToSupportersContributors,
@@ -232,6 +237,8 @@ private fun SettingsScreenContent(
     onNavigateToTracking: () -> Unit = {},
     onNavigateToTrakt: () -> Unit = {},
     onNavigateToSimkl: () -> Unit = {},
+    trackingReturnFocusAccount: String? = null,
+    onTrackingReturnFocusConsumed: () -> Unit = {},
     onNavigateToAuthQrSignIn: () -> Unit = {},
     onNavigateToManageProfiles: () -> Unit = {},
     onNavigateToSupportersContributors: () -> Unit = {},
@@ -558,7 +565,11 @@ private fun SettingsScreenContent(
                                     ]
                                 } else {
                                     null
-                                }
+                                },
+                            returnFocusAccount =
+                                trackingReturnFocusAccount,
+                            onReturnFocusConsumed =
+                                onTrackingReturnFocusConsumed
                         )
                     }
                 }
