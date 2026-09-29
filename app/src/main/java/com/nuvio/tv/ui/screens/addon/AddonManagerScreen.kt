@@ -107,6 +107,7 @@ import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
 import kotlinx.coroutines.delay
 import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassIdleColor
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -835,7 +836,7 @@ private fun QrCodeOverlay(
                     .fillMaxWidth()
                     .focusRequester(focusRequester),
                 colors = ButtonDefaults.colors(
-                    containerColor = SettingsGlassRowColor,
+                    containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
                     focusedContentColor = Color.White)
@@ -1054,7 +1055,7 @@ private fun ConfirmAddonChangesDialog(
                     onClick = onReject,
                     modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.colors(
-                        containerColor = SettingsGlassRowColor,
+                        containerColor = SettingsDialogGlassIdleColor,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
                         focusedContentColor = Color.White)
