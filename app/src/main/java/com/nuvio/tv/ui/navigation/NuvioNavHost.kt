@@ -1500,6 +1500,12 @@ fun NuvioNavHost(
                     onNavigateToTracking = {
                         navController.navigate(Screen.Tracking.route)
                     },
+                    onNavigateToTrakt = {
+                        navController.navigate(Screen.Trakt.route)
+                    },
+                    onNavigateToSimkl = {
+                        navController.navigate(Screen.Simkl.route)
+                    },
                     onNavigateToAuthQrSignIn = { navController.navigate(Screen.AuthQrSignIn.route) },
                     onNavigateToManageProfiles = { navController.navigate(Screen.ManageProfiles.route) },
                     onNavigateToSupportersContributors = {
