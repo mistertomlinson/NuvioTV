@@ -97,16 +97,6 @@ internal fun androidx.compose.foundation.layout.ColumnScope.trailerAndAudioSetti
         )
     }
 
-    Text(
-        text = stringResource(R.string.audio_passthrough_info),
-        style = MaterialTheme.typography.bodySmall,
-        color = NuvioColors.TextSecondary,
-        modifier = Modifier.padding(
-            horizontal = 14.dp,
-            vertical = 6.dp
-        )
-    )
-
     val audioLangName = when (playerSettings.preferredAudioLanguage) {
         AudioLanguageOption.DEFAULT ->
             stringResource(R.string.audio_lang_default)
@@ -151,16 +141,6 @@ internal fun androidx.compose.foundation.layout.ColumnScope.trailerAndAudioSetti
         onCheckedChange = onSetSkipSilence,
         onFocused = onItemFocused,
         enabled = enabled
-    )
-
-    Text(
-        text = stringResource(R.string.audio_advanced_warning),
-        style = MaterialTheme.typography.bodySmall,
-        color = Color(0xFFFF9800),
-        modifier = Modifier.padding(
-            horizontal = 14.dp,
-            vertical = 6.dp
-        )
     )
 
     val decoderName = when (playerSettings.decoderPriority) {
