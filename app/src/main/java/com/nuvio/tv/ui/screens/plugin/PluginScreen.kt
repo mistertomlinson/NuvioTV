@@ -88,6 +88,12 @@ import com.nuvio.tv.domain.model.ScraperInfo
 import com.nuvio.tv.ui.components.LoadingIndicator
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.screens.settings.SettingsGlassCanvasBrush
+import com.nuvio.tv.ui.screens.settings.SettingsActionRow
+import com.nuvio.tv.ui.screens.settings.SettingsGroupPosition
+import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceColor
+import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
+import com.nuvio.tv.ui.screens.settings.SettingsRowGap
+import com.nuvio.tv.ui.screens.settings.settingsGroupShape
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -124,6 +130,16 @@ fun PluginScreenContent(
     showHeader: Boolean = true
 ) {
     var repoUrl by remember { mutableStateOf("") }
+
+    if (!showHeader) {
+        EmbeddedPluginSettingsContent(
+            uiState = uiState,
+            viewModel = viewModel,
+            repoUrl = repoUrl,
+            onRepoUrlChange = { repoUrl = it }
+        )
+        return
+    }
 
     DisposableEffect(Unit) {
         onDispose { viewModel.stopQrMode() }
@@ -284,6 +300,487 @@ fun PluginScreenContent(
             }
         }
     }
+    }
+}
+
+
+@Composable
+private fun EmbeddedPluginSettingsContent(
+    uiState: PluginUiState,
+    viewModel: PluginViewModel,
+    repoUrl: String,
+    onRepoUrlChange: (String) -> Unit
+) {
+    DisposableEffect(Unit) {
+        onDispose { viewModel.stopQrMode() }
+    }
+
+    LaunchedEffect(uiState.successMessage) {
+        if (uiState.successMessage != null) {
+            delay(3000)
+            viewModel.onEvent(PluginUiEvent.ClearSuccess)
+        }
+    }
+    LaunchedEffect(uiState.errorMessage) {
+        if (uiState.errorMessage != null) {
+            delay(5000)
+            viewModel.onEvent(PluginUiEvent.ClearError)
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+        ) {
+            if (viewModel.isReadOnly) {
+                item(key = "plugin_readonly") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                SettingsRightSurfaceColor,
+                                settingsGroupShape(
+                                    SettingsGroupPosition.SINGLE
+                                )
+                            )
+                            .padding(
+                                horizontal = 14.dp,
+                                vertical = 12.dp
+                            )
+                    ) {
+                        Text(
+                            text = stringResource(
+                                R.string.plugin_readonly_notice
+                            ),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = NuvioColors.TextSecondary
+                        )
+                    }
+                }
+            } else {
+                item(key = "plugin_add_repository") {
+                    EmbeddedAddRepositoryRow(
+                        url = repoUrl,
+                        onUrlChange = onRepoUrlChange,
+                        onConfirm = {
+                            if (repoUrl.isNotBlank()) {
+                                viewModel.onEvent(
+                                    PluginUiEvent.AddRepository(repoUrl)
+                                )
+                                onRepoUrlChange("")
+                            }
+                        },
+                        isLoading = uiState.isAddingRepo
+                    )
+                }
+
+                item(key = "plugin_manage_phone") {
+                    SettingsActionRow(
+                        title = stringResource(
+                            R.string.plugin_manage_from_phone_title
+                        ),
+                        subtitle = stringResource(
+                            R.string.plugin_manage_from_phone_subtitle
+                        ),
+                        onClick = {
+                            viewModel.onEvent(
+                                PluginUiEvent.StartQrMode
+                            )
+                        },
+                        trailingIcon = Icons.Default.PhoneAndroid,
+                        showDivider = false,
+                        groupPosition =
+                            SettingsGroupPosition.BOTTOM
+                    )
+                }
+            }
+
+            if (uiState.repositories.isNotEmpty()) {
+                item(key = "plugin_repo_label") {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_repositories_section,
+                            uiState.repositories.size
+                        ),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NuvioColors.TextSecondary,
+                        modifier = Modifier.padding(
+                            start = 4.dp,
+                            top = 10.dp,
+                            bottom = 2.dp
+                        )
+                    )
+                }
+
+                itemsIndexed(
+                    items = uiState.repositories,
+                    key = { _, repo -> repo.id }
+                ) { index, repo ->
+                    EmbeddedRepositoryRow(
+                        repository = repo,
+                        onRefresh = {
+                            viewModel.onEvent(
+                                PluginUiEvent.RefreshRepository(
+                                    repo.id
+                                )
+                            )
+                        },
+                        onRemove = {
+                            viewModel.onEvent(
+                                PluginUiEvent.RemoveRepository(
+                                    repo.id
+                                )
+                            )
+                        },
+                        isLoading = uiState.isLoading,
+                        isReadOnly = viewModel.isReadOnly,
+                        groupPosition = when {
+                            uiState.repositories.size == 1 ->
+                                SettingsGroupPosition.SINGLE
+                            index == 0 ->
+                                SettingsGroupPosition.TOP
+                            index == uiState.repositories.lastIndex ->
+                                SettingsGroupPosition.BOTTOM
+                            else ->
+                                SettingsGroupPosition.MIDDLE
+                        }
+                    )
+                }
+            }
+
+            if (uiState.scrapers.isNotEmpty()) {
+                item(key = "plugin_provider_label") {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_providers_section,
+                            uiState.scrapers.size
+                        ),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = NuvioColors.TextSecondary,
+                        modifier = Modifier.padding(
+                            start = 4.dp,
+                            top = 10.dp,
+                            bottom = 2.dp
+                        )
+                    )
+                }
+
+                items(
+                    uiState.scrapers,
+                    key = { it.id }
+                ) { scraper ->
+                    ScraperCard(
+                        scraper = scraper,
+                        onToggle = { enabled ->
+                            viewModel.onEvent(
+                                PluginUiEvent.ToggleScraper(
+                                    scraper.id,
+                                    enabled
+                                )
+                            )
+                        },
+                        onTest = {
+                            viewModel.onEvent(
+                                PluginUiEvent.TestScraper(
+                                    scraper.id
+                                )
+                            )
+                        },
+                        isTesting =
+                            uiState.isTesting &&
+                                uiState.testScraperId ==
+                                    scraper.id,
+                        testResults =
+                            if (
+                                uiState.testScraperId ==
+                                scraper.id
+                            ) {
+                                uiState.testResults
+                            } else {
+                                null
+                            },
+                        isReadOnly = viewModel.isReadOnly
+                    )
+                }
+            }
+        }
+
+        MessageOverlay(
+            successMessage = uiState.successMessage,
+            errorMessage = uiState.errorMessage
+        )
+
+        if (uiState.isQrModeActive) {
+            Popup(properties = PopupProperties(focusable = true)) {
+                QrCodeOverlay(
+                    qrBitmap = uiState.qrCodeBitmap,
+                    serverUrl = uiState.serverUrl,
+                    onClose = {
+                        viewModel.onEvent(
+                            PluginUiEvent.StopQrMode
+                        )
+                    },
+                    hasPendingChange =
+                        uiState.pendingRepoChange != null
+                )
+            }
+        }
+
+        if (uiState.pendingRepoChange != null) {
+            Popup(properties = PopupProperties(focusable = true)) {
+                uiState.pendingRepoChange?.let { pending ->
+                    ConfirmRepoChangesDialog(
+                        pendingChange = pending,
+                        onConfirm = {
+                            viewModel.onEvent(
+                                PluginUiEvent
+                                    .ConfirmPendingRepoChange
+                            )
+                        },
+                        onReject = {
+                            viewModel.onEvent(
+                                PluginUiEvent
+                                    .RejectPendingRepoChange
+                            )
+                        }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmbeddedAddRepositoryRow(
+    url: String,
+    onUrlChange: (String) -> Unit,
+    onConfirm: () -> Unit,
+    isLoading: Boolean
+) {
+    val keyboardController =
+        LocalSoftwareKeyboardController.current
+    val inputFocusRequester = remember { FocusRequester() }
+    var isFocused by remember { mutableStateOf(false) }
+    var isEditing by remember { mutableStateOf(false) }
+    val shape = settingsGroupShape(SettingsGroupPosition.TOP)
+
+    LaunchedEffect(isEditing) {
+        if (isEditing) {
+            inputFocusRequester.requestFocus()
+            keyboardController?.show()
+        }
+    }
+
+    Card(
+        onClick = { isEditing = true },
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { state ->
+                isFocused = state.isFocused || state.hasFocus
+            },
+        colors = CardDefaults.colors(
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor =
+                SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
+        shape = CardDefaults.shape(shape),
+        scale = CardDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 58.dp)
+                .padding(horizontal = 14.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                imageVector = Icons.Default.Add,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
+                tint =
+                    if (isFocused) {
+                        NuvioColors.Primary
+                    } else {
+                        NuvioColors.TextSecondary
+                    }
+            )
+            Spacer(modifier = Modifier.width(10.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(
+                        R.string.plugin_add_repository
+                    ),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = NuvioColors.TextPrimary
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                BasicTextField(
+                    value = url,
+                    onValueChange = onUrlChange,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .focusRequester(inputFocusRequester)
+                        .onFocusChanged {
+                            if (!it.isFocused && isEditing) {
+                                isEditing = false
+                                keyboardController?.hide()
+                            }
+                        },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(
+                        onDone = {
+                            onConfirm()
+                            isEditing = false
+                            keyboardController?.hide()
+                        }
+                    ),
+                    textStyle =
+                        MaterialTheme.typography.bodySmall.copy(
+                            color = NuvioColors.TextSecondary
+                        ),
+                    cursorBrush = SolidColor(
+                        if (isEditing) {
+                            NuvioColors.Primary
+                        } else {
+                            Color.Transparent
+                        }
+                    ),
+                    decorationBox = { innerTextField ->
+                        if (url.isEmpty()) {
+                            Text(
+                                text =
+                                    "https://example.com/manifest.json",
+                                style =
+                                    MaterialTheme.typography.bodySmall,
+                                color =
+                                    NuvioColors.TextTertiary
+                            )
+                        }
+                        innerTextField()
+                    }
+                )
+            }
+
+            if (isLoading) {
+                LoadingIndicator(
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmbeddedRepositoryRow(
+    repository: PluginRepository,
+    onRefresh: () -> Unit,
+    onRemove: () -> Unit,
+    isLoading: Boolean,
+    isReadOnly: Boolean,
+    groupPosition: SettingsGroupPosition
+) {
+    val shape = settingsGroupShape(groupPosition)
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SettingsRightSurfaceColor, shape)
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = repository.name,
+                style = MaterialTheme.typography.bodyLarge,
+                color = NuvioColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = stringResource(
+                    R.string.plugin_providers_count,
+                    repository.scraperCount
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = NuvioColors.TextSecondary
+            )
+        }
+
+        if (!isReadOnly) {
+            Card(
+                onClick = onRefresh,
+                enabled = !isLoading,
+                colors = CardDefaults.colors(
+                    containerColor = Color.Transparent,
+                    focusedContainerColor =
+                        SettingsRightSurfaceFocusedColor
+                ),
+                border = CardDefaults.border(
+                    border = Border.None,
+                    focusedBorder = Border.None
+                ),
+                shape = CardDefaults.shape(
+                    RoundedCornerShape(10.dp)
+                ),
+                scale = CardDefaults.scale(
+                    focusedScale = 1f,
+                    pressedScale = 1f
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Refresh",
+                    tint = NuvioColors.TextSecondary,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(18.dp)
+                )
+            }
+
+            Card(
+                onClick = onRemove,
+                enabled = !isLoading,
+                colors = CardDefaults.colors(
+                    containerColor = Color.Transparent,
+                    focusedContainerColor =
+                        SettingsRightSurfaceFocusedColor
+                ),
+                border = CardDefaults.border(
+                    border = Border.None,
+                    focusedBorder = Border.None
+                ),
+                shape = CardDefaults.shape(
+                    RoundedCornerShape(10.dp)
+                ),
+                scale = CardDefaults.scale(
+                    focusedScale = 1f,
+                    pressedScale = 1f
+                )
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Delete,
+                    contentDescription = "Remove",
+                    tint = NuvioColors.Error,
+                    modifier = Modifier
+                        .padding(8.dp)
+                        .size(18.dp)
+                )
+            }
+        }
     }
 }
 
