@@ -387,20 +387,15 @@ private fun MDBListApiKeyDialog(
                 .onFocusChanged { isInputFocused = it.isFocused || it.hasFocus },
             colors = CardDefaults.colors(
                 containerColor = SettingsDialogGlassInsetColor,
-                focusedContainerColor = SettingsDialogGlassInsetFocusedColor
-            ),
+                focusedContainerColor = SettingsGlassRowFocusedColor),
             border = CardDefaults.border(
                 border = Border(
                     border = androidx.compose.foundation.BorderStroke(1.dp, NuvioColors.Border),
                     shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
                 ),
-                focusedBorder = Border(
-                    border = androidx.compose.foundation.BorderStroke(2.dp, NuvioColors.FocusRing),
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(10.dp)
-                )
-            ),
+                focusedBorder = Border.None),
             shape = CardDefaults.shape(androidx.compose.foundation.shape.RoundedCornerShape(10.dp)),
-            scale = CardDefaults.scale(focusedScale = 1f)
+            scale = CardDefaults.scale(focusedScale = SettingsDialogFocusScale)
         ) {
             Box(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
                 BasicTextField(
@@ -446,8 +441,15 @@ private fun MDBListApiKeyDialog(
                     containerColor = SettingsGlassRowColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
-                )
-            ) {
+                ,
+    focusedContentColor = Color.White
+)
+            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(stringResource(R.string.action_cancel))
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -457,8 +459,15 @@ private fun MDBListApiKeyDialog(
                     containerColor = SettingsGlassRowColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
-                )
-            ) {
+                ,
+    focusedContentColor = Color.White
+)
+            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(stringResource(R.string.action_clear))
             }
             Spacer(modifier = Modifier.width(8.dp))
@@ -468,8 +477,15 @@ private fun MDBListApiKeyDialog(
                     containerColor = SettingsGlassRowColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary
-                )
-            ) {
+                ,
+    focusedContentColor = Color.White
+)
+            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(if (validating) stringResource(R.string.action_saving) else stringResource(R.string.action_save))
             }
         }
