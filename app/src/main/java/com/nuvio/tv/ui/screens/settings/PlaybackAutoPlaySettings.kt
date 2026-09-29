@@ -69,7 +69,8 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.roundToInt
 import java.util.Locale
 
-internal fun LazyListScope.autoPlaySettingsItems(
+@Composable
+internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItems(
     playerSettings: PlayerSettings,
     onShowModeDialog: () -> Unit,
     onShowSourceDialog: () -> Unit,
@@ -86,200 +87,259 @@ internal fun LazyListScope.autoPlaySettingsItems(
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
     onItemFocused: () -> Unit = {}
 ) {
-    item(key = "autoplay_reuse_last_link") {
-        ToggleSettingsItem(
-            icon = Icons.Default.History,
-            title = stringResource(R.string.autoplay_reuse_last_link),
-            subtitle = stringResource(R.string.autoplay_reuse_last_link_sub),
-            isChecked = playerSettings.streamReuseLastLinkEnabled,
-            onCheckedChange = onSetReuseLastLinkEnabled,
-            onFocused = onItemFocused
-        )
-    }
+    ToggleSettingsItem(
+        icon = Icons.Default.History,
+        title = stringResource(R.string.autoplay_reuse_last_link),
+        subtitle = stringResource(
+            R.string.autoplay_reuse_last_link_sub
+        ),
+        isChecked = playerSettings.streamReuseLastLinkEnabled,
+        onCheckedChange = onSetReuseLastLinkEnabled,
+        onFocused = onItemFocused
+    )
 
     if (playerSettings.streamReuseLastLinkEnabled) {
-        item(key = "autoplay_reuse_cache_duration") {
-            NavigationSettingsItem(
-                icon = Icons.Default.Tune,
-                title = stringResource(R.string.autoplay_last_link_cache),
-                subtitle = formatReuseCacheDuration(playerSettings.streamReuseLastLinkCacheHours),
-                onClick = onShowReuseLastLinkCacheDialog,
-                onFocused = onItemFocused
-            )
-        }
-    }
-
-    item(key = "autoplay_mode") {
-        val modeLabel = when (playerSettings.streamAutoPlayMode) {
-            StreamAutoPlayMode.MANUAL -> stringResource(R.string.autoplay_mode_manual)
-            StreamAutoPlayMode.FIRST_STREAM -> stringResource(R.string.autoplay_mode_first)
-            StreamAutoPlayMode.REGEX_MATCH -> stringResource(R.string.autoplay_mode_regex)
-        }
-        NavigationSettingsItem(
-            icon = Icons.Default.PlayArrow,
-            title = stringResource(R.string.autoplay_stream_selection),
-            subtitle = modeLabel,
-            onClick = onShowModeDialog,
-            onFocused = onItemFocused
-        )
-    }
-
-    item(key = "autoplay_stream_timeout") {
-        val timeoutSec = playerSettings.streamAutoPlayTimeoutSeconds
-        val valueText = when (timeoutSec) {
-            0 -> stringResource(R.string.autoplay_timeout_instant)
-            11 -> stringResource(R.string.autoplay_timeout_unlimited)
-            else -> "${timeoutSec}s"
-        }
-        SliderSettingsItem(
-            icon = Icons.Default.Timer,
-            title = stringResource(R.string.autoplay_timeout_title),
-            subtitle = stringResource(R.string.autoplay_timeout_sub),
-            value = timeoutSec,
-            valueText = valueText,
-            minValue = 0,
-            maxValue = 11,
-            step = 1,
-            onValueChange = { onSetStreamAutoPlayTimeoutSeconds(it) },
-            onFocused = onItemFocused
-        )
-    }
-
-    item(key = "autoplay_next_episode") {
-        ToggleSettingsItem(
-            icon = Icons.Default.SkipNext,
-            title = stringResource(R.string.autoplay_next_episode),
-            subtitle = stringResource(R.string.autoplay_next_episode_sub),
-            isChecked = playerSettings.streamAutoPlayNextEpisodeEnabled,
-            onCheckedChange = onSetStreamAutoPlayNextEpisodeEnabled,
-            onFocused = onItemFocused
-        )
-    }
-
-    item(key = "autoplay_next_episode_prefer_binge_group") {
-        ToggleSettingsItem(
-            icon = Icons.Default.Tune,
-            title = stringResource(R.string.autoplay_prefer_binge_group),
-            subtitle = stringResource(R.string.autoplay_prefer_binge_group_sub),
-            isChecked = playerSettings.streamAutoPlayPreferBingeGroupForNextEpisode,
-            onCheckedChange = onSetStreamAutoPlayPreferBingeGroupForNextEpisode,
-            onFocused = onItemFocused
-        )
-    }
-
-    item(key = "autoplay_threshold_mode") {
-        val thresholdModeSubtitle = when (playerSettings.nextEpisodeThresholdMode) {
-            NextEpisodeThresholdMode.PERCENTAGE -> stringResource(R.string.autoplay_threshold_pct)
-            NextEpisodeThresholdMode.MINUTES_BEFORE_END -> stringResource(R.string.autoplay_threshold_min)
-        }
         NavigationSettingsItem(
             icon = Icons.Default.Tune,
-            title = stringResource(R.string.autoplay_threshold_mode),
-            subtitle = thresholdModeSubtitle,
-            onClick = onShowNextEpisodeThresholdModeDialog,
+            title = stringResource(R.string.autoplay_last_link_cache),
+            subtitle = formatReuseCacheDuration(
+                playerSettings.streamReuseLastLinkCacheHours
+            ),
+            onClick = onShowReuseLastLinkCacheDialog,
             onFocused = onItemFocused
         )
     }
 
-    item(key = "autoplay_threshold_value") {
+    val modeLabel = when (playerSettings.streamAutoPlayMode) {
+        StreamAutoPlayMode.MANUAL ->
+            stringResource(R.string.autoplay_mode_manual)
+        StreamAutoPlayMode.FIRST_STREAM ->
+            stringResource(R.string.autoplay_mode_first)
+        StreamAutoPlayMode.REGEX_MATCH ->
+            stringResource(R.string.autoplay_mode_regex)
+    }
+
+    NavigationSettingsItem(
+        icon = Icons.Default.PlayArrow,
+        title = stringResource(R.string.autoplay_stream_selection),
+        subtitle = modeLabel,
+        onClick = onShowModeDialog,
+        onFocused = onItemFocused
+    )
+
+    val timeoutSec = playerSettings.streamAutoPlayTimeoutSeconds
+    val timeoutText = when (timeoutSec) {
+        0 -> stringResource(R.string.autoplay_timeout_instant)
+        11 -> stringResource(R.string.autoplay_timeout_unlimited)
+        else -> "\${timeoutSec}s"
+    }
+
+    SliderSettingsItem(
+        icon = Icons.Default.Timer,
+        title = stringResource(R.string.autoplay_timeout_title),
+        subtitle = stringResource(R.string.autoplay_timeout_sub),
+        value = timeoutSec,
+        valueText = timeoutText,
+        minValue = 0,
+        maxValue = 11,
+        step = 1,
+        onValueChange = onSetStreamAutoPlayTimeoutSeconds,
+        onFocused = onItemFocused
+    )
+
+    ToggleSettingsItem(
+        icon = Icons.Default.SkipNext,
+        title = stringResource(R.string.autoplay_next_episode),
+        subtitle = stringResource(
+            R.string.autoplay_next_episode_sub
+        ),
+        isChecked =
+            playerSettings.streamAutoPlayNextEpisodeEnabled,
+        onCheckedChange =
+            onSetStreamAutoPlayNextEpisodeEnabled,
+        onFocused = onItemFocused
+    )
+
+    ToggleSettingsItem(
+        icon = Icons.Default.Tune,
+        title = stringResource(R.string.autoplay_prefer_binge_group),
+        subtitle = stringResource(
+            R.string.autoplay_prefer_binge_group_sub
+        ),
+        isChecked =
+            playerSettings
+                .streamAutoPlayPreferBingeGroupForNextEpisode,
+        onCheckedChange =
+            onSetStreamAutoPlayPreferBingeGroupForNextEpisode,
+        onFocused = onItemFocused
+    )
+
+    val thresholdModeSubtitle =
         when (playerSettings.nextEpisodeThresholdMode) {
-            NextEpisodeThresholdMode.PERCENTAGE -> {
-                SliderSettingsItem(
-                    icon = Icons.Default.Tune,
-                    title = stringResource(R.string.autoplay_threshold_pct_title),
-                    subtitle = stringResource(R.string.autoplay_threshold_pct_sub),
-                    value = (playerSettings.nextEpisodeThresholdPercent * 2f).roundToInt(),
-                    valueText = "${formatHalfStepValue(playerSettings.nextEpisodeThresholdPercent)}%",
-                    minValue = 194,
-                    maxValue = 199,
-                    step = 1,
-                    onValueChange = { onSetNextEpisodeThresholdPercent(it / 2f) },
-                    onFocused = onItemFocused
-                )
-            }
-            NextEpisodeThresholdMode.MINUTES_BEFORE_END -> {
-                SliderSettingsItem(
-                    icon = Icons.Default.Tune,
-                    title = stringResource(R.string.autoplay_threshold_min_title),
-                    subtitle = stringResource(R.string.autoplay_threshold_pct_sub),
-                    value = (playerSettings.nextEpisodeThresholdMinutesBeforeEnd * 2f).roundToInt(),
-                    valueText = "${formatHalfStepValue(playerSettings.nextEpisodeThresholdMinutesBeforeEnd)} min",
-                    minValue = 2,
-                    maxValue = 7,
-                    step = 1,
-                    onValueChange = { onSetNextEpisodeThresholdMinutesBeforeEnd(it / 2f) },
-                    onFocused = onItemFocused
-                )
-            }
+            NextEpisodeThresholdMode.PERCENTAGE ->
+                stringResource(R.string.autoplay_threshold_pct)
+            NextEpisodeThresholdMode.MINUTES_BEFORE_END ->
+                stringResource(R.string.autoplay_threshold_min)
         }
-    }
 
-    if (playerSettings.streamAutoPlayMode != StreamAutoPlayMode.MANUAL) {
+    NavigationSettingsItem(
+        icon = Icons.Default.Tune,
+        title = stringResource(R.string.autoplay_threshold_mode),
+        subtitle = thresholdModeSubtitle,
+        onClick = onShowNextEpisodeThresholdModeDialog,
+        onFocused = onItemFocused
+    )
 
-        item(key = "autoplay_source_scope") {
-            val sourceLabel = when (playerSettings.streamAutoPlaySource) {
-                StreamAutoPlaySource.ALL_SOURCES -> stringResource(R.string.autoplay_scope_all)
-                StreamAutoPlaySource.INSTALLED_ADDONS_ONLY -> stringResource(R.string.autoplay_scope_addons)
-                StreamAutoPlaySource.ENABLED_PLUGINS_ONLY -> stringResource(R.string.autoplay_scope_plugins)
-            }
-            NavigationSettingsItem(
+    when (playerSettings.nextEpisodeThresholdMode) {
+        NextEpisodeThresholdMode.PERCENTAGE -> {
+            SliderSettingsItem(
                 icon = Icons.Default.Tune,
-                title = stringResource(R.string.autoplay_scope),
-                subtitle = sourceLabel,
-                onClick = onShowSourceDialog,
+                title = stringResource(
+                    R.string.autoplay_threshold_pct_title
+                ),
+                subtitle = stringResource(
+                    R.string.autoplay_threshold_pct_sub
+                ),
+                value =
+                    (
+                        playerSettings
+                            .nextEpisodeThresholdPercent * 2f
+                        ).roundToInt(),
+                valueText =
+                    "\${formatHalfStepValue(playerSettings.nextEpisodeThresholdPercent)}%",
+                minValue = 194,
+                maxValue = 199,
+                step = 1,
+                onValueChange = {
+                    onSetNextEpisodeThresholdPercent(it / 2f)
+                },
                 onFocused = onItemFocused
             )
         }
 
-        if (playerSettings.streamAutoPlaySource != StreamAutoPlaySource.ENABLED_PLUGINS_ONLY) {
-            item(key = "autoplay_allowed_addons") {
-                val addonSubtitle = if (playerSettings.streamAutoPlaySelectedAddons.isEmpty()) {
+        NextEpisodeThresholdMode.MINUTES_BEFORE_END -> {
+            SliderSettingsItem(
+                icon = Icons.Default.Tune,
+                title = stringResource(
+                    R.string.autoplay_threshold_min_title
+                ),
+                subtitle = stringResource(
+                    R.string.autoplay_threshold_pct_sub
+                ),
+                value =
+                    (
+                        playerSettings
+                            .nextEpisodeThresholdMinutesBeforeEnd *
+                            2f
+                        ).roundToInt(),
+                valueText =
+                    "\${formatHalfStepValue(playerSettings.nextEpisodeThresholdMinutesBeforeEnd)} min",
+                minValue = 2,
+                maxValue = 7,
+                step = 1,
+                onValueChange = {
+                    onSetNextEpisodeThresholdMinutesBeforeEnd(
+                        it / 2f
+                    )
+                },
+                onFocused = onItemFocused
+            )
+        }
+    }
+
+    if (
+        playerSettings.streamAutoPlayMode !=
+        StreamAutoPlayMode.MANUAL
+    ) {
+        val sourceLabel =
+            when (playerSettings.streamAutoPlaySource) {
+                StreamAutoPlaySource.ALL_SOURCES ->
+                    stringResource(R.string.autoplay_scope_all)
+                StreamAutoPlaySource.INSTALLED_ADDONS_ONLY ->
+                    stringResource(R.string.autoplay_scope_addons)
+                StreamAutoPlaySource.ENABLED_PLUGINS_ONLY ->
+                    stringResource(R.string.autoplay_scope_plugins)
+            }
+
+        NavigationSettingsItem(
+            icon = Icons.Default.Tune,
+            title = stringResource(R.string.autoplay_scope),
+            subtitle = sourceLabel,
+            onClick = onShowSourceDialog,
+            onFocused = onItemFocused
+        )
+
+        if (
+            playerSettings.streamAutoPlaySource !=
+            StreamAutoPlaySource.ENABLED_PLUGINS_ONLY
+        ) {
+            val addonSubtitle =
+                if (
+                    playerSettings
+                        .streamAutoPlaySelectedAddons
+                        .isEmpty()
+                ) {
                     stringResource(R.string.autoplay_all_addons)
                 } else {
-                    "${playerSettings.streamAutoPlaySelectedAddons.size} selected"
+                    "\${playerSettings.streamAutoPlaySelectedAddons.size} selected"
                 }
-                NavigationSettingsItem(
-                    icon = Icons.Default.Language,
-                    title = stringResource(R.string.autoplay_allowed_addons),
-                    subtitle = addonSubtitle,
-                    onClick = onShowAddonSelectionDialog,
-                    onFocused = onItemFocused
-                )
-            }
-        }
 
-        if (playerSettings.streamAutoPlaySource != StreamAutoPlaySource.INSTALLED_ADDONS_ONLY) {
-            item(key = "autoplay_allowed_plugins") {
-                val pluginSubtitle = if (playerSettings.streamAutoPlaySelectedPlugins.isEmpty()) {
-                    stringResource(R.string.autoplay_all_plugins)
-                } else {
-                    "${playerSettings.streamAutoPlaySelectedPlugins.size} selected"
-                }
-                NavigationSettingsItem(
-                    icon = Icons.Default.Extension,
-                    title = stringResource(R.string.autoplay_allowed_plugins),
-                    subtitle = pluginSubtitle,
-                    onClick = onShowPluginSelectionDialog,
-                    onFocused = onItemFocused
-                )
-            }
-        }
-    }
-
-    if (playerSettings.streamAutoPlayMode == StreamAutoPlayMode.REGEX_MATCH) {
-        item(key = "autoplay_regex_pattern") {
-            val strRegexPlaceholder = stringResource(R.string.autoplay_regex_placeholder)
-            val regexSubtitle = playerSettings.streamAutoPlayRegex.ifBlank {
-                strRegexPlaceholder
-            }
             NavigationSettingsItem(
-                icon = Icons.Default.Tune,
-                title = stringResource(R.string.autoplay_regex_title),
-                subtitle = regexSubtitle,
-                onClick = onShowRegexDialog,
+                icon = Icons.Default.Language,
+                title = stringResource(
+                    R.string.autoplay_allowed_addons
+                ),
+                subtitle = addonSubtitle,
+                onClick = onShowAddonSelectionDialog,
                 onFocused = onItemFocused
             )
         }
+
+        if (
+            playerSettings.streamAutoPlaySource !=
+            StreamAutoPlaySource.INSTALLED_ADDONS_ONLY
+        ) {
+            val pluginSubtitle =
+                if (
+                    playerSettings
+                        .streamAutoPlaySelectedPlugins
+                        .isEmpty()
+                ) {
+                    stringResource(R.string.autoplay_all_plugins)
+                } else {
+                    "\${playerSettings.streamAutoPlaySelectedPlugins.size} selected"
+                }
+
+            NavigationSettingsItem(
+                icon = Icons.Default.Extension,
+                title = stringResource(
+                    R.string.autoplay_allowed_plugins
+                ),
+                subtitle = pluginSubtitle,
+                onClick = onShowPluginSelectionDialog,
+                onFocused = onItemFocused
+            )
+        }
+    }
+
+    if (
+        playerSettings.streamAutoPlayMode ==
+        StreamAutoPlayMode.REGEX_MATCH
+    ) {
+        val regexSubtitle =
+            playerSettings.streamAutoPlayRegex.ifBlank {
+                stringResource(
+                    R.string.autoplay_regex_placeholder
+                )
+            }
+
+        NavigationSettingsItem(
+            icon = Icons.Default.Tune,
+            title = stringResource(R.string.autoplay_regex_title),
+            subtitle = regexSubtitle,
+            onClick = onShowRegexDialog,
+            onFocused = onItemFocused
+        )
     }
 }
 
