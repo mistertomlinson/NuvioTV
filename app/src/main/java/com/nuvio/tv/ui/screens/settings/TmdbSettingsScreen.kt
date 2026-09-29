@@ -53,174 +53,184 @@ fun TmdbSettingsContent(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var showLanguageDialog by remember { mutableStateOf(false) }
 
-    Column(
-        modifier =
-            if (embedded) {
-                Modifier
-                    .fillMaxWidth()
-                    .height(360.dp)
-            } else {
-                Modifier.fillMaxSize()
-            },
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        if (!embedded) {
-            SettingsDetailHeader(
-            title = stringResource(R.string.tmdb_title),
-            subtitle = stringResource(R.string.tmdb_subtitle)
-            )
-        }
-
-        SettingsGroupCard(
-            modifier = Modifier
-                .fillMaxWidth()
-                .then(
-                    if (embedded) {
-                        Modifier.weight(1f)
-                    } else {
-                        Modifier
-                    }
-                ),
-            segmented = true
+    if (embedded) {
+        TmdbEmbeddedSettingsRows(
+            uiState = uiState,
+            viewModel = viewModel,
+            initialFocusRequester = initialFocusRequester,
+            onOpenLanguage = { showLanguageDialog = true }
+        )
+    } else {
+        Column(
+            modifier =
+                if (embedded) {
+                    Modifier
+                        .fillMaxWidth()
+                        .height(360.dp)
+                } else {
+                    Modifier.fillMaxSize()
+                },
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            val tmdbListState = rememberLazyListState()
-            Box(modifier = Modifier.fillMaxWidth()) {
-                LazyColumn(
-                    state = tmdbListState,
-                    modifier = Modifier.fillMaxWidth(),
-                    contentPadding = PaddingValues(0.dp),
-                verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
-            ) {
-                item(key = "tmdb_enabled") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_enable_title),
-                        subtitle = stringResource(R.string.tmdb_enable_subtitle),
-                        checked = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleEnabled(!uiState.enabled)) },
-                        modifier = if (initialFocusRequester != null) {
-                            Modifier.focusRequester(initialFocusRequester)
+            if (!embedded) {
+                SettingsDetailHeader(
+                title = stringResource(R.string.tmdb_title),
+                subtitle = stringResource(R.string.tmdb_subtitle)
+                )
+            }
+    
+            SettingsGroupCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .then(
+                        if (embedded) {
+                            Modifier.weight(1f)
                         } else {
                             Modifier
                         }
-                    )
+                    ),
+                segmented = true
+            ) {
+                val tmdbListState = rememberLazyListState()
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    LazyColumn(
+                        state = tmdbListState,
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(0.dp),
+                    verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+                ) {
+                    item(key = "tmdb_enabled") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_enable_title),
+                            subtitle = stringResource(R.string.tmdb_enable_subtitle),
+                            checked = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleEnabled(!uiState.enabled)) },
+                            modifier = if (initialFocusRequester != null) {
+                                Modifier.focusRequester(initialFocusRequester)
+                            } else {
+                                Modifier
+                            }
+                        )
+                    }
+    
+                    item(key = "tmdb_language") {
+                        val languageName = AVAILABLE_SUBTITLE_LANGUAGES
+                            .find { it.code == uiState.language }
+                            ?.displayName
+                            ?: uiState.language.uppercase()
+                        SettingsActionRow(
+                            title = stringResource(R.string.tmdb_language_title),
+                            subtitle = stringResource(R.string.tmdb_language_subtitle),
+                            value = languageName,
+                            enabled = uiState.enabled,
+                            onClick = { showLanguageDialog = true }
+                        )
+                    }
+    
+                    item(key = "tmdb_artwork") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_artwork_title),
+                            subtitle = stringResource(R.string.tmdb_artwork_subtitle),
+                            checked = uiState.useArtwork,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleArtwork(!uiState.useArtwork)) }
+                        )
+                    }
+    
+                    item(key = "tmdb_basic_info") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_basic_info_title),
+                            subtitle = stringResource(R.string.tmdb_basic_info_subtitle),
+                            checked = uiState.useBasicInfo,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleBasicInfo(!uiState.useBasicInfo)) }
+                        )
+                    }
+    
+                    item(key = "tmdb_details") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_details_title),
+                            subtitle = stringResource(R.string.tmdb_details_subtitle),
+                            checked = uiState.useDetails,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleDetails(!uiState.useDetails)) }
+                        )
+                    }
+    
+                    item(key = "tmdb_credits") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_credits_title),
+                            subtitle = stringResource(R.string.tmdb_credits_subtitle),
+                            checked = uiState.useCredits,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleCredits(!uiState.useCredits)) }
+                        )
+                    }
+    
+                    item(key = "tmdb_productions") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_productions_title),
+                            subtitle = stringResource(R.string.tmdb_productions_subtitle),
+                            checked = uiState.useProductions,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleProductions(!uiState.useProductions)) }
+                        )
+                    }
+    
+                    item(key = "tmdb_networks") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_networks_title),
+                            subtitle = stringResource(R.string.tmdb_networks_subtitle),
+                            checked = uiState.useNetworks,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleNetworks(!uiState.useNetworks)) }
+                        )
+                    }
+    
+                    item(key = "tmdb_episodes") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_episodes_title),
+                            subtitle = stringResource(R.string.tmdb_episodes_subtitle),
+                            checked = uiState.useEpisodes,
+                            enabled = uiState.enabled,
+                            onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleEpisodes(!uiState.useEpisodes)) }
+                        )
+                    }
+    
+                    item(key = "tmdb_more_like_this") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_more_like_this_title),
+                            subtitle = stringResource(R.string.tmdb_more_like_this_subtitle),
+                            checked = uiState.useMoreLikeThis,
+                            enabled = uiState.enabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    TmdbSettingsEvent.ToggleMoreLikeThis(!uiState.useMoreLikeThis)
+                                )
+                            }
+                        )
+                    }
+    
+                    item(key = "tmdb_collections") {
+                        SettingsToggleRow(
+                            title = stringResource(R.string.tmdb_collections_title),
+                            subtitle = stringResource(R.string.tmdb_collections_subtitle),
+                            checked = uiState.useCollections,
+                            enabled = uiState.enabled,
+                            onToggle = {
+                                viewModel.onEvent(
+                                    TmdbSettingsEvent.ToggleCollections(!uiState.useCollections)
+                                )
+                            }
+                        )
+                    }
+    
+                    }
+                    SettingsVerticalScrollIndicators(state = tmdbListState)
                 }
-
-                item(key = "tmdb_language") {
-                    val languageName = AVAILABLE_SUBTITLE_LANGUAGES
-                        .find { it.code == uiState.language }
-                        ?.displayName
-                        ?: uiState.language.uppercase()
-                    SettingsActionRow(
-                        title = stringResource(R.string.tmdb_language_title),
-                        subtitle = stringResource(R.string.tmdb_language_subtitle),
-                        value = languageName,
-                        enabled = uiState.enabled,
-                        onClick = { showLanguageDialog = true }
-                    )
-                }
-
-                item(key = "tmdb_artwork") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_artwork_title),
-                        subtitle = stringResource(R.string.tmdb_artwork_subtitle),
-                        checked = uiState.useArtwork,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleArtwork(!uiState.useArtwork)) }
-                    )
-                }
-
-                item(key = "tmdb_basic_info") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_basic_info_title),
-                        subtitle = stringResource(R.string.tmdb_basic_info_subtitle),
-                        checked = uiState.useBasicInfo,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleBasicInfo(!uiState.useBasicInfo)) }
-                    )
-                }
-
-                item(key = "tmdb_details") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_details_title),
-                        subtitle = stringResource(R.string.tmdb_details_subtitle),
-                        checked = uiState.useDetails,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleDetails(!uiState.useDetails)) }
-                    )
-                }
-
-                item(key = "tmdb_credits") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_credits_title),
-                        subtitle = stringResource(R.string.tmdb_credits_subtitle),
-                        checked = uiState.useCredits,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleCredits(!uiState.useCredits)) }
-                    )
-                }
-
-                item(key = "tmdb_productions") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_productions_title),
-                        subtitle = stringResource(R.string.tmdb_productions_subtitle),
-                        checked = uiState.useProductions,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleProductions(!uiState.useProductions)) }
-                    )
-                }
-
-                item(key = "tmdb_networks") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_networks_title),
-                        subtitle = stringResource(R.string.tmdb_networks_subtitle),
-                        checked = uiState.useNetworks,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleNetworks(!uiState.useNetworks)) }
-                    )
-                }
-
-                item(key = "tmdb_episodes") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_episodes_title),
-                        subtitle = stringResource(R.string.tmdb_episodes_subtitle),
-                        checked = uiState.useEpisodes,
-                        enabled = uiState.enabled,
-                        onToggle = { viewModel.onEvent(TmdbSettingsEvent.ToggleEpisodes(!uiState.useEpisodes)) }
-                    )
-                }
-
-                item(key = "tmdb_more_like_this") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_more_like_this_title),
-                        subtitle = stringResource(R.string.tmdb_more_like_this_subtitle),
-                        checked = uiState.useMoreLikeThis,
-                        enabled = uiState.enabled,
-                        onToggle = {
-                            viewModel.onEvent(
-                                TmdbSettingsEvent.ToggleMoreLikeThis(!uiState.useMoreLikeThis)
-                            )
-                        }
-                    )
-                }
-
-                item(key = "tmdb_collections") {
-                    SettingsToggleRow(
-                        title = stringResource(R.string.tmdb_collections_title),
-                        subtitle = stringResource(R.string.tmdb_collections_subtitle),
-                        checked = uiState.useCollections,
-                        enabled = uiState.enabled,
-                        onToggle = {
-                            viewModel.onEvent(
-                                TmdbSettingsEvent.ToggleCollections(!uiState.useCollections)
-                            )
-                        }
-                    )
-                }
-
-                }
-                SettingsVerticalScrollIndicators(state = tmdbListState)
             }
         }
+    
     }
 
     if (showLanguageDialog) {
@@ -236,3 +246,150 @@ fun TmdbSettingsContent(
         )
     }
 }
+
+@Composable
+private fun TmdbEmbeddedSettingsRows(
+    uiState: TmdbSettingsUiState,
+    viewModel: TmdbSettingsViewModel,
+    initialFocusRequester: FocusRequester?,
+    onOpenLanguage: () -> Unit
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
+    ) {
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_enable_title),
+            subtitle = stringResource(R.string.tmdb_enable_subtitle),
+            checked = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleEnabled(!uiState.enabled)
+                )
+            },
+            modifier =
+                if (initialFocusRequester != null) {
+                    Modifier.focusRequester(initialFocusRequester)
+                } else {
+                    Modifier
+                }
+        )
+
+        val languageName = AVAILABLE_SUBTITLE_LANGUAGES
+            .find { it.code == uiState.language }
+            ?.displayName
+            ?: uiState.language.uppercase()
+
+        SettingsActionRow(
+            title = stringResource(R.string.tmdb_language_title),
+            subtitle = stringResource(R.string.tmdb_language_subtitle),
+            value = languageName,
+            enabled = uiState.enabled,
+            onClick = onOpenLanguage
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_artwork_title),
+            subtitle = stringResource(R.string.tmdb_artwork_subtitle),
+            checked = uiState.useArtwork,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleArtwork(!uiState.useArtwork)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_basic_info_title),
+            subtitle = stringResource(R.string.tmdb_basic_info_subtitle),
+            checked = uiState.useBasicInfo,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleBasicInfo(!uiState.useBasicInfo)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_details_title),
+            subtitle = stringResource(R.string.tmdb_details_subtitle),
+            checked = uiState.useDetails,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleDetails(!uiState.useDetails)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_credits_title),
+            subtitle = stringResource(R.string.tmdb_credits_subtitle),
+            checked = uiState.useCredits,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleCredits(!uiState.useCredits)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_productions_title),
+            subtitle = stringResource(R.string.tmdb_productions_subtitle),
+            checked = uiState.useProductions,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleProductions(!uiState.useProductions)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_networks_title),
+            subtitle = stringResource(R.string.tmdb_networks_subtitle),
+            checked = uiState.useNetworks,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleNetworks(!uiState.useNetworks)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_episodes_title),
+            subtitle = stringResource(R.string.tmdb_episodes_subtitle),
+            checked = uiState.useEpisodes,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleEpisodes(!uiState.useEpisodes)
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_more_like_this_title),
+            subtitle = stringResource(R.string.tmdb_more_like_this_subtitle),
+            checked = uiState.useMoreLikeThis,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleMoreLikeThis(
+                        !uiState.useMoreLikeThis
+                    )
+                )
+            }
+        )
+        SettingsToggleRow(
+            title = stringResource(R.string.tmdb_collections_title),
+            subtitle = stringResource(R.string.tmdb_collections_subtitle),
+            checked = uiState.useCollections,
+            enabled = uiState.enabled,
+            onToggle = {
+                viewModel.onEvent(
+                    TmdbSettingsEvent.ToggleCollections(
+                        !uiState.useCollections
+                    )
+                )
+            }
+        )
+    }
+}
+
