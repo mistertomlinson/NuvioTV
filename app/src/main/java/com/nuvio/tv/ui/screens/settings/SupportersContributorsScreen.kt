@@ -1081,12 +1081,16 @@ private fun SupporterDetailsDialog(
                 modifier = Modifier.focusRequester(primaryFocusRequester),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.Secondary,
-                    focusedContainerColor = NuvioColors.SecondaryVariant,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.OnSecondary,
-                    focusedContentColor = NuvioColors.OnSecondaryVariant
-                ),
+                    focusedContentColor = Color.White),
                 shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ) {
+            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(text = stringResource(R.string.supporters_open_donations))
             }
 
@@ -1096,10 +1100,14 @@ private fun SupporterDetailsDialog(
                     containerColor = SettingsGlassRowColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
-                    focusedContentColor = NuvioColors.Primary
-                ),
+                    focusedContentColor = Color.White),
                 shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ) {
+            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(text = stringResource(R.string.action_close))
             }
         }
@@ -1199,12 +1207,16 @@ private fun ContributorDetailsDialog(
                 modifier = Modifier.focusRequester(primaryFocusRequester),
                 colors = ButtonDefaults.colors(
                     containerColor = NuvioColors.Secondary,
-                    focusedContainerColor = NuvioColors.SecondaryVariant,
+                    focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.OnSecondary,
-                    focusedContentColor = NuvioColors.OnSecondaryVariant
-                ),
+                    focusedContentColor = Color.White),
                 shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ) {
+            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(text = stringResource(R.string.contributors_open_github))
             }
 
@@ -1215,10 +1227,14 @@ private fun ContributorDetailsDialog(
                         containerColor = SettingsGlassRowColor,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.TextPrimary,
-                        focusedContentColor = NuvioColors.Primary
-                    ),
+                        focusedContentColor = Color.White),
                     shape = ButtonDefaults.shape(RoundedCornerShape(50))
-                ) {
+                ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                     Text(
                         text = stringResource(
                             if (showSupportQr) {
@@ -1237,10 +1253,14 @@ private fun ContributorDetailsDialog(
                     containerColor = SettingsGlassRowColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
                     contentColor = NuvioColors.TextPrimary,
-                    focusedContentColor = NuvioColors.Primary
-                ),
+                    focusedContentColor = Color.White),
                 shape = ButtonDefaults.shape(RoundedCornerShape(50))
-            ) {
+            ,
+    scale = ButtonDefaults.scale(
+        focusedScale = SettingsDialogFocusScale,
+        pressedScale = SettingsDialogPressedScale
+    )
+) {
                 Text(text = stringResource(R.string.action_close))
             }
         }
