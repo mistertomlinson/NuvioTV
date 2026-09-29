@@ -99,6 +99,11 @@ import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
+import com.nuvio.tv.ui.screens.settings.SettingsGroupPosition
+import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceColor
+import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
+import com.nuvio.tv.ui.screens.settings.SettingsRowGap
+import com.nuvio.tv.ui.screens.settings.settingsGroupShape
 import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -242,13 +247,14 @@ private fun AddonManagerScreenContent(
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(horizontal = 28.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
         ) {
             item {
                 Text(
                     text = stringResource(R.string.addon_title),
                     style = MaterialTheme.typography.headlineMedium,
-                    color = if (showBuiltInHeader) NuvioColors.TextPrimary else Color.Transparent
+                    color = if (showBuiltInHeader) NuvioColors.TextPrimary else Color.Transparent,
+                    modifier = Modifier.padding(bottom = 8.dp)
                 )
             }
 
@@ -275,8 +281,10 @@ private fun AddonManagerScreenContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .animateContentSize(),
-                        colors = CardDefaults.cardColors(containerColor = SettingsGlassRowColor),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = CardDefaults.cardColors(
+                            containerColor = SettingsRightSurfaceColor
+                        ),
+                        shape = settingsGroupShape(SettingsGroupPosition.TOP)
                     ) {
                         Column(modifier = Modifier.padding(14.dp)) {
                             Text(
@@ -367,9 +375,9 @@ private fun AddonManagerScreenContent(
                                     enabled = !uiState.isInstalling,
                                     modifier = Modifier.focusRequester(installButtonFocusRequester),
                                     colors = ButtonDefaults.colors(
-                                        containerColor = SettingsGlassRowColor,
+                                        containerColor = SettingsRightSurfaceColor,
                                         contentColor = NuvioColors.TextPrimary,
-                                        focusedContainerColor = SettingsGlassRowFocusedColor,
+                                        focusedContainerColor = SettingsRightSurfaceFocusedColor,
                                         focusedContentColor = NuvioColors.Primary
                                     ),
                                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
@@ -397,6 +405,12 @@ private fun AddonManagerScreenContent(
                             rememberedFocusTarget = "manage_from_phone"
                             viewModel.startQrMode()
                         },
+                        groupPosition =
+                            if (hasHomeVisibleCatalogs) {
+                                SettingsGroupPosition.MIDDLE
+                            } else {
+                                SettingsGroupPosition.BOTTOM
+                            },
                         modifier = Modifier.focusRequester(
                             manageFromPhoneFocusRequester
                         )
@@ -410,6 +424,8 @@ private fun AddonManagerScreenContent(
                                 rememberedFocusTarget = "catalog_order"
                                 onNavigateToCatalogOrder()
                             },
+                            groupPosition =
+                                SettingsGroupPosition.MIDDLE,
                             modifier = Modifier.focusRequester(
                                 catalogOrderFocusRequester
                             )
@@ -418,6 +434,8 @@ private fun AddonManagerScreenContent(
                     item {
                         RefreshCatalogsEntryCard(
                             subtitle = refreshCatalogsSubtitle,
+                            groupPosition =
+                                SettingsGroupPosition.BOTTOM,
                             onClick = {
                                 onRefreshCatalogs()
                                 refreshCatalogsSubtitle = "Catalogs refreshing…"
@@ -435,7 +453,8 @@ private fun AddonManagerScreenContent(
                     Text(
                         text = stringResource(R.string.addon_installed_section),
                         style = MaterialTheme.typography.titleLarge,
-                        color = NuvioColors.TextPrimary
+                        color = NuvioColors.TextPrimary,
+                        modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     if (uiState.isLoading && uiState.installedAddons.isEmpty()) {
@@ -459,6 +478,17 @@ private fun AddonManagerScreenContent(
                 ) { index, addon ->
                     AddonCard(
                         addon = addon,
+                        groupPosition =
+                            when {
+                                uiState.installedAddons.size == 1 ->
+                                    SettingsGroupPosition.SINGLE
+                                index == 0 ->
+                                    SettingsGroupPosition.TOP
+                                index == uiState.installedAddons.lastIndex ->
+                                    SettingsGroupPosition.BOTTOM
+                                else ->
+                                    SettingsGroupPosition.MIDDLE
+                            },
                         canMoveUp = index > 0,
                         canMoveDown = index < uiState.installedAddons.lastIndex,
                         onMoveUp = { viewModel.moveAddonUp(addon.baseUrl) },
@@ -556,6 +586,7 @@ private fun AddonMessageOverlay(
 @Composable
 private fun ManageFromPhoneCard(
     onClick: () -> Unit,
+    groupPosition: SettingsGroupPosition,
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -566,17 +597,17 @@ private fun ManageFromPhoneCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowFocusedColor
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(18.dp)
-            )
+            border = Border.None,
+            focusedBorder = Border.None
         ),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f)
+        shape = ClickableSurfaceDefaults.shape(
+            settingsGroupShape(groupPosition)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
     ) {
         Row(
             modifier = Modifier
@@ -623,6 +654,7 @@ private fun ManageFromPhoneCard(
 @Composable
 private fun CatalogOrderEntryCard(
     onClick: () -> Unit,
+    groupPosition: SettingsGroupPosition,
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -633,17 +665,17 @@ private fun CatalogOrderEntryCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowFocusedColor
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(18.dp)
-            )
+            border = Border.None,
+            focusedBorder = Border.None
         ),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f)
+        shape = ClickableSurfaceDefaults.shape(
+            settingsGroupShape(groupPosition)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
     ) {
         Row(
             modifier = Modifier
@@ -690,6 +722,7 @@ private fun CatalogOrderEntryCard(
 @Composable
 private fun RefreshCatalogsEntryCard(
     subtitle: String,
+    groupPosition: SettingsGroupPosition,
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
@@ -700,17 +733,17 @@ private fun RefreshCatalogsEntryCard(
             .fillMaxWidth()
             .onFocusChanged { isFocused = it.isFocused },
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = SettingsGlassRowColor,
-            focusedContainerColor = SettingsGlassRowFocusedColor
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
         ),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(
-                border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                shape = RoundedCornerShape(18.dp)
-            )
+            border = Border.None,
+            focusedBorder = Border.None
         ),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.01f)
+        shape = ClickableSurfaceDefaults.shape(
+            settingsGroupShape(groupPosition)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
     ) {
         Row(
             modifier = Modifier
@@ -1117,6 +1150,7 @@ private fun ConfirmAddonChangesDialog(
 @Composable
 private fun AddonCard(
     addon: Addon,
+    groupPosition: SettingsGroupPosition,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
     onMoveUp: () -> Unit,
@@ -1131,16 +1165,16 @@ private fun AddonCard(
                 .fillMaxWidth()
                 .animateContentSize(),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = SettingsGlassRowColor,
-                focusedContainerColor = SettingsGlassRowColor
+                containerColor = SettingsRightSurfaceColor,
+                focusedContainerColor = SettingsRightSurfaceColor
             ),
             border = ClickableSurfaceDefaults.border(
-                focusedBorder = Border(
-                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                    shape = RoundedCornerShape(12.dp)
-                )
+                border = Border.None,
+                focusedBorder = Border.None
             ),
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+            shape = ClickableSurfaceDefaults.shape(
+                settingsGroupShape(groupPosition)
+            ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
         ) {
             AddonCardContent(addon = addon, isReadOnly = true)
@@ -1150,8 +1184,10 @@ private fun AddonCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .animateContentSize(),
-            colors = CardDefaults.cardColors(containerColor = SettingsGlassRowColor),
-            shape = RoundedCornerShape(12.dp)
+            colors = CardDefaults.cardColors(
+                containerColor = SettingsRightSurfaceColor
+            ),
+            shape = settingsGroupShape(groupPosition)
         ) {
             AddonCardContent(
                 addon = addon,
