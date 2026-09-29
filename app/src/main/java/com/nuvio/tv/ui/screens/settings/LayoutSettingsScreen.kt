@@ -46,6 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
@@ -134,8 +135,12 @@ fun LayoutSettingsContent(
 
     var focusedSection by remember { mutableStateOf<LayoutSettingsSection?>(null) }
     val layoutAnimationScope = rememberCoroutineScope()
+    val layoutDensity = LocalDensity.current
     var animatedFlattenBoundaries by remember {
         mutableStateOf<Set<Int>>(emptySet())
+    }
+    var deferredCornerCollapseSections by remember {
+        mutableStateOf<Set<LayoutSettingsSection>>(emptySet())
     }
 
     LaunchedEffect(homeContentExpanded, focusedSection) {
@@ -178,9 +183,12 @@ fun LayoutSettingsContent(
         if (focusedPosterExpanded) add(LayoutSettingsSection.FOCUSED_POSTER)
         if (posterCardStyleExpanded) add(LayoutSettingsSection.POSTER_CARD_STYLE)
     }
+    val shapeExpandedSections =
+        expandedSections + deferredCornerCollapseSections
+
     fun groupPositionFor(
         section: LayoutSettingsSection,
-        expanded: Set<LayoutSettingsSection> = expandedSections
+        expanded: Set<LayoutSettingsSection> = shapeExpandedSections
     ): SettingsGroupPosition {
         val index = visibleSections.indexOf(section)
         if (index < 0) return SettingsGroupPosition.SINGLE
@@ -241,6 +249,37 @@ fun LayoutSettingsContent(
         }
     }
 
+    fun roundedPairReturnBoundaries(
+        before: Set<LayoutSettingsSection>,
+        after: Set<LayoutSettingsSection>
+    ): Set<Int> {
+        return (0 until visibleSections.lastIndex)
+            .filter { boundaryIndex ->
+                val upper = visibleSections[boundaryIndex]
+                val lower = visibleSections[boundaryIndex + 1]
+
+                headerBottomRounded(upper, before) &&
+                    headerTopRounded(lower, before) &&
+                    !headerBottomRounded(upper, after) &&
+                    !headerTopRounded(lower, after)
+            }
+            .toSet()
+    }
+
+    fun beginBoundaryReturnAnimation(
+        boundaries: Set<Int>
+    ) {
+        animatedFlattenBoundaries = boundaries
+        if (boundaries.isNotEmpty()) {
+            layoutAnimationScope.launch {
+                delay(260)
+                if (animatedFlattenBoundaries == boundaries) {
+                    animatedFlattenBoundaries = emptySet()
+                }
+            }
+        }
+    }
+
     fun setSectionExpandedWithCornerPolicy(
         section: LayoutSettingsSection,
         expanded: Boolean
@@ -254,28 +293,9 @@ fun LayoutSettingsContent(
             }
 
         if (!expanded) {
-            val roundPairReturns =
-                (0 until visibleSections.lastIndex)
-                    .filter { boundaryIndex ->
-                        val upper = visibleSections[boundaryIndex]
-                        val lower = visibleSections[boundaryIndex + 1]
-
-                        headerBottomRounded(upper, before) &&
-                            headerTopRounded(lower, before) &&
-                            !headerBottomRounded(upper, after) &&
-                            !headerTopRounded(lower, after)
-                    }
-                    .toSet()
-
-            animatedFlattenBoundaries = roundPairReturns
-            if (roundPairReturns.isNotEmpty()) {
-                layoutAnimationScope.launch {
-                    delay(260)
-                    if (animatedFlattenBoundaries == roundPairReturns) {
-                        animatedFlattenBoundaries = emptySet()
-                    }
-                }
-            }
+            beginBoundaryReturnAnimation(
+                roundedPairReturnBoundaries(before, after)
+            )
         } else {
             animatedFlattenBoundaries = emptySet()
         }
@@ -761,24 +781,105 @@ fun LayoutSettingsContent(
                                 onlyPosterCardStyleExpanded &&
                                 listHasBeenScrolled
                             ) {
+                                val section =
+                                    LayoutSettingsSection.POSTER_CARD_STYLE
+                                val before = expandedSections
+                                val after = before - section
+                                val returnBoundaries =
+                                    roundedPairReturnBoundaries(
+                                        before,
+                                        after
+                                    )
+
+                                /*
+                                 * Hold the parent/header geometry in its
+                                 * pre-collapse shape while the child rows
+                                 * shrink and the short list returns upward.
+                                 * Once both motions settle, release the held
+                                 * geometry and run the corner transition.
+                                 */
+                                deferredCornerCollapseSections =
+                                    deferredCornerCollapseSections + section
+
                                 layoutAnimationScope.launch {
-                                    /*
-                                     * When the expanded final item made the
-                                     * otherwise-short list scrollable, begin
-                                     * returning the list to its natural top
-                                     * position before shrinking the item.
-                                     * This avoids LazyColumn's one-frame
-                                     * max-scroll clamp after collapse.
-                                     */
                                     val returnScroll = launch {
-                                        layoutListState.animateScrollToItem(0)
+                                        val speedPxPerSecond =
+                                            with(layoutDensity) {
+                                                520.dp.toPx()
+                                            }
+
+                                        layoutListState.scroll {
+                                            var previousFrameNanos =
+                                                androidx.compose.runtime
+                                                    .withFrameNanos { it }
+
+                                            while (
+                                                layoutListState
+                                                    .canScrollBackward
+                                            ) {
+                                                val frameNanos =
+                                                    androidx.compose.runtime
+                                                        .withFrameNanos { it }
+                                                val elapsedSeconds =
+                                                    (
+                                                        (frameNanos -
+                                                            previousFrameNanos)
+                                                            .toFloat() /
+                                                            1_000_000_000f
+                                                    ).coerceIn(
+                                                        0f,
+                                                        0.05f
+                                                    )
+                                                previousFrameNanos =
+                                                    frameNanos
+
+                                                val requested =
+                                                    speedPxPerSecond *
+                                                        elapsedSeconds
+                                                if (requested <= 0f) {
+                                                    continue
+                                                }
+
+                                                val consumed =
+                                                    scrollBy(-requested)
+                                                if (
+                                                    kotlin.math.abs(
+                                                        consumed
+                                                    ) < 0.01f
+                                                ) {
+                                                    break
+                                                }
+                                            }
+                                        }
                                     }
-                                    androidx.compose.runtime.withFrameNanos { }
-                                    setSectionExpandedWithCornerPolicy(
-                                        LayoutSettingsSection.POSTER_CARD_STYLE,
+
+                                    /*
+                                     * Let the return scroll claim the list
+                                     * before reducing its content height so
+                                     * LazyColumn never performs the old hard
+                                     * max-scroll clamp.
+                                     */
+                                    androidx.compose.runtime
+                                        .withFrameNanos { }
+
+                                    applySectionExpandedState(
+                                        section,
                                         false
                                     )
+
+                                    val collapseMinimum = launch {
+                                        delay(260)
+                                    }
+
                                     returnScroll.join()
+                                    collapseMinimum.join()
+
+                                    beginBoundaryReturnAnimation(
+                                        returnBoundaries
+                                    )
+                                    deferredCornerCollapseSections =
+                                        deferredCornerCollapseSections -
+                                            section
                                 }
                             } else {
                                 setSectionExpandedWithCornerPolicy(
