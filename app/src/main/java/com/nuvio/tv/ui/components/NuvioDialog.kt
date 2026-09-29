@@ -175,6 +175,8 @@ fun NuvioDialog(
             modifier = Modifier
                 .width(width)
                 .graphicsLayer {
+                    shape = shape
+                    clip = true
                     alpha =
                         if (useEnhancedGlass) {
                             appearanceProgress.value
