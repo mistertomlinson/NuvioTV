@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -51,20 +52,41 @@ import com.nuvio.tv.ui.theme.NuvioColors
 @Composable
 fun AnimeSkipSettingsContent(
     viewModel: AnimeSkipSettingsViewModel = hiltViewModel(),
-    initialFocusRequester: FocusRequester? = null
+    initialFocusRequester: FocusRequester? = null,
+    embedded: Boolean = false
 ) {
     val clientId by viewModel.clientId.collectAsStateWithLifecycle()
     val enabled by viewModel.enabled.collectAsStateWithLifecycle()
     var showDialog by remember { mutableStateOf(false) }
 
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        SettingsDetailHeader(
+    Column(
+        modifier =
+            if (embedded) {
+                Modifier
+                    .fillMaxWidth()
+                    .height(260.dp)
+            } else {
+                Modifier
+            },
+        verticalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        if (!embedded) {
+            SettingsDetailHeader(
             title = stringResource(R.string.animeskip_title),
             subtitle = stringResource(R.string.animeskip_subtitle)
-        )
+            )
+        }
 
         SettingsGroupCard(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(
+                    if (embedded) {
+                        Modifier.weight(1f)
+                    } else {
+                        Modifier
+                    }
+                ),
             segmented = true
         ) {
             val animeSkipListState = rememberLazyListState()
