@@ -443,19 +443,15 @@ fun NuvioNavHost(
                 from.startsWith("detail/") &&
                     to == Screen.Home.route -> ExitTransition.None
 
-                // Preserve the same direction-aware layer ownership when state
-                // restoration turns sidebar navigation into a pop.
+                // Preserve the same cross-dissolve when restored navigation
+                // turns a sidebar-root change into a pop.
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
-                            )
+                    fadeOut(
+                        animationSpec = tween(
+                            durationMillis = if (to == Screen.Home.route) 300 else 280,
+                            easing = if (to == Screen.Home.route) LinearEasing else FastOutSlowInEasing
                         )
-                    } else {
-                        ExitTransition.None
-                    }
+                    )
 
                 else -> fadeOut(animationSpec = tween(350))
             }
