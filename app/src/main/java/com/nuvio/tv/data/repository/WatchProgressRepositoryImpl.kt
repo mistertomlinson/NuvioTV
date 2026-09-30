@@ -95,6 +95,17 @@ class WatchProgressRepositoryImpl @Inject constructor(
     )
 
     /*
+     * Short-lived Next Up seeds created specifically by actual Player
+     * completion. These are intentionally separate from ordinary watched
+     * history so replay progression can temporarily override an older
+     * "furthest watched" seed without changing the provider's normal policy.
+     *
+     * Profile-scoped to prevent cross-profile leakage.
+     */
+    private val playerCompletedNextUpSeedsByProfile =
+        MutableStateFlow<Map<Int, Map<String, WatchProgress>>>(emptyMap())
+
+    /*
      * This SharedFlow is a CW wake signal, not an authoritative progress store.
      * Stamp only the emitted copy at emission time so Home's 2-second replay
      * guard measures signal freshness rather than how long normalization or
@@ -391,7 +402,27 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return activeProgressProviderFlow()
             .flatMapLatest { provider ->
                 if (provider != null) {
-                    provider.nextUpSeeds
+                    combine(
+                        provider.nextUpSeeds,
+                        playerCompletedNextUpSeedsByProfile,
+                        profileManager.activeProfileId
+                    ) {
+                        providerSeeds,
+                        playerSeedsByProfile,
+                        profileId ->
+
+                        mergeProviderNextUpSeedsWithPlayerCompletions(
+                            providerSeeds = providerSeeds,
+                            playerCompletionSeeds =
+                                playerSeedsByProfile[
+                                    profileId
+                                ].orEmpty().values,
+                            nowEpochMs =
+                                System.currentTimeMillis(),
+                            maxAgeMs =
+                                OPTIMISTIC_NEXT_UP_SEED_WINDOW_MS
+                        )
+                    }
                 } else {
                     watchedItemsPreferences.allItems.map { items ->
                         items
@@ -758,6 +789,28 @@ class WatchProgressRepositoryImpl @Inject constructor(
             episode
         )
 
+        val playerSeedProfileId =
+            profileManager.activeProfileId.value
+        val playerSeedContentKey =
+            rewatchSeedContentKey(contentId)
+
+        playerCompletedNextUpSeedsByProfile.update {
+            current ->
+            val profileSeeds =
+                current[playerSeedProfileId].orEmpty()
+            val updatedProfileSeeds =
+                profileSeeds - playerSeedContentKey
+
+            if (updatedProfileSeeds.isEmpty()) {
+                current - playerSeedProfileId
+            } else {
+                current + (
+                    playerSeedProfileId to
+                        updatedProfileSeeds
+                    )
+            }
+        }
+
         if (provider != null) {
             return
         }
@@ -869,6 +922,45 @@ class WatchProgressRepositoryImpl @Inject constructor(
             )
         )
 
+        val isPlayerCompletedSeriesEpisode =
+            !broadcastTrackingHistory &&
+                (
+                    completed.contentType.equals(
+                        "series",
+                        ignoreCase = true
+                    ) ||
+                        completed.contentType.equals(
+                            "tv",
+                            ignoreCase = true
+                        )
+                    ) &&
+                completed.season != null &&
+                completed.episode != null &&
+                completed.season != 0
+
+        if (isPlayerCompletedSeriesEpisode) {
+            val profileId =
+                profileManager.activeProfileId.value
+            val contentKey =
+                rewatchSeedContentKey(
+                    completed.contentId
+                )
+
+            playerCompletedNextUpSeedsByProfile.update {
+                current ->
+                val profileSeeds =
+                    current[profileId].orEmpty()
+
+                current + (
+                    profileId to (
+                        profileSeeds + (
+                            contentKey to completed
+                            )
+                        )
+                    )
+            }
+        }
+
         // Player completion (broadcastTrackingHistory=false) waits until provider
         // and local completed/watched state are fully settled before waking CW.
         // Provider-backed explicit "mark watched" actions already emitted above.
@@ -883,6 +975,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
     }
     override suspend fun clearAll() {
         activeProgressProvider()?.clearOptimistic()
+        playerCompletedNextUpSeedsByProfile.value =
+            emptyMap()
         watchProgressPreferences.clearAll()
     }
 
@@ -1050,6 +1144,97 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return resolvedKeys
     }
 
+}
+
+private fun rewatchSeedContentKey(
+    contentId: String
+): String =
+    contentId.trim().lowercase()
+
+internal fun mergeProviderNextUpSeedsWithPlayerCompletions(
+    providerSeeds: List<WatchProgress>,
+    playerCompletionSeeds: Collection<WatchProgress>,
+    nowEpochMs: Long,
+    maxAgeMs: Long
+): List<WatchProgress> {
+    if (
+        providerSeeds.isEmpty() ||
+        playerCompletionSeeds.isEmpty()
+    ) {
+        return providerSeeds
+    }
+
+    val recentPlayerSeedByContent =
+        playerCompletionSeeds
+            .asSequence()
+            .filter { progress ->
+                (
+                    progress.contentType.equals(
+                        "series",
+                        ignoreCase = true
+                    ) ||
+                        progress.contentType.equals(
+                            "tv",
+                            ignoreCase = true
+                        )
+                    ) &&
+                    progress.season != null &&
+                    progress.episode != null &&
+                    progress.season != 0 &&
+                    progress.isCompleted()
+            }
+            .filter { progress ->
+                val ageMs =
+                    nowEpochMs -
+                        progress.lastWatched
+                ageMs in 0L..maxAgeMs
+            }
+            .groupBy { progress ->
+                rewatchSeedContentKey(
+                    progress.contentId
+                )
+            }
+            .mapValues { (_, candidates) ->
+                candidates.maxWithOrNull(
+                    compareBy<WatchProgress>(
+                        WatchProgress::lastWatched
+                    )
+                        .thenBy {
+                            it.season ?: -1
+                        }
+                        .thenBy {
+                            it.episode ?: -1
+                        }
+                )!!
+            }
+
+    /*
+     * Deliberately map over providerSeeds instead of appending
+     * Player-only shows. A dropped/dismissed/hidden show remains
+     * excluded exactly as the provider requested.
+     */
+    return providerSeeds
+        .map { providerSeed ->
+            val playerSeed =
+                recentPlayerSeedByContent[
+                    rewatchSeedContentKey(
+                        providerSeed.contentId
+                    )
+                ]
+
+            if (
+                playerSeed != null &&
+                playerSeed.lastWatched >=
+                    providerSeed.lastWatched
+            ) {
+                playerSeed
+            } else {
+                providerSeed
+            }
+        }
+        .sortedByDescending(
+            WatchProgress::lastWatched
+        )
 }
 
 

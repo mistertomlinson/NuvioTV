@@ -31,6 +31,55 @@ class SimklOptimisticWatchedEpisodesTest {
     }
 
     @Test
+    fun `watched replay does not retimestamp historical furthest seed`() {
+        val remote = listOf(
+            progress(
+                episode = 8,
+                lastWatched = 8_000L
+            )
+        )
+        val replayedEpisodeSix =
+            progress(
+                episode = 6,
+                lastWatched = 12_000L
+            )
+
+        val result =
+            buildSimklNextUpWithEpisodeOverrides(
+                remoteEntries = remote,
+                overrides = listOf(
+                    SimklOptimisticEpisodeOverride(
+                        key =
+                            simklOptimisticEpisodeKey(
+                                CONTENT_ID,
+                                4,
+                                6
+                            ),
+                        watched = true,
+                        progress =
+                            replayedEpisodeSix,
+                        updatedAtEpochMs =
+                            12_001L
+                    )
+                ),
+                preferFurthestEpisode = true
+            )
+
+        assertEquals(1, result.size)
+        assertEquals(8, result.single().episode)
+
+        /*
+         * Critical: historical E8 keeps its real old timestamp.
+         * Repository-level Player replay arbitration can therefore
+         * see that the new E6 completion is actually newer.
+         */
+        assertEquals(
+            8_000L,
+            result.single().lastWatched
+        )
+    }
+
+    @Test
     fun `optimistic unwatch immediately removes episode progress`() {
         val remote = mapOf(
             (4 to 4) to progress(episode = 4, lastWatched = 4_000L),

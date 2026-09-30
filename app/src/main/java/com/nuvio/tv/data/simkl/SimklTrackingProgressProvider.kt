@@ -596,18 +596,37 @@ internal fun buildSimklNextUpWithEpisodeOverrides(
         preferFurthestEpisode
     )
 
-    // An explicit unwatch is a recent interaction. Give the promoted fallback
-    // seed the mutation time so Home's Continue Watching age cap retains it.
-    val latestMutationByContent = overrides
-        .groupBy { override -> override.key.contentId }
-        .mapValues { (_, values) ->
-            values.maxOf(SimklOptimisticEpisodeOverride::updatedAtEpochMs)
-        }
+    /*
+     * Only an explicit UNWATCH should retimestamp the promoted fallback
+     * seed. A watched=true completion already carries its own playback
+     * timestamp.
+     *
+     * Retimestamping historical E8 with a newly replayed E6 completion
+     * incorrectly makes E8 look like the newest activity and prevents
+     * the Player-rewatch seed from advancing CW to E7.
+     */
+    val latestUnwatchMutationByContent =
+        overrides
+            .filter { override ->
+                !override.watched
+            }
+            .groupBy { override ->
+                override.key.contentId
+            }
+            .mapValues { (_, values) ->
+                values.maxOf(
+                    SimklOptimisticEpisodeOverride::
+                        updatedAtEpochMs
+                )
+            }
 
     return selected.map { progress ->
-        val mutationAt = latestMutationByContent[
-            progress.contentId.trim().lowercase()
-        ]
+        val mutationAt =
+            latestUnwatchMutationByContent[
+                progress.contentId
+                    .trim()
+                    .lowercase()
+            ]
         if (mutationAt != null && mutationAt > progress.lastWatched) {
             progress.copy(lastWatched = mutationAt)
         } else {
