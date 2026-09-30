@@ -430,6 +430,19 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 val latestWatchedMovieAtByContentId =
                     snapshot.latestWatchedMovieAtByContentId
                 val cycleProfileId = snapshot.profileId
+
+                val authoritativeProfileCycle =
+                    !useTrackingProvider ||
+                        snapshot.hasLoadedRemoteProgress
+
+                val initialProfilePresentation =
+                    _uiState.value.homeLoadSessionId > 0L &&
+                        !_uiState.value.continueWatchingFreshReady &&
+                        authoritativeProfileCycle
+
+                var olderNextUpDiscoveryJob:
+                    kotlinx.coroutines.Job? = null
+
                 val cutoffMs =
                     watchProgressRepository.activeProviderContinueWatchingCutoffEpochMs(
                         daysCap = daysCap,
@@ -978,7 +991,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             .groupBy { it.contentId }
                             .mapNotNull { (_, items) -> choosePreferredNextUpSeed(items) }
                         if (uncachedSeeds.isNotEmpty()) {
-                            launch(Dispatchers.IO) {
+                            olderNextUpDiscoveryJob =
+                                launch(Dispatchers.IO) {
                                 // Process sequentially with yielding to avoid CPU/GC spikes.
                                 // Emit partial updates every few resolved items so user sees
                                 // new CW entries appearing progressively.
@@ -1148,6 +1162,22 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     }
                 }
 
+                if (
+                    initialProfilePresentation &&
+                    olderNextUpDiscoveryJob != null
+                ) {
+                    val olderDiscoveryFinished =
+                        withTimeoutOrNull(1_500L) {
+                            olderNextUpDiscoveryJob?.join()
+                            true
+                        } == true
+
+                    if (!olderDiscoveryFinished) {
+                        olderNextUpDiscoveryJob?.cancel()
+                        olderNextUpDiscoveryJob?.join()
+                    }
+                }
+
                 debug.markPhase("merge-lightweight")
                 // Include previously discovered older next-up items so they survive collectLatest restarts.
                 val persistedOlderItems = synchronized(discoveredOlderNextUpItems) {
@@ -1239,7 +1269,21 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     )
                 )
 
+                val orderedNormalItems =
+                    normalItems.stableCwOrdered()
+
                 _uiState.update { state ->
+                    /*
+                     * A cancelled cycle from the previous profile must never
+                     * publish into the newly-selected profile.
+                     */
+                    if (
+                        profileManager.activeProfileId.value !=
+                            cycleProfileId
+                    ) {
+                        return@update state
+                    }
+
                     // Do not replace a valid cached projection with an
                     // inconclusive empty result while a provider is loading.
                     if (
@@ -1250,10 +1294,16 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         state.continueWatchingItems.isNotEmpty()
                     ) {
                         state
-                    } else if (state.continueWatchingItems == normalItems) {
+                    } else if (
+                        state.continueWatchingItems ==
+                            orderedNormalItems
+                    ) {
                         state
                     } else {
-                        state.copy(continueWatchingItems = normalItems.stableCwOrdered())
+                        state.copy(
+                            continueWatchingItems =
+                                orderedNormalItems
+                        )
                     }
                 }
                 debug.recordLightweightRendered(
@@ -1361,6 +1411,32 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     elapsedMs = SystemClock.elapsedRealtime() - enrichStartMs,
                     changed = changed
                 )
+
+                /*
+                 * Profile-switch presentation boundary:
+                 *
+                 * 1. remote tracking state is authoritative
+                 * 2. bounded older Next Up discovery has had its chance
+                 * 3. the resulting CW list has been merged
+                 * 4. visible cards have received final enrichment/artwork
+                 *
+                 * Only now may the Home curtain reveal this profile.
+                 */
+                if (authoritativeProfileCycle) {
+                    _uiState.update { state ->
+                        if (
+                            profileManager.activeProfileId.value !=
+                                cycleProfileId ||
+                            state.continueWatchingFreshReady
+                        ) {
+                            state
+                        } else {
+                            state.copy(
+                                continueWatchingFreshReady = true
+                            )
+                        }
+                    }
+                }
 
                 // Only a CW cycle that survives collectLatest cancellation all the
                 // way through enrichment may settle a Player-return transaction.

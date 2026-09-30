@@ -85,6 +85,12 @@ data class HomeUiState(
     val skeletonReady: Boolean = false,
     val enrichmentReadyRowKeys: Set<String> = emptySet(),
     val continueWatchingEnrichmentReady: Boolean = false,
+    /*
+     * True only after the current profile has produced its first authoritative
+     * Continue Watching presentation, including the bounded older-Next-Up pass
+     * and final visible-card enrichment. Cached CW does not satisfy this.
+     */
+    val continueWatchingFreshReady: Boolean = false,
     val myListHeadResetPending: Boolean = false,
     val userMessage: HomeUserMessage? = null
 )

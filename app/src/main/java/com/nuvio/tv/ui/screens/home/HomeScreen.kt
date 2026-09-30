@@ -620,10 +620,54 @@ fun HomeScreen(
                     (heroBackdropWarm && platformBackdropsPreloaded)
                 val warmupSatisfied =
                     platformChromeReady && mediaWarmupReady
-                val shouldShowLoadingGate = !uiState.skeletonReady ||
-                    !uiState.layoutPreferencesReady ||
-                    !warmupSatisfied ||
-                    !heroGateSatisfied
+
+                /*
+                 * Keep the normal Home gate unchanged. Only a real profile
+                 * switch (homeLoadSessionId > 0) gets a final, bounded chance
+                 * for cross-device Continue Watching state to arrive before
+                 * the curtain releases.
+                 *
+                 * The provider refresh runs in parallel with every existing
+                 * Home warmup. Therefore this normally costs 0 ms; the extra
+                 * delay occurs only if CW is the final outstanding dependency,
+                 * and is capped at 2 seconds.
+                 */
+                val baseHomeReady =
+                    uiState.skeletonReady &&
+                        uiState.layoutPreferencesReady &&
+                        warmupSatisfied &&
+                        heroGateSatisfied
+
+                var cwFreshGateTimedOut by rememberSaveable(
+                    uiState.homeLoadSessionId
+                ) {
+                    mutableStateOf(false)
+                }
+
+                LaunchedEffect(
+                    uiState.homeLoadSessionId,
+                    baseHomeReady,
+                    uiState.continueWatchingFreshReady
+                ) {
+                    if (
+                        uiState.homeLoadSessionId > 0L &&
+                        baseHomeReady &&
+                        !uiState.continueWatchingFreshReady &&
+                        !cwFreshGateTimedOut
+                    ) {
+                        kotlinx.coroutines.delay(2_000L)
+                        cwFreshGateTimedOut = true
+                    }
+                }
+
+                val shouldHoldForFreshCw =
+                    uiState.homeLoadSessionId > 0L &&
+                        !uiState.continueWatchingFreshReady &&
+                        !cwFreshGateTimedOut
+
+                val shouldShowLoadingGate =
+                    !baseHomeReady ||
+                        shouldHoldForFreshCw
 
                 // Strict loader sequence with whole-cycle dismissal:
                 // LOADING -> (data ready, wait for next sweep boundary) -> FADING

@@ -930,6 +930,7 @@ class HomeViewModel @Inject constructor(
                             stableVisiblePlatformIds = emptySet(),
                             enrichmentReadyRowKeys = emptySet(),
                             continueWatchingEnrichmentReady = false,
+                            continueWatchingFreshReady = false,
                             catalogsReady = false,
                             skeletonReady = false,
                             layoutPreferencesReady = false,
