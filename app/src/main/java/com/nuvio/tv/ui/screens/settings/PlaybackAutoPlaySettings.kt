@@ -506,12 +506,16 @@ private fun NextEpisodeThresholdModeDialog(
                 ) { index ->
                     val (mode, title, description) = options[index]
                     val isSelected = mode == selectedMode
+                    var isFocused by remember { mutableStateOf(false) }
 
                     Card(
                         onClick = { onModeSelected(mode) },
                         modifier = (Modifier
                             .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)).glassDialogFocusTransform(),
+                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)
+                            .onFocusChanged {
+                                isFocused = it.isFocused
+                            }).glassDialogFocusTransform(),
                         colors = CardDefaults.colors(
                             containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor),
@@ -528,13 +532,23 @@ private fun NextEpisodeThresholdModeDialog(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = title,
-                                    color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = description,
-                                    color = NuvioColors.TextSecondary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
@@ -634,7 +648,12 @@ private fun StreamAutoPlayModeDialog(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = title,
-                                    color = if (isSelected || isFocused) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                    color =
+                                        if (isSelected || isFocused) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -703,11 +722,21 @@ private fun StreamReuseLastLinkCacheDurationDialog(
                     key = { _, hours -> hours }
                 ) { index, hours ->
                     val isSelected = hours == selectedHours
+                    var isFocused by remember { mutableStateOf(false) }
                     Card(
                         onClick = { onDurationSelected(hours) },
                         modifier = (Modifier
                             .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)).glassDialogFocusTransform(),
+                            .then(
+                                if (index == 0) {
+                                    Modifier.focusRequester(focusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .onFocusChanged {
+                                isFocused = it.isFocused
+                            }).glassDialogFocusTransform(),
                         colors = CardDefaults.colors(
                             containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor),
@@ -724,7 +753,12 @@ private fun StreamReuseLastLinkCacheDurationDialog(
                             Text(
                                 text = formatReuseCacheDuration(hours),
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                 modifier = Modifier.weight(1f)
                             )
 
@@ -796,12 +830,22 @@ private fun StreamAutoPlaySourceDialog(
                 ) { index ->
                     val (source, title, description) = options[index]
                     val isSelected = source == selectedSource
+                    var isFocused by remember { mutableStateOf(false) }
 
                     Card(
                         onClick = { onSourceSelected(source) },
                         modifier = (Modifier
                             .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)).glassDialogFocusTransform(),
+                            .then(
+                                if (index == 0) {
+                                    Modifier.focusRequester(focusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .onFocusChanged {
+                                isFocused = it.isFocused
+                            }).glassDialogFocusTransform(),
                         colors = CardDefaults.colors(
                             containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor),
@@ -818,7 +862,12 @@ private fun StreamAutoPlaySourceDialog(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = title,
-                                    color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
@@ -880,11 +929,15 @@ private fun StreamAutoPlayProviderSelectionDialog(
                 .heightIn(max = 420.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            var allFocused by remember { mutableStateOf(false) }
             Card(
                 onClick = { selected = emptySet() },
                 modifier = (Modifier
                     .fillMaxWidth()
-                    .focusRequester(focusRequester)).glassDialogFocusTransform(),
+                    .focusRequester(focusRequester)
+                    .onFocusChanged {
+                        allFocused = it.isFocused
+                    }).glassDialogFocusTransform(),
                 colors = CardDefaults.colors(
                     containerColor = if (selected.isEmpty()) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor),
@@ -900,7 +953,12 @@ private fun StreamAutoPlayProviderSelectionDialog(
                 ) {
                     Text(
                         text = allLabel,
-                        color = if (selected.isEmpty()) NuvioColors.Primary else NuvioColors.TextPrimary,
+                        color =
+                            if (allFocused || selected.isEmpty()) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            },
                         style = MaterialTheme.typography.bodyLarge,
                         modifier = Modifier.weight(1f)
                     )
@@ -932,6 +990,9 @@ private fun StreamAutoPlayProviderSelectionDialog(
                         key = { it }
                     ) { item ->
                         val isSelected = item in selected
+                        var isFocused by remember(item) {
+                            mutableStateOf(false)
+                        }
                         Card(
                             onClick = {
                                 selected = if (isSelected) {
@@ -940,7 +1001,11 @@ private fun StreamAutoPlayProviderSelectionDialog(
                                     selected + item
                                 }
                             },
-                            modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
+                            modifier = (Modifier
+                                .fillMaxWidth()
+                                .onFocusChanged {
+                                    isFocused = it.isFocused
+                                }).glassDialogFocusTransform(),
                             colors = CardDefaults.colors(
                                 containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                                 focusedContainerColor = SettingsGlassRowFocusedColor),
@@ -956,7 +1021,12 @@ private fun StreamAutoPlayProviderSelectionDialog(
                             ) {
                                 Text(
                                     text = item,
-                                    color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.weight(1f)
                                 )
