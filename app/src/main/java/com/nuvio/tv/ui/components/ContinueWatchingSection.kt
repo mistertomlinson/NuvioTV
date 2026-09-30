@@ -1150,32 +1150,39 @@ fun ContinueWatchingOptionsDialog(
                     Modifier
                 }
 
-            Box(
-                modifier = Modifier
-                    .glassDialogAppearanceTransform(
-                        scale =
-                            0.96f +
-                                (0.04f * appearanceProgress.value),
-                        alpha = appearanceProgress.value,
-                        clipShape = panelShape
-                    )
-                    .width(520.dp)
-                    .then(blurModifier)
-                    .clip(panelShape)
+            GlassDialogAnimatedPanel(
+                width = 520.dp,
+                scale =
+                    0.96f +
+                        (0.04f * appearanceProgress.value),
+                alpha = appearanceProgress.value,
+                shape = panelShape,
+                hazeModifier = blurModifier,
+                surfaceModifier = Modifier
                     .background(CwDialogGlassBrush, panelShape)
-                    .border(1.dp, CwDialogGlassBorderColor, panelShape)
+                    .border(
+                        1.dp,
+                        CwDialogGlassBorderColor,
+                        panelShape
+                    ),
+                contentModifier = Modifier
                     .padding(24.dp)
                     .onPreviewKeyEvent { event ->
                         val native = event.nativeKeyEvent
                         if (
                             suppressNextKeyUp &&
-                            native.action == AndroidKeyEvent.ACTION_UP &&
+                            native.action ==
+                                AndroidKeyEvent.ACTION_UP &&
                             (
-                                native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
-                                    native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
-                                    native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
-                                    native.keyCode == AndroidKeyEvent.KEYCODE_MENU
-                                )
+                                native.keyCode ==
+                                    AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                                    native.keyCode ==
+                                        AndroidKeyEvent.KEYCODE_ENTER ||
+                                    native.keyCode ==
+                                        AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                    native.keyCode ==
+                                        AndroidKeyEvent.KEYCODE_MENU
+                            )
                         ) {
                             suppressNextKeyUp = false
                             true
