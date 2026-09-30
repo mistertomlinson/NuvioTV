@@ -433,10 +433,10 @@ fun SimklScreen(
                     },
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor = NuvioColors.TextSecondary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                 ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -455,10 +455,10 @@ fun SimklScreen(
                     },
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor = NuvioColors.TextSecondary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                 ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
