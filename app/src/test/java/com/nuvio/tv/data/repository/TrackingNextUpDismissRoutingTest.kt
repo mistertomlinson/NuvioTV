@@ -4,11 +4,93 @@ import com.nuvio.tv.core.tracking.TrackingProgressProvider
 import io.mockk.coVerify
 import io.mockk.mockk
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TrackingNextUpDismissRoutingTest {
+
+    @Test
+    fun `rewatch dismissal never writes persistent dismissal or calls provider`() = runTest {
+        val provider =
+            mockk<TrackingProgressProvider>(
+                relaxed = true
+            )
+
+        var persistentDismissals = 0
+
+        val rewatchConsumed =
+            runProtectedNextUpDismissal(
+                isPlayerRewatch = true,
+                persistNormalDismissal = {
+                    persistentDismissals++
+                },
+                dismissThroughProvider = {
+                    provider.dismissNextUp(
+                        contentId =
+                            "tt1234567",
+                        season = 1,
+                        episode = 6
+                    )
+                }
+            )
+
+        assertTrue(rewatchConsumed)
+        assertEquals(
+            0,
+            persistentDismissals
+        )
+
+        coVerify(exactly = 0) {
+            provider.dismissNextUp(
+                contentId = any(),
+                season = any(),
+                episode = any()
+            )
+        }
+    }
+
+    @Test
+    fun `normal next up still persists and calls provider exactly once`() = runTest {
+        val provider =
+            mockk<TrackingProgressProvider>(
+                relaxed = true
+            )
+
+        var persistentDismissals = 0
+
+        val rewatchConsumed =
+            runProtectedNextUpDismissal(
+                isPlayerRewatch = false,
+                persistNormalDismissal = {
+                    persistentDismissals++
+                },
+                dismissThroughProvider = {
+                    provider.dismissNextUp(
+                        contentId =
+                            "tt1234567",
+                        season = 1,
+                        episode = 6
+                    )
+                }
+            )
+
+        assertFalse(rewatchConsumed)
+        assertEquals(
+            1,
+            persistentDismissals
+        )
+
+        coVerify(exactly = 1) {
+            provider.dismissNextUp(
+                contentId =
+                    "tt1234567",
+                season = 1,
+                episode = 6
+            )
+        }
+    }
 
     @Test
     fun `active provider receives Next Up dismissal`() = runTest {

@@ -2,9 +2,111 @@ package com.nuvio.tv.data.repository
 
 import com.nuvio.tv.domain.model.WatchProgress
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlayerRewatchNextUpSeedTest {
+
+    @Test
+    fun `watched successor identifies exact fresh player rewatch`() {
+        val seed =
+            progress(
+                episode = 6,
+                lastWatched = 10_000L
+            )
+
+        assertTrue(
+            isPlayerRewatchNextUpDismissal(
+                playerSeed = seed,
+                contentId =
+                    "tt-rewatch-test",
+                seedSeason = 1,
+                seedEpisode = 6,
+                nextSeason = 1,
+                nextEpisode = 7,
+                nextEpisodeWasAlreadyWatched =
+                    true,
+                nowEpochMs = 10_100L,
+                maxAgeMs = 180_000L
+            )
+        )
+    }
+
+    @Test
+    fun `unwatched successor remains normal next up`() {
+        val seed =
+            progress(
+                episode = 6,
+                lastWatched = 10_000L
+            )
+
+        assertFalse(
+            isPlayerRewatchNextUpDismissal(
+                playerSeed = seed,
+                contentId =
+                    "tt-rewatch-test",
+                seedSeason = 1,
+                seedEpisode = 6,
+                nextSeason = 1,
+                nextEpisode = 7,
+                nextEpisodeWasAlreadyWatched =
+                    false,
+                nowEpochMs = 10_100L,
+                maxAgeMs = 180_000L
+            )
+        )
+    }
+
+    @Test
+    fun `wrong player seed cannot bypass provider dismissal`() {
+        val seed =
+            progress(
+                episode = 5,
+                lastWatched = 10_000L
+            )
+
+        assertFalse(
+            isPlayerRewatchNextUpDismissal(
+                playerSeed = seed,
+                contentId =
+                    "tt-rewatch-test",
+                seedSeason = 1,
+                seedEpisode = 6,
+                nextSeason = 1,
+                nextEpisode = 7,
+                nextEpisodeWasAlreadyWatched =
+                    true,
+                nowEpochMs = 10_100L,
+                maxAgeMs = 180_000L
+            )
+        )
+    }
+
+    @Test
+    fun `stale player seed cannot bypass provider dismissal`() {
+        val seed =
+            progress(
+                episode = 6,
+                lastWatched = 10_000L
+            )
+
+        assertFalse(
+            isPlayerRewatchNextUpDismissal(
+                playerSeed = seed,
+                contentId =
+                    "tt-rewatch-test",
+                seedSeason = 1,
+                seedEpisode = 6,
+                nextSeason = 1,
+                nextEpisode = 7,
+                nextEpisodeWasAlreadyWatched =
+                    true,
+                nowEpochMs = 200_001L,
+                maxAgeMs = 180_000L
+            )
+        )
+    }
 
     @Test
     fun `recent player replay completion overrides older furthest seed`() {

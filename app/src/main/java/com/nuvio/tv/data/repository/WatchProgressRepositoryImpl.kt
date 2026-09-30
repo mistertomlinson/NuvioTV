@@ -310,13 +310,32 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return combine(
             provider.allProgress.onStart { emit(emptyList()) },
             watchProgressPreferences.allProgress.onStart { emit(emptyList()) },
+            watchedItemsPreferences.allItems.onStart { emit(emptyList()) },
             metadataState
-        ) { providerItems, localItems, metadataMap ->
-            hydrateMetadata(providerItems)
+        ) { providerItems, localItems, watchedItems, metadataMap ->
+            /*
+             * Simkl can retain an old playback session even after the exact
+             * episode has been completed.
+             *
+             * The Player already persists the completed episode and its
+             * timestamp in WatchedItemsPreferences. Use that durable state
+             * to reject only stale Simkl playback records.
+             *
+             * A genuinely newer replay remains valid because its playback
+             * timestamp is newer than the prior watched timestamp.
+             */
+            val effectiveProviderItems =
+                suppressStaleSimklPlaybackAlreadyWatched(
+                    providerId = provider.providerId,
+                    providerEntries = providerItems,
+                    watchedItems = watchedItems
+                )
+
+            hydrateMetadata(effectiveProviderItems)
 
             val localByKey = localItems.associateBy(::progressProjectionKey)
             mergeProgressProjectionWithRetainedLocal(
-                providerEntries = providerItems,
+                providerEntries = effectiveProviderItems,
                 localEntries = localItems,
                 retainsLocalProgress = provider::retainsLocalProgress
             ).map { item ->
@@ -386,8 +405,21 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return activeProgressProviderFlow()
             .flatMapLatest { provider ->
                 if (provider != null) {
-                    provider.episodeProgress(contentId)
-                        .map { progress -> progress[season to episode] }
+                    combine(
+                        provider.episodeProgress(contentId),
+                        watchedItemsPreferences.allItems
+                    ) { providerMap, watchedItems ->
+                        suppressStaleSimklPlaybackAlreadyWatched(
+                            providerId = provider.providerId,
+                            providerEntries =
+                                providerMap.values.toList(),
+                            watchedItems = watchedItems
+                        )
+                            .firstOrNull { progress ->
+                                progress.season == season &&
+                                    progress.episode == episode
+                            }
+                    }
                 } else {
                     watchProgressPreferences.getEpisodeProgress(
                         contentId,
@@ -487,22 +519,79 @@ class WatchProgressRepositoryImpl @Inject constructor(
                             .onStart { emit(emptyMap()) },
                         provider.allProgress.map { items ->
                             items.filter { progress ->
-                                progress.contentId.equals(contentId, ignoreCase = true) &&
+                                progress.contentId.equals(
+                                    contentId,
+                                    ignoreCase = true
+                                ) &&
                                     progress.season != null &&
                                     progress.episode != null
                             }
-                        }
-                    ) { providerMap, liveEpisodes ->
-                        providerMap.toMutableMap().apply {
-                            liveEpisodes.forEach { progress ->
-                                val season = progress.season ?: return@forEach
-                                val episode = progress.episode ?: return@forEach
-                                this[season to episode] = progress
+                        },
+                        watchedItemsPreferences.allItems
+                    ) {
+                        providerMap,
+                        liveEpisodes,
+                        watchedItems ->
+
+                        val effectiveProviderEpisodes =
+                            suppressStaleSimklPlaybackAlreadyWatched(
+                                providerId =
+                                    provider.providerId,
+                                providerEntries =
+                                    providerMap.values.toList(),
+                                watchedItems =
+                                    watchedItems
+                            )
+
+                        val effectiveLiveEpisodes =
+                            suppressStaleSimklPlaybackAlreadyWatched(
+                                providerId =
+                                    provider.providerId,
+                                providerEntries =
+                                    liveEpisodes,
+                                watchedItems =
+                                    watchedItems
+                            )
+
+                        buildMap {
+                            effectiveProviderEpisodes.forEach {
+                                progress ->
+                                val season =
+                                    progress.season
+                                        ?: return@forEach
+                                val episode =
+                                    progress.episode
+                                        ?: return@forEach
+
+                                this[
+                                    season to episode
+                                ] = progress
+                            }
+
+                            /*
+                             * A genuinely newer active playback remains
+                             * authoritative over completed history.
+                             */
+                            effectiveLiveEpisodes.forEach {
+                                progress ->
+                                val season =
+                                    progress.season
+                                        ?: return@forEach
+                                val episode =
+                                    progress.episode
+                                        ?: return@forEach
+
+                                this[
+                                    season to episode
+                                ] = progress
                             }
                         }
                     }.distinctUntilChanged()
                 } else {
-                    watchProgressPreferences.getAllEpisodeProgress(contentId)
+                    watchProgressPreferences
+                        .getAllEpisodeProgress(
+                            contentId
+                        )
                 }
             }
     }
@@ -708,6 +797,113 @@ class WatchProgressRepositoryImpl @Inject constructor(
         }
 
         triggerRemoteSync()
+    }
+
+    override suspend fun consumePlayerRewatchNextUp(
+        contentId: String,
+        seedSeason: Int?,
+        seedEpisode: Int?,
+        nextSeason: Int?,
+        nextEpisode: Int?
+    ): Boolean {
+        val resolvedSeedSeason =
+            seedSeason ?: return false
+        val resolvedSeedEpisode =
+            seedEpisode ?: return false
+        val resolvedNextSeason =
+            nextSeason ?: return false
+        val resolvedNextEpisode =
+            nextEpisode ?: return false
+
+        /*
+         * Rewatch progression is only injected into provider-backed Next Up.
+         * Local/Nuvio Sync continues using its existing dismissal semantics.
+         */
+        activeProgressProvider()
+            ?: return false
+
+        val profileId =
+            profileManager.activeProfileId.value
+        val contentKey =
+            rewatchSeedContentKey(contentId)
+
+        val playerSeed =
+            playerCompletedNextUpSeedsByProfile
+                .value[profileId]
+                .orEmpty()[contentKey]
+                ?: return false
+
+        /*
+         * Use the already-established watched projection rather than making
+         * provider-specific assumptions. This includes the active provider
+         * plus retained local watched episodes where applicable.
+         */
+        val watchedEpisodesByContent =
+            runCatching {
+                getWatchedShowEpisodes()
+            }.getOrDefault(emptyMap())
+
+        val nextEpisodeWasAlreadyWatched =
+            watchedEpisodesByContent
+                .entries
+                .firstOrNull { (watchedContentId, _) ->
+                    watchedContentId.equals(
+                        contentId,
+                        ignoreCase = true
+                    )
+                }
+                ?.value
+                ?.contains(
+                    resolvedNextSeason to
+                        resolvedNextEpisode
+                ) == true
+
+        val shouldConsume =
+            isPlayerRewatchNextUpDismissal(
+                playerSeed = playerSeed,
+                contentId = contentId,
+                seedSeason = resolvedSeedSeason,
+                seedEpisode = resolvedSeedEpisode,
+                nextSeason = resolvedNextSeason,
+                nextEpisode = resolvedNextEpisode,
+                nextEpisodeWasAlreadyWatched =
+                    nextEpisodeWasAlreadyWatched,
+                nowEpochMs =
+                    System.currentTimeMillis(),
+                maxAgeMs =
+                    OPTIMISTIC_NEXT_UP_SEED_WINDOW_MS
+            )
+
+        if (!shouldConsume) {
+            return false
+        }
+
+        /*
+         * Consume only the short-lived Player seed.
+         *
+         * Critically, do NOT call provider.dismissNextUp(). For Trakt that
+         * operation maps to hideShowFromProgress(), which would hide the
+         * entire show rather than simply ending this rewatch sequence.
+         */
+        playerCompletedNextUpSeedsByProfile.update {
+            current ->
+            val profileSeeds =
+                current[profileId].orEmpty()
+
+            val updatedProfileSeeds =
+                profileSeeds - contentKey
+
+            if (updatedProfileSeeds.isEmpty()) {
+                current - profileId
+            } else {
+                current + (
+                    profileId to
+                        updatedProfileSeeds
+                    )
+            }
+        }
+
+        return true
     }
 
     override suspend fun dismissNextUp(
@@ -1151,6 +1347,82 @@ private fun rewatchSeedContentKey(
 ): String =
     contentId.trim().lowercase()
 
+internal fun isPlayerRewatchNextUpDismissal(
+    playerSeed: WatchProgress?,
+    contentId: String,
+    seedSeason: Int,
+    seedEpisode: Int,
+    nextSeason: Int,
+    nextEpisode: Int,
+    nextEpisodeWasAlreadyWatched: Boolean,
+    nowEpochMs: Long,
+    maxAgeMs: Long
+): Boolean {
+    val seed = playerSeed ?: return false
+
+    if (
+        !seed.contentId.equals(
+            contentId,
+            ignoreCase = true
+        )
+    ) {
+        return false
+    }
+
+    if (
+        seed.season != seedSeason ||
+        seed.episode != seedEpisode
+    ) {
+        return false
+    }
+
+    if (
+        !seed.contentType.equals(
+            "series",
+            ignoreCase = true
+        ) &&
+        !seed.contentType.equals(
+            "tv",
+            ignoreCase = true
+        )
+    ) {
+        return false
+    }
+
+    if (!seed.isCompleted()) {
+        return false
+    }
+
+    val seedAgeMs =
+        nowEpochMs - seed.lastWatched
+
+    if (seedAgeMs !in 0L..maxAgeMs) {
+        return false
+    }
+
+    val successorIsLater =
+        nextSeason > seedSeason ||
+            (
+                nextSeason == seedSeason &&
+                    nextEpisode > seedEpisode
+                )
+
+    if (!successorIsLater) {
+        return false
+    }
+
+    /*
+     * This is the critical discriminator:
+     *
+     * normal first-run E6 -> E7:
+     *     E7 is not watched
+     *
+     * completed-series replay E6 -> E7:
+     *     E7 was already watched before this replay
+     */
+    return nextEpisodeWasAlreadyWatched
+}
+
 internal fun mergeProviderNextUpSeedsWithPlayerCompletions(
     providerSeeds: List<WatchProgress>,
     playerCompletionSeeds: Collection<WatchProgress>,
@@ -1235,6 +1507,101 @@ internal fun mergeProviderNextUpSeedsWithPlayerCompletions(
         .sortedByDescending(
             WatchProgress::lastWatched
         )
+}
+
+
+internal fun suppressStaleSimklPlaybackAlreadyWatched(
+    providerId: TrackingProviderId,
+    providerEntries: List<WatchProgress>,
+    watchedItems: List<WatchedItem>
+): List<WatchProgress> {
+    if (providerId != TrackingProviderId.SIMKL) {
+        return providerEntries
+    }
+
+    val latestWatchedAtByEpisode =
+        watchedItems
+            .asSequence()
+            .filter { item ->
+                item.season != null &&
+                    item.episode != null
+            }
+            .groupBy { item ->
+                Triple(
+                    item.contentId
+                        .trim()
+                        .lowercase(),
+                    requireNotNull(item.season),
+                    requireNotNull(item.episode)
+                )
+            }
+            .mapValues { (_, items) ->
+                items.maxOf(WatchedItem::watchedAt)
+            }
+
+    if (latestWatchedAtByEpisode.isEmpty()) {
+        return providerEntries
+    }
+
+    return providerEntries.filterNot { progress ->
+        /*
+         * Scope this repair strictly to remote Simkl playback.
+         *
+         * Do not filter:
+         * - local progress
+         * - Simkl durable progress
+         * - Trakt progress
+         * - completed history seeds
+         */
+        if (
+            progress.source !=
+                WatchProgress.SOURCE_SIMKL_PLAYBACK ||
+            progress.isCompleted()
+        ) {
+            return@filterNot false
+        }
+
+        val season =
+            progress.season
+                ?: return@filterNot false
+        val episode =
+            progress.episode
+                ?: return@filterNot false
+
+        val watchedAt =
+            latestWatchedAtByEpisode[
+                Triple(
+                    progress.contentId
+                        .trim()
+                        .lowercase(),
+                    season,
+                    episode
+                )
+            ] ?: return@filterNot false
+
+        /*
+         * Completion at or after the playback timestamp means this remote
+         * playback session predates the completed state and is stale.
+         *
+         * A new replay has a later playback timestamp and survives.
+         */
+        watchedAt >= progress.lastWatched
+    }
+}
+
+
+internal suspend fun runProtectedNextUpDismissal(
+    isPlayerRewatch: Boolean,
+    persistNormalDismissal: suspend () -> Unit,
+    dismissThroughProvider: suspend () -> Unit
+): Boolean {
+    if (isPlayerRewatch) {
+        return true
+    }
+
+    persistNormalDismissal()
+    dismissThroughProvider()
+    return false
 }
 
 

@@ -9,6 +9,7 @@ import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.data.repository.runProtectedNextUpDismissal
 import com.nuvio.tv.domain.model.normalizeLanguageCode
 import com.nuvio.tv.domain.model.countryToLanguageCode
 import kotlinx.coroutines.Dispatchers
@@ -3125,7 +3126,42 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
     isNextUp: Boolean = false
 ) {
     if (isNextUp) {
-        val dismissKey = nextUpDismissKey(contentId, season, episode)
+        val dismissKey =
+            nextUpDismissKey(
+                contentId,
+                season,
+                episode
+            )
+
+        /*
+         * Capture the displayed successor before optimistically removing it.
+         *
+         * For a rewatch:
+         *   seed = E6
+         *   displayed successor = E7
+         *
+         * The repository can then verify that E7 was already watched and that
+         * this exact E6 seed came from the Player.
+         */
+        val nextUpTarget =
+            _uiState.value
+                .continueWatchingItems
+                .filterIsInstance<
+                    ContinueWatchingItem.NextUp
+                >()
+                .firstOrNull { item ->
+                    nextUpDismissKey(
+                        item.info.contentId,
+                        item.info.seedSeason,
+                        item.info.seedEpisode
+                    ) == dismissKey
+                }
+
+        val nextSeason =
+            nextUpTarget?.info?.season
+        val nextEpisode =
+            nextUpTarget?.info?.episode
+
         _uiState.update { state ->
             state.copy(
                 continueWatchingItems = state.continueWatchingItems.filterNot { item ->
@@ -3142,19 +3178,116 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
             )
         }
         viewModelScope.launch {
-            traktSettingsDataStore.addDismissedNextUpKey(dismissKey)
+            val playerRewatch =
+                runCatching {
+                    watchProgressRepository
+                        .consumePlayerRewatchNextUp(
+                            contentId = contentId,
+                            seedSeason = season,
+                            seedEpisode = episode,
+                            nextSeason = nextSeason,
+                            nextEpisode = nextEpisode
+                        )
+                }.onFailure { error ->
+                    android.util.Log.w(
+                        HomeViewModel.TAG,
+                        "Failed to classify Player rewatch dismissal",
+                        error
+                    )
+                }.getOrDefault(false)
+
             runCatching {
-                watchProgressRepository.dismissNextUp(
-                    contentId = contentId,
-                    season = season,
-                    episode = episode
+                runProtectedNextUpDismissal(
+                    isPlayerRewatch =
+                        playerRewatch,
+                    persistNormalDismissal = {
+                        traktSettingsDataStore
+                            .addDismissedNextUpKey(
+                                dismissKey
+                            )
+                    },
+                    dismissThroughProvider = {
+                        watchProgressRepository
+                            .dismissNextUp(
+                                contentId =
+                                    contentId,
+                                season =
+                                    season,
+                                episode =
+                                    episode
+                            )
+                    }
                 )
             }.onFailure { error ->
                 android.util.Log.w(
                     HomeViewModel.TAG,
-                    "Failed to dismiss Next Up through selected provider",
+                    "Failed to dismiss Next Up",
                     error
                 )
+            }
+
+            if (playerRewatch) {
+                /*
+                 * Do not write the persistent dismissal key for a one-off
+                 * rewatch. Clear only the matching cached card so it cannot
+                 * flash back after process restart.
+                 */
+                cwEnrichedNextUpOverlay
+                    .remove(contentId)
+
+                synchronized(
+                    discoveredOlderNextUpItems
+                ) {
+                    discoveredOlderNextUpItems
+                        .removeAll { item ->
+                            nextUpDismissKey(
+                                item.info.contentId,
+                                item.info.seedSeason,
+                                item.info.seedEpisode
+                            ) == dismissKey
+                        }
+                }
+
+                val profileId =
+                    profileManager.activeProfileId.value
+
+                runCatching {
+                    val cached =
+                        cwEnrichmentCache
+                            .getNextUpSnapshot(
+                                profileId
+                            )
+
+                    val filtered =
+                        cached.filterNot { item ->
+                            nextUpDismissKey(
+                                item.contentId,
+                                item.seedSeason,
+                                item.seedEpisode
+                            ) == dismissKey
+                        }
+
+                    if (
+                        filtered.size !=
+                        cached.size
+                    ) {
+                        cwEnrichmentCache
+                            .saveNextUpSnapshot(
+                                items =
+                                    filtered,
+                                force =
+                                    true,
+                                profileId =
+                                    profileId
+                            )
+                    }
+                }.onFailure { error ->
+                    android.util.Log.w(
+                        HomeViewModel.TAG,
+                        "Failed to clear rewatch Next Up cache",
+                        error
+                    )
+                }
             }
         }
         // Refresh channel immediately with the already-filtered list
