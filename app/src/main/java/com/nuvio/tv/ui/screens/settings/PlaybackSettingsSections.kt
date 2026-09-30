@@ -1129,12 +1129,22 @@ private fun PlayerPreferenceDialog(
                 ) { index ->
                     val (preference, title, description) = options[index]
                     val isSelected = preference == currentPreference
+                    var isFocused by remember { mutableStateOf(false) }
 
                     Card(
                         onClick = { onPreferenceSelected(preference) },
                         modifier = (Modifier
                             .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)).glassDialogFocusTransform(),
+                            .then(
+                                if (index == 0) {
+                                    Modifier.focusRequester(focusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .onFocusChanged {
+                                isFocused = it.isFocused
+                            }).glassDialogFocusTransform(),
                         colors = CardDefaults.colors(
                             containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor),
@@ -1151,13 +1161,23 @@ private fun PlayerPreferenceDialog(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = title,
-                                    color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = description,
-                                    color = NuvioColors.TextSecondary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
