@@ -31,8 +31,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.layout.Layout
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
 import androidx.tv.material3.Icon
@@ -289,14 +288,95 @@ private fun PauseMetadataView(
 
                 Spacer(modifier = Modifier.height(12.dp))
 
-                LazyRow(
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    content = {
-                        items(cast.take(8)) { member ->
-                            CastChip(member = member, onClick = { onCastSelected(member) })
-                        }
-                    }
+                CastChipRow(
+                    cast = cast.take(8),
+                    onCastSelected = onCastSelected
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CastChipRow(
+    cast: List<MetaCastMember>,
+    onCastSelected: (MetaCastMember) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val spacing = 14.dp
+
+    /*
+     * The pause overlay is not horizontally navigable on TV: PlayerScreen
+     * consumes DPAD input while it is visible. Treat cast as a static
+     * presentation row instead of exposing clipped, unreachable content.
+     *
+     * Preserve cast order and the existing 8-member cap, but render only
+     * the largest complete prefix that fits. Center the complete pills.
+     */
+    Layout(
+        content = {
+            cast.forEach { member ->
+                CastChip(
+                    member = member,
+                    onClick = { onCastSelected(member) }
+                )
+            }
+        },
+        modifier = modifier.fillMaxWidth()
+    ) { measurables, constraints ->
+        val spacingPx = spacing.roundToPx()
+
+        val childConstraints = constraints.copy(
+            minWidth = 0,
+            minHeight = 0
+        )
+
+        val placeables = measurables.map { measurable ->
+            measurable.measure(childConstraints)
+        }
+
+        val visible = mutableListOf<androidx.compose.ui.layout.Placeable>()
+        var usedWidth = 0
+
+        for (placeable in placeables) {
+            val proposedWidth =
+                if (visible.isEmpty()) {
+                    placeable.width
+                } else {
+                    usedWidth + spacingPx + placeable.width
+                }
+
+            if (proposedWidth > constraints.maxWidth) {
+                break
+            }
+
+            visible += placeable
+            usedWidth = proposedWidth
+        }
+
+        val rowHeight =
+            visible.maxOfOrNull { it.height } ?: 0
+
+        layout(
+            width = constraints.maxWidth,
+            height = rowHeight
+        ) {
+            var x =
+                ((constraints.maxWidth - usedWidth) / 2)
+                    .coerceAtLeast(0)
+
+            visible.forEachIndexed { index, placeable ->
+                placeable.placeRelative(
+                    x = x,
+                    y = ((rowHeight - placeable.height) / 2)
+                        .coerceAtLeast(0)
+                )
+
+                x += placeable.width
+
+                if (index < visible.lastIndex) {
+                    x += spacingPx
+                }
             }
         }
     }
