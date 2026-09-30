@@ -372,10 +372,15 @@ fun TraktScreen(
                                 modifier = (Modifier.weight(1f)).glassDialogFocusTransform(),
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
-                                    contentColor = NuvioColors.TextPrimary
+                        contentColor =
+                            if (selected) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            }
                                 ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                             ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -400,10 +405,10 @@ fun TraktScreen(
                         onClick = { showDaysCapDialog = false },
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -438,10 +443,15 @@ fun TraktScreen(
                     },
                     colors = ButtonDefaults.colors(
                         containerColor = if (uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor =
+                            if (uiState.showUnairedNextUp) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            }
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 ),
                     modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -458,10 +468,15 @@ fun TraktScreen(
                     },
                     colors = ButtonDefaults.colors(
                         containerColor = if (!uiState.showUnairedNextUp) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor =
+                            if (!uiState.showUnairedNextUp) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            }
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 ),
                     modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -479,10 +494,10 @@ fun TraktScreen(
                         onClick = { showUnairedNextUpDialog = false },
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -517,10 +532,15 @@ fun TraktScreen(
                     },
                     colors = ButtonDefaults.colors(
                         containerColor = if (uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor =
+                            if (uiState.showMetaComments) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            }
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 ),
                     modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -537,10 +557,15 @@ fun TraktScreen(
                     },
                     colors = ButtonDefaults.colors(
                         containerColor = if (!uiState.showMetaComments) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor =
+                            if (!uiState.showMetaComments) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            }
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 ),
                     modifier = (Modifier.fillMaxWidth()).glassDialogFocusTransform(),
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -558,10 +583,10 @@ fun TraktScreen(
                         onClick = { showCommentsDialog = false },
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -598,10 +623,10 @@ fun TraktScreen(
                     },
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor = NuvioColors.TextSecondary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                 ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -617,10 +642,10 @@ fun TraktScreen(
                     onClick = { showDisconnectConfirm = false },
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor = NuvioColors.TextSecondary
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = Color.White
+                        focusedContentColor = NuvioColors.TextPrimary
 )
                 ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
