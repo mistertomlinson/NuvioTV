@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -121,6 +122,24 @@ private fun CatalogOrderScreenContent(
     val uiState by viewModel.uiState.collectAsState()
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+
+    /*
+     * Stable focus anchors for the Move-to-top controls.
+     *
+     * LazyColumn rows are keyed by catalog key. Normally that is exactly
+     * what we want, but it means Compose follows a row when that row jumps
+     * to index 0. Move-to-top intentionally wants different behavior:
+     * leave focus at the same visual/list slot so repeated Enter presses
+     * can rapidly move successive bottom rows to the top.
+     */
+    val moveToTopFocusRequesters = remember {
+        mutableMapOf<String, FocusRequester>()
+    }
+
+    fun moveToTopFocusRequester(key: String): FocusRequester =
+        moveToTopFocusRequesters.getOrPut(key) {
+            FocusRequester()
+        }
     var streamingPlatformSettingsExpanded by remember {
         mutableStateOf(false)
     }
@@ -214,6 +233,90 @@ private fun CatalogOrderScreenContent(
     // There are three LazyColumn items before the catalog rows:
     // title/subtitle, streaming-platform settings, and number-theme toggle.
     val catalogListStartIndex = 3
+
+    fun moveRowToTopKeepingSlotFocus(itemKey: String) {
+        val current = previewItems ?: uiState.items
+        val fromIndex =
+            current.indexOfFirst { it.key == itemKey }
+
+        if (fromIndex <= 0) {
+            return
+        }
+
+        /*
+         * When item N moves to index 0, the item previously at N - 1
+         * becomes the new item at N. That is the row whose Move-to-top
+         * button should receive focus.
+         */
+        val replacementKey = current[fromIndex - 1].key
+        val replacementRequester =
+            moveToTopFocusRequester(replacementKey)
+
+        val lazyIndex = catalogListStartIndex + fromIndex
+        val layoutInfo = listState.layoutInfo
+        val visibleItem =
+            layoutInfo.visibleItemsInfo.firstOrNull {
+                it.index == lazyIndex
+            }
+
+        /*
+         * Preserve the exact viewport Y occupied by the original row.
+         * This uses the same offset convention as pickup/drop reordering.
+         */
+        val anchorScrollOffset =
+            visibleItem?.let { visible ->
+                layoutInfo.viewportStartOffset - visible.offset
+            } ?: 0
+
+        /*
+         * Try to leave the moved row before changing the list. This avoids
+         * Compose's normal stable-key focus retention from following it to
+         * the top. Index 1 is a special case because the old top button is
+         * disabled until after the reorder, so the post-layout request
+         * below remains the authoritative handoff.
+         */
+        runCatching {
+            replacementRequester.requestFocus()
+        }
+
+        val reordered =
+            current.toMutableList().apply {
+                val moved = removeAt(fromIndex)
+                add(0, moved)
+            }.mapIndexed { index, item ->
+                item.copy(
+                    canMoveUp = index > 0,
+                    canMoveDown = index < current.lastIndex
+                )
+            }
+
+        /*
+         * Update locally first so repeated Enter presses do not have to
+         * wait for DataStore's observed order to round-trip.
+         */
+        previewItems = reordered
+
+        val reorderedKeys = reordered.map { it.key }
+        pendingDroppedOrderKeys = reorderedKeys
+        viewModel.setCatalogOrder(reorderedKeys)
+
+        scope.launch {
+            // Allow the keyed LazyColumn to apply the new order.
+            withFrameNanos { }
+
+            // Keep the replacement row in the exact old viewport slot.
+            listState.scrollToItem(
+                index = lazyIndex,
+                scrollOffset = anchorScrollOffset
+            )
+
+            // The former top row may only become focusable after re-layout.
+            withFrameNanos { }
+            runCatching {
+                replacementRequester.requestFocus()
+            }
+        }
+    }
 
     fun movePickedRow(direction: Int) {
         val key = pickedUpKey ?: return
@@ -584,8 +687,10 @@ private fun CatalogOrderScreenContent(
                             onMovePicked = { direction ->
                                 movePickedRow(direction)
                             },
+                            moveToTopFocusRequester =
+                                moveToTopFocusRequester(item.key),
                             onMoveToTop = {
-                                viewModel.moveToTop(item.key)
+                                moveRowToTopKeepingSlotFocus(item.key)
                             },
                             onMoveUp = {
                                 viewModel.moveUp(item.key)
@@ -613,6 +718,7 @@ private fun CatalogOrderCard(
     groupPosition: SettingsGroupPosition,
     onTogglePickup: () -> Unit,
     onMovePicked: (Int) -> Unit,
+    moveToTopFocusRequester: FocusRequester,
     onMoveToTop: () -> Unit,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
@@ -879,6 +985,9 @@ private fun CatalogOrderCard(
             ) {
                 Button(
                     onClick = onMoveToTop,
+                    modifier = Modifier.focusRequester(
+                        moveToTopFocusRequester
+                    ),
                     enabled = item.canMoveUp,
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,

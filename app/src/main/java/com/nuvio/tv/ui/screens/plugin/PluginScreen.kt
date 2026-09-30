@@ -66,8 +66,6 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -87,6 +85,8 @@ import com.nuvio.tv.domain.model.LocalScraperResult
 import com.nuvio.tv.domain.model.PluginRepository
 import com.nuvio.tv.domain.model.ScraperInfo
 import com.nuvio.tv.ui.components.LoadingIndicator
+import com.nuvio.tv.ui.components.NuvioDialog
+import com.nuvio.tv.ui.components.glassDialogFocusTransform
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.screens.settings.SettingsGlassCanvasBrush
 import com.nuvio.tv.ui.screens.settings.SettingsActionRow
@@ -94,6 +94,10 @@ import com.nuvio.tv.ui.screens.settings.SettingsGroupPosition
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceColor
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
 import com.nuvio.tv.ui.screens.settings.SettingsRowGap
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassIdleColor
+import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassInsetColor
+import com.nuvio.tv.ui.screens.settings.SettingsDialogPillShape
+import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import com.nuvio.tv.ui.screens.settings.settingsGroupShape
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -277,29 +281,35 @@ fun PluginScreenContent(
         errorMessage = uiState.errorMessage
     )
 
-    // QR Code overlay — Popup renders above the entire screen
-    if (uiState.isQrModeActive) {
-        Popup(properties = PopupProperties(focusable = true)) {
-            QrCodeOverlay(
-                qrBitmap = uiState.qrCodeBitmap,
-                serverUrl = uiState.serverUrl,
-                onClose = { viewModel.onEvent(PluginUiEvent.StopQrMode) },
-                hasPendingChange = uiState.pendingRepoChange != null
-            )
-        }
+    // Keep exactly one modal visible at a time. The QR server stays alive
+    // while a pending change is being reviewed and returns after Reject.
+    if (
+        uiState.isQrModeActive &&
+        uiState.pendingRepoChange == null
+    ) {
+        QrCodeOverlay(
+            qrBitmap = uiState.qrCodeBitmap,
+            serverUrl = uiState.serverUrl,
+            onClose = {
+                viewModel.onEvent(PluginUiEvent.StopQrMode)
+            }
+        )
     }
 
-    // Confirmation dialog overlay
-    if (uiState.pendingRepoChange != null) {
-        Popup(properties = PopupProperties(focusable = true)) {
-            uiState.pendingRepoChange?.let { pending ->
-                ConfirmRepoChangesDialog(
-                    pendingChange = pending,
-                    onConfirm = { viewModel.onEvent(PluginUiEvent.ConfirmPendingRepoChange) },
-                    onReject = { viewModel.onEvent(PluginUiEvent.RejectPendingRepoChange) }
+    uiState.pendingRepoChange?.let { pending ->
+        ConfirmRepoChangesDialog(
+            pendingChange = pending,
+            onConfirm = {
+                viewModel.onEvent(
+                    PluginUiEvent.ConfirmPendingRepoChange
+                )
+            },
+            onReject = {
+                viewModel.onEvent(
+                    PluginUiEvent.RejectPendingRepoChange
                 )
             }
-        }
+        )
     }
     }
 }
@@ -524,42 +534,37 @@ private fun EmbeddedPluginSettingsContent(
             errorMessage = uiState.errorMessage
         )
 
-        if (uiState.isQrModeActive) {
-            Popup(properties = PopupProperties(focusable = true)) {
-                QrCodeOverlay(
-                    qrBitmap = uiState.qrCodeBitmap,
-                    serverUrl = uiState.serverUrl,
-                    onClose = {
-                        viewModel.onEvent(
-                            PluginUiEvent.StopQrMode
-                        )
-                    },
-                    hasPendingChange =
-                        uiState.pendingRepoChange != null
-                )
-            }
-        }
-
-        if (uiState.pendingRepoChange != null) {
-            Popup(properties = PopupProperties(focusable = true)) {
-                uiState.pendingRepoChange?.let { pending ->
-                    ConfirmRepoChangesDialog(
-                        pendingChange = pending,
-                        onConfirm = {
-                            viewModel.onEvent(
-                                PluginUiEvent
-                                    .ConfirmPendingRepoChange
-                            )
-                        },
-                        onReject = {
-                            viewModel.onEvent(
-                                PluginUiEvent
-                                    .RejectPendingRepoChange
-                            )
-                        }
+        if (
+            uiState.isQrModeActive &&
+            uiState.pendingRepoChange == null
+        ) {
+            QrCodeOverlay(
+                qrBitmap = uiState.qrCodeBitmap,
+                serverUrl = uiState.serverUrl,
+                onClose = {
+                    viewModel.onEvent(
+                        PluginUiEvent.StopQrMode
                     )
                 }
-            }
+            )
+        }
+
+        uiState.pendingRepoChange?.let { pending ->
+            ConfirmRepoChangesDialog(
+                pendingChange = pending,
+                onConfirm = {
+                    viewModel.onEvent(
+                        PluginUiEvent
+                            .ConfirmPendingRepoChange
+                    )
+                },
+                onReject = {
+                    viewModel.onEvent(
+                        PluginUiEvent
+                            .RejectPendingRepoChange
+                    )
+                }
+            )
         }
     }
 }
@@ -1208,41 +1213,39 @@ private fun ManageFromPhoneCard(onClick: () -> Unit) {
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun QrCodeOverlay(
     qrBitmap: Bitmap?,
     serverUrl: String?,
-    onClose: () -> Unit,
-    hasPendingChange: Boolean = false
+    onClose: () -> Unit
 ) {
     val focusRequester = remember { FocusRequester() }
 
-    LaunchedEffect(hasPendingChange) {
-        if (!hasPendingChange) {
-            focusRequester.requestFocus()
-        }
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
     }
 
-    BackHandler { onClose() }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.85f)),
-        contentAlignment = Alignment.Center
+    NuvioDialog(
+        glass = true,
+        enhancedGlass = true,
+        compact = true,
+        onDismiss = onClose,
+        title = stringResource(
+            R.string.plugin_manage_from_phone_title
+        ),
+        subtitle = stringResource(
+            R.string.plugin_qr_instruction
+        ),
+        width = 400.dp,
+        suppressFirstKeyUp = false
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement =
+                Arrangement.spacedBy(10.dp)
         ) {
-            Text(
-                text = stringResource(R.string.plugin_qr_instruction),
-                style = MaterialTheme.typography.bodyMedium,
-                color = NuvioColors.TextSecondary,
-                textAlign = TextAlign.Center
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
             if (qrBitmap != null) {
                 Image(
                     bitmap = qrBitmap.asImageBitmap(),
@@ -1251,8 +1254,6 @@ private fun QrCodeOverlay(
                     contentScale = ContentScale.Fit
                 )
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
 
             if (serverUrl != null) {
                 Text(
@@ -1263,45 +1264,49 @@ private fun QrCodeOverlay(
                 )
             }
 
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Surface(
+            Button(
                 onClick = onClose,
-                modifier = Modifier.focusRequester(focusRequester),
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = NuvioColors.Surface,
-                    focusedContainerColor = NuvioColors.FocusBackground
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester)
+                    .glassDialogFocusTransform(),
+                colors = ButtonDefaults.colors(
+                    containerColor =
+                        SettingsDialogGlassIdleColor,
+                    focusedContainerColor =
+                        SettingsGlassRowFocusedColor,
+                    contentColor =
+                        NuvioColors.TextSecondary,
+                    focusedContentColor =
+                        NuvioColors.TextPrimary
                 ),
-                border = ClickableSurfaceDefaults.border(
-                    focusedBorder = Border(
-                        border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                        shape = RoundedCornerShape(50)
-                    )
+                scale = ButtonDefaults.scale(
+                    focusedScale = 1f,
+                    pressedScale = 1f
                 ),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
-                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
+                border = ButtonDefaults.border(
+                    border = Border.None,
+                    focusedBorder = Border.None
+                ),
+                shape = ButtonDefaults.shape(
+                    SettingsDialogPillShape
+                )
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Close,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = NuvioColors.TextPrimary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = stringResource(R.string.plugin_qr_close),
-                        color = NuvioColors.TextPrimary
-                    )
-                }
+                Icon(
+                    imageVector = Icons.Default.Close,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    stringResource(R.string.plugin_qr_close)
+                )
             }
         }
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ConfirmRepoChangesDialog(
     pendingChange: PendingRepoChangeInfo,
@@ -1315,182 +1320,204 @@ private fun ConfirmRepoChangesDialog(
         focusRequester.requestFocus()
     }
 
-    BackHandler { onReject() }
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.8f)),
-        contentAlignment = Alignment.Center
+    NuvioDialog(
+        glass = true,
+        enhancedGlass = true,
+        onDismiss = onReject,
+        title = stringResource(
+            R.string.plugin_confirm_title
+        ),
+        subtitle = stringResource(
+            R.string.plugin_confirm_subtitle
+        ),
+        width = 520.dp,
+        suppressFirstKeyUp = false
     ) {
-        Surface(
-            onClick = { },
+        Box(
             modifier = Modifier
-                .width(560.dp)
-                .heightIn(max = 640.dp),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = NuvioColors.SurfaceVariant
-            ),
-            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp))
+                .fillMaxWidth()
+                .heightIn(max = 260.dp)
+                .background(
+                    color = SettingsDialogGlassInsetColor,
+                    shape = RoundedCornerShape(12.dp)
+                )
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(12.dp)
+                    .verticalScroll(scrollState)
             ) {
-                Text(
-                    text = stringResource(R.string.plugin_confirm_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                    color = NuvioColors.TextPrimary
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Text(
-                    text = stringResource(R.string.plugin_confirm_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = NuvioColors.TextSecondary
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(max = 320.dp)
-                        .background(
-                            color = NuvioColors.Surface,
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                ) {
-                    Column(
+                if (pendingChange.addedUrls.isNotEmpty()) {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_confirm_added
+                        ),
+                        style =
+                            MaterialTheme.typography.titleSmall,
+                        color = NuvioColors.Success,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(12.dp)
-                            .verticalScroll(scrollState)
-                    ) {
-                        if (pendingChange.addedUrls.isNotEmpty()) {
-                            Text(
-                                text = stringResource(R.string.plugin_confirm_added),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = NuvioColors.Success,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 4.dp)
-                            )
-                            pendingChange.addedUrls.forEach { url ->
-                                Text(
-                                    text = "+ $url",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = NuvioColors.Success,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 8.dp, bottom = 2.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
+                            .padding(bottom = 4.dp)
+                    )
 
-                        if (pendingChange.removedUrls.isNotEmpty()) {
-                            Text(
-                                text = stringResource(R.string.plugin_confirm_removed),
-                                style = MaterialTheme.typography.titleSmall,
-                                color = NuvioColors.Error,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 4.dp)
-                            )
-                            pendingChange.removedUrls.forEach { url ->
-                                Text(
-                                    text = "- $url",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = NuvioColors.Error,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(start = 8.dp, bottom = 2.dp)
+                    pendingChange.addedUrls.forEach { url ->
+                        Text(
+                            text = "+ $url",
+                            style =
+                                MaterialTheme.typography.bodySmall,
+                            color = NuvioColors.Success,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    start = 8.dp,
+                                    bottom = 2.dp
                                 )
-                            }
-                            Spacer(modifier = Modifier.height(8.dp))
-                        }
-
-                        if (pendingChange.addedUrls.isEmpty() && pendingChange.removedUrls.isEmpty()) {
-                            Text(
-                                text = stringResource(R.string.plugin_confirm_no_changes),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = NuvioColors.TextSecondary
-                            )
-                        }
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
                 }
 
-                Text(
-                    text = stringResource(R.string.plugin_confirm_total, pendingChange.proposedUrls.size),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = NuvioColors.TextTertiary,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                if (pendingChange.removedUrls.isNotEmpty()) {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_confirm_removed
+                        ),
+                        style =
+                            MaterialTheme.typography.titleSmall,
+                        color = NuvioColors.Error,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 4.dp)
+                    )
 
-                Spacer(modifier = Modifier.height(24.dp))
-
-                if (pendingChange.isApplying) {
-                    LoadingIndicator(modifier = Modifier.size(36.dp))
-                } else {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
-                    ) {
-                        Surface(
-                            onClick = onReject,
-                            colors = ClickableSurfaceDefaults.colors(
-                                containerColor = NuvioColors.Surface,
-                                focusedContainerColor = NuvioColors.FocusBackground
-                            ),
-                            border = ClickableSurfaceDefaults.border(
-                                focusedBorder = Border(
-                                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                                    shape = RoundedCornerShape(50)
+                    pendingChange.removedUrls.forEach { url ->
+                        Text(
+                            text = "- $url",
+                            style =
+                                MaterialTheme.typography.bodySmall,
+                            color = NuvioColors.Error,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(
+                                    start = 8.dp,
+                                    bottom = 2.dp
                                 )
-                            ),
-                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50))
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp),
-                                    tint = NuvioColors.TextPrimary
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = stringResource(R.string.plugin_confirm_reject),
-                                    color = NuvioColors.TextPrimary
-                                )
-                            }
-                        }
-
-                        Surface(
-                            onClick = onConfirm,
-                            modifier = Modifier.focusRequester(focusRequester),
-                            colors = ClickableSurfaceDefaults.colors(
-                                containerColor = NuvioColors.Secondary,
-                                focusedContainerColor = NuvioColors.SecondaryVariant
-                            ),
-                            border = ClickableSurfaceDefaults.border(
-                                focusedBorder = Border(
-                                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                                    shape = RoundedCornerShape(50)
-                                )
-                            ),
-                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50))
-                        ) {
-                            Text(
-                                text = stringResource(R.string.plugin_confirm_confirm),
-                                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
-                                color = NuvioColors.OnSecondary
-                            )
-                        }
+                        )
                     }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                }
+
+                if (
+                    pendingChange.addedUrls.isEmpty() &&
+                    pendingChange.removedUrls.isEmpty()
+                ) {
+                    Text(
+                        text = stringResource(
+                            R.string.plugin_confirm_no_changes
+                        ),
+                        style =
+                            MaterialTheme.typography.bodyMedium,
+                        color = NuvioColors.TextSecondary
+                    )
+                }
+            }
+        }
+
+        Text(
+            text = stringResource(
+                R.string.plugin_confirm_total,
+                pendingChange.proposedUrls.size
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = NuvioColors.TextTertiary,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (pendingChange.isApplying) {
+            Box(
+                modifier = Modifier.fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                LoadingIndicator(
+                    modifier = Modifier.size(36.dp)
+                )
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement =
+                    Arrangement.spacedBy(10.dp)
+            ) {
+                Button(
+                    onClick = onReject,
+                    modifier = Modifier
+                        .weight(1f)
+                        .glassDialogFocusTransform(),
+                    colors = ButtonDefaults.colors(
+                        containerColor =
+                            SettingsDialogGlassIdleColor,
+                        focusedContainerColor =
+                            SettingsGlassRowFocusedColor,
+                        contentColor =
+                            NuvioColors.TextSecondary,
+                        focusedContentColor =
+                            NuvioColors.TextPrimary
+                    ),
+                    scale = ButtonDefaults.scale(
+                        focusedScale = 1f,
+                        pressedScale = 1f
+                    ),
+                    border = ButtonDefaults.border(
+                        border = Border.None,
+                        focusedBorder = Border.None
+                    ),
+                    shape = ButtonDefaults.shape(
+                        SettingsDialogPillShape
+                    )
+                ) {
+                    Text(
+                        stringResource(
+                            R.string.plugin_confirm_reject
+                        )
+                    )
+                }
+
+                Button(
+                    onClick = onConfirm,
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(focusRequester)
+                        .glassDialogFocusTransform(),
+                    colors = ButtonDefaults.colors(
+                        containerColor =
+                            NuvioColors.Secondary,
+                        focusedContainerColor =
+                            SettingsGlassRowFocusedColor,
+                        contentColor =
+                            NuvioColors.OnSecondary,
+                        focusedContentColor =
+                            NuvioColors.TextPrimary
+                    ),
+                    scale = ButtonDefaults.scale(
+                        focusedScale = 1f,
+                        pressedScale = 1f
+                    ),
+                    border = ButtonDefaults.border(
+                        border = Border.None,
+                        focusedBorder = Border.None
+                    ),
+                    shape = ButtonDefaults.shape(
+                        SettingsDialogPillShape
+                    )
+                ) {
+                    Text(
+                        stringResource(
+                            R.string.plugin_confirm_confirm
+                        )
+                    )
                 }
             }
         }

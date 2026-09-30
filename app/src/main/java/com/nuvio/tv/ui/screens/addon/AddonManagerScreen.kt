@@ -502,7 +502,10 @@ private fun AddonManagerScreenContent(
             }
         }
 
-        if (uiState.isQrModeActive) {
+        if (
+            uiState.isQrModeActive &&
+            uiState.pendingChange == null
+        ) {
             QrCodeOverlay(
                 qrBitmap = uiState.qrCodeBitmap,
                 serverUrl = uiState.serverUrl,
