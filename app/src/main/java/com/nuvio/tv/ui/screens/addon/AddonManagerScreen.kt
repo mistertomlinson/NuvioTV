@@ -840,8 +840,8 @@ private fun QrCodeOverlay(
                 colors = ButtonDefaults.colors(
                     containerColor = SettingsDialogGlassIdleColor,
                     focusedContainerColor = SettingsGlassRowFocusedColor,
-                    contentColor = NuvioColors.TextPrimary,
-                    focusedContentColor = Color.White)
+                    contentColor = NuvioColors.TextSecondary,
+                    focusedContentColor = NuvioColors.TextPrimary)
             ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
         border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
@@ -1062,8 +1062,8 @@ private fun ConfirmAddonChangesDialog(
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsDialogGlassIdleColor,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
-                        contentColor = NuvioColors.TextPrimary,
-                        focusedContentColor = Color.White)
+                        contentColor = NuvioColors.TextSecondary,
+                        focusedContentColor = NuvioColors.TextPrimary)
                 ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
         border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
@@ -1082,7 +1082,7 @@ private fun ConfirmAddonChangesDialog(
                         containerColor = NuvioColors.Secondary,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         contentColor = NuvioColors.OnSecondary,
-                        focusedContentColor = Color.White)
+                        focusedContentColor = NuvioColors.TextPrimary)
                 ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
         border = ButtonDefaults.border(border = androidx.tv.material3.Border.None, focusedBorder = androidx.tv.material3.Border.None)
