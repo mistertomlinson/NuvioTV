@@ -588,7 +588,12 @@ private fun LibraryDropdownPicker(
             options.forEach { option ->
                 val isSelected = option.value == selectedValue
                 val isOptionFocused = option.value == focusedOptionValue
-                val itemTextColor = NuvioColors.TextPrimary
+                val itemTextColor =
+                    if (isOptionFocused || isSelected) {
+                        NuvioColors.TextPrimary
+                    } else {
+                        NuvioColors.TextSecondary
+                    }
                 val itemBackgroundColor = when {
                     isOptionFocused -> SettingsGlassRowFocusedColor
                     isSelected -> SettingsDialogGlassSelectedColor
@@ -761,11 +766,16 @@ private fun ManageListsDialog(
                                 }).glassDialogFocusTransform(),
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
-                                    contentColor = NuvioColors.TextPrimary
+                        contentColor =
+                            if (selected) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            }
                                 ,
     focusedContainerColor = SettingsGlassRowFocusedColor
 ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                             ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -790,9 +800,9 @@ private fun ManageListsDialog(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -808,9 +818,9 @@ private fun ManageListsDialog(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -826,9 +836,9 @@ private fun ManageListsDialog(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -844,9 +854,9 @@ private fun ManageListsDialog(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -868,7 +878,7 @@ private fun ManageListsDialog(
                         ,
     focusedContainerColor = SettingsGlassRowFocusedColor
 ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -885,9 +895,9 @@ private fun ManageListsDialog(
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            contentColor = NuvioColors.TextPrimary
+                            contentColor = NuvioColors.TextSecondary
                         ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                     ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -1032,11 +1042,16 @@ private fun ListEditorDialog(
                     enabled = !pending,
                     colors = ButtonDefaults.colors(
                         containerColor = if (selected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
-                        contentColor = NuvioColors.TextPrimary
+                        contentColor =
+                            if (selected) {
+                                NuvioColors.TextPrimary
+                            } else {
+                                NuvioColors.TextSecondary
+                            }
                     ,
     focusedContainerColor = SettingsGlassRowFocusedColor
 ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
                 ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -1058,9 +1073,9 @@ private fun ListEditorDialog(
             colors = ButtonDefaults.colors(
                 containerColor = SettingsDialogGlassIdleColor,
                 focusedContainerColor = SettingsGlassRowFocusedColor,
-                contentColor = NuvioColors.TextPrimary
+                contentColor = NuvioColors.TextSecondary
             ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
         ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
@@ -1099,7 +1114,7 @@ private fun ConfirmDeleteDialog(
             ,
     focusedContainerColor = SettingsGlassRowFocusedColor
 ,
-    focusedContentColor = Color.White
+    focusedContentColor = NuvioColors.TextPrimary
 )
         ,
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
