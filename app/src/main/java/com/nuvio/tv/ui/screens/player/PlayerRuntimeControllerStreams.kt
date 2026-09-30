@@ -992,6 +992,10 @@ internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
     }
 }
 
+internal fun shouldRunNextEpisodeAutoPlayCountdown(
+    userInitiated: Boolean
+): Boolean = !userInitiated
+
 internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = false) {
     val nextVideo = nextEpisodeVideo ?: return
     val type = contentType ?: return
@@ -1203,17 +1207,19 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
             }
             if (streamToPlay != null) {
                 val sourceName = (streamToPlay.name?.takeIf { it.isNotBlank() } ?: streamToPlay.addonName).trim()
-                for (remaining in 3 downTo 1) {
-                    _uiState.update {
-                        it.copy(
-                            showNextEpisodeCard = true,
-                            nextEpisodeCardDismissed = false,
-                            nextEpisodeAutoPlaySearching = false,
-                            nextEpisodeAutoPlaySourceName = sourceName,
-                            nextEpisodeAutoPlayCountdownSec = remaining
-                        )
+                if (shouldRunNextEpisodeAutoPlayCountdown(userInitiated)) {
+                    for (remaining in 3 downTo 1) {
+                        _uiState.update {
+                            it.copy(
+                                showNextEpisodeCard = true,
+                                nextEpisodeCardDismissed = false,
+                                nextEpisodeAutoPlaySearching = false,
+                                nextEpisodeAutoPlaySourceName = sourceName,
+                                nextEpisodeAutoPlayCountdownSec = remaining
+                            )
+                        }
+                        delay(1000)
                     }
-                    delay(1000)
                 }
                 _uiState.update {
                     it.copy(

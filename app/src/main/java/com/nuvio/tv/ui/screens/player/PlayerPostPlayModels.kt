@@ -224,14 +224,9 @@ internal fun shouldStartManualEndAction(
 
     return when (state.contentType?.trim()?.lowercase()) {
         "movie" -> {
-            // Prefer real timing whenever Nuvio has it. This includes exact
-            // analyzer results, cross-release fallback timing while a fresh
-            // analysis is running, and any other validated movie timing.
-            //
-            // For a manual Back action, reaching the beginning of credits is
-            // enough to consider the movie complete. The automatic rating
-            // trigger remains tied to the final-credit boundary so viewers
-            // who keep watching can still see post-credit scenes normally.
+            // Real credit timing always wins over percentage fallback.
+            // Manual movie exit may begin at the initial credits boundary;
+            // the automatic rating flow remains tied to final credits.
             val knownCreditsStartMs =
                 state.creditTiming.creditsStartMs
                     ?: state.creditTiming.postCreditScenes.firstOrNull()?.startMs
@@ -240,32 +235,61 @@ internal fun shouldStartManualEndAction(
             if (knownCreditsStartMs != null) {
                 positionMs >= knownCreditsStartMs
             } else {
-                // Last-resort legacy behavior when neither analyzer/cached
-                // timing nor another credit source supplied a usable boundary.
-                progressFraction >= MANUAL_END_ACTION_THRESHOLD
+                // Percentage timing is strictly a last-resort path while
+                // timing is unresolved or has fallen back after failure.
+                when (state.creditTiming.status) {
+                    CreditTimingStatus.NOT_STARTED,
+                    CreditTimingStatus.RUNNING,
+                    CreditTimingStatus.FALLBACK ->
+                        progressFraction >= MANUAL_END_ACTION_THRESHOLD
+
+                    CreditTimingStatus.INTRO_DB_AVAILABLE,
+                    CreditTimingStatus.COMPLETE ->
+                        false
+                }
             }
         }
 
         "series", "tv" -> {
-            if (progressFraction < MANUAL_END_ACTION_THRESHOLD) {
-                return false
-            }
-
+            // Back may enter the rating/post-play end flow only for the final
+            // episode of the highest aired season. Ordinary episodes must
+            // simply leave the player; Back never starts Next Up.
             val ratingEligible = isRatingPromptEligibleContent(
                 contentType = state.contentType,
                 currentSeason = state.currentSeason,
                 currentEpisode = state.currentEpisode,
                 episodes = state.episodesAll
             )
+            if (!ratingEligible) {
+                return false
+            }
 
-            val analyzedCreditsStart = state.creditTiming.finalCreditsStartMs
-            val analyzerLooksLate =
-                state.nextEpisode?.hasAired == true &&
-                    state.creditTiming.status == CreditTimingStatus.COMPLETE &&
-                    analyzedCreditsStart != null &&
-                    positionMs < analyzedCreditsStart
+            // IntroDB, exact analyzer timing, and cross-release/cached timing
+            // are authoritative. For a series finale use the final-credit
+            // boundary so post-credit scenes remain protected.
+            val knownCreditBoundaryMs =
+                state.creditTiming.finalCreditsStartMs
+                    ?: state.creditTiming.creditsStartMs
 
-            ratingEligible || analyzerLooksLate
+            if (knownCreditBoundaryMs != null) {
+                positionMs >= knownCreditBoundaryMs
+            } else {
+                // Use 85% only when no usable credit timestamp exists and
+                // timing is unresolved or the analyzer has failed/fallen back.
+                when (state.creditTiming.status) {
+                    CreditTimingStatus.NOT_STARTED,
+                    CreditTimingStatus.RUNNING,
+                    CreditTimingStatus.FALLBACK ->
+                        progressFraction >= MANUAL_END_ACTION_THRESHOLD
+
+                    // These statuses are supposed to carry an authoritative
+                    // timestamp. If one is unexpectedly absent, fail closed
+                    // instead of silently substituting percentage timing.
+                    CreditTimingStatus.INTRO_DB_AVAILABLE,
+                    CreditTimingStatus.COMPLETE ->
+                        false
+                }
+            }
         }
 
         else -> false

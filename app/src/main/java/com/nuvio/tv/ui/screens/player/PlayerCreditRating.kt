@@ -77,11 +77,9 @@ internal fun PlayerRuntimeController.requestManualEndAction() {
             nextEpisodeAutoPlayCountdownSec = null
         )
     }
-    if (showRating || state.nextEpisode?.hasAired != true) {
-        preparePostPlayRecommendationsForManualEndAction()
-    } else {
-        playNextEpisode(userInitiated = false)
-    }
+    // A manual Back end action is rating/post-play only. Next-episode
+    // autoplay is driven by normal playback timing, never by the Back button.
+    preparePostPlayRecommendationsForManualEndAction()
 }
 
 /**

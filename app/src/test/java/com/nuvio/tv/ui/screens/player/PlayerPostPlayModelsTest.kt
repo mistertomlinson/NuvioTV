@@ -292,7 +292,7 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
-    fun `manual near end exit overrides late analyzer for ordinary episode`() {
+    fun `ordinary episode back never enters manual end flow even when analyzer looks late`() {
         val state = PlayerUiState(
             contentType = "series",
             currentSeason = 1,
@@ -315,7 +315,8 @@ class PlayerPostPlayModelsTest {
         )
 
         assertFalse(shouldStartManualEndAction(state, 84_999L, 100_000L))
-        assertTrue(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertFalse(shouldStartManualEndAction(state, 96_000L, 100_000L))
     }
 
     @Test
@@ -371,6 +372,139 @@ class PlayerPostPlayModelsTest {
                 100_000L
             )
         )
+    }
+
+    @Test
+    fun `series finale introdb timestamp overrides 85 percent fallback`() {
+        val episodes = listOf(
+            episode(season = 1, number = 1),
+            episode(season = 1, number = 2)
+        )
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 2,
+            episodesAll = episodes,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.INTRO_DB_AVAILABLE,
+                creditsStartMs = 96_000L,
+                finalCreditsStartMs = 96_000L
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 96_000L, 100_000L))
+    }
+
+    @Test
+    fun `series finale completed analyzer timestamp overrides 85 percent fallback`() {
+        val episodes = listOf(
+            episode(season = 1, number = 1),
+            episode(season = 1, number = 2)
+        )
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 2,
+            episodesAll = episodes,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE,
+                creditsStartMs = 90_000L,
+                finalCreditsStartMs = 96_000L
+            )
+        )
+
+        // Initial credits are not enough for a finale rating flow when
+        // final-credit timing protects later post-credit material.
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 96_000L, 100_000L))
+    }
+
+    @Test
+    fun `series finale running analyzer uses cached timing instead of 85 percent`() {
+        val episodes = listOf(
+            episode(season = 1, number = 1),
+            episode(season = 1, number = 2)
+        )
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 2,
+            episodesAll = episodes,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING,
+                creditsStartMs = 90_000L,
+                finalCreditsStartMs = 96_000L
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 96_000L, 100_000L))
+    }
+
+    @Test
+    fun `series finale running analyzer without timing falls back to 85 percent`() {
+        val episodes = listOf(
+            episode(season = 1, number = 1),
+            episode(season = 1, number = 2)
+        )
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 2,
+            episodesAll = episodes,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 84_999L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 85_000L, 100_000L))
+    }
+
+    @Test
+    fun `series finale analyzer failure without timing falls back to 85 percent`() {
+        val episodes = listOf(
+            episode(season = 1, number = 1),
+            episode(season = 1, number = 2)
+        )
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 2,
+            episodesAll = episodes,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.FALLBACK
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 84_999L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 85_000L, 100_000L))
+    }
+
+    @Test
+    fun `completed timing without a timestamp does not silently use 85 percent`() {
+        val episodes = listOf(
+            episode(season = 1, number = 1),
+            episode(season = 1, number = 2)
+        )
+        val state = PlayerUiState(
+            contentType = "series",
+            currentSeason = 1,
+            currentEpisode = 2,
+            episodesAll = episodes,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE
+            )
+        )
+
+        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+    }
+
+    @Test
+    fun `explicit next up play skips automatic countdown`() {
+        assertTrue(shouldRunNextEpisodeAutoPlayCountdown(userInitiated = false))
+        assertFalse(shouldRunNextEpisodeAutoPlayCountdown(userInitiated = true))
     }
 
     private fun episode(
