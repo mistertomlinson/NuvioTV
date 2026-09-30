@@ -535,9 +535,39 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         )
                     }
                 }
+                /*
+                 * A provider may temporarily retain an older playback session
+                 * after a later episode has already completed locally.
+                 *
+                 * Example:
+                 *   remote playback: episode 5
+                 *   local autoplay:  episodes 6 -> 7 -> 8 completed
+                 *
+                 * The newer completed seed is authoritative for CW ordering.
+                 * Do not allow the older in-progress projection to survive in
+                 * the visible Continue Watching row while the provider catches up.
+                 *
+                 * A genuine later rewatch remains valid because its lastWatched
+                 * timestamp will be newer than the completion seed.
+                 */
+                val latestCompletedAtByContent =
+                    latestCompletedAtByContentForSuppression(
+                        allProgress = recentItems,
+                        nextUpSeeds = recentNextUpSeeds,
+                        isCompletedSeed = ::shouldUseAsCompletedSeed
+                    )
+
                 val inProgressOnly = buildList {
                     val liveInProgress = deduplicateInProgress(
-                        recentItems.filter { shouldTreatAsInProgressForContinueWatching(it) }
+                        recentItems.filter { progress ->
+                            shouldTreatAsActiveInProgressForNextUpSuppression(
+                                progress = progress,
+                                latestCompletedAt =
+                                    latestCompletedAtByContent[
+                                        progress.contentId
+                                    ]
+                            )
+                        }
                     )
                     if (liveInProgress.isNotEmpty()) {
                         liveInProgress.forEach { progress ->

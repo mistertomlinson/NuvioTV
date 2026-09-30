@@ -71,6 +71,37 @@ class HomeNextUpResolutionTest {
     }
 
     @Test
+    fun `completed episode eight rejects stale episode five progress`() {
+        val staleEpisodeFive = progress(
+            lastWatched = 100L,
+            position = 25L,
+            duration = 100L,
+            progressPercent = 25f,
+            episode = 5
+        )
+        val completedEpisodeEight = progress(
+            lastWatched = 200L,
+            position = 100L,
+            duration = 100L,
+            progressPercent = 100f,
+            episode = 8
+        )
+
+        val completedAt = latestCompletedAtByContentForSuppression(
+            allProgress = listOf(staleEpisodeFive),
+            nextUpSeeds = listOf(completedEpisodeEight),
+            isCompletedSeed = { it.progressPercent == 100f }
+        )
+
+        assertFalse(
+            shouldTreatAsActiveInProgressForNextUpSuppression(
+                progress = staleEpisodeFive,
+                latestCompletedAt = completedAt["series-1"]
+            )
+        )
+    }
+
+    @Test
     fun `newer in progress playback still suppresses older completed seed`() {
         val completedSeed = progress(
             lastWatched = 100L,
@@ -127,7 +158,8 @@ class HomeNextUpResolutionTest {
         lastWatched: Long,
         position: Long,
         duration: Long,
-        progressPercent: Float
+        progressPercent: Float,
+        episode: Int = 1
     ) = WatchProgress(
         contentId = "series-1",
         contentType = "series",
@@ -137,8 +169,8 @@ class HomeNextUpResolutionTest {
         logo = null,
         videoId = "series-1:1:1",
         season = 1,
-        episode = 1,
-        episodeTitle = "Episode 1",
+        episode = episode,
+        episodeTitle = "Episode $episode",
         position = position,
         duration = duration,
         lastWatched = lastWatched,
