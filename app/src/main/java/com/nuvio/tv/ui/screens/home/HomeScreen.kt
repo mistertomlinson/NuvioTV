@@ -61,7 +61,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.HomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.glassDialogFocusTransform
-import com.nuvio.tv.ui.components.glassDialogAppearanceTransform
+import com.nuvio.tv.ui.components.GlassDialogAnimatedPanel
 import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
@@ -1566,20 +1566,22 @@ private fun HomePosterOptionsDialog(
             Modifier
         }
 
-        Box(
-            modifier = Modifier
-                .glassDialogAppearanceTransform(
-                    scale =
-                        0.96f +
-                            (0.04f * appearanceProgress.value),
-                    alpha = appearanceProgress.value,
-                    clipShape = panelShape
-                )
-                .width(520.dp)
-                .then(blurModifier)
-                .clip(panelShape)
+        GlassDialogAnimatedPanel(
+            width = 520.dp,
+            scale =
+                0.96f +
+                    (0.04f * appearanceProgress.value),
+            alpha = appearanceProgress.value,
+            shape = panelShape,
+            hazeModifier = blurModifier,
+            surfaceModifier = Modifier
                 .background(HomeDialogGlassBrush, panelShape)
-                .border(1.dp, HomeDialogGlassBorderColor, panelShape)
+                .border(
+                    1.dp,
+                    HomeDialogGlassBorderColor,
+                    panelShape
+                ),
+            contentModifier = Modifier
                 .padding(24.dp)
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
@@ -1587,11 +1589,15 @@ private fun HomePosterOptionsDialog(
                         suppressNextKeyUp &&
                         native.action == AndroidKeyEvent.ACTION_UP &&
                         (
-                            native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
-                                native.keyCode == AndroidKeyEvent.KEYCODE_MENU
-                            )
+                            native.keyCode ==
+                                AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                                native.keyCode ==
+                                    AndroidKeyEvent.KEYCODE_ENTER ||
+                                native.keyCode ==
+                                    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+                                native.keyCode ==
+                                    AndroidKeyEvent.KEYCODE_MENU
+                        )
                     ) {
                         suppressNextKeyUp = false
                         true
