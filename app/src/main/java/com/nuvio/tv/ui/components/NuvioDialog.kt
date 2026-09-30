@@ -51,9 +51,9 @@ import kotlin.math.roundToInt
 
 private val NuvioDialogGlassBrush = Brush.verticalGradient(
     colors = listOf(
-        Color(0x842A3038),
-        Color(0x7720252C),
-        Color(0x7F24292F)
+        Color(0x702A3038),
+        Color(0x6420252C),
+        Color(0x6A24292F)
     )
 )
 
