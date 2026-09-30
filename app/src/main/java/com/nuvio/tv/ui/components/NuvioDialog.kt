@@ -33,9 +33,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
@@ -59,27 +60,98 @@ private val NuvioDialogGlassBrush = Brush.verticalGradient(
 private val NuvioDialogGlassBorderColor =
     Color.White.copy(alpha = 0.09f)
 
-internal fun Modifier.glassDialogAppearanceTransform(
+@Composable
+internal fun GlassDialogAnimatedPanel(
+    width: Dp? = null,
     scale: Float,
     alpha: Float,
-    clipShape: Shape
-): Modifier = layout { measurable, constraints ->
-    val placeable = measurable.measure(constraints)
+    shape: Shape,
+    hazeModifier: Modifier = Modifier,
+    surfaceModifier: Modifier = Modifier,
+    contentModifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
     val safeScale = scale.coerceIn(0.01f, 1f)
-    val scaledWidth =
-        (placeable.width * safeScale).roundToInt().coerceAtLeast(1)
-    val scaledHeight =
-        (placeable.height * safeScale).roundToInt().coerceAtLeast(1)
+    val safeAlpha = alpha.coerceIn(0f, 1f)
 
-    layout(scaledWidth, scaledHeight) {
-        val x = (scaledWidth - placeable.width) / 2
-        val y = (scaledHeight - placeable.height) / 2
-        placeable.placeWithLayer(x, y) {
-            scaleX = safeScale
-            scaleY = safeScale
-            this.alpha = alpha
-            shape = clipShape
-            clip = true
+    SubcomposeLayout { constraints ->
+        val targetWidth =
+            width?.roundToPx()?.let { requested ->
+                constraints.constrainWidth(requested)
+            }
+
+        val contentConstraints =
+            if (targetWidth != null) {
+                Constraints(
+                    minWidth = targetWidth,
+                    maxWidth = targetWidth,
+                    minHeight = 0,
+                    maxHeight = constraints.maxHeight
+                )
+            } else {
+                constraints.copy(
+                    minWidth = 0,
+                    minHeight = 0
+                )
+            }
+
+        val contentPlaceable =
+            subcompose("content") {
+                Box(modifier = contentModifier) {
+                    content()
+                }
+            }.single().measure(contentConstraints)
+
+        val fullWidth = contentPlaceable.width.coerceAtLeast(1)
+        val fullHeight = contentPlaceable.height.coerceAtLeast(1)
+        val animatedWidth =
+            (fullWidth * safeScale)
+                .roundToInt()
+                .coerceAtLeast(1)
+        val animatedHeight =
+            (fullHeight * safeScale)
+                .roundToInt()
+                .coerceAtLeast(1)
+
+        val surfacePlaceable =
+            subcompose("surface") {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(hazeModifier)
+                        .graphicsLayer {
+                            this.alpha = safeAlpha
+                            this.shape = shape
+                            clip = true
+                        }
+                        .clip(shape)
+                        .then(surfaceModifier)
+                )
+            }.single().measure(
+                Constraints.fixed(
+                    animatedWidth,
+                    animatedHeight
+                )
+            )
+
+        layout(animatedWidth, animatedHeight) {
+            surfacePlaceable.place(0, 0)
+
+            val contentX =
+                (animatedWidth - fullWidth) / 2
+            val contentY =
+                (animatedHeight - fullHeight) / 2
+
+            contentPlaceable.placeWithLayer(
+                contentX,
+                contentY
+            ) {
+                scaleX = safeScale
+                scaleY = safeScale
+                this.alpha = safeAlpha
+                this.shape = shape
+                clip = true
+            }
         }
     }
 }
@@ -248,27 +320,49 @@ fun NuvioDialog(
                 1f
             }
 
-        Box(
-            modifier = Modifier
-                .glassDialogAppearanceTransform(
-                    scale = animatedScale,
-                    alpha = animatedAlpha,
-                    clipShape = dialogShape
-                )
-                .width(width)
-                .then(blurModifier)
-                .clip(dialogShape)
-                .then(
-                    when {
-                        useEnhancedGlass ->
-                            Modifier.background(NuvioDialogGlassBrush, dialogShape)
-                        glass ->
-                            Modifier.background(Color(0xD923292F), dialogShape)
-                        else ->
-                            Modifier.background(NuvioColors.BackgroundElevated, dialogShape)
-                    }
-                )
-                .border(1.dp, borderColor, dialogShape)
+        GlassDialogAnimatedPanel(
+            width = width,
+            scale = animatedScale,
+            alpha = animatedAlpha,
+            shape = dialogShape,
+            hazeModifier = blurModifier,
+            surfaceModifier =
+                when {
+                    useEnhancedGlass ->
+                        Modifier
+                            .background(
+                                NuvioDialogGlassBrush,
+                                dialogShape
+                            )
+                            .border(
+                                1.dp,
+                                borderColor,
+                                dialogShape
+                            )
+                    glass ->
+                        Modifier
+                            .background(
+                                Color(0xD923292F),
+                                dialogShape
+                            )
+                            .border(
+                                1.dp,
+                                borderColor,
+                                dialogShape
+                            )
+                    else ->
+                        Modifier
+                            .background(
+                                NuvioColors.BackgroundElevated,
+                                dialogShape
+                            )
+                            .border(
+                                1.dp,
+                                borderColor,
+                                dialogShape
+                            )
+                },
+            contentModifier = Modifier
                 .padding(
                     if (useEnhancedGlass) {
                         24.dp
@@ -280,8 +374,15 @@ fun NuvioDialog(
                 )
                 .onPreviewKeyEvent { event ->
                     val native = event.nativeKeyEvent
-                    if (suppressNextKeyUp && native.action == AndroidKeyEvent.ACTION_UP) {
-                        if (isSelectKey(native.keyCode) || native.keyCode == AndroidKeyEvent.KEYCODE_MENU) {
+                    if (
+                        suppressNextKeyUp &&
+                        native.action == AndroidKeyEvent.ACTION_UP
+                    ) {
+                        if (
+                            isSelectKey(native.keyCode) ||
+                            native.keyCode ==
+                                AndroidKeyEvent.KEYCODE_MENU
+                        ) {
                             suppressNextKeyUp = false
                             return@onPreviewKeyEvent true
                         }
