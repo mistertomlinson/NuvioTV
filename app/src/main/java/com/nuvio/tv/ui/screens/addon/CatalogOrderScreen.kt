@@ -65,7 +65,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import com.nuvio.tv.ui.screens.settings.SettingsActionRow
-import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
 import com.nuvio.tv.ui.screens.settings.SettingsGroupPosition
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceColor
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
@@ -108,12 +107,10 @@ fun CatalogOrderScreen(
     viewModel: CatalogOrderViewModel = hiltViewModel(),
     onBackPress: () -> Unit
 ) {
-    SettingsCompactContent {
-        CatalogOrderScreenContent(
-            viewModel = viewModel,
-            onBackPress = onBackPress
-        )
-    }
+    CatalogOrderScreenContent(
+        viewModel = viewModel,
+        onBackPress = onBackPress
+    )
 }
 
 @Composable
