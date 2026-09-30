@@ -89,9 +89,11 @@ internal fun GlassDialogAnimatedPanel(
                     maxHeight = constraints.maxHeight
                 )
             } else {
-                constraints.copy(
+                Constraints(
                     minWidth = 0,
-                    minHeight = 0
+                    maxWidth = constraints.maxWidth,
+                    minHeight = 0,
+                    maxHeight = constraints.maxHeight
                 )
             }
 
