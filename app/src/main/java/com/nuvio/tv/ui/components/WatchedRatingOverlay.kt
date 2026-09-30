@@ -155,25 +155,39 @@ fun WatchedRatingOverlay(
             } else {
                 Modifier
             }
-            Column(
-                modifier = Modifier
-                    .glassDialogAppearanceTransform(
-                        scale =
-                            0.96f +
-                                (0.04f * appearanceProgress),
-                        alpha = appearanceProgress,
-                        clipShape = panelShape
+            GlassDialogAnimatedPanel(
+                scale =
+                    0.96f +
+                        (0.04f * appearanceProgress),
+                alpha = appearanceProgress,
+                shape = panelShape,
+                hazeModifier = blurModifier,
+                surfaceModifier = Modifier
+                    .background(
+                        WatchedRatingGlassBrush,
+                        panelShape
                     )
-                    .then(blurModifier)
-                    .clip(panelShape)
-                    .background(WatchedRatingGlassBrush, panelShape)
-                    .border(1.dp, WatchedRatingGlassBorderColor, panelShape)
-                    .padding(horizontal = 40.dp, vertical = 32.dp)
+                    .border(
+                        1.dp,
+                        WatchedRatingGlassBorderColor,
+                        panelShape
+                    ),
+                contentModifier = Modifier
+                    .padding(
+                        horizontal = 40.dp,
+                        vertical = 32.dp
+                    )
                     .onPreviewKeyEvent { keyEvent ->
-                        when (keyEvent.nativeKeyEvent.keyCode) {
+                        when (
+                            keyEvent.nativeKeyEvent.keyCode
+                        ) {
                             AndroidKeyEvent.KEYCODE_BACK,
                             AndroidKeyEvent.KEYCODE_ESCAPE -> {
-                                if (keyEvent.type == KeyEventType.KeyUp && !consumed) {
+                                if (
+                                    keyEvent.type ==
+                                        KeyEventType.KeyUp &&
+                                    !consumed
+                                ) {
                                     consumed = true
                                     onDismiss()
                                 }
@@ -181,10 +195,14 @@ fun WatchedRatingOverlay(
                             }
                             else -> false
                         }
-                    },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(0.dp)
+                    }
             ) {
+                Column(
+                    horizontalAlignment =
+                        Alignment.CenterHorizontally,
+                    verticalArrangement =
+                        Arrangement.spacedBy(0.dp)
+                ) {
                 Text(
                     text = "What Did You Think?",
                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold),
@@ -282,6 +300,7 @@ fun WatchedRatingOverlay(
                         style = MaterialTheme.typography.labelLarge,
                         modifier = Modifier.padding(end = 4.dp)
                     )
+                }
                 }
             }
         }
