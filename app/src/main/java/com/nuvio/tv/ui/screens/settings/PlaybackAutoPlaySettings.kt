@@ -1128,7 +1128,12 @@ private fun StreamRegexDialog(
                                 text = label,
                                 modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                                 style = MaterialTheme.typography.labelLarge,
-                                color = if (isFocused) NuvioColors.Primary else NuvioColors.TextPrimary
+                                color =
+                                    if (isFocused) {
+                                        NuvioColors.TextPrimary
+                                    } else {
+                                        NuvioColors.TextSecondary
+                                    }
                             )
                         }
                     }
@@ -1199,9 +1204,9 @@ private fun StreamRegexDialog(
                         onClick = onDismiss,
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
-                            contentColor = NuvioColors.TextPrimary,
+                            contentColor = NuvioColors.TextSecondary,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            focusedContentColor = Color.White),
+                            focusedContentColor = NuvioColors.TextPrimary),
                         shape = ButtonDefaults.shape(SettingsDialogPillShape),
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
         modifier = Modifier.glassDialogFocusTransform()
@@ -1218,9 +1223,9 @@ private fun StreamRegexDialog(
                         },
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
-                            contentColor = NuvioColors.TextPrimary,
+                            contentColor = NuvioColors.TextSecondary,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            focusedContentColor = Color.White),
+                            focusedContentColor = NuvioColors.TextPrimary),
                         shape = ButtonDefaults.shape(SettingsDialogPillShape),
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
         modifier = Modifier.glassDialogFocusTransform()
@@ -1244,9 +1249,9 @@ private fun StreamRegexDialog(
                         },
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsDialogGlassIdleColor,
-                            contentColor = NuvioColors.TextPrimary,
+                            contentColor = NuvioColors.TextSecondary,
                             focusedContainerColor = SettingsGlassRowFocusedColor,
-                            focusedContentColor = Color.White),
+                            focusedContentColor = NuvioColors.TextPrimary),
                         shape = ButtonDefaults.shape(SettingsDialogPillShape),
     scale = ButtonDefaults.scale(focusedScale = 1f, pressedScale = 1f),
         modifier = Modifier.glassDialogFocusTransform()
