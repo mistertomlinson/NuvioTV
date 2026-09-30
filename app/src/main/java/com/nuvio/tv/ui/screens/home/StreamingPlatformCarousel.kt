@@ -184,7 +184,7 @@ fun StreamingPlatformCarousel(
                 selectorWAnim.snapTo(selW)
             } else {
                 val dist = kotlin.math.abs(selectorXAnim.value - selX)
-                val dur = if (dist > 300f) 80 else 300
+                val dur = if (dist > 300f) 80 else 250
                 launch { selectorXAnim.animateTo(selX, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
                 launch { selectorWAnim.animateTo(selW, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
             }
@@ -196,7 +196,7 @@ fun StreamingPlatformCarousel(
                 selectorWAnim.snapTo(selW)
             } else {
                 val dist = kotlin.math.abs(selectorXAnim.value - selX)
-                val dur = if (dist > 300f) 80 else 300
+                val dur = if (dist > 300f) 80 else 250
                 launch { scrollState.animateScrollTo(scroll.roundToInt(), tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
                 launch { selectorXAnim.animateTo(selX, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
                 launch { selectorWAnim.animateTo(selW, tween(dur, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))) }
