@@ -96,7 +96,6 @@ import com.nuvio.tv.ui.screens.settings.SettingsGlassControlIdleColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
-import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
 import com.nuvio.tv.ui.screens.settings.SettingsGroupPosition
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceColor
 import com.nuvio.tv.ui.screens.settings.SettingsRightSurfaceFocusedColor
@@ -119,14 +118,12 @@ fun AddonManagerScreen(
     onNavigateToCatalogOrder: () -> Unit = {},
     onRefreshCatalogs: () -> Unit = {}
 ) {
-    SettingsCompactContent {
-        AddonManagerScreenContent(
-            viewModel = viewModel,
-            showBuiltInHeader = showBuiltInHeader,
-            onNavigateToCatalogOrder = onNavigateToCatalogOrder,
-            onRefreshCatalogs = onRefreshCatalogs
-        )
-    }
+    AddonManagerScreenContent(
+        viewModel = viewModel,
+        showBuiltInHeader = showBuiltInHeader,
+        onNavigateToCatalogOrder = onNavigateToCatalogOrder,
+        onRefreshCatalogs = onRefreshCatalogs
+    )
 }
 
 @Composable
