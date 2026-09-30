@@ -297,7 +297,12 @@ private fun AudioLanguageSelectionDialog(
                             Text(
                                 text = name,
                                 style = MaterialTheme.typography.bodyLarge,
-                                color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                color =
+                                    if (isFocused || isSelected) {
+                                        NuvioColors.TextPrimary
+                                    } else {
+                                        NuvioColors.TextSecondary
+                                    },
                                 modifier = Modifier.weight(1f)
                             )
                             if (isSelected) {
@@ -358,12 +363,22 @@ private fun DecoderPriorityDialog(
                 ) { index ->
                     val (priority, title, description) = options[index]
                     val isSelected = priority == selectedPriority
+                    var isFocused by remember { mutableStateOf(false) }
 
                     Card(
                         onClick = { onPrioritySelected(priority) },
                         modifier = (Modifier
                             .fillMaxWidth()
-                            .then(if (index == 0) Modifier.focusRequester(focusRequester) else Modifier)).glassDialogFocusTransform(),
+                            .then(
+                                if (index == 0) {
+                                    Modifier.focusRequester(focusRequester)
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .onFocusChanged {
+                                isFocused = it.isFocused
+                            }).glassDialogFocusTransform(),
                         colors = CardDefaults.colors(
                             containerColor = if (isSelected) SettingsDialogGlassSelectedColor else SettingsDialogGlassIdleColor,
                             focusedContainerColor = SettingsGlassRowFocusedColor),
@@ -380,13 +395,23 @@ private fun DecoderPriorityDialog(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = title,
-                                    color = if (isSelected) NuvioColors.Primary else NuvioColors.TextPrimary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodyLarge
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = description,
-                                    color = NuvioColors.TextSecondary,
+                                    color =
+                                        if (isFocused || isSelected) {
+                                            NuvioColors.TextPrimary
+                                        } else {
+                                            NuvioColors.TextSecondary
+                                        },
                                     style = MaterialTheme.typography.bodySmall
                                 )
                             }
