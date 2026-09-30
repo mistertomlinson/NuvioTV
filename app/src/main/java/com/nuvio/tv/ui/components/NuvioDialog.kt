@@ -77,7 +77,10 @@ internal fun GlassDialogAnimatedPanel(
     SubcomposeLayout { constraints ->
         val targetWidth =
             width?.roundToPx()?.let { requested ->
-                constraints.constrainWidth(requested)
+                requested.coerceIn(
+                    constraints.minWidth,
+                    constraints.maxWidth
+                )
             }
 
         val contentConstraints =
