@@ -15,7 +15,11 @@ import com.nuvio.tv.domain.model.StreamClientResolveParsed
 import com.nuvio.tv.domain.model.StreamClientResolveRaw
 import com.nuvio.tv.domain.model.StreamClientResolveStream
 
-fun StreamDto.toDomain(addonName: String, addonLogo: String?): Stream = Stream(
+fun StreamDto.toDomain(
+    addonName: String,
+    addonLogo: String?,
+    addonBaseUrl: String? = null
+): Stream = Stream(
     name = name,
     title = title,
     description = description,
@@ -28,6 +32,7 @@ fun StreamDto.toDomain(addonName: String, addonLogo: String?): Stream = Stream(
     addonName = addonName,
     addonLogo = addonLogo,
     sources = sources,
+    addonBaseUrl = addonBaseUrl,
     clientResolve = clientResolve?.toDomain()
 )
 

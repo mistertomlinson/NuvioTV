@@ -351,6 +351,7 @@ private fun PlayerRuntimeController.applySelectedStreamState(
     currentFileIdx = stream.fileIdx ?: stream.clientResolve?.fileIdx
     currentAddonName = stream.addonName
     currentAddonLogo = stream.addonLogo
+    currentAddonBaseUrl = stream.addonBaseUrl
     currentStreamDescription = stream.description
     currentVideoCodec = null
     currentVideoWidth = null
@@ -378,7 +379,9 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
             headers = headers,
             filename = currentFilename,
             videoHash = currentVideoHash,
-            videoSize = currentVideoSize
+            videoSize = currentVideoSize,
+            addonName = currentAddonName,
+            addonBaseUrl = currentAddonBaseUrl
         )
     }
 }

@@ -896,6 +896,7 @@ fun NuvioNavHost(
                                 startFromBeginning = startFromBeginning,
                                 addonName = playbackInfo.addonName,
                                 addonLogo = playbackInfo.addonLogo,
+                                streamAddonBaseUrl = playbackInfo.addonBaseUrl,
                                 streamDescription = playbackInfo.streamDescription,
                                 manualSelection = true
                             )
@@ -940,6 +941,7 @@ fun NuvioNavHost(
                                 startFromBeginning = startFromBeginning,
                                 addonName = playbackInfo.addonName,
                                 addonLogo = playbackInfo.addonLogo,
+                                streamAddonBaseUrl = playbackInfo.addonBaseUrl,
                                 streamDescription = playbackInfo.streamDescription,
                                 manualSelection = false
                             )
@@ -1077,6 +1079,11 @@ fun NuvioNavHost(
                     defaultValue = null
                 },
                 navArgument("addonLogo") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("streamAddonBaseUrl") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null

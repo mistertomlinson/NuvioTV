@@ -1003,7 +1003,7 @@ private fun LocalScraperResult.toPluginStream(addonName: String): Stream {
         return when (val result = safeApiCall { api.getStreams(streamUrl) }) {
             is NetworkResult.Success -> {
                 val streams = result.data.streams?.map { 
-                    it.toDomain(addonName, addonLogo) 
+                    it.toDomain(addonName, addonLogo, cleanBaseUrl) 
                 } ?: emptyList()
                 Log.d(TAG, "Streams success addon=$addonName count=${streams.size} url=$streamUrl")
                 NetworkResult.Success(streams)
@@ -1075,7 +1075,7 @@ private fun LocalScraperResult.toPluginStream(addonName: String): Stream {
                     val metaDto = result.data.meta ?: return emptyList()
                     val matchingVideo = metaDto.videos?.firstOrNull { it.id == videoId }
                     val streams = matchingVideo?.streams
-                        ?.mapNotNull { streamDto -> streamDto.toDomain(addon.displayName, addon.logo) }
+                        ?.mapNotNull { streamDto -> streamDto.toDomain(addon.displayName, addon.logo, addon.baseUrl) }
                         ?: emptyList()
                     Log.d(TAG, "Inline streams from meta: addon=${addon.displayName} videoId=$videoId found=${streams.size}")
                     streams

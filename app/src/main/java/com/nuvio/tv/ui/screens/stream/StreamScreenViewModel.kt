@@ -386,6 +386,8 @@ class StreamScreenViewModel @Inject constructor(
                                 filename = cached.filename,
                                 videoHash = cached.videoHash,
                                 videoSize = cached.videoSize,
+                                addonName = cached.addonName,
+                                addonBaseUrl = cached.addonBaseUrl,
                                 fileIdx = cached.fileIdx,
                                 sources = cached.sources,
                                 contentLanguage = cached.contentLanguage ?: contentLanguage
@@ -1236,7 +1238,9 @@ class StreamScreenViewModel @Inject constructor(
                             videoSize = resolved.videoSize,
                             bingeGroup = resolved.bingeGroup,
                             contentLanguage = contentLanguage,
-                            year = year
+                            year = year,
+                            addonName = resolved.addonName,
+                            addonBaseUrl = resolved.addonBaseUrl
                         )
                     }
                 }
@@ -1359,6 +1363,7 @@ class StreamScreenViewModel @Inject constructor(
             addonName = stream.addonName,
             addonLogo = stream.addonLogo,
             streamDescription = stream.description,
+            addonBaseUrl = stream.addonBaseUrl,
             fileIdx = stream.fileIdx ?: stream.clientResolve?.fileIdx,
             sources = stream.sources ?: stream.clientResolve?.sources,
             contentLanguage = contentLanguage
@@ -1377,7 +1382,9 @@ class StreamScreenViewModel @Inject constructor(
                     videoSize = playbackInfo.videoSize,
                     bingeGroup = playbackInfo.bingeGroup,
                     contentLanguage = contentLanguage,
-                    year = year
+                    year = year,
+                    addonName = playbackInfo.addonName,
+                    addonBaseUrl = playbackInfo.addonBaseUrl
                 )
             }
         }
@@ -1596,7 +1603,8 @@ data class StreamPlaybackInfo(
     val streamDescription: String? = null,
     val fileIdx: Int? = null,
     val sources: List<String>? = null,
-    val contentLanguage: String? = null
+    val contentLanguage: String? = null,
+    val addonBaseUrl: String? = null
 )
 
 private fun Stream.isReadyForDebridPreparation(): Boolean =

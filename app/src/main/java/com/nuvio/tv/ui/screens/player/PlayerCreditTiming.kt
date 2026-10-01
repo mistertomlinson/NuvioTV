@@ -85,14 +85,91 @@ internal fun PlayerRuntimeController.evaluateCreditTiming(
             }
         }
 
+        val usePenguResolver =
+            isPenguCreditAnalyzerStream()
+
+        val resolverVideoId =
+            currentVideoId ?: contentId
+
+        val resolverSize =
+            currentVideoSize?.takeIf { it > 0L }
+
+        val resolverFilename =
+            currentFilename
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+        val resolverBaseUrl =
+            currentAddonBaseUrl
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+
+        if (
+            usePenguResolver &&
+            (
+                resolverVideoId.isNullOrBlank() ||
+                    resolverSize == null ||
+                    resolverFilename == null ||
+                    resolverBaseUrl == null
+            )
+        ) {
+            Log.w(
+                PlayerRuntimeController.TAG,
+                "Pengu Oracle resolver metadata incomplete; " +
+                    "using credit timing fallback"
+            )
+            useCreditTimingFallback()
+            return@launch
+        }
+
+        if (usePenguResolver) {
+            Log.i(
+                PlayerRuntimeController.TAG,
+                "Credit analyzer using Oracle Pengu re-resolution"
+            )
+        }
+
         val request = CreditAnalyzeRequest(
             mediaUrl = currentStreamUrl,
             mediaKey = mediaKey,
             contentKey = buildCreditAnalyzerContentKey(),
             durationMs = durationMs.takeIf { it >= 60_000L },
-            sizeBytes = currentVideoSize?.takeIf { it > 0L },
+            sizeBytes = resolverSize,
             title = buildCreditAnalyzerTitle(),
-            contentType = if (isEpisode) "episode" else if (contentType.equals("movie", true)) "movie" else "other"
+            contentType = if (isEpisode) {
+                "episode"
+            } else if (
+                contentType.equals("movie", true)
+            ) {
+                "movie"
+            } else {
+                "other"
+            },
+            resolver = if (usePenguResolver) {
+                "pengu"
+            } else {
+                null
+            },
+            resolverBaseUrl = if (usePenguResolver) {
+                resolverBaseUrl
+            } else {
+                null
+            },
+            resolverType = if (usePenguResolver) {
+                if (isEpisode) "series" else "movie"
+            } else {
+                null
+            },
+            resolverVideoId = if (usePenguResolver) {
+                resolverVideoId
+            } else {
+                null
+            },
+            resolverFilename = if (usePenguResolver) {
+                resolverFilename
+            } else {
+                null
+            }
         )
         var job = creditAnalyzerRepository.submit(request).getOrElse { error ->
             if (error is CancellationException) throw error
@@ -711,16 +788,41 @@ internal fun PlayerRuntimeController.schedulePostPlayTrailerAfterPlaybackEnded()
 }
 
 private fun PlayerRuntimeController.isCreditAnalyzerStreamEligible(): Boolean {
-    val uri = runCatching { Uri.parse(currentStreamUrl) }.getOrNull() ?: return false
-    if (!uri.scheme.equals("https", ignoreCase = true)) return false
-    if (currentHeaders.isNotEmpty()) return false
+    val uri = runCatching {
+        Uri.parse(currentStreamUrl)
+    }.getOrNull() ?: return false
+
+    if (
+        !uri.scheme.equals(
+            "https",
+            ignoreCase = true
+        )
+    ) {
+        return false
+    }
+
+    if (currentHeaders.isNotEmpty()) {
+        return false
+    }
+
+    return true
+}
+
+private fun PlayerRuntimeController.isPenguCreditAnalyzerStream(): Boolean {
+    val uri = runCatching {
+        Uri.parse(currentStreamUrl)
+    }.getOrNull()
+
     val identityText = listOf(
         currentAddonName,
         _uiState.value.currentStreamName,
         currentStreamDescription,
-        uri.host
-    ).joinToString(" ").lowercase()
-    return "pengu" !in identityText
+        uri?.host
+    )
+        .joinToString(" ")
+        .lowercase()
+
+    return "pengu" in identityText
 }
 
 private fun PlayerRuntimeController.buildCreditAnalyzerMediaKey(): String? {

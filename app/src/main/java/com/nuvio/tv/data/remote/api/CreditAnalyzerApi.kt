@@ -17,7 +17,16 @@ data class CreditAnalyzeRequest(
     @Json(name = "duration_ms") val durationMs: Long?,
     @Json(name = "size_bytes") val sizeBytes: Long?,
     val title: String?,
-    @Json(name = "content_type") val contentType: String
+    @Json(name = "content_type") val contentType: String,
+    val resolver: String? = null,
+    @Json(name = "resolver_base_url")
+    val resolverBaseUrl: String? = null,
+    @Json(name = "resolver_type")
+    val resolverType: String? = null,
+    @Json(name = "resolver_video_id")
+    val resolverVideoId: String? = null,
+    @Json(name = "resolver_filename")
+    val resolverFilename: String? = null
 )
 
 @JsonClass(generateAdapter = true)

@@ -145,6 +145,8 @@ class PlayerRuntimeController(
             .takeIf { it.isNotBlank() && it.contains('.') }
     internal var currentAddonName: String? = navigationArgs.addonName
     internal var currentAddonLogo: String? = navigationArgs.addonLogo
+    internal var currentAddonBaseUrl: String? =
+        navigationArgs.streamAddonBaseUrl
     internal var currentStreamDescription: String? = navigationArgs.streamDescription
     internal var currentVideoCodec: String? = null
     internal var currentVideoWidth: Int? = null

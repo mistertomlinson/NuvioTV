@@ -32,7 +32,8 @@ internal data class PlayerNavigationArgs(
     val streamDescription: String?,
     val infoHash: String?,
     val fileIdx: Int?,
-    val manualSelection: Boolean
+    val manualSelection: Boolean,
+    val streamAddonBaseUrl: String? = null
 ) {
     companion object {
         fun from(savedStateHandle: SavedStateHandle): PlayerNavigationArgs {
@@ -71,7 +72,8 @@ internal data class PlayerNavigationArgs(
                 streamDescription = decodedOrNull("streamDescription"),
                 infoHash = savedStateHandle.get<String>("infoHash")?.takeIf { it.isNotEmpty() },
                 fileIdx = savedStateHandle.get<String>("fileIdx")?.toIntOrNull(),
-                manualSelection = savedStateHandle.get<String>("manualSelection")?.toBooleanStrictOrNull() == true
+                manualSelection = savedStateHandle.get<String>("manualSelection")?.toBooleanStrictOrNull() == true,
+                streamAddonBaseUrl = decodedOrNull("streamAddonBaseUrl")
             )
         }
     }
