@@ -221,11 +221,7 @@ fun DebridSettingsContent(
                             }
                         }
     
-                        if (!uiState.hasResolverProvider) {
-                            item(key = "debrid_add_key_first") {
-                                DebridInfoText(text = stringResource(R.string.debrid_add_key_first))
-                            }
-                        }
+
     
                         item(key = "debrid_account_section") {
                             DebridSectionLabel(text = stringResource(R.string.debrid_section_account))
@@ -903,13 +899,7 @@ private fun DebridEmbeddedSettingsBody(
             focusRequester = accountsSectionFocusRequester,
             onToggle = { toggleSubsection("accounts") }
         ) {
-            if (!uiState.hasResolverProvider) {
-                DebridInfoText(
-                    text = stringResource(
-                        R.string.debrid_add_key_first
-                    )
-                )
-            }
+
 
             DebridProviders.visible().forEach { provider ->
                 SettingsActionRow(
