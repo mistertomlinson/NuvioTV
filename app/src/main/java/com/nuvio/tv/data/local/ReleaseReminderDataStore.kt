@@ -43,6 +43,7 @@ data class ReleaseReminderRecord(
     val addonBaseUrl: String? = null,
     val releaseDate: String? = null,
     val seasonNumber: Int? = null,
+    val platformId: String? = null,
     val badge: ReleaseReminderBadge = ReleaseReminderBadge.AVAILABLE_NOW,
     val status: ReleaseReminderStatus = ReleaseReminderStatus.ARMED,
     val fulfilledAtMillis: Long? = null,
@@ -270,6 +271,7 @@ class ReleaseReminderDataStore @Inject constructor(
             putNullable("addonBaseUrl", record.addonBaseUrl)
             putNullable("releaseDate", record.releaseDate)
             putNullable("seasonNumber", record.seasonNumber)
+            putNullable("platformId", record.platformId)
             put("badge", record.badge.name)
             put("status", record.status.name)
             putNullable("fulfilledAtMillis", record.fulfilledAtMillis)
@@ -305,6 +307,7 @@ class ReleaseReminderDataStore @Inject constructor(
             addonBaseUrl = json.stringOrNull("addonBaseUrl"),
             releaseDate = json.stringOrNull("releaseDate"),
             seasonNumber = json.intOrNull("seasonNumber"),
+            platformId = json.stringOrNull("platformId"),
             badge = enumValueOrDefault(
                 json.stringOrNull("badge"),
                 ReleaseReminderBadge.AVAILABLE_NOW

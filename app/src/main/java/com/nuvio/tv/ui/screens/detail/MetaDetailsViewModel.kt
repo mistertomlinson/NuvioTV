@@ -1700,6 +1700,7 @@ class MetaDetailsViewModel @Inject constructor(
             addonBaseUrl = preferredAddonBaseUrl,
             releaseDate = behaviorHints?.releaseDate,
             seasonNumber = seasonNumber,
+            platformId = behaviorHints?.platformId,
             badge = if ((seasonNumber ?: 0) >= 2) {
                 com.nuvio.tv.data.local.ReleaseReminderBadge.NEW_SEASON
             } else {

@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.home
 
 import android.util.Log
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.local.ReleaseReminderBadge
 import com.nuvio.tv.data.local.ReleaseReminderRecord
 import com.nuvio.tv.data.local.ReleaseReminderStatus
@@ -10,12 +11,15 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
@@ -201,7 +205,11 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                                     ?: reminder.releaseDate,
                             seasonNumber =
                                 catalogMatch.behaviorHints?.upcomingSeason
-                                    ?: reminder.seasonNumber
+                                    ?: reminder.seasonNumber,
+                            platformId =
+                                catalogMatch.behaviorHints?.platformId
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: reminder.platformId
                         )
                     )
 
@@ -215,6 +223,10 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 val catalogSeason = catalogMatch
                     ?.behaviorHints
                     ?.upcomingSeason
+                val catalogPlatformId = catalogMatch
+                    ?.behaviorHints
+                    ?.platformId
+                    ?.takeIf { it.isNotBlank() }
                 val refreshedBadge = if ((catalogSeason ?: reminder.seasonNumber ?: 0) >= 2) {
                     ReleaseReminderBadge.NEW_SEASON
                 } else {
@@ -224,6 +236,13 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 if (
                     (catalogReleaseDate != null && catalogReleaseDate != reminder.releaseDate) ||
                     (catalogSeason != null && catalogSeason != reminder.seasonNumber) ||
+                    (
+                        catalogPlatformId != null &&
+                            !catalogPlatformId.equals(
+                                reminder.platformId,
+                                ignoreCase = true
+                            )
+                    ) ||
                     refreshedBadge != reminder.badge
                 ) {
 
@@ -231,17 +250,71 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                         reminder.copy(
                             releaseDate = catalogReleaseDate ?: reminder.releaseDate,
                             seasonNumber = catalogSeason ?: reminder.seasonNumber,
+                            platformId = catalogPlatformId ?: reminder.platformId,
                             badge = refreshedBadge
                         )
                     )
                     continue
                 }
 
+                /*
+                 * Older reminder records predate persisted platformId.
+                 *
+                 * Once such a reminder reaches its exact release date,
+                 * ask its originating addon for the authoritative release
+                 * source. This is background reminder work only; it does
+                 * not participate in Compose or scroll processing.
+                 */
+                if (reminder.platformId.isNullOrBlank()) {
+                    val migrationReleaseDate =
+                        parseExactReleaseDate(reminder.releaseDate)
+
+                    if (
+                        migrationReleaseDate != null &&
+                        !migrationReleaseDate.isAfter(
+                            localReleaseDateAt(nowMillis)
+                        )
+                    ) {
+                        val resolvedPlatformId =
+                            resolveLegacyReminderPlatformId(
+                                reminder
+                            )
+
+                        if (!resolvedPlatformId.isNullOrBlank()) {
+                            Log.i(
+                                HomeViewModel.TAG,
+                                "Migrated release reminder source " +
+                                    "${reminder.key} -> $resolvedPlatformId"
+                            )
+
+                            releaseReminderDataStore.upsert(
+                                reminder.copy(
+                                    platformId =
+                                        resolvedPlatformId
+                                )
+                            )
+
+                            continue
+                        }
+                    }
+                }
+
                 val releaseDate =
                     parseExactReleaseDate(reminder.releaseDate)
 
+                val globalReleaseDateConfirmed =
+                    reminder.platformId.equals(
+                        "global",
+                        ignoreCase = true
+                    ) &&
+                        releaseDate != null &&
+                        !releaseDate.isAfter(
+                            localReleaseDateAt(nowMillis)
+                        )
+
                 val availabilityConfirmed =
-                    snapshot.hasAvailabilityConfirmation(reminder)
+                    globalReleaseDateConfirmed ||
+                        snapshot.hasAvailabilityConfirmation(reminder)
 
                 if (!availabilityConfirmed) {
                     if (releaseDate == null) {
@@ -280,6 +353,11 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                     libraryRepository.ensureInDefault(reminder.toLibraryEntryInput())
                 }.onSuccess { membershipConfirmed ->
                     if (membershipConfirmed) {
+                        Log.i(
+                            HomeViewModel.TAG,
+                            "Release reminder fulfilled: ${reminder.key}"
+                        )
+
                         releaseReminderDataStore.markFulfilled(
                             key = reminder.key,
                             fulfilledAtMillis = System.currentTimeMillis()
@@ -300,6 +378,54 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
         }
     }
 }
+
+private suspend fun HomeViewModel.resolveLegacyReminderPlatformId(
+    reminder: ReleaseReminderRecord
+): String? {
+    val addonBaseUrl = reminder.addonBaseUrl
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?: return null
+
+    return try {
+        when (
+            val result = metaRepository.getMeta(
+                addonBaseUrl = addonBaseUrl,
+                type = reminder.itemType,
+                id = reminder.itemId
+            ).first {
+                it !is NetworkResult.Loading
+            }
+        ) {
+            is NetworkResult.Success ->
+                result.data
+                    .behaviorHints
+                    ?.platformId
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+
+            else ->
+                null
+        }
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (error: Throwable) {
+        Log.w(
+            HomeViewModel.TAG,
+            "Failed to resolve legacy release reminder source " +
+                "${reminder.key}: ${error.message}"
+        )
+        null
+    }
+}
+
+private fun localReleaseDateAt(
+    nowMillis: Long
+): LocalDate =
+    Instant
+        .ofEpochMilli(nowMillis)
+        .atZone(ZoneId.systemDefault())
+        .toLocalDate()
 
 private fun ReleaseReminderHomeSnapshot.hasAvailabilityConfirmation(
     reminder: ReleaseReminderRecord
