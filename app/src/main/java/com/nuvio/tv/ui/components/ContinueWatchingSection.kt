@@ -42,6 +42,7 @@ import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.res.stringResource
@@ -66,6 +67,7 @@ import androidx.compose.ui.platform.LocalView
 import android.view.WindowManager
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.theme.NuvioTheme
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -86,8 +88,6 @@ internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetO
 private val CwCardShape = RoundedCornerShape(12.dp)
 private val CwClipShape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp)
 private val BadgeShape = RoundedCornerShape(4.dp)
-private val CwNewEpisodeBadgeColor = Color(0xFF1D4ED8)
-internal val CwNewSeasonBadgeColor = Color(0xFFB45309)
 
 private val CwDialogGlassRowColor = Color.Transparent
 private val CwDialogGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
@@ -553,14 +553,14 @@ fun ContinueWatchingCard(
         nextUp?.isNewSeasonRelease
     ) {
         when {
-            nextUp?.isNewSeasonRelease == true ->
-                CwNewSeasonBadgeColor.copy(alpha = 0.8f)
-
-            nextUp?.isReleaseAlert == true ->
-                CwNewEpisodeBadgeColor.copy(alpha = 0.8f)
+            nextUp?.isNewSeasonRelease == true ||
+                nextUp?.isReleaseAlert == true ->
+                NuvioGradients.ReleaseStatusBadge
 
             else ->
-                bgColor.copy(alpha = 0.8f)
+                SolidColor(
+                    bgColor.copy(alpha = 0.8f)
+                )
         }
     }
 
@@ -941,7 +941,7 @@ private fun WideContinueWatchingCardContent(
     episodeStr: String?,
     episodeTitle: String?,
     badgeText: String,
-    badgeBackground: Color,
+    badgeBackground: Brush,
     progressFraction: Float,
     hasProgress: Boolean
 ) {

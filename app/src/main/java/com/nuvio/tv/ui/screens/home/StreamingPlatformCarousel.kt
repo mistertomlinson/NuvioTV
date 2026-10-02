@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.theme.NuvioGradients
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import kotlinx.coroutines.launch
@@ -363,11 +364,7 @@ fun StreamingPlatformCarousel(
                         .alpha(selectorBoxAlpha)
                         .clip(RoundedCornerShape(10.dp))
                         .background(
-                            if (focusedPlatform?.id == "home") Brush.radialGradient(
-                                colors = listOf(Color(0xFF9B5FE0), Color(0xFF6A3FD4), Color(0xFF00C8C8)),
-                                center = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                radius = 120f
-                            ) else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
+                            if (focusedPlatform?.id == "home") NuvioGradients.HomeFocus else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
                         )
                 )
                 // Icons row — evenly spaced across full width
@@ -448,11 +445,7 @@ fun StreamingPlatformCarousel(
                             .alpha(selectorBoxAlpha)
                             .clip(RoundedCornerShape(10.dp))
                             .background(
-                                if (focusedPlatform?.id == "home") Brush.radialGradient(
-                                    colors = listOf(Color(0xFF9B5FE0), Color(0xFF6A3FD4), Color(0xFF00C8C8)),
-                                    center = androidx.compose.ui.geometry.Offset(0f, 0f),
-                                    radius = 120f
-                                ) else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
+                                if (focusedPlatform?.id == "home") NuvioGradients.HomeFocus else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
                             )
                     )
 

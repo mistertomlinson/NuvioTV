@@ -107,7 +107,7 @@ import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
-import com.nuvio.tv.ui.components.CwNewSeasonBadgeColor
+import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.rememberPosterShimmerTranslateState
@@ -2333,7 +2333,7 @@ private fun ModernCarouselCard(
                                 maxLines = 1,
                                 modifier = Modifier
                                     .background(
-                                        color = CwNewSeasonBadgeColor.copy(alpha = 0.8f),
+                                        brush = NuvioGradients.ReleaseStatusBadge,
                                         shape = RoundedCornerShape(5.dp)
                                     )
                                     .padding(horizontal = 8.dp, vertical = 4.dp)
