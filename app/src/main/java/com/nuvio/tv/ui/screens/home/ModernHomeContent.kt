@@ -144,6 +144,11 @@ private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 400L
 private const val MODERN_HERO_NORMAL_SETTLE_MS = 450L
 private const val KEY_REPEAT_THROTTLE_MS = 140L
 
+private const val HOME_DOUBLE_UP_GAP_MS = 140L
+private const val HOME_DOUBLE_UP_LEAD_ROWS = 3
+private const val HOME_DOUBLE_UP_TOP_RUNWAY_ROWS = 6
+private const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2400f
+
 @androidx.compose.runtime.Stable
 private class EnhancedHomeRowsFocusHolder {
     var activeRowKey: String? = null
@@ -3765,6 +3770,56 @@ fun ModernHomeContent(
             var fastScrollHeroCatchUpGeneration by
                 fastScrollHeroCatchUpGenerationState
             val currentCarouselRows by currentCarouselRowsState
+
+            val doubleUpScope =
+                rememberCoroutineScope()
+
+            val doubleUpDensity =
+                LocalDensity.current
+
+            val doubleUpInProgress =
+                remember {
+                    java.util.concurrent.atomic.AtomicBoolean(false)
+                }
+
+            val doubleUpLastReleaseMs =
+                remember {
+                    java.util.concurrent.atomic.AtomicLong(0L)
+                }
+
+            val doubleUpLastReleaseStartedBelowTop =
+                remember {
+                    java.util.concurrent.atomic.AtomicBoolean(false)
+                }
+
+            val doubleUpCurrentPressEligible =
+                remember {
+                    java.util.concurrent.atomic.AtomicBoolean(false)
+                }
+
+            val doubleUpCurrentPressStartedBelowTop =
+                remember {
+                    java.util.concurrent.atomic.AtomicBoolean(false)
+                }
+
+            /*
+             * During a long double-Up return we temporarily remove only the
+             * unseen middle rows.
+             *
+             * The top runway and the currently visible/lower segment keep
+             * their original stable row keys. LazyColumn can therefore keep
+             * the current viewport anchored while the middle disappears.
+             *
+             * There is no mid-scroll scrollToItem(), bitmap or fade.
+             */
+            var doubleUpCompressedRows by
+                remember {
+                    mutableStateOf<List<HeroCarouselRow>?>(null)
+                }
+
+            val doubleUpRenderedRows =
+                doubleUpCompressedRows ?: carouselRows
+
             CompositionLocalProvider(
                 LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
             ) {
@@ -3978,52 +4033,592 @@ fun ModernHomeContent(
                         }
                     )
                     .onPreviewKeyEvent { event ->
-                        val native = event.nativeKeyEvent
-                        val isDpad = native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
-                            native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
-                            native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
-                            native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
-                        if (native.action == AndroidKeyEvent.ACTION_UP && isDpad) {
-                            lastKeyUpTimeRef.set(System.currentTimeMillis())
-                            isFastScrollingRef.value = false
+                        val native =
+                            event.nativeKeyEvent
+
+                        val keyCode =
+                            native.keyCode
+
+                        val isUp =
+                            keyCode ==
+                                android.view.KeyEvent.KEYCODE_DPAD_UP
+
+                        val isDpad =
+                            isUp ||
+                                keyCode ==
+                                    android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
+                                keyCode ==
+                                    android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+                                keyCode ==
+                                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+
+                        /*
+                         * The automated return owns D-pad navigation until
+                         * the top/platform focus handoff is complete.
+                         */
+                        if (
+                            doubleUpInProgress.get() &&
+                            isDpad
+                        ) {
+                            return@onPreviewKeyEvent true
                         }
-                        if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount > 0 && isDpad) {
-                            isFastScrollingRef.value = true
-                            val now = System.currentTimeMillis()
-                            if (native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
-                                native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN) {
-                                if (now - lastKeyRepeatTimeRef.get() < KEY_REPEAT_THROTTLE_MS) {
+
+                        /*
+                         * A different D-pad direction cancels an armed first
+                         * Up tap.
+                         */
+                        if (
+                            native.action ==
+                                AndroidKeyEvent.ACTION_DOWN &&
+                            isDpad &&
+                            !isUp
+                        ) {
+                            doubleUpLastReleaseMs.set(0L)
+
+                            doubleUpLastReleaseStartedBelowTop
+                                .set(false)
+
+                            doubleUpCurrentPressEligible
+                                .set(false)
+
+                            doubleUpCurrentPressStartedBelowTop
+                                .set(false)
+                        }
+
+                        /*
+                         * Only two distinct physical Up presses qualify.
+                         * Held-key repeat events never count.
+                         */
+                        if (
+                            native.action ==
+                                AndroidKeyEvent.ACTION_DOWN &&
+                            isUp
+                        ) {
+                            if (
+                                native.repeatCount > 0
+                            ) {
+                                doubleUpLastReleaseMs.set(0L)
+
+                                doubleUpLastReleaseStartedBelowTop
+                                    .set(false)
+
+                                doubleUpCurrentPressEligible
+                                    .set(false)
+
+                                doubleUpCurrentPressStartedBelowTop
+                                    .set(false)
+                            } else {
+                                val firstRow =
+                                    carouselRows.firstOrNull()
+
+                                val startedBelowTop =
+                                    firstRow != null &&
+                                        focusHolder.activeRowKey !=
+                                            firstRow.key
+
+                                val now =
+                                    android.os.SystemClock
+                                        .elapsedRealtime()
+
+                                val previousRelease =
+                                    doubleUpLastReleaseMs
+                                        .getAndSet(0L)
+
+                                val previousStartedBelowTop =
+                                    doubleUpLastReleaseStartedBelowTop
+                                        .getAndSet(false)
+
+                                val gap =
+                                    now - previousRelease
+
+                                val isDoubleUp =
+                                    previousRelease > 0L &&
+                                        previousStartedBelowTop &&
+                                        gap >= 0L &&
+                                        gap <=
+                                            HOME_DOUBLE_UP_GAP_MS
+
+                                doubleUpCurrentPressEligible
+                                    .set(!isDoubleUp)
+
+                                doubleUpCurrentPressStartedBelowTop
+                                    .set(startedBelowTop)
+
+                                if (
+                                    isDoubleUp &&
+                                    firstRow != null
+                                ) {
+                                    doubleUpCurrentPressEligible
+                                        .set(false)
+
+                                    doubleUpCurrentPressStartedBelowTop
+                                        .set(false)
+
+                                    doubleUpInProgress.set(true)
+
+                                    isFastScrollingRef.value =
+                                        true
+
+                                    fastScrollLandingVisualPendingRef
+                                        .set(true)
+
+                                    fastScrollLandingVisualPending =
+                                        true
+
+                                    focusedCatalogSelection =
+                                        null
+
+                                    expandedCatalogFocusKey =
+                                        null
+
+                                    doubleUpScope.launch {
+                                        try {
+                                            val fullRowCount =
+                                                carouselRows.size
+
+                                            val layoutInfo =
+                                                verticalRowListState
+                                                    .layoutInfo
+
+                                            val visibleItems =
+                                                layoutInfo
+                                                    .visibleItemsInfo
+
+                                            val firstVisibleIndex =
+                                                verticalRowListState
+                                                    .firstVisibleItemIndex
+
+                                            val lastVisibleIndex =
+                                                visibleItems
+                                                    .lastOrNull()
+                                                    ?.index
+                                                    ?: firstVisibleIndex
+
+                                            val activeFullIndex =
+                                                carouselRows
+                                                    .indexOfFirst {
+                                                        it.key ==
+                                                            focusHolder
+                                                                .activeRowKey
+                                                    }
+                                                    .takeIf {
+                                                        it >= 0
+                                                    }
+                                                    ?: firstVisibleIndex
+
+                                            val topKeepCount =
+                                                minOf(
+                                                    HOME_DOUBLE_UP_TOP_RUNWAY_ROWS,
+                                                    fullRowCount
+                                                )
+
+                                            /*
+                                             * Long trips only:
+                                             *
+                                             * Keep:
+                                             * - top six rows
+                                             * - three rows immediately above
+                                             *   the current viewport
+                                             * - every currently visible row
+                                             * - one row just below the viewport
+                                             *
+                                             * Everything between those two
+                                             * regions is removed BEFORE any
+                                             * visible scrolling starts.
+                                             */
+                                            val tailStart =
+                                                (
+                                                    firstVisibleIndex -
+                                                        HOME_DOUBLE_UP_LEAD_ROWS
+                                                ).coerceAtLeast(
+                                                    topKeepCount
+                                                )
+
+                                            val tailEnd =
+                                                (
+                                                    maxOf(
+                                                        lastVisibleIndex,
+                                                        activeFullIndex,
+                                                        firstVisibleIndex
+                                                    ) + 1
+                                                ).coerceAtMost(
+                                                    fullRowCount - 1
+                                                )
+
+                                            val hasMiddleToCompress =
+                                                fullRowCount > 0 &&
+                                                    tailStart >
+                                                        topKeepCount &&
+                                                    firstVisibleIndex >
+                                                        topKeepCount +
+                                                            HOME_DOUBLE_UP_LEAD_ROWS +
+                                                            1
+
+                                            if (
+                                                hasMiddleToCompress
+                                            ) {
+                                                val compressedRows =
+                                                    buildList {
+                                                        addAll(
+                                                            carouselRows
+                                                                .take(
+                                                                    topKeepCount
+                                                                )
+                                                        )
+
+                                                        addAll(
+                                                            carouselRows
+                                                                .subList(
+                                                                    tailStart,
+                                                                    tailEnd + 1
+                                                                )
+                                                        )
+                                                    }
+
+                                                doubleUpCompressedRows =
+                                                    compressedRows
+
+                                                /*
+                                                 * Let LazyColumn apply the
+                                                 * keyed list change while the
+                                                 * screen is stationary.
+                                                 *
+                                                 * The currently visible row
+                                                 * keys remain present, so the
+                                                 * viewport should stay visually
+                                                 * anchored.
+                                                 */
+                                                withFrameNanos { }
+
+                                                withFrameNanos { }
+                                            }
+
+                                            val velocityPxPerSecond =
+                                                with(
+                                                    doubleUpDensity
+                                                ) {
+                                                    HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC
+                                                        .dp
+                                                        .toPx()
+                                                }
+
+                                            /*
+                                             * ONE AND ONLY scroll mutation.
+                                             *
+                                             * There is no position reset or
+                                             * second scroll session in the
+                                             * middle.
+                                             */
+                                            verticalRowListState
+                                                .scroll {
+                                                    var previousFrame:
+                                                        Long? = null
+
+                                                    while (
+                                                        verticalRowListState
+                                                            .canScrollBackward
+                                                    ) {
+                                                        val frame =
+                                                            withFrameNanos {
+                                                                it
+                                                            }
+
+                                                        val lastFrame =
+                                                            previousFrame
+
+                                                        val dtSeconds =
+                                                            if (
+                                                                lastFrame ==
+                                                                    null
+                                                            ) {
+                                                                1f / 60f
+                                                            } else {
+                                                                (
+                                                                    (
+                                                                        frame -
+                                                                            lastFrame
+                                                                    ) /
+                                                                        1_000_000_000f
+                                                                ).coerceIn(
+                                                                    0f,
+                                                                    0.048f
+                                                                )
+                                                            }
+
+                                                        previousFrame =
+                                                            frame
+
+                                                        val requested =
+                                                            -velocityPxPerSecond *
+                                                                dtSeconds
+
+                                                        val consumed =
+                                                            scrollBy(
+                                                                requested
+                                                            )
+
+                                                        if (
+                                                            kotlin.math.abs(
+                                                                consumed
+                                                            ) < 0.5f &&
+                                                            requested != 0f
+                                                        ) {
+                                                            break
+                                                        }
+                                                    }
+                                                }
+
+                                            /*
+                                             * We are now visually at the real
+                                             * first row. Restore all omitted
+                                             * middle rows. They are inserted
+                                             * BELOW the six-row top runway, so
+                                             * the current top viewport does
+                                             * not move.
+                                             */
+                                            doubleUpCompressedRows =
+                                                null
+
+                                            withFrameNanos { }
+
+                                            verticalRowListState
+                                                .requestScrollToItem(
+                                                    0,
+                                                    0
+                                                )
+
+                                            val savedItemIndex =
+                                                (
+                                                    uiCaches
+                                                        .focusedItemByRow[
+                                                            firstRow.key
+                                                        ]
+                                                        ?: 0
+                                                ).coerceIn(
+                                                    0,
+                                                    (
+                                                        firstRow.items.size -
+                                                            1
+                                                    ).coerceAtLeast(0)
+                                                )
+
+                                            focusHolder.activeRowKey =
+                                                firstRow.key
+
+                                            focusHolder.activeItemIndex =
+                                                savedItemIndex
+
+                                            activeRowKey =
+                                                firstRow.key
+
+                                            activeItemIndex =
+                                                savedItemIndex
+
+                                            withFrameNanos { }
+
+                                            if (
+                                                aggregatePlatformsEnabled
+                                            ) {
+                                                /*
+                                                 * Existing carousel focus
+                                                 * state owns hidden/dim icon
+                                                 * presentation.
+                                                 */
+                                                onCarouselOpenRequested()
+
+                                                runCatching {
+                                                    carouselFocusRequester
+                                                        .requestFocus()
+                                                }
+                                            } else {
+                                                if (
+                                                    firstRow.items
+                                                        .isNotEmpty()
+                                                ) {
+                                                    pendingRowFocus.key =
+                                                        firstRow.key
+
+                                                    pendingRowFocus.index =
+                                                        savedItemIndex
+
+                                                    pendingRowFocus
+                                                        .suppressBringIntoView =
+                                                        false
+
+                                                    pendingRowFocus.nonce++
+                                                } else if (
+                                                    firstRow.isLoading
+                                                ) {
+                                                    withFrameNanos { }
+
+                                                    runCatching {
+                                                        uiCaches
+                                                            .requesterFor(
+                                                                firstRow.key,
+                                                                "skeleton_0"
+                                                            )
+                                                            .requestFocus()
+                                                    }
+                                                }
+                                            }
+                                        } finally {
+                                            /*
+                                             * Always put the complete list
+                                             * back, including cancellation or
+                                             * unexpected focus loss.
+                                             */
+                                            doubleUpCompressedRows =
+                                                null
+
+                                            fastScrollLandingVisualPendingRef
+                                                .set(false)
+
+                                            fastScrollLandingVisualPending =
+                                                false
+
+                                            isFastScrollingRef.value =
+                                                false
+
+                                            doubleUpInProgress.set(false)
+
+                                            fastScrollHeroCatchUpGeneration++
+                                        }
+                                    }
+
                                     return@onPreviewKeyEvent true
                                 }
+                            }
+                        }
+
+                        /*
+                         * Arm the first tap only on its physical release.
+                         */
+                        if (
+                            native.action ==
+                                AndroidKeyEvent.ACTION_UP &&
+                            isUp
+                        ) {
+                            val eligible =
+                                doubleUpCurrentPressEligible
+                                    .getAndSet(false)
+
+                            val startedBelowTop =
+                                doubleUpCurrentPressStartedBelowTop
+                                    .getAndSet(false)
+
+                            if (
+                                eligible &&
+                                startedBelowTop
+                            ) {
+                                doubleUpLastReleaseMs.set(
+                                    android.os.SystemClock
+                                        .elapsedRealtime()
+                                )
+
+                                doubleUpLastReleaseStartedBelowTop
+                                    .set(true)
+                            } else {
+                                doubleUpLastReleaseMs.set(0L)
+
+                                doubleUpLastReleaseStartedBelowTop
+                                    .set(false)
+                            }
+                        }
+
+                        /*
+                         * Existing normal/held D-pad behavior.
+                         */
+                        if (
+                            native.action ==
+                                AndroidKeyEvent.ACTION_UP &&
+                            isDpad
+                        ) {
+                            lastKeyUpTimeRef.set(
+                                System.currentTimeMillis()
+                            )
+
+                            isFastScrollingRef.value =
+                                false
+                        }
+
+                        if (
+                            native.action ==
+                                AndroidKeyEvent.ACTION_DOWN &&
+                            native.repeatCount > 0 &&
+                            isDpad
+                        ) {
+                            isFastScrollingRef.value =
+                                true
+
+                            val now =
+                                System.currentTimeMillis()
+
+                            if (
+                                keyCode ==
+                                    android.view.KeyEvent.KEYCODE_DPAD_UP ||
+                                keyCode ==
+                                    android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                            ) {
+                                if (
+                                    now -
+                                        lastKeyRepeatTimeRef.get() <
+                                        KEY_REPEAT_THROTTLE_MS
+                                ) {
+                                    return@onPreviewKeyEvent true
+                                }
+
                                 lastKeyRepeatTimeRef.set(now)
                             }
                         }
-                        // Navigate up to platform carousel when focused on first row
-                        if (native.action == AndroidKeyEvent.ACTION_DOWN &&
-                            native.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP) {
-                            val isAtTopRow = run {
-                                val firstRow = carouselRows.firstOrNull()
-                                firstRow != null && focusHolder.activeRowKey == firstRow.key
-                            }
+
+                        /*
+                         * Existing normal Up-from-first-row behavior.
+                         */
+                        if (
+                            native.action ==
+                                AndroidKeyEvent.ACTION_DOWN &&
+                            isUp
+                        ) {
+                            val isAtTopRow =
+                                carouselRows
+                                    .firstOrNull()
+                                    ?.let {
+                                        focusHolder.activeRowKey ==
+                                            it.key
+                                    } == true
+
                             if (isAtTopRow) {
-                                if (isFastScrollingRef.value) {
+                                if (
+                                    isFastScrollingRef.value
+                                ) {
                                     return@onPreviewKeyEvent true
                                 }
-                                if (aggregatePlatformsEnabled) {
-                                    focusedCatalogSelection = null
+
+                                if (
+                                    aggregatePlatformsEnabled
+                                ) {
+                                    focusedCatalogSelection =
+                                        null
+
                                     onCarouselOpenRequested()
-                                    try { carouselFocusRequester.requestFocus() } catch (e: Exception) {}
+
+                                    runCatching {
+                                        carouselFocusRequester
+                                            .requestFocus()
+                                    }
+
                                     return@onPreviewKeyEvent true
                                 }
                             }
                         }
+
                         false
                     },
                 contentPadding = PaddingValues(bottom = rowsViewportHeight),
                 verticalArrangement = Arrangement.spacedBy(24.dp)
             ) {
                 itemsIndexed(
-                    items = carouselRows,
+                    items = doubleUpRenderedRows,
                     key = { _, row -> row.key },
                     contentType = { _, _ -> "modern_home_row" }
                 ) { rowIndex, row ->
