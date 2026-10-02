@@ -217,7 +217,6 @@ class PlayerRuntimeController(
     internal var pendingPostPlayRecommendationIndex: Int? = null
     internal var ratingTransitionJob: Job? = null
     internal var creditAnalysisIdentity: String? = null
-    internal var introDbCreditIntervals: List<SkipInterval> = emptyList()
     internal var sourceStreamsJob: Job? = null
     internal var sourceChipErrorDismissJob: Job? = null
     internal var sourceStreamsCacheRequestKey: String? = null

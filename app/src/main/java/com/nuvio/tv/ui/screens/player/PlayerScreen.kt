@@ -821,10 +821,9 @@ fun PlayerScreen(
         /*
          * When next-episode autoplay is enabled and the credit timing system
          * already owns the episode ending, the Next Up overlay is the single
-         * end-of-episode action. IntroDB publishes INTRO_DB_AVAILABLE with a
-         * finalCreditsStartMs; the analyzer publishes COMPLETE with the same
-         * authoritative end timestamp. Do not show a redundant Skip Ending
-         * button in either case.
+         * end-of-episode action. The analyzer publishes COMPLETE with the
+         * authoritative final-credit timestamp. Do not show a redundant
+         * Skip Ending button when that timing is available.
          *
          * Intro/recap intervals and ending intervals without a usable credit
          * timing result remain unchanged.
@@ -833,10 +832,7 @@ fun PlayerScreen(
             isEndingSkipInterval &&
                 viewModel.isNextEpisodeAutoPlayEnabled() &&
                 uiState.creditTiming.finalCreditsStartMs != null &&
-                (
-                    uiState.creditTiming.status == CreditTimingStatus.INTRO_DB_AVAILABLE ||
-                        uiState.creditTiming.status == CreditTimingStatus.COMPLETE
-                )
+                uiState.creditTiming.status == CreditTimingStatus.COMPLETE
 
         // Skip Credits owns the existing bottom-left skip-button slot whenever
         // the analyzer says another post-credit scene is available.

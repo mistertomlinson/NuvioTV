@@ -126,7 +126,7 @@ class PlayerPostPlayModelsTest {
             episodesAll = episodes,
             isRatingProviderConnected = true,
             creditTiming = CreditTimingUiState(
-                status = CreditTimingStatus.INTRO_DB_AVAILABLE,
+                status = CreditTimingStatus.COMPLETE,
                 finalCreditsStartMs = 2_400_000L
             )
         )
@@ -372,28 +372,6 @@ class PlayerPostPlayModelsTest {
                 100_000L
             )
         )
-    }
-
-    @Test
-    fun `series finale introdb timestamp overrides 85 percent fallback`() {
-        val episodes = listOf(
-            episode(season = 1, number = 1),
-            episode(season = 1, number = 2)
-        )
-        val state = PlayerUiState(
-            contentType = "series",
-            currentSeason = 1,
-            currentEpisode = 2,
-            episodesAll = episodes,
-            creditTiming = CreditTimingUiState(
-                status = CreditTimingStatus.INTRO_DB_AVAILABLE,
-                creditsStartMs = 96_000L,
-                finalCreditsStartMs = 96_000L
-            )
-        )
-
-        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
-        assertTrue(shouldStartManualEndAction(state, 96_000L, 100_000L))
     }
 
     @Test

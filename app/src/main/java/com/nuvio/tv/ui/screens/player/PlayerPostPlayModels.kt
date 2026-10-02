@@ -11,7 +11,6 @@ internal const val POST_CREDIT_SCENE_CONTINUITY_GAP_MS = 10_000L
 enum class CreditTimingStatus {
     NOT_STARTED,
     RUNNING,
-    INTRO_DB_AVAILABLE,
     COMPLETE,
     FALLBACK
 }
@@ -134,7 +133,7 @@ internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
         !logo.isNullOrBlank()
 
 /**
- * Returns null when legacy IntroDB/percentage timing should decide. A running
+ * Returns null when fallback timing should decide. A running
  * analyzer uses a cross-release estimate when one is available and otherwise
  * returns false so fallback UI cannot appear prematurely.
  */
@@ -243,7 +242,6 @@ internal fun shouldStartManualEndAction(
                     CreditTimingStatus.FALLBACK ->
                         progressFraction >= MANUAL_END_ACTION_THRESHOLD
 
-                    CreditTimingStatus.INTRO_DB_AVAILABLE,
                     CreditTimingStatus.COMPLETE ->
                         false
                 }
@@ -285,7 +283,6 @@ internal fun shouldStartManualEndAction(
                     // These statuses are supposed to carry an authoritative
                     // timestamp. If one is unexpectedly absent, fail closed
                     // instead of silently substituting percentage timing.
-                    CreditTimingStatus.INTRO_DB_AVAILABLE,
                     CreditTimingStatus.COMPLETE ->
                         false
                 }

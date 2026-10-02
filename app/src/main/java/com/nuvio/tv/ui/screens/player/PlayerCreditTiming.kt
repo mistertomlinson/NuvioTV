@@ -44,47 +44,6 @@ internal fun PlayerRuntimeController.evaluateCreditTiming(
     creditAnalysisJob = scope.launch {
         val isEpisode = contentType.equals("series", ignoreCase = true) ||
             contentType.equals("tv", ignoreCase = true)
-        if (isEpisode) {
-            val season = currentSeason
-            val episode = currentEpisode
-            if (season != null && episode != null) {
-                val introDbIntervals = skipIntroRepository.getIntroDbIntervalsForMedia(
-                    mediaId = currentVideoId ?: contentId,
-                    season = season,
-                    episode = episode
-                )
-                if (!isActive || creditAnalysisIdentity != mediaKey) return@launch
-                if (introDbIntervals.isNotEmpty()) {
-                    introDbCreditIntervals = introDbIntervals
-                    val outroStartMs = introDbIntervals
-                        .filter { it.type.equals("outro", ignoreCase = true) }
-                        .minOfOrNull { (it.startTime * 1_000.0).toLong() }
-                    if (outroStartMs != null) {
-                        _uiState.update {
-                            it.copy(
-                                creditTiming = CreditTimingUiState(
-                                    status = CreditTimingStatus.INTRO_DB_AVAILABLE,
-                                    creditsStartMs = outroStartMs,
-                                    finalCreditsStartMs = outroStartMs
-                                )
-                            )
-                        }
-                        if (shouldUsePostPlayRecommendations(_uiState.value) &&
-                            _uiState.value.postPlayRecommendations.isEmpty() &&
-                            !_uiState.value.isPostPlayRecommendationLoading
-                        ) {
-                            loadPostPlayRecommendations()
-                        }
-                        return@launch
-                    }
-                    Log.i(
-                        PlayerRuntimeController.TAG,
-                        "IntroDB has no outro timestamp; continuing credit analysis"
-                    )
-                }
-            }
-        }
-
         val usePenguResolver =
             isPenguCreditAnalyzerStream()
 
@@ -311,7 +270,6 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
     ratingTransitionJob?.cancel()
     ratingTransitionJob = null
     creditAnalysisIdentity = null
-    introDbCreditIntervals = emptyList()
     _uiState.update {
         it.copy(
             creditTiming = CreditTimingUiState(),
@@ -356,7 +314,7 @@ internal fun PlayerRuntimeController.isEndActionTriggerReached(
     return PlayerNextEpisodeRules.shouldShowNextEpisodeCard(
         positionMs = positionMs,
         durationMs = effectiveDuration,
-        skipIntervals = (introDbCreditIntervals + skipIntervals).distinct(),
+        skipIntervals = skipIntervals,
         thresholdMode = nextEpisodeThresholdModeSetting,
         thresholdPercent = nextEpisodeThresholdPercentSetting,
         thresholdMinutesBeforeEnd = nextEpisodeThresholdMinutesBeforeEndSetting
