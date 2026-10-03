@@ -82,7 +82,7 @@ internal data class CwMetaSummary(
     val description: String?,
     val genres: List<String>,
     val releaseInfo: String?,
-    val status: String?,
+    val status: String? = null,
     val imdbRating: Float?,
     val language: String?,
     val country: String?,
