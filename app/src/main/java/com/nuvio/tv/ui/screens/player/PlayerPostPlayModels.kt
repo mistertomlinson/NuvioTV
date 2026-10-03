@@ -137,6 +137,52 @@ internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
  * analyzer uses a cross-release estimate when one is available and otherwise
  * returns false so fallback UI cannot appear prematurely.
  */
+/**
+ * Decides whether playback has genuinely reached a completed boundary.
+ *
+ * Priority:
+ * 1. Natural media end always completes.
+ * 2. The analyzer's initial credits boundary is authoritative.
+ * 3. If no initial boundary exists, a final-credits boundary may be used only
+ *    when there are no post-credit scenes to protect.
+ * 4. Percentage completion is a last-resort fallback only after the analyzer
+ *    has explicitly fallen back/failed.
+ *
+ * A RUNNING analyzer with no timestamp must never be replaced by percentage
+ * completion, and post-credit scenes never delay completion once initial
+ * credits have begun.
+ */
+internal fun shouldTreatPlaybackAsCompleted(
+    timing: CreditTimingUiState,
+    positionMs: Long,
+    durationMs: Long,
+    playbackEnded: Boolean,
+    fallbackThreshold: Double = MANUAL_END_ACTION_THRESHOLD
+): Boolean {
+    if (playbackEnded) return true
+    if (positionMs < 0L) return false
+
+    timing.creditsStartMs
+        ?.takeIf { it >= 0L }
+        ?.let { initialCreditsStartMs ->
+            return positionMs >= initialCreditsStartMs
+        }
+
+    if (!timing.hasPostCreditScenes) {
+        timing.finalCreditsStartMs
+            ?.takeIf { it >= 0L }
+            ?.let { onlyCreditsStartMs ->
+                return positionMs >= onlyCreditsStartMs
+            }
+    }
+
+    if (timing.status != CreditTimingStatus.FALLBACK) return false
+    if (durationMs <= 0L) return false
+
+    val threshold = fallbackThreshold.coerceIn(0.0, 1.0)
+    return positionMs.toDouble() / durationMs.toDouble() >= threshold
+}
+
 internal fun authoritativeEndActionDecision(
     timing: CreditTimingUiState,
     positionMs: Long,
