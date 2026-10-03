@@ -168,6 +168,13 @@ class PlayerRuntimeController(
         releasePlayer()
     }
 
+    fun stopAndReleaseForUserExit() {
+        releasePlayer(
+            flushPlaybackState = true,
+            creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+        )
+    }
+
     internal var currentVideoId: String? = videoId
     internal var currentSeason: Int? = initialSeason
     internal var currentEpisode: Int? = initialEpisode
