@@ -100,7 +100,7 @@ class WatchedItemsPreferences @Inject constructor(
             }.toSet()
 
             preferences[watchedItemsKey] =
-                retained + items.map(gson::toJson).toSet()
+                retained + items.map { item -> gson.toJson(item) }.toSet()
         }
     }
 
