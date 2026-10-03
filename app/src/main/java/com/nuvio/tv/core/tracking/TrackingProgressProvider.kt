@@ -32,6 +32,9 @@ interface TrackingProgressProvider {
     fun isWatchedByVideoId(videoId: String, episode: Int): Boolean = false
     suspend fun refresh(intent: TrackingRefreshIntent)
     suspend fun persistDurableProgress(progress: WatchProgress) = Unit
+    suspend fun persistDurableProgressBatch(progressList: List<WatchProgress>) {
+        progressList.forEach { progress -> persistDurableProgress(progress) }
+    }
     suspend fun removeProgress(contentId: String, season: Int?, episode: Int?)
     suspend fun dismissNextUp(contentId: String, season: Int?, episode: Int?) = Unit
     fun applyOptimisticProgress(progress: WatchProgress, quiet: Boolean)
