@@ -341,7 +341,7 @@ internal fun PlayerRuntimeController.emitPauseScrobbleStop(
     val item = currentScrobbleItem ?: return
     if (!hasRequestedScrobbleStartForCurrentItem) return
 
-    scope.launch {
+    scope.launch(kotlinx.coroutines.NonCancellable) {
         trackingScrobbleCoordinator.scrobble(
             action = TrackingScrobbleAction.PAUSE,
             event = TrackingScrobbleEvent(
