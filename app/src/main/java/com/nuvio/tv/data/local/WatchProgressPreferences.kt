@@ -245,7 +245,7 @@ class WatchProgressPreferences @Inject constructor(
                         key == progress.contentId ||
                             key.startsWith("${progress.contentId}_s")
                     }
-                    keysToRemove.forEach(map::remove)
+                    keysToRemove.forEach { key -> map.remove(key) }
                 }
             }
 
