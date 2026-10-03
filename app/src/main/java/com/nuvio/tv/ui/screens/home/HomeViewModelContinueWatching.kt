@@ -118,6 +118,23 @@ internal data class CwMetaSummary(
      * Uses start-of-day so revalidation triggers right after midnight, not at
      * the exact broadcast time.
      */
+    fun releasedRegularEpisodeCoordinates(
+        today: LocalDate = LocalDate.now(ZoneId.systemDefault())
+    ): Set<Pair<Int, Int>> =
+        videos.asSequence()
+            .filter { (it.season ?: 0) > 0 }
+            .filter { it.available != false }
+            .filter { video ->
+                val releaseDate = parseEpisodeReleaseDate(video.released)
+                releaseDate == null || !releaseDate.isAfter(today)
+            }
+            .mapNotNull { video ->
+                val season = video.season ?: return@mapNotNull null
+                val episode = video.episode ?: return@mapNotNull null
+                season to episode
+            }
+            .toSet()
+
     fun earliestUpcomingSeasonMs(): Long? {
         val today = java.time.LocalDate.now()
         val candidates = videos.filter { (it.season ?: 0) > 0 }
@@ -201,6 +218,13 @@ private suspend fun HomeViewModel.resolveBadgeSeriesStatus(
     summary: CwMetaSummary?
 ): String? {
     cachedBadgeSeriesStatus(contentId, summary)?.let { return it }
+
+    if (
+        !currentTmdbSettings.enabled ||
+        !currentTmdbSettings.useDetails
+    ) {
+        return null
+    }
 
     /*
      * Home already repairs missing status through TMDB because addon/basic
@@ -1970,9 +1994,7 @@ private suspend fun HomeViewModel.buildNextUpItem(
             progress.episode
         )
         if (cachedMeta != null) {
-            val episodes = cachedMeta.watchableEpisodes()
-                .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
-                .toSet()
+            val episodes = cachedMeta.releasedRegularEpisodeCoordinates()
             val cacheKey = "series:${progress.contentId}"
             synchronized(cwBadgeEpisodeCache) {
                 if (!cwBadgeEpisodeCache.containsKey(cacheKey)) {
@@ -2647,9 +2669,7 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
         null
     }
     if (existingSummary != null) {
-        val episodes = existingSummary.watchableEpisodes()
-            .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
-            .toSet()
+        val episodes = existingSummary.releasedRegularEpisodeCoordinates()
         val nextSeasonMs = existingSummary.earliestUpcomingSeasonMs()
         if (nextSeasonMs != null) {
             cwBadgeNextSeasonMs[contentId] = nextSeasonMs
@@ -2695,9 +2715,7 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
             } ?: continue
             val meta = (result as? NetworkResult.Success<*>)?.data as? Meta ?: continue
             val summary = meta.toCwSummary()
-            val episodes = summary.watchableEpisodes()
-                .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
-                .toSet()
+            val episodes = summary.releasedRegularEpisodeCoordinates()
             // Record upcoming season date for smart TTL scheduling. Clear an
             // older deadline when refreshed metadata no longer has one.
             val nextSeasonMs = summary.earliestUpcomingSeasonMs()
