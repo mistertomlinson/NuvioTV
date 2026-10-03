@@ -145,7 +145,7 @@ private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 400L
 private const val MODERN_HERO_NORMAL_SETTLE_MS = 450L
 private const val KEY_REPEAT_THROTTLE_MS = 140L
 
-private const val HOME_DOUBLE_UP_GAP_MS = 100L
+private const val HOME_DOUBLE_UP_GAP_MS = 80L
 private const val HOME_DOUBLE_UP_LEAD_ROWS = 3
 private const val HOME_DOUBLE_UP_TOP_RUNWAY_ROWS = 6
 private const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2400f
