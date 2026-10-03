@@ -701,6 +701,8 @@ class HomeViewModel @Inject constructor(
     internal val cwMetaNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
     internal val cwBadgeEpisodeCache = Collections.synchronizedMap(mutableMapOf<String, Set<Pair<Int, Int>>?>())
     internal val cwBadgeSeriesStatusCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
+    @Volatile
+    internal var cwBadgeShowIdSiblings: Map<String, Set<String>> = emptyMap()
     internal val cwBadgeNextSeasonMs = Collections.synchronizedMap(mutableMapOf<String, Long>())
     @Volatile
     internal var cwLastBadgeEpisodeKeys: Set<String> = emptySet()
@@ -913,6 +915,7 @@ class HomeViewModel @Inject constructor(
                     cwMetaNegativeCacheTimestamps.clear()
                     cwBadgeEpisodeCache.clear()
                     cwBadgeSeriesStatusCache.clear()
+                    cwBadgeShowIdSiblings = emptyMap()
                     cwBadgeNextSeasonMs.clear()
                     cwTmdbIdCache.clear()
                     cwNextUpResolutionCache.clear()
@@ -966,6 +969,7 @@ class HomeViewModel @Inject constructor(
                     cwMetaNegativeCacheTimestamps.clear()
                     cwBadgeEpisodeCache.clear()
                     cwBadgeSeriesStatusCache.clear()
+                    cwBadgeShowIdSiblings = emptyMap()
                     cwBadgeNextSeasonMs.clear()
                     cwTmdbIdCache.clear()
                     cwNextUpResolutionCache.clear()
