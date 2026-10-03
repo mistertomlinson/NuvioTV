@@ -295,6 +295,64 @@ class CreditTimingDecisionTest {
     }
 
     @Test
+    fun `two minute grace applies only when explicitly requested`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.COMPLETE,
+            creditsStartMs = 600_000L,
+            finalCreditsStartMs = 660_000L
+        )
+
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 480_000L,
+                durationMs = 700_000L,
+                playbackEnded = false
+            )
+        )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 480_000L,
+                durationMs = 700_000L,
+                playbackEnded = false,
+                creditBoundaryGraceMs =
+                    CREDIT_COMPLETION_EXIT_GRACE_MS
+            )
+        )
+    }
+
+    @Test
+    fun `skip credits remains unavailable before exact initial credits`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.COMPLETE,
+            creditsStartMs = 600_000L,
+            finalCreditsStartMs = 700_000L,
+            hasPostCreditScenes = true,
+            postCreditScenes = listOf(
+                PostCreditSceneTiming(
+                    startMs = 650_000L,
+                    endMs = 665_000L
+                )
+            )
+        )
+
+        assertNull(
+            postCreditSkipTarget(
+                timing = timing,
+                positionMs = 599_999L
+            )
+        )
+        assertEquals(
+            650_000L,
+            postCreditSkipTarget(
+                timing = timing,
+                positionMs = 600_000L
+            )?.startMs
+        )
+    }
+
+    @Test
     fun `consumed post credit scene is not offered again after rewind`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.COMPLETE,
