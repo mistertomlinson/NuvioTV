@@ -61,7 +61,7 @@ internal fun Meta.buildCompletedSeriesEpisodeProgress(
 ): WatchProgress {
     val runtimeMs =
         video.runtime
-            ?.toLongOrNull()
+            ?.toLong()
             ?.times(60_000L)
             ?.takeIf { it > 0L }
             ?: 1L
