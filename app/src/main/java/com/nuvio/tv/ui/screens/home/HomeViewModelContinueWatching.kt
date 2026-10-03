@@ -200,7 +200,7 @@ private fun HomeViewModel.cachedBadgeSeriesStatus(
         ?.let { return it }
 
     if (contentId.startsWith("tt")) {
-        tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
+        tmdbService.getCachedTmdbId(contentId)?.let { tmdbId ->
             enrichmentCache["tmdb:$tmdbId"]
                 ?.status
                 ?.trim()
@@ -1108,6 +1108,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     cwLastBadgeEpisodeCounts = currentEpisodeCounts
 
                     val showIdSiblings = watchProgressRepository.getShowIdSiblings()
+                    cwBadgeShowIdSiblings = showIdSiblings
 
                     // Deduplicate IDs using Trakt's sibling mapping (IMDB ↔ TMDB from
                     // the same show). Resolve meta once per show, then cross-cache the
@@ -3063,6 +3064,36 @@ private fun HomeViewModel.applyContinueWatchingEnrichmentOverlay(
     }
 }
 
+private fun HomeViewModel.expandWatchedSeriesBadgeIds(
+    ids: Set<String>
+): Set<String> {
+    if (ids.isEmpty()) return emptySet()
+
+    val siblingsSnapshot = cwBadgeShowIdSiblings
+    return buildSet {
+        for (contentId in ids) {
+            add(contentId)
+
+            siblingsSnapshot[contentId]
+                .orEmpty()
+                .asSequence()
+                .filter { it != "__ambiguous__" }
+                .forEach(::add)
+
+            /*
+             * Provider sibling maps are authoritative when available.  Keep
+             * TMDB's real cache accessor as a zero-network fallback for older
+             * locally known IMDb -> TMDB mappings.
+             */
+            if (contentId.startsWith("tt")) {
+                tmdbService.getCachedTmdbId(contentId)?.let { tmdbId ->
+                    add("tmdb:$tmdbId")
+                }
+            }
+        }
+    }
+}
+
 private fun HomeViewModel.publishBadgeUpdate(
     allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>
 ) {
@@ -3126,38 +3157,12 @@ private fun HomeViewModel.publishBadgeUpdate(
         }
         .toSet()
 
-    // Expand IDs: for each IMDB ID, also include the cached TMDB alias so
-    // catalogs using either identity receive the same badge state.
-    val expandedFullyWatched = buildSet {
-        addAll(updatedFullyWatched)
-        for (contentId in updatedFullyWatched) {
-            if (contentId.startsWith("tt")) {
-                tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
-                    add("tmdb:$tmdbId")
-                }
-            }
-        }
-    }
-    val expandedNotFullyWatched = buildSet {
-        addAll(validatedNotFullyWatched)
-        for (contentId in validatedNotFullyWatched) {
-            if (contentId.startsWith("tt")) {
-                tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
-                    add("tmdb:$tmdbId")
-                }
-            }
-        }
-    }
-    val expandedNonTerminal = buildSet {
-        addAll(validatedNonTerminal)
-        for (contentId in validatedNonTerminal) {
-            if (contentId.startsWith("tt")) {
-                tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
-                    add("tmdb:$tmdbId")
-                }
-            }
-        }
-    }
+    val expandedFullyWatched =
+        expandWatchedSeriesBadgeIds(updatedFullyWatched)
+    val expandedNotFullyWatched =
+        expandWatchedSeriesBadgeIds(validatedNotFullyWatched)
+    val expandedNonTerminal =
+        expandWatchedSeriesBadgeIds(validatedNonTerminal)
 
     // Merge with persisted badges — don't remove badges we have not
     // revalidated.  Do remove badges when a released regular episode is
