@@ -145,12 +145,12 @@ internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
  * 2. The analyzer's initial credits boundary is authoritative.
  * 3. If no initial boundary exists, a final-credits boundary may be used only
  *    when there are no post-credit scenes to protect.
- * 4. Percentage completion is a last-resort fallback only after the analyzer
- *    has explicitly fallen back/failed.
+ * 4. If no usable credit boundary exists, 85% is the runtime fallback even
+ *    when analysis is still RUNNING or never started.
  *
- * A RUNNING analyzer with no timestamp must never be replaced by percentage
- * completion, and post-credit scenes never delay completion once initial
- * credits have begun.
+ * The analyzer has a long timeout, so reaching the fallback percentage with
+ * no usable timestamp is treated as sufficient completion evidence. Post-
+ * credit scenes never delay completion once initial credits have begun.
  */
 internal fun shouldTreatPlaybackAsCompleted(
     timing: CreditTimingUiState,
@@ -176,7 +176,6 @@ internal fun shouldTreatPlaybackAsCompleted(
             }
     }
 
-    if (timing.status != CreditTimingStatus.FALLBACK) return false
     if (durationMs <= 0L) return false
 
     val threshold = fallbackThreshold.coerceIn(0.0, 1.0)
@@ -280,19 +279,10 @@ internal fun shouldStartManualEndAction(
             if (knownCreditsStartMs != null) {
                 positionMs >= knownCreditsStartMs
             } else {
-                // Percentage timing is strictly a last-resort path after
-                // the analyzer has explicitly failed/fallen back. While timing
-                // is merely not started or still running, fail closed and wait
-                // for the timestamp instead of guessing from runtime percent.
-                when (state.creditTiming.status) {
-                    CreditTimingStatus.FALLBACK ->
-                        progressFraction >= MANUAL_END_ACTION_THRESHOLD
-
-                    CreditTimingStatus.NOT_STARTED,
-                    CreditTimingStatus.RUNNING,
-                    CreditTimingStatus.COMPLETE ->
-                        false
-                }
+                // With no usable credit timestamp, 85% is the runtime
+                // fallback regardless of whether analysis failed, is still
+                // running, or never started.
+                progressFraction >= MANUAL_END_ACTION_THRESHOLD
             }
         }
 
@@ -320,18 +310,9 @@ internal fun shouldStartManualEndAction(
             if (knownCreditBoundaryMs != null) {
                 positionMs >= knownCreditBoundaryMs
             } else {
-                // Use 85% only after the analyzer has explicitly
-                // failed/fallen back. Unresolved/running analysis is not
-                // permission to guess that the episode is finished.
-                when (state.creditTiming.status) {
-                    CreditTimingStatus.FALLBACK ->
-                        progressFraction >= MANUAL_END_ACTION_THRESHOLD
-
-                    CreditTimingStatus.NOT_STARTED,
-                    CreditTimingStatus.RUNNING,
-                    CreditTimingStatus.COMPLETE ->
-                        false
-                }
+                // With no usable credit timestamp, 85% is the runtime
+                // fallback regardless of analyzer status.
+                progressFraction >= MANUAL_END_ACTION_THRESHOLD
             }
         }
 
