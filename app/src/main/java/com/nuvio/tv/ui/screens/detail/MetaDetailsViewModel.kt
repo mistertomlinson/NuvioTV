@@ -1959,6 +1959,7 @@ class MetaDetailsViewModel @Inject constructor(
                     )
                 }
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 Log.w(
                     TAG,
                     "Failed to toggle whole-series watched state for " +
