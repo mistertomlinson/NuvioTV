@@ -1909,6 +1909,27 @@ class MetaDetailsViewModel @Inject constructor(
                 }
             val pendingKeys =
                 affectedEpisodes.map(::episodePendingKey).toSet()
+            val optimisticCoordinates =
+                affectedEpisodes.mapNotNull { video ->
+                    val season = video.season ?: return@mapNotNull null
+                    val episode = video.episode ?: return@mapNotNull null
+                    season to episode
+                }.toSet()
+            val targetWatched = !allReleasedWatched
+            val previousOptimisticOverrides =
+                optimisticCoordinates.associateWith { coordinate ->
+                    optimisticWatchedEpisodeOverrides.value[coordinate]
+                }
+
+            /*
+             * Match the existing single-episode toggle semantics. The Details
+             * screen merges local + authoritative provider history, so a stale
+             * provider snapshot can otherwise resurrect episodes immediately
+             * after a successful bulk unwatch until the next refresh.
+             */
+            optimisticWatchedEpisodeOverrides.update { current ->
+                current + optimisticCoordinates.associateWith { targetWatched }
+            }
 
             _uiState.update {
                 it.copy(
@@ -1959,6 +1980,18 @@ class MetaDetailsViewModel @Inject constructor(
                     )
                 }
             } catch (error: Throwable) {
+                optimisticWatchedEpisodeOverrides.update { current ->
+                    current.toMutableMap().apply {
+                        previousOptimisticOverrides.forEach {
+                                (coordinate, previousValue) ->
+                            if (previousValue == null) {
+                                remove(coordinate)
+                            } else {
+                                this[coordinate] = previousValue
+                            }
+                        }
+                    }
+                }
                 if (error is CancellationException) throw error
                 Log.w(
                     TAG,
