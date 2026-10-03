@@ -261,89 +261,6 @@ private suspend fun HomeViewModel.resolveBadgeSeriesStatus(
         ?.takeIf { it.isNotBlank() }
 }
 
-private suspend fun HomeViewModel.resolveMissingBadgeStatuses(
-    allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>
-) = coroutineScope {
-    val candidates =
-        allWatchedEpisodes.mapNotNull { (contentId, watchedEpisodes) ->
-            val cacheKey = "series:$contentId"
-            val releasedRegularEpisodes =
-                synchronized(cwBadgeEpisodeCache) {
-                    cwBadgeEpisodeCache[cacheKey]
-                        ?: cwBadgeEpisodeCache["tv:$contentId"]
-                } ?: return@mapNotNull null
-
-            if (releasedRegularEpisodes.isEmpty()) {
-                return@mapNotNull null
-            }
-
-            /*
-             * Resolve status for fully watched titles and for titles that are
-             * exactly one released episode away.  The latter prewarms the only
-             * extra datum needed for an immediate Player -> Home completion
-             * badge, without paying this cost for ordinary partial series.
-             */
-            val missingReleasedEpisodes =
-                releasedRegularEpisodes.count { it !in watchedEpisodes }
-            if (missingReleasedEpisodes > 1) {
-                return@mapNotNull null
-            }
-
-            val liveSummary = synchronized(cwMetaCache) {
-                cwMetaCache[cacheKey]
-                    ?: cwMetaCache["tv:$contentId"]
-            }
-            val knownStatus =
-                cachedBadgeSeriesStatus(
-                    contentId = contentId,
-                    summary = liveSummary
-                )
-            if (knownStatus != null) {
-                synchronized(cwBadgeSeriesStatusCache) {
-                    cwBadgeSeriesStatusCache[cacheKey] = knownStatus
-                }
-                return@mapNotNull null
-            }
-
-            val repairAlreadyAttempted =
-                synchronized(cwBadgeSeriesStatusCache) {
-                    cwBadgeSeriesStatusCache.containsKey(cacheKey) ||
-                        cwBadgeSeriesStatusCache.containsKey("tv:$contentId")
-                }
-            if (repairAlreadyAttempted) {
-                return@mapNotNull null
-            }
-
-            Triple(contentId, cacheKey, liveSummary)
-        }
-
-    if (candidates.isEmpty()) {
-        return@coroutineScope
-    }
-
-    val statusSemaphore = Semaphore(2)
-    candidates.map { (contentId, cacheKey, liveSummary) ->
-        async(Dispatchers.IO) {
-            statusSemaphore.withPermit {
-                val status =
-                    resolveBadgeSeriesStatus(
-                        contentId = contentId,
-                        contentType = "series",
-                        summary = liveSummary
-                    )
-                synchronized(cwBadgeSeriesStatusCache) {
-                    /*
-                     * containsKey + null is a negative repair result.  It keeps
-                     * normal CW refreshes from retrying the same TMDB request;
-                     * stale metadata revalidation clears it for a later retry.
-                     */
-                    cwBadgeSeriesStatusCache[cacheKey] = status
-                }
-            }
-        }
-    }.awaitAll()
-}
-
 /**
  * A nullable next-up result is authoritative only when metadata contains the
  * completed seed episode. Missing, empty, or mismatched metadata is
@@ -1079,36 +996,20 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         watchProgressRepository.getShowIdSiblings()
                     cwBadgeShowIdSiblings = showIdSiblings
 
-                    // Skip badge evaluation if watched episodes haven't changed since
-                    // last cycle (e.g. position save triggered pipeline restart).
+                    // Skip metadata resolution if watched episode keys and
+                    // validation freshness are unchanged. The publish step stays
+                    // cheap and uses only already-cached badge inputs.
                     val currentKeys = allWatchedEpisodes.keys
-                    val currentEpisodeCounts =
-                        allWatchedEpisodes.mapValues { (_, episodes) ->
-                            episodes.size
-                        }
-                    val watchedEpisodeCountsChanged =
-                        currentEpisodeCounts != cwLastBadgeEpisodeCounts
                     val staleValidationIds =
                         fullyWatchedSeriesIds.filterStaleIds(currentKeys)
                     if (
                         currentKeys == cwLastBadgeEpisodeKeys &&
                         staleValidationIds.isEmpty()
                     ) {
-                        /*
-                         * Position saves can restart this pipeline without any
-                         * watched-history change.  Keep those cycles on the
-                         * original cheap publish-only path.  Candidate status
-                         * work runs only when episode completion counts move.
-                         */
-                        if (watchedEpisodeCountsChanged) {
-                            resolveMissingBadgeStatuses(allWatchedEpisodes)
-                        }
                         publishBadgeUpdate(allWatchedEpisodes)
-                        cwLastBadgeEpisodeCounts = currentEpisodeCounts
                         return@launch
                     }
                     cwLastBadgeEpisodeKeys = currentKeys.toSet()
-                    cwLastBadgeEpisodeCounts = currentEpisodeCounts
 
                     // Deduplicate IDs using Trakt's sibling mapping (IMDB ↔ TMDB from
                     // the same show). Resolve meta once per show, then cross-cache the
@@ -1163,7 +1064,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         firstTimeGroups.map { group ->
                             async {
                                 metaSemaphore.withPermit {
-                                    resolveBadgeGroup(group)
+                                    resolveBadgeGroup(
+                                        group = group,
+                                        allWatchedEpisodes = allWatchedEpisodes
+                                    )
                                 }
                             }
                         }.awaitAll()
@@ -1172,14 +1076,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     // Revalidation: process gently to avoid CPU/memory spikes.
                     if (revalidationGroups.isNotEmpty()) {
                         for (group in revalidationGroups) {
-                            resolveBadgeGroup(group, forceRefresh = true)
+                            resolveBadgeGroup(
+                                group = group,
+                                allWatchedEpisodes = allWatchedEpisodes,
+                                forceRefresh = true
+                            )
                             kotlinx.coroutines.yield()
                         }
                     }
 
-                    // Repair status only for titles that already qualify by
-                    // released-episode history, then publish one badge update.
-                    resolveMissingBadgeStatuses(allWatchedEpisodes)
                     publishBadgeUpdate(allWatchedEpisodes)
                 }
 
@@ -1329,7 +1234,6 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 // discovered during async inject and persists their
                                 // deadlines so they're skipped on next launch.
                                 val asyncWatchedEpisodes = watchProgressRepository.getWatchedShowEpisodes()
-                                resolveMissingBadgeStatuses(asyncWatchedEpisodes)
                                 publishBadgeUpdate(asyncWatchedEpisodes)
 
                                 if (discoveredNextUpItems.isNotEmpty()) {
@@ -2695,15 +2599,76 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
     return resolved
 }
 
+private suspend fun HomeViewModel.cacheBadgeStatusForResolvedEpisodes(
+    contentId: String,
+    contentType: String,
+    cacheKey: String,
+    summary: CwMetaSummary,
+    releasedRegularEpisodes: Set<Pair<Int, Int>>,
+    watchedEpisodes: Set<Pair<Int, Int>>,
+    forceRefresh: Boolean
+) {
+    val knownStatus =
+        cachedBadgeSeriesStatus(
+            contentId = contentId,
+            summary = summary
+        )
+    if (knownStatus != null) {
+        synchronized(cwBadgeSeriesStatusCache) {
+            cwBadgeSeriesStatusCache[cacheKey] = knownStatus
+        }
+        return
+    }
+
+    val shouldRepair =
+        releasedRegularEpisodes.isNotEmpty() &&
+            releasedRegularEpisodes.count { it !in watchedEpisodes } <= 1
+
+    val repairAlreadyAttempted =
+        synchronized(cwBadgeSeriesStatusCache) {
+            if (forceRefresh) {
+                cwBadgeSeriesStatusCache.remove(cacheKey)
+                false
+            } else {
+                cwBadgeSeriesStatusCache.containsKey(cacheKey)
+            }
+        }
+
+    if (!shouldRepair || repairAlreadyAttempted) {
+        return
+    }
+
+    val repairedStatus =
+        resolveBadgeSeriesStatus(
+            contentId = contentId,
+            contentType = contentType,
+            summary = summary
+        )
+
+    synchronized(cwBadgeSeriesStatusCache) {
+        /*
+         * A null value records a bounded failed repair so ordinary CW cycles
+         * do not retry it. Stale metadata revalidation clears it later.
+         */
+        cwBadgeSeriesStatusCache[cacheKey] = repairedStatus
+    }
+}
+
 /**
  * Resolves badge episodes for a group of sibling IDs (same show).
  * Resolves only the primary ID, then cross-caches under all siblings.
  */
 private suspend fun HomeViewModel.resolveBadgeGroup(
     group: List<String>,
+    allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>,
     forceRefresh: Boolean = false
 ) {
     val primaryId = group.first()
+    val watchedEpisodes =
+        group.asSequence()
+            .mapNotNull(allWatchedEpisodes::get)
+            .flatten()
+            .toSet()
     val alreadyCached = !forceRefresh && synchronized(cwBadgeEpisodeCache) {
         cwBadgeEpisodeCache.containsKey("series:$primaryId") ||
             cwBadgeEpisodeCache.containsKey("tv:$primaryId")
@@ -2712,6 +2677,7 @@ private suspend fun HomeViewModel.resolveBadgeGroup(
         val episodes = resolveBadgeEpisodes(
             contentId = primaryId,
             contentType = "series",
+            watchedEpisodes = watchedEpisodes,
             forceRefresh = forceRefresh
         )
         if (episodes == null) {
@@ -2762,6 +2728,7 @@ private suspend fun HomeViewModel.resolveBadgeGroup(
 private suspend fun HomeViewModel.resolveBadgeEpisodes(
     contentId: String,
     contentType: String,
+    watchedEpisodes: Set<Pair<Int, Int>>,
     forceRefresh: Boolean = false
 ): Set<Pair<Int, Int>>? {
     val cacheKey = "$contentType:$contentId"
@@ -2792,18 +2759,15 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
             cwBadgeNextSeasonMs.remove(contentId)
         }
         synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
-        val knownStatus =
-            cachedBadgeSeriesStatus(
-                contentId = contentId,
-                summary = existingSummary
-            )
-        synchronized(cwBadgeSeriesStatusCache) {
-            if (knownStatus != null) {
-                cwBadgeSeriesStatusCache[cacheKey] = knownStatus
-            } else if (forceRefresh) {
-                cwBadgeSeriesStatusCache.remove(cacheKey)
-            }
-        }
+        cacheBadgeStatusForResolvedEpisodes(
+            contentId = contentId,
+            contentType = contentType,
+            cacheKey = cacheKey,
+            summary = existingSummary,
+            releasedRegularEpisodes = episodes,
+            watchedEpisodes = watchedEpisodes,
+            forceRefresh = forceRefresh
+        )
         return episodes
     }
 
@@ -2843,18 +2807,15 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
                 cwBadgeNextSeasonMs.remove(contentId)
             }
             synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
-            val knownStatus =
-                cachedBadgeSeriesStatus(
-                    contentId = contentId,
-                    summary = summary
-                )
-            synchronized(cwBadgeSeriesStatusCache) {
-                if (knownStatus != null) {
-                    cwBadgeSeriesStatusCache[cacheKey] = knownStatus
-                } else if (forceRefresh) {
-                    cwBadgeSeriesStatusCache.remove(cacheKey)
-                }
-            }
+            cacheBadgeStatusForResolvedEpisodes(
+                contentId = contentId,
+                contentType = contentType,
+                cacheKey = cacheKey,
+                summary = summary,
+                releasedRegularEpisodes = episodes,
+                watchedEpisodes = watchedEpisodes,
+                forceRefresh = forceRefresh
+            )
             return episodes
         }
     }
