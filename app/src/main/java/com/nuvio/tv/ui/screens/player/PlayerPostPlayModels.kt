@@ -313,7 +313,8 @@ internal fun shouldStartManualEndAction(
                 positionMs = positionMs,
                 durationMs = durationMs,
                 playbackEnded = false,
-                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS,
+                allowPercentageFallback = true
             )
         }
 
