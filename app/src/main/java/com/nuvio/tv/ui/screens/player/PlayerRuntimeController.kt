@@ -171,7 +171,8 @@ class PlayerRuntimeController(
     fun stopAndReleaseForUserExit() {
         releasePlayer(
             flushPlaybackState = true,
-            creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+            creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS,
+            allowPercentageFallback = true
         )
     }
 
