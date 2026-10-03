@@ -54,8 +54,15 @@ data class HomeUiState(
     val posterLibraryMembership: Map<String, Boolean> = emptyMap(),
     val movieWatchedStatus: Map<String, Boolean> = emptyMap(),
     val seriesWatchedStatus: Map<String, Boolean> = emptyMap(),
+    /*
+     * Popup-only whole-series caught-up state. Unlike seriesWatchedStatus,
+     * this may be true for an ongoing show because it means every currently
+     * released regular episode is watched, not that the series is terminal.
+     */
+    val seriesWatchedActionStatus: Map<String, Boolean> = emptyMap(),
     val posterLibraryPending: Set<String> = emptySet(),
     val movieWatchedPending: Set<String> = emptySet(),
+    val seriesWatchedActionPending: Set<String> = emptySet(),
     val showPosterListPicker: Boolean = false,
     val posterListPickerTitle: String? = null,
     val posterListPickerMembership: Map<String, Boolean> = emptyMap(),
