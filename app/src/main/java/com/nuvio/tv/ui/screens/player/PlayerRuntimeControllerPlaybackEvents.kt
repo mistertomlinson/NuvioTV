@@ -239,7 +239,9 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
                 )
             }
             else -> watchProgressRepository.saveProgress(
-                progress = normalizedProgress,
+                progress = normalizedProgress.copy(
+                    completionOverride = false
+                ),
                 syncRemote = syncRemote
             )
         }

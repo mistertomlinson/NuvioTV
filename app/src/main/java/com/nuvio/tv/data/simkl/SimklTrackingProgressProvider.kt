@@ -99,14 +99,7 @@ class SimklTrackingProgressProvider @Inject constructor(
             entries = mergeSimklProgressWithDurable(
                 remoteEntries = effectiveRemoteEntries,
                 durableEntries = durableEntries,
-                isWatched = { progress ->
-                    projection.isWatched(
-                        contentId = progress.contentId,
-                        videoId = progress.videoId,
-                        season = progress.season,
-                        episode = progress.episode
-                    )
-                }
+                isWatched = projection::isWatchedAtOrAfter
             ),
             dismissedAtByKey = dismissedAtByKey
         )
@@ -164,14 +157,7 @@ class SimklTrackingProgressProvider @Inject constructor(
         val resolved = mergeSimklEpisodeProgressWithDurable(
             remoteEntries = projection.episodeProgress(contentId),
             durableEntries = durableEntries,
-            isWatched = { progress ->
-                projection.isWatched(
-                    contentId = progress.contentId,
-                    videoId = progress.videoId,
-                    season = progress.season,
-                    episode = progress.episode
-                )
-            }
+            isWatched = projection::isWatchedAtOrAfter
         ).filterValues { progress ->
             !isSimklProgressDismissed(
                 progress = progress,

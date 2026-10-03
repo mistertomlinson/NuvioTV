@@ -141,10 +141,38 @@ class SimklDurableProgressTest {
 
     @Test
     fun `only unfinished progress past the start threshold is durable`() {
-        assertFalse(shouldPersistSimklDurableProgress(progress(percent = 1f)))
-        assertTrue(shouldPersistSimklDurableProgress(progress(percent = 50f)))
-        assertFalse(shouldPersistSimklDurableProgress(progress(percent = 85f)))
-        assertFalse(shouldPersistSimklDurableProgress(progress(percent = 100f)))
+        assertFalse(
+            shouldPersistSimklDurableProgress(
+                progress(percent = 1f)
+            )
+        )
+        assertTrue(
+            shouldPersistSimklDurableProgress(
+                progress(percent = 50f)
+            )
+        )
+
+        assertFalse(
+            shouldPersistSimklDurableProgress(
+                progress(percent = 85f)
+            )
+        )
+
+        // Credit-aware playback may legitimately exceed 85% before
+        // the authoritative initial-credits boundary.
+        assertTrue(
+            shouldPersistSimklDurableProgress(
+                progress(percent = 90f).copy(
+                    completionOverride = false
+                )
+            )
+        )
+
+        assertFalse(
+            shouldPersistSimklDurableProgress(
+                progress(percent = 100f)
+            )
+        )
     }
 
     @Test

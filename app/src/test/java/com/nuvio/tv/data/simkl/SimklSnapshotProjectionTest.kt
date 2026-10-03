@@ -190,6 +190,75 @@ class SimklSnapshotProjectionTest {
         assertFalse(projection.isWatched("tt0000031", null, null, null))
     }
 
+    @Test
+    fun `newer rewatch survives older watched history`() {
+        val show = entry(
+            type = SimklMediaType.SHOWS,
+            status = SimklListStatus.WATCHING,
+            media = media(
+                1,
+                "tt0000001",
+                tmdb = 101
+            ),
+            episodes = listOf(
+                SimklEpisode(
+                    1,
+                    WATCHED_AT
+                )
+            )
+        )
+
+        val projection =
+            SimklSnapshotProjection.create(
+                SimklSyncSnapshot(
+                    entries = listOf(show)
+                )
+            )
+
+        val watchedAt =
+            requireNotNull(
+                parseSimklUtcEpochMs(
+                    WATCHED_AT
+                )
+            )
+
+        val stalePlayback =
+            com.nuvio.tv.domain.model.WatchProgress(
+                contentId = "tmdb:101",
+                contentType = "series",
+                name = "Title 1",
+                poster = null,
+                backdrop = null,
+                logo = null,
+                videoId = "tmdb:101:1:1",
+                season = 1,
+                episode = 1,
+                episodeTitle = null,
+                position = 90L,
+                duration = 100L,
+                lastWatched = watchedAt - 1L,
+                progressPercent = 90f,
+                completionOverride = false
+            )
+
+        val newerReplay =
+            stalePlayback.copy(
+                lastWatched = watchedAt + 1L
+            )
+
+        assertTrue(
+            projection.isWatchedAtOrAfter(
+                stalePlayback
+            )
+        )
+
+        assertFalse(
+            projection.isWatchedAtOrAfter(
+                newerReplay
+            )
+        )
+    }
+
     @Test(timeout = 20_000)
     fun `large account is projected once and queried through indexes`() {
         val seriesCount = 386

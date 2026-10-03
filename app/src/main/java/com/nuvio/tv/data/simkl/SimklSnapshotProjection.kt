@@ -58,6 +58,56 @@ internal class SimklSnapshotProjection private constructor(
         return videoId != null && episode != null && isWatchedByVideoId(videoId, episode)
     }
 
+    /**
+     * Returns true only when watched history is at least as new as this
+     * playback snapshot.
+     *
+     * This is intentionally different from isWatched(): an episode may have
+     * old watched history and still have a newer legitimate rewatch that must
+     * remain visible in Continue Watching.
+     */
+    fun isWatchedAtOrAfter(progress: WatchProgress): Boolean {
+        val contentKey =
+            progress.contentId.simklLookupKey()
+        val resolvedKey =
+            canonicalIdByAlias[contentKey]
+                ?.simklLookupKey()
+        val matchKeys =
+            setOfNotNull(
+                contentKey,
+                resolvedKey
+            )
+
+        val latestWatchedAt =
+            watched.items
+                .asSequence()
+                .filter { item ->
+                    item.contentId.simklLookupKey() in
+                        matchKeys
+                }
+                .filter { item ->
+                    if (
+                        progress.season != null &&
+                        progress.episode != null
+                    ) {
+                        item.season ==
+                            progress.season &&
+                            item.episode ==
+                            progress.episode
+                    } else {
+                        item.season == null &&
+                            item.episode == null
+                    }
+                }
+                .maxOfOrNull(
+                    WatchedItem::watchedAt
+                )
+
+        return latestWatchedAt != null &&
+            latestWatchedAt >=
+                progress.lastWatched
+    }
+
     fun isHidden(contentId: String): Boolean = contentId.simklLookupKey() in hiddenContentIds
 
     fun isWatchedByVideoId(videoId: String, episode: Int): Boolean {

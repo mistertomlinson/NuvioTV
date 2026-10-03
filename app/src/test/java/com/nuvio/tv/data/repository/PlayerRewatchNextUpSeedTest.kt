@@ -188,6 +188,27 @@ class PlayerRewatchNextUpSeedTest {
     }
 
     @Test
+    fun `fresh player completion bridges empty provider seed list`() {
+        val completedEpisodeSix =
+            progress(
+                episode = 6,
+                lastWatched = 10_000L
+            )
+
+        val result =
+            mergeProviderNextUpSeedsWithPlayerCompletions(
+                providerSeeds = emptyList(),
+                playerCompletionSeeds =
+                    listOf(completedEpisodeSix),
+                nowEpochMs = 10_100L,
+                maxAgeMs = 180_000L
+            )
+
+        assertEquals(1, result.size)
+        assertEquals(6, result.single().episode)
+    }
+
+    @Test
     fun `player seed cannot resurrect provider excluded show`() {
         val replayedEpisodeSix =
             progress(
@@ -201,7 +222,9 @@ class PlayerRewatchNextUpSeedTest {
                 playerCompletionSeeds =
                     listOf(replayedEpisodeSix),
                 nowEpochMs = 10_100L,
-                maxAgeMs = 180_000L
+                maxAgeMs = 180_000L,
+                excludedPlayerOnlyContentIds =
+                    setOf("tt-rewatch-test")
             )
 
         assertEquals(emptyList<WatchProgress>(), result)

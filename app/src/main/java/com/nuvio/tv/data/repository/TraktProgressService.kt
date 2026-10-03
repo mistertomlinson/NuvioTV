@@ -1479,6 +1479,7 @@ class TraktProgressService @Inject constructor(
             duration = 0L,
             lastWatched = parseIsoToMillis(item.pausedAt),
             progressPercent = item.progress?.coerceIn(0f, 100f),
+            completionOverride = false,
             source = WatchProgress.SOURCE_TRAKT_PLAYBACK,
             traktPlaybackId = item.id,
             traktMovieId = movie.ids?.trakt
@@ -1518,6 +1519,7 @@ class TraktProgressService @Inject constructor(
             duration = 0L,
             lastWatched = parseIsoToMillis(item.pausedAt),
             progressPercent = item.progress?.coerceIn(0f, 100f),
+            completionOverride = false,
             source = WatchProgress.SOURCE_TRAKT_PLAYBACK,
             traktPlaybackId = item.id,
             traktShowId = show.ids?.trakt,

@@ -30,7 +30,15 @@ data class WatchProgress(
     val simklPlaybackId: Long? = null,
     override val trackingProviderId: String? = null,
     override val trackingProviderItemId: String? = null,
-    override val trackingSourceUrl: String? = null
+    override val trackingSourceUrl: String? = null,
+    /**
+     * Semantic completion supplied by a playback/history source.
+     *
+     * null  -> preserve legacy percentage-based completion
+     * false -> explicitly still in progress even above the generic threshold
+     * true  -> explicitly completed
+     */
+    val completionOverride: Boolean? = null
 ) : TrackingAttributedItem {
     override val trackingContentId: String
         get() = contentId
@@ -58,13 +66,17 @@ data class WatchProgress(
     /**
      * Returns true if the content has been watched past the threshold (default 85%)
      */
-    fun isCompleted(threshold: Float = 0.85f): Boolean = progressPercentage >= threshold
+    fun isCompleted(threshold: Float = 0.85f): Boolean =
+        completionOverride ?: (progressPercentage >= threshold)
 
     /**
-     * Returns true if the content has been started but not completed
+     * Returns true if the content has been started but not completed.
+     *
+     * A semantic completionOverride=false keeps authoritative pre-credit
+     * playback in Continue Watching even when raw playback exceeds 85%.
      */
     fun isInProgress(startThreshold: Float = 0.02f, endThreshold: Float = 0.85f): Boolean =
-        progressPercentage >= startThreshold && progressPercentage < endThreshold
+        progressPercentage >= startThreshold && !isCompleted(endThreshold)
 
     /**
      * Returns the remaining time in milliseconds
