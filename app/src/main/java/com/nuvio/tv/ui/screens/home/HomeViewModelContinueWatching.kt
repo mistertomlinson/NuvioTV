@@ -1079,20 +1079,33 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     // Skip badge evaluation if watched episodes haven't changed since
                     // last cycle (e.g. position save triggered pipeline restart).
                     val currentKeys = allWatchedEpisodes.keys
+                    val currentEpisodeCounts =
+                        allWatchedEpisodes.mapValues { (_, episodes) ->
+                            episodes.size
+                        }
+                    val watchedEpisodeCountsChanged =
+                        currentEpisodeCounts != cwLastBadgeEpisodeCounts
                     val staleValidationIds =
                         fullyWatchedSeriesIds.filterStaleIds(currentKeys)
                     if (
                         currentKeys == cwLastBadgeEpisodeKeys &&
                         staleValidationIds.isEmpty()
                     ) {
-                        // Keys and metadata validation are unchanged — just re-run
-                        // the cheap cached calculation so optimistic episode writes
-                        // can add/remove a badge immediately.
-                        resolveMissingBadgeStatuses(allWatchedEpisodes)
+                        /*
+                         * Position saves can restart this pipeline without any
+                         * watched-history change.  Keep those cycles on the
+                         * original cheap publish-only path.  Candidate status
+                         * work runs only when episode completion counts move.
+                         */
+                        if (watchedEpisodeCountsChanged) {
+                            resolveMissingBadgeStatuses(allWatchedEpisodes)
+                        }
                         publishBadgeUpdate(allWatchedEpisodes)
+                        cwLastBadgeEpisodeCounts = currentEpisodeCounts
                         return@launch
                     }
                     cwLastBadgeEpisodeKeys = currentKeys.toSet()
+                    cwLastBadgeEpisodeCounts = currentEpisodeCounts
 
                     val showIdSiblings = watchProgressRepository.getShowIdSiblings()
 
