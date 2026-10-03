@@ -375,19 +375,30 @@ class MetaDetailsViewModel @Inject constructor(
     private fun observeWatchProgress() {
         if (itemType.lowercase() == "movie") return
         viewModelScope.launch {
-            watchProgressRepository.getAllEpisodeProgress(itemId)
-                .distinctUntilChanged()
-                .collectLatest { progressMap ->
-                _uiState.update { state ->
-                    if (state.episodeProgressMap == progressMap) {
-                        state
-                    } else {
-                        state.copy(episodeProgressMap = progressMap)
+            kotlinx.coroutines.flow.combine(
+                watchProgressRepository.getAllEpisodeProgress(itemId),
+                optimisticWatchedEpisodeOverrides
+            ) { progressMap, optimisticOverrides ->
+                if (optimisticOverrides.none { (_, watched) -> !watched }) {
+                    progressMap
+                } else {
+                    progressMap.filterKeys { coordinates ->
+                        optimisticOverrides[coordinates] != false
                     }
                 }
-                // Recalculate next to watch when progress changes
-                calculateNextToWatch()
             }
+                .distinctUntilChanged()
+                .collectLatest { progressMap ->
+                    _uiState.update { state ->
+                        if (state.episodeProgressMap == progressMap) {
+                            state
+                        } else {
+                            state.copy(episodeProgressMap = progressMap)
+                        }
+                    }
+                    // Recalculate next to watch when progress changes
+                    calculateNextToWatch()
+                }
         }
     }
 
