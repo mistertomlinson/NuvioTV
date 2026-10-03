@@ -228,18 +228,18 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
-    fun `movie with known credits waits for the real credit boundary`() {
+    fun `movie back gets two minute grace before known initial credits`() {
         val state = PlayerUiState(
             contentType = "movie",
             creditTiming = CreditTimingUiState(
                 status = CreditTimingStatus.COMPLETE,
-                creditsStartMs = 98_000L,
-                finalCreditsStartMs = 99_000L
+                creditsStartMs = 600_000L,
+                finalCreditsStartMs = 660_000L
             )
         )
 
-        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
-        assertTrue(shouldStartManualEndAction(state, 98_000L, 100_000L))
+        assertFalse(shouldStartManualEndAction(state, 479_999L, 700_000L))
+        assertTrue(shouldStartManualEndAction(state, 480_000L, 700_000L))
     }
 
     @Test
@@ -375,7 +375,7 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
-    fun `series finale completed analyzer timestamp overrides 85 percent fallback`() {
+    fun `series finale back uses initial credits with two minute grace`() {
         val episodes = listOf(
             episode(season = 1, number = 1),
             episode(season = 1, number = 2)
@@ -387,19 +387,24 @@ class PlayerPostPlayModelsTest {
             episodesAll = episodes,
             creditTiming = CreditTimingUiState(
                 status = CreditTimingStatus.COMPLETE,
-                creditsStartMs = 90_000L,
-                finalCreditsStartMs = 96_000L
+                creditsStartMs = 600_000L,
+                finalCreditsStartMs = 660_000L,
+                hasPostCreditScenes = true,
+                postCreditScenes = listOf(
+                    PostCreditSceneTiming(
+                        startMs = 630_000L,
+                        endMs = 645_000L
+                    )
+                )
             )
         )
 
-        // Initial credits are not enough for a finale rating flow when
-        // final-credit timing protects later post-credit material.
-        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
-        assertTrue(shouldStartManualEndAction(state, 96_000L, 100_000L))
+        assertFalse(shouldStartManualEndAction(state, 479_999L, 700_000L))
+        assertTrue(shouldStartManualEndAction(state, 480_000L, 700_000L))
     }
 
     @Test
-    fun `series finale running analyzer uses cached timing instead of 85 percent`() {
+    fun `series finale running analyzer uses cached initial timing with grace`() {
         val episodes = listOf(
             episode(season = 1, number = 1),
             episode(season = 1, number = 2)
@@ -411,13 +416,13 @@ class PlayerPostPlayModelsTest {
             episodesAll = episodes,
             creditTiming = CreditTimingUiState(
                 status = CreditTimingStatus.RUNNING,
-                creditsStartMs = 90_000L,
-                finalCreditsStartMs = 96_000L
+                creditsStartMs = 600_000L,
+                finalCreditsStartMs = 660_000L
             )
         )
 
-        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
-        assertTrue(shouldStartManualEndAction(state, 96_000L, 100_000L))
+        assertFalse(shouldStartManualEndAction(state, 479_999L, 700_000L))
+        assertTrue(shouldStartManualEndAction(state, 480_000L, 700_000L))
     }
 
     @Test
@@ -461,7 +466,7 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
-    fun `completed timing without a timestamp does not silently use 85 percent`() {
+    fun `completed timing without a timestamp still uses 85 percent fallback`() {
         val episodes = listOf(
             episode(season = 1, number = 1),
             episode(season = 1, number = 2)
@@ -476,7 +481,8 @@ class PlayerPostPlayModelsTest {
             )
         )
 
-        assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+        assertFalse(shouldStartManualEndAction(state, 84_999L, 100_000L))
+        assertTrue(shouldStartManualEndAction(state, 85_000L, 100_000L))
     }
 
     @Test
