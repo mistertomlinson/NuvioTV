@@ -50,6 +50,55 @@ class WatchedSeriesBadgeRulesTest {
     }
 
     @Test
+    fun `future regular episode does not block ended series badge`() {
+        val summary = summary(
+            status = "Ended",
+            videos = listOf(
+                video(season = 1, episode = 1),
+                video(season = 1, episode = 2),
+                video(
+                    season = 1,
+                    episode = 3,
+                    released = "2999-01-01"
+                )
+            )
+        )
+
+        val released = summary.releasedRegularEpisodeCoordinates(
+            today = java.time.LocalDate.of(2026, 10, 2)
+        )
+
+        assertEquals(setOf(1 to 1, 1 to 2), released)
+        assertTrue(
+            shouldShowSeriesWatchedBadge(
+                status = summary.status,
+                releasedRegularEpisodes = released,
+                watchedEpisodes = setOf(1 to 1, 1 to 2)
+            )
+        )
+    }
+
+    @Test
+    fun `explicitly unavailable regular episode does not block ended series badge`() {
+        val summary = summary(
+            status = "Ended",
+            videos = listOf(
+                video(season = 1, episode = 1),
+                video(
+                    season = 1,
+                    episode = 2,
+                    available = false
+                )
+            )
+        )
+
+        assertEquals(
+            setOf(1 to 1),
+            summary.releasedRegularEpisodeCoordinates()
+        )
+    }
+
+    @Test
     fun `caught up returning series does not get watched badge`() {
         val released = setOf(1 to 1, 1 to 2, 2 to 1)
 
@@ -109,15 +158,17 @@ class WatchedSeriesBadgeRulesTest {
 
     private fun video(
         season: Int,
-        episode: Int
+        episode: Int,
+        released: String? = "2020-01-01",
+        available: Boolean? = true
     ) = CwVideoSummary(
         id = "s${season}e${episode}",
         title = "Episode $episode",
-        released = "2020-01-01",
+        released = released,
         thumbnail = null,
         season = season,
         episode = episode,
         overview = null,
-        available = true
+        available = available
     )
 }
