@@ -82,11 +82,11 @@ internal data class CwMetaSummary(
     val description: String?,
     val genres: List<String>,
     val releaseInfo: String?,
-    val status: String? = null,
     val imdbRating: Float?,
     val language: String?,
     val country: String?,
-    val videos: List<CwVideoSummary>
+    val videos: List<CwVideoSummary>,
+    val status: String? = null
 ) {
     fun watchableEpisodes(): List<CwVideoSummary> {
         val today = java.time.LocalDate.now()
