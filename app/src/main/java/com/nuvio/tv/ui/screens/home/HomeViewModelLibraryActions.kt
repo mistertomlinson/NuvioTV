@@ -14,6 +14,7 @@ import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.ui.util.buildCompletedSeriesEpisodeProgress
 import com.nuvio.tv.ui.util.isCaughtUpForWatchedAction
 import com.nuvio.tv.ui.util.releasedRegularEpisodesForWatchedAction
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -302,6 +303,7 @@ fun HomeViewModel.preparePosterSeriesWatchedState(
                 )
             }
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             Log.w(
                 HomeViewModel.TAG,
                 "Failed to prepare series watched action for " +
@@ -408,6 +410,7 @@ fun HomeViewModel.togglePosterSeriesWatched(
             }
             showHomeMessage(message)
         } catch (error: Throwable) {
+            if (error is CancellationException) throw error
             Log.w(
                 HomeViewModel.TAG,
                 "Failed to toggle whole-series watched state for " +
