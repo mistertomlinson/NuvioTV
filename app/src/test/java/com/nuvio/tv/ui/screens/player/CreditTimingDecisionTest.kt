@@ -99,7 +99,7 @@ class CreditTimingDecisionTest {
     }
 
     @Test
-    fun `running analyzer without timestamp never uses percentage completion`() {
+    fun `running analyzer without timestamp uses eighty five percent fallback`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.RUNNING
         )
@@ -107,7 +107,15 @@ class CreditTimingDecisionTest {
         assertFalse(
             shouldTreatPlaybackAsCompleted(
                 timing = timing,
-                positionMs = 99_000L,
+                positionMs = 84_999L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 85_000L,
                 durationMs = 100_000L,
                 playbackEnded = false
             )
@@ -115,7 +123,31 @@ class CreditTimingDecisionTest {
     }
 
     @Test
-    fun `eighty five percent is used only after analyzer fallback`() {
+    fun `not started analyzer without timestamp uses eighty five percent fallback`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.NOT_STARTED
+        )
+
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 84_999L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 85_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `failed analyzer without timestamp uses eighty five percent fallback`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.FALLBACK
         )
@@ -128,6 +160,55 @@ class CreditTimingDecisionTest {
                 playbackEnded = false
             )
         )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 85_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `initial credits timestamp beats eighty five percent while analyzer is running`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.RUNNING,
+            creditsStartMs = 95_000L
+        )
+
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 90_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 95_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `post credit final timestamp does not delay eighty five percent fallback without initial credits`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.RUNNING,
+            finalCreditsStartMs = 98_000L,
+            hasPostCreditScenes = true,
+            postCreditScenes = listOf(
+                PostCreditSceneTiming(
+                    startMs = 92_000L,
+                    endMs = 96_000L
+                )
+            )
+        )
+
         assertTrue(
             shouldTreatPlaybackAsCompleted(
                 timing = timing,
@@ -178,7 +259,7 @@ class CreditTimingDecisionTest {
     }
 
     @Test
-    fun `manual near end exit does not use percentage while analyzer is running`() {
+    fun `manual near end exit uses percentage while analyzer is running without timestamp`() {
         val state = PlayerUiState(
             contentType = "movie",
             creditTiming = CreditTimingUiState(
@@ -186,7 +267,7 @@ class CreditTimingDecisionTest {
             )
         )
 
-        assertFalse(
+        assertTrue(
             shouldStartManualEndAction(
                 state = state,
                 positionMs = 90_000L,
