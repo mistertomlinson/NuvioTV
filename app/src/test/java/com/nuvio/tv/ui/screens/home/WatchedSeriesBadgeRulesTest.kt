@@ -35,9 +35,8 @@ class WatchedSeriesBadgeRulesTest {
             )
         )
 
-        val regularEpisodes = summary.watchableEpisodes()
-            .map { requireNotNull(it.season) to requireNotNull(it.episode) }
-            .toSet()
+        val regularEpisodes =
+            summary.releasedRegularEpisodeCoordinates()
 
         assertEquals(setOf(1 to 1, 1 to 2), regularEpisodes)
         assertTrue(
