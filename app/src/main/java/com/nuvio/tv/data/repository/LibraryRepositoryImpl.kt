@@ -304,6 +304,15 @@ class LibraryRepositoryImpl @Inject constructor(
                     provider.toggledDefaultMembership(current)
                 )
             )
+
+            /*
+             * Simkl mutations commit remotely but do not rewrite the current
+             * local projection in-place. Refresh after explicit My List
+             * changes so Home/Details membership updates immediately.
+             */
+            if (mode == LibrarySourceMode.SIMKL) {
+                provider.refresh(TrackingRefreshIntent.INVALIDATED)
+            }
             return
         }
 
