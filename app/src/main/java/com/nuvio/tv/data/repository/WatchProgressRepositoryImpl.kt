@@ -20,6 +20,7 @@ import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.local.WatchedItemsPreferences
+import com.nuvio.tv.data.local.WatchedSeriesStateHolder
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.model.WatchedItem
 import com.nuvio.tv.domain.repository.MetaRepository
@@ -64,6 +65,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private val profileManager: ProfileManager,
     private val watchProgressSyncService: WatchProgressSyncService,
     private val watchedItemsPreferences: WatchedItemsPreferences,
+    private val watchedSeriesStateHolder: WatchedSeriesStateHolder,
     private val watchedItemsSyncService: WatchedItemsSyncService,
     private val authManager: AuthManager,
     private val metaRepository: MetaRepository
@@ -986,6 +988,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
             episode
         )
 
+        if (season != null && episode != null) {
+            invalidateSeriesWatchedBadge(setOf(contentId))
+        }
+
         val playerSeedProfileId =
             profileManager.activeProfileId.value
         val playerSeedContentKey =
@@ -1467,6 +1473,16 @@ class WatchProgressRepositoryImpl @Inject constructor(
             }
         )
 
+        invalidateSeriesWatchedBadge(
+            distinct.asSequence()
+                .filter {
+                    it.season != null &&
+                        it.episode != null
+                }
+                .map { it.contentId }
+                .toSet()
+        )
+
         val profileId = profileManager.activeProfileId.value
         val removedContentKeys = distinct
             .map { rewatchSeedContentKey(it.contentId) }
@@ -1552,6 +1568,58 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return provider
             ?.normalizeParentContentId(parentContentId, videoId)
             ?: parentContentId
+    }
+
+    private suspend fun invalidateSeriesWatchedBadge(
+        contentIds: Set<String>
+    ) {
+        if (contentIds.isEmpty()) return
+
+        val siblings = try {
+            activeProgressProvider()
+                ?.showIdSiblings()
+                .orEmpty()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+
+        val aliases = linkedSetOf<String>()
+        val queue = ArrayDeque<String>()
+
+        fun enqueue(raw: String?) {
+            val id = raw?.trim()?.takeIf(String::isNotBlank) ?: return
+
+            fun add(candidate: String) {
+                if (aliases.add(candidate)) {
+                    queue.addLast(candidate)
+                }
+            }
+
+            add(id)
+
+            if (id.startsWith("imdb:", ignoreCase = true)) {
+                id.substringAfter(':')
+                    .takeIf(String::isNotBlank)
+                    ?.let(::add)
+            } else if (id.startsWith("tt", ignoreCase = true)) {
+                add("imdb:$id")
+            }
+        }
+
+        contentIds.forEach(::enqueue)
+
+        while (queue.isNotEmpty()) {
+            val id = queue.removeFirst()
+            siblings[id]
+                .orEmpty()
+                .asSequence()
+                .filter { it != "__ambiguous__" }
+                .forEach(::enqueue)
+        }
+
+        watchedSeriesStateHolder.invalidate(aliases)
     }
 
     private fun progressKey(progress: WatchProgress): String {
