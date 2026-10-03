@@ -1329,9 +1329,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 throw error
             }
 
-            completed.forEach { progress ->
-                provider.persistDurableProgress(progress)
-            }
+            provider.persistDurableProgressBatch(completed)
         }
 
         val watchedItems = completed.map { progress ->
