@@ -438,26 +438,48 @@ private suspend fun HomeViewModel.resolveSeriesMetaForWatchedAction(
     val statusKey = homeItemStatusKey(item.id, item.apiType)
     seriesWatchedActionMetaCache[statusKey]?.let { return it }
 
-    val result =
-        if (!addonBaseUrl.isNullOrBlank()) {
-            metaRepository.getMeta(
-                addonBaseUrl = addonBaseUrl,
-                type = item.apiType,
-                id = item.id
-            )
-        } else {
+    suspend fun firstResolved(
+        flow: kotlinx.coroutines.flow.Flow<NetworkResult<Meta>>
+    ): Meta? {
+        return when (
+            val result = flow.first { value ->
+                value !is NetworkResult.Loading
+            }
+        ) {
+            is NetworkResult.Success -> result.data
+            is NetworkResult.Error -> null
+            NetworkResult.Loading -> null
+        }
+    }
+
+    /*
+     * Prefer the normal metadata-addon resolution so this action gets the
+     * complete episode list rather than a catalog-oriented lightweight Meta.
+     * The originating addon remains a fallback for IDs only it understands.
+     */
+    val meta =
+        firstResolved(
             metaRepository.getMetaFromAllAddons(
                 type = item.apiType,
                 id = item.id
             )
-        }.first { result -> result !is NetworkResult.Loading }
+        ) ?: addonBaseUrl
+            ?.takeIf(String::isNotBlank)
+            ?.let { baseUrl ->
+                firstResolved(
+                    metaRepository.getMeta(
+                        addonBaseUrl = baseUrl,
+                        type = item.apiType,
+                        id = item.id
+                    )
+                )
+            }
+        ?: throw IllegalStateException(
+            "Unable to load series episode metadata"
+        )
 
-    val meta = when (result) {
-        is NetworkResult.Success -> result.data
-        is NetworkResult.Error ->
-            throw IllegalStateException(result.message)
-        NetworkResult.Loading ->
-            error("Unexpected metadata loading state")
+    check(meta.videos.isNotEmpty()) {
+        "Series metadata does not contain episodes"
     }
 
     seriesWatchedActionMetaCache[statusKey] = meta
