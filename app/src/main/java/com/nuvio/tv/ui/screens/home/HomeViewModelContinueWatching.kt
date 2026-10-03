@@ -273,10 +273,19 @@ private suspend fun HomeViewModel.resolveMissingBadgeStatuses(
                         ?: cwBadgeEpisodeCache["tv:$contentId"]
                 } ?: return@mapNotNull null
 
-            if (
-                releasedRegularEpisodes.isEmpty() ||
-                !releasedRegularEpisodes.all { it in watchedEpisodes }
-            ) {
+            if (releasedRegularEpisodes.isEmpty()) {
+                return@mapNotNull null
+            }
+
+            /*
+             * Resolve status for fully watched titles and for titles that are
+             * exactly one released episode away.  The latter prewarms the only
+             * extra datum needed for an immediate Player -> Home completion
+             * badge, without paying this cost for ordinary partial series.
+             */
+            val missingReleasedEpisodes =
+                releasedRegularEpisodes.count { it !in watchedEpisodes }
+            if (missingReleasedEpisodes > 1) {
                 return@mapNotNull null
             }
 
@@ -2695,11 +2704,13 @@ private suspend fun HomeViewModel.resolveBadgeGroup(
         } else {
         }
         if (group.size > 1) {
-            val primaryStatus = synchronized(cwBadgeSeriesStatusCache) {
-                if (cwBadgeSeriesStatusCache.containsKey("series:$primaryId")) {
-                    cwBadgeSeriesStatusCache["series:$primaryId"]
-                } else {
-                    cwBadgeSeriesStatusCache["tv:$primaryId"]
+            val primaryStatusEntry = synchronized(cwBadgeSeriesStatusCache) {
+                when {
+                    cwBadgeSeriesStatusCache.containsKey("series:$primaryId") ->
+                        true to cwBadgeSeriesStatusCache["series:$primaryId"]
+                    cwBadgeSeriesStatusCache.containsKey("tv:$primaryId") ->
+                        true to cwBadgeSeriesStatusCache["tv:$primaryId"]
+                    else -> false to null
                 }
             }
             synchronized(cwBadgeEpisodeCache) {
@@ -2712,13 +2723,16 @@ private suspend fun HomeViewModel.resolveBadgeGroup(
                     }
                 }
             }
-            synchronized(cwBadgeSeriesStatusCache) {
-                for (siblingId in group.drop(1)) {
-                    if (
-                        forceRefresh ||
-                        !cwBadgeSeriesStatusCache.containsKey("series:$siblingId")
-                    ) {
-                        cwBadgeSeriesStatusCache["series:$siblingId"] = primaryStatus
+            if (primaryStatusEntry.first) {
+                synchronized(cwBadgeSeriesStatusCache) {
+                    for (siblingId in group.drop(1)) {
+                        if (
+                            forceRefresh ||
+                            !cwBadgeSeriesStatusCache.containsKey("series:$siblingId")
+                        ) {
+                            cwBadgeSeriesStatusCache["series:$siblingId"] =
+                                primaryStatusEntry.second
+                        }
                     }
                 }
             }
