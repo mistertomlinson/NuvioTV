@@ -98,6 +98,9 @@ fun HeroContentSection(
     isMovieWatched: Boolean,
     isMovieWatchedPending: Boolean,
     onToggleMovieWatched: () -> Unit,
+    isSeriesWatched: Boolean = false,
+    isSeriesWatchedPending: Boolean = false,
+    onToggleSeriesWatched: () -> Unit = {},
     trailerAvailable: Boolean = false,
     onTrailerClick: () -> Unit = {},
     hideLogoDuringTrailer: Boolean = false,
@@ -385,21 +388,46 @@ fun HeroContentSection(
                             )
                         }
 
-                        if (!isComingSoon && meta.apiType == "movie") {
+                        if (
+                            !isComingSoon &&
+                            (
+                                meta.apiType.equals(
+                                    "movie",
+                                    ignoreCase = true
+                                ) ||
+                                    isSeriesApi
+                                )
+                        ) {
+                            val watched =
+                                if (isSeriesApi) {
+                                    isSeriesWatched
+                                } else {
+                                    isMovieWatched
+                                }
+                            val pending =
+                                if (isSeriesApi) {
+                                    isSeriesWatchedPending
+                                } else {
+                                    isMovieWatchedPending
+                                }
                             ActionIconButton(
-                                icon = if (isMovieWatched) {
+                                icon = if (watched) {
                                     Icons.Default.Visibility
                                 } else {
                                     Icons.Default.VisibilityOff
                                 },
-                                contentDescription = if (isMovieWatched) {
+                                contentDescription = if (watched) {
                                     stringResource(R.string.hero_mark_unwatched)
                                 } else {
                                     stringResource(R.string.hero_mark_watched)
                                 },
-                                onClick = onToggleMovieWatched,
-                                enabled = !isMovieWatchedPending,
-                                selected = isMovieWatched,
+                                onClick = if (isSeriesApi) {
+                                    onToggleSeriesWatched
+                                } else {
+                                    onToggleMovieWatched
+                                },
+                                enabled = !pending,
+                                selected = watched,
                                 selectedContainerColor = Color.White,
                                 selectedContentColor = Color.Black,
                                 onFocused = onHeroActionFocused
