@@ -447,16 +447,44 @@ class WatchProgressRepositoryImpl @Inject constructor(
                         playerSeedsByProfile,
                         profileId ->
 
+                        val playerCompletionSeeds =
+                            playerSeedsByProfile[
+                                profileId
+                            ].orEmpty().values
+
+                        /*
+                         * A fresh Player completion must be able to bridge the
+                         * short interval before the selected provider refreshes
+                         * its Next Up history.
+                         *
+                         * Do not use that bridge to resurrect a show the
+                         * provider explicitly considers hidden/dropped.
+                         */
+                        val excludedPlayerOnlyContentIds =
+                            playerCompletionSeeds
+                                .asSequence()
+                                .filter { seed ->
+                                    provider.isHiddenFromProgress(
+                                        seed.contentId
+                                    )
+                                }
+                                .map { seed ->
+                                    rewatchSeedContentKey(
+                                        seed.contentId
+                                    )
+                                }
+                                .toSet()
+
                         mergeProviderNextUpSeedsWithPlayerCompletions(
                             providerSeeds = providerSeeds,
                             playerCompletionSeeds =
-                                playerSeedsByProfile[
-                                    profileId
-                                ].orEmpty().values,
+                                playerCompletionSeeds,
                             nowEpochMs =
                                 System.currentTimeMillis(),
                             maxAgeMs =
-                                OPTIMISTIC_NEXT_UP_SEED_WINDOW_MS
+                                OPTIMISTIC_NEXT_UP_SEED_WINDOW_MS,
+                            excludedPlayerOnlyContentIds =
+                                excludedPlayerOnlyContentIds
                         )
                     }
                 } else {
@@ -1053,7 +1081,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
             position = duration,
             duration = duration,
             progressPercent = 100f,
-            lastWatched = now
+            lastWatched = now,
+            completionOverride = true
         )
 
         if (provider != null) {
@@ -1143,6 +1172,30 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 completed.season != 0
 
         if (isPlayerCompletedSeriesEpisode) {
+            /*
+             * A fresh Player completion is a new Next Up event.
+             *
+             * A persistent dismissal belongs to the older occurrence of this
+             * exact seed. Replaying and completing that episode must re-arm
+             * its successor instead of inheriting the historical dismissal.
+             *
+             * Clear only this exact seed. Other dismissed episodes for the
+             * same series remain untouched.
+             */
+            val replayDismissKey =
+                buildString {
+                    append(completed.contentId.trim())
+                    append("|")
+                    append(completed.season)
+                    append("|")
+                    append(completed.episode)
+                }
+
+            traktSettingsDataStore
+                .removeDismissedNextUpKey(
+                    replayDismissKey
+                )
+
             val profileId =
                 profileManager.activeProfileId.value
             val contentKey =
@@ -1276,7 +1329,8 @@ class WatchProgressRepositoryImpl @Inject constructor(
                 progressPercent = 100f,
                 // Keep ordering deterministic while still treating this as one
                 // user action.
-                lastWatched = now + index
+                lastWatched = now + index,
+                completionOverride = true
             )
         }
 
@@ -1741,12 +1795,10 @@ internal fun mergeProviderNextUpSeedsWithPlayerCompletions(
     providerSeeds: List<WatchProgress>,
     playerCompletionSeeds: Collection<WatchProgress>,
     nowEpochMs: Long,
-    maxAgeMs: Long
+    maxAgeMs: Long,
+    excludedPlayerOnlyContentIds: Set<String> = emptySet()
 ): List<WatchProgress> {
-    if (
-        providerSeeds.isEmpty() ||
-        playerCompletionSeeds.isEmpty()
-    ) {
+    if (playerCompletionSeeds.isEmpty()) {
         return providerSeeds
     }
 
@@ -1794,18 +1846,27 @@ internal fun mergeProviderNextUpSeedsWithPlayerCompletions(
                 )!!
             }
 
+    val providerContentKeys =
+        providerSeeds
+            .mapTo(linkedSetOf()) { progress ->
+                rewatchSeedContentKey(
+                    progress.contentId
+                )
+            }
+
     /*
-     * Deliberately map over providerSeeds instead of appending
-     * Player-only shows. A dropped/dismissed/hidden show remains
-     * excluded exactly as the provider requested.
+     * Existing provider seeds retain their normal arbitration: a genuinely
+     * newer Player completion may temporarily replace an older provider seed.
      */
-    return providerSeeds
-        .map { providerSeed ->
+    val mergedProviderSeeds =
+        providerSeeds.map { providerSeed ->
+            val contentKey =
+                rewatchSeedContentKey(
+                    providerSeed.contentId
+                )
             val playerSeed =
                 recentPlayerSeedByContent[
-                    rewatchSeedContentKey(
-                        providerSeed.contentId
-                    )
+                    contentKey
                 ]
 
             if (
@@ -1818,6 +1879,28 @@ internal fun mergeProviderNextUpSeedsWithPlayerCompletions(
                 providerSeed
             }
         }
+
+    /*
+     * The provider may not have refreshed yet when Player completion wakes
+     * Home. In that case the fresh Player completion itself must be allowed
+     * to seed Next Up so Home can resolve the successor immediately.
+     *
+     * Explicitly hidden/dropped content is excluded by the caller so this
+     * bridge cannot resurrect a provider-suppressed show.
+     */
+    val playerOnlySeeds =
+        recentPlayerSeedByContent
+            .filter { (contentKey, _) ->
+                contentKey !in providerContentKeys &&
+                    contentKey !in
+                        excludedPlayerOnlyContentIds
+            }
+            .values
+
+    return (
+        mergedProviderSeeds +
+            playerOnlySeeds
+        )
         .sortedByDescending(
             WatchProgress::lastWatched
         )

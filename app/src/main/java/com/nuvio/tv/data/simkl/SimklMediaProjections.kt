@@ -264,6 +264,7 @@ internal fun SimklPlaybackSession.toWatchProgress(): WatchProgress? {
         duration = durationMs,
         lastWatched = updatedAt,
         progressPercent = normalizedProgress.toFloat(),
+        completionOverride = false,
         source = WatchProgress.SOURCE_SIMKL_PLAYBACK,
         simklPlaybackId = id,
         trackingProviderId = TrackingProviderId.SIMKL.storageId,

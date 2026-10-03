@@ -127,6 +127,20 @@ class TraktSettingsDataStore @Inject constructor(
         }
     }
 
+    suspend fun removeDismissedNextUpKey(key: String) {
+        if (key.isBlank()) return
+        store().edit { prefs ->
+            val current =
+                prefs[dismissedNextUpKeysKey]
+                    ?: emptySet()
+
+            if (key in current) {
+                prefs[dismissedNextUpKeysKey] =
+                    current - key
+            }
+        }
+    }
+
     suspend fun removeDismissedNextUpKeysForContent(contentId: String) {
         if (contentId.isBlank()) return
         val prefix = "${contentId.trim()}|"

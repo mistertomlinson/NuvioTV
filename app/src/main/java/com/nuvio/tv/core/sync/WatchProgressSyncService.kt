@@ -209,6 +209,8 @@ class WatchProgressSyncService @Inject constructor(
                     position = entry.position,
                     duration = entry.duration,
                     lastWatched = entry.lastWatched,
+                    completionOverride =
+                        entry.duration > 0L && entry.position >= entry.duration,
                     source = WatchProgress.SOURCE_LOCAL
                 )
             }
