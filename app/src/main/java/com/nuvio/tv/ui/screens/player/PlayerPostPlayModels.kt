@@ -133,11 +133,6 @@ internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
         !logo.isNullOrBlank()
 
 /**
- * Returns null when fallback timing should decide. A running
- * analyzer uses a cross-release estimate when one is available and otherwise
- * returns false so fallback UI cannot appear prematurely.
- */
-/**
  * Decides whether playback has genuinely reached a completed boundary.
  *
  * Priority:
@@ -193,6 +188,11 @@ internal fun shouldTreatPlaybackAsCompleted(
     return positionMs.toDouble() / durationMs.toDouble() >= threshold
 }
 
+/**
+ * Returns null when fallback timing should decide. A running
+ * analyzer uses a cross-release estimate when one is available and otherwise
+ * returns false so fallback UI cannot appear prematurely.
+ */
 internal fun authoritativeEndActionDecision(
     timing: CreditTimingUiState,
     positionMs: Long,
