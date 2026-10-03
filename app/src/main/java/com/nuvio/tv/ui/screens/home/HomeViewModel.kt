@@ -700,6 +700,7 @@ class HomeViewModel @Inject constructor(
     internal val cwMetaCache = Collections.synchronizedMap(mutableMapOf<String, CwMetaSummary?>())
     internal val cwMetaNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
     internal val cwBadgeEpisodeCache = Collections.synchronizedMap(mutableMapOf<String, Set<Pair<Int, Int>>?>())
+    internal val cwBadgeSeriesStatusCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
     internal val cwBadgeNextSeasonMs = Collections.synchronizedMap(mutableMapOf<String, Long>())
     @Volatile
     internal var cwLastBadgeEpisodeKeys: Set<String> = emptySet()
