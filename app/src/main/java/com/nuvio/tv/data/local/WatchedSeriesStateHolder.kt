@@ -24,16 +24,13 @@ class WatchedSeriesStateHolder @Inject constructor(
 ) {
     companion object {
         private const val FEATURE = "watched_series_cache"
-        /*
-         * Preserve the last displayed badge set across the migration so Home
-         * does not briefly lose every checkmark on first launch.  Only the
-         * validation timestamps are versioned: that forces one background
-         * re-evaluation under terminal-only semantics, which can add missing
-         * ended shows and remove legacy badges from ongoing shows.
-         */
         private val KEY = stringSetPreferencesKey("fully_watched_ids")
-        private val REVALIDATE_KEY =
-            stringPreferencesKey("revalidate_after_terminal_v2")
+        private val REVALIDATE_KEY = stringPreferencesKey("revalidate_after")
+        private val SEMANTICS_VERSION_KEY =
+            androidx.datastore.preferences.core.intPreferencesKey(
+                "watched_series_semantics_version"
+            )
+        private const val TERMINAL_STATUS_SEMANTICS_VERSION = 2
         private const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000
     }
 
@@ -52,9 +49,39 @@ class WatchedSeriesStateHolder @Inject constructor(
         if (loaded) return
         val prefs = store().data.first()
         val persisted = prefs[KEY] ?: emptySet()
-        revalidateAfterMap = parseTimestamps(prefs[REVALIDATE_KEY])
+        val persistedValidation =
+            parseTimestamps(prefs[REVALIDATE_KEY])
+        val semanticsVersion =
+            prefs[SEMANTICS_VERSION_KEY] ?: 1
+
+        revalidateAfterMap =
+            if (semanticsVersion < TERMINAL_STATUS_SEMANTICS_VERSION) {
+                /*
+                 * Preserve the visible badge set, but expire every previously
+                 * validated series once so terminal-only semantics are applied.
+                 * Keeping the IDs and validation keys means Home can use its
+                 * gentle sequential revalidation path instead of treating the
+                 * whole library as brand-new work.
+                 */
+                buildMap {
+                    persistedValidation.keys.forEach { put(it, 0L) }
+                    persisted.forEach { putIfAbsent(it, 0L) }
+                }
+            } else {
+                persistedValidation
+            }
+
         if (_fullyWatchedSeriesIds.value.isEmpty() && persisted.isNotEmpty()) {
             _fullyWatchedSeriesIds.value = persisted
+        }
+
+        if (semanticsVersion < TERMINAL_STATUS_SEMANTICS_VERSION) {
+            store().edit { mutablePrefs ->
+                mutablePrefs[SEMANTICS_VERSION_KEY] =
+                    TERMINAL_STATUS_SEMANTICS_VERSION
+                mutablePrefs[REVALIDATE_KEY] =
+                    gson.toJson(revalidateAfterMap)
+            }
         }
         loaded = true
     }
