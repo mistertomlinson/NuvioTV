@@ -99,7 +99,7 @@ class CreditTimingDecisionTest {
     }
 
     @Test
-    fun `running analyzer without timestamp uses eighty five percent fallback`() {
+    fun `running analyzer without timestamp uses eighty five percent only on exit`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.RUNNING
         )
@@ -107,9 +107,18 @@ class CreditTimingDecisionTest {
         assertFalse(
             shouldTreatPlaybackAsCompleted(
                 timing = timing,
-                positionMs = 84_999L,
+                positionMs = 90_000L,
                 durationMs = 100_000L,
                 playbackEnded = false
+            )
+        )
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 84_999L,
+                durationMs = 100_000L,
+                playbackEnded = false,
+                allowPercentageFallback = true
             )
         )
         assertTrue(
@@ -117,13 +126,14 @@ class CreditTimingDecisionTest {
                 timing = timing,
                 positionMs = 85_000L,
                 durationMs = 100_000L,
-                playbackEnded = false
+                playbackEnded = false,
+                allowPercentageFallback = true
             )
         )
     }
 
     @Test
-    fun `not started analyzer without timestamp uses eighty five percent fallback`() {
+    fun `not started analyzer without timestamp uses eighty five percent only on exit`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.NOT_STARTED
         )
@@ -131,7 +141,7 @@ class CreditTimingDecisionTest {
         assertFalse(
             shouldTreatPlaybackAsCompleted(
                 timing = timing,
-                positionMs = 84_999L,
+                positionMs = 90_000L,
                 durationMs = 100_000L,
                 playbackEnded = false
             )
@@ -141,13 +151,14 @@ class CreditTimingDecisionTest {
                 timing = timing,
                 positionMs = 85_000L,
                 durationMs = 100_000L,
-                playbackEnded = false
+                playbackEnded = false,
+                allowPercentageFallback = true
             )
         )
     }
 
     @Test
-    fun `failed analyzer without timestamp uses eighty five percent fallback`() {
+    fun `failed analyzer without timestamp uses eighty five percent only on exit`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.FALLBACK
         )
@@ -155,7 +166,7 @@ class CreditTimingDecisionTest {
         assertFalse(
             shouldTreatPlaybackAsCompleted(
                 timing = timing,
-                positionMs = 84_999L,
+                positionMs = 90_000L,
                 durationMs = 100_000L,
                 playbackEnded = false
             )
@@ -165,7 +176,8 @@ class CreditTimingDecisionTest {
                 timing = timing,
                 positionMs = 85_000L,
                 durationMs = 100_000L,
-                playbackEnded = false
+                playbackEnded = false,
+                allowPercentageFallback = true
             )
         )
     }
@@ -214,7 +226,8 @@ class CreditTimingDecisionTest {
                 timing = timing,
                 positionMs = 85_000L,
                 durationMs = 100_000L,
-                playbackEnded = false
+                playbackEnded = false,
+                allowPercentageFallback = true
             )
         )
     }
