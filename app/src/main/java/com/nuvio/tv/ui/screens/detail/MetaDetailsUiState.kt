@@ -46,6 +46,7 @@ data class MetaDetailsUiState(
     val pickerError: String? = null,
     val isMovieWatched: Boolean = false,
     val isMovieWatchedPending: Boolean = false,
+    val isSeriesWatchedPending: Boolean = false,
     val watchedEpisodes: Set<Pair<Int, Int>> = emptySet(),
     val episodeWatchedPendingKeys: Set<String> = emptySet(),
     val blurUnwatchedEpisodes: Boolean = false,
@@ -86,6 +87,7 @@ sealed class MetaDetailsEvent {
     data object OnDismissSharedTrailer : MetaDetailsEvent()
     data object OnRetrySharedTrailer : MetaDetailsEvent()
     data object OnToggleMovieWatched : MetaDetailsEvent()
+    data object OnToggleSeriesWatched : MetaDetailsEvent()
     data class OnToggleEpisodeWatched(val video: Video) : MetaDetailsEvent()
     data class OnMarkSeasonWatched(val season: Int) : MetaDetailsEvent()
     data class OnMarkSeasonUnwatched(val season: Int) : MetaDetailsEvent()
