@@ -145,7 +145,7 @@ fun PlayerScreen(
     val postPlayFocusRequester = remember { FocusRequester() }
     val postPlayPlayerFocusRequester = remember { FocusRequester() }
     val exitPlayer: () -> Unit = {
-        viewModel.stopAndRelease()
+        viewModel.stopAndReleaseForUserExit()
         onBackPress(uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL)
     }
     val exitPlayerFromError: () -> Unit = {
@@ -161,10 +161,10 @@ fun PlayerScreen(
                 onBeforePostPlayHomeExit(
                     viewModel.willPublishCwProgressOnRelease()
                 )
-                viewModel.stopAndRelease()
+                viewModel.stopAndReleaseForUserExit()
                 onPostPlayBackPress()
             } else {
-                viewModel.stopAndRelease()
+                viewModel.stopAndReleaseForUserExit()
                 onBackPress(
                     uiState.currentSeason,
                     uiState.currentEpisode,
@@ -229,9 +229,9 @@ fun PlayerScreen(
                 viewModel.willPublishCwProgressOnRelease()
             )
 
-            // stopAndRelease() is called before navigating so progress is saved
-            // before the screen is disposed
-            viewModel.stopAndRelease()
+            // This path is explicitly a Back-initiated rating exit, so give
+            // completion the same small credit-boundary grace as direct Back.
+            viewModel.stopAndReleaseForUserExit()
             val backFn = onRatingBackPress ?: onBackPress
             backFn(
                 uiState.currentSeason,
@@ -591,7 +591,7 @@ fun PlayerScreen(
                 onToggleLibrary = viewModel::togglePostPlayRecommendationLibrary,
                 onLibraryMessageShown = viewModel::clearPostPlayLibraryMessage,
                 onPlay = {
-                    viewModel.stopAndRelease()
+                    viewModel.stopAndReleaseForUserExit()
                     onPostPlayRecommendationSelected?.invoke(recommendation, true)
                 },
                 onPlayTrailer = {
