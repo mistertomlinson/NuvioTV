@@ -24,8 +24,14 @@ class WatchedSeriesStateHolder @Inject constructor(
 ) {
     companion object {
         private const val FEATURE = "watched_series_cache"
-        private val KEY = stringSetPreferencesKey("fully_watched_ids")
-        private val REVALIDATE_KEY = stringPreferencesKey("revalidate_after")
+        /*
+         * V2 intentionally invalidates badges/validation produced by the old
+         * "all current episodes watched" semantics.  Terminal-only completion
+         * cannot safely reuse that persisted state.
+         */
+        private val KEY = stringSetPreferencesKey("fully_watched_ids_terminal_v2")
+        private val REVALIDATE_KEY =
+            stringPreferencesKey("revalidate_after_terminal_v2")
         private const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000
     }
 
