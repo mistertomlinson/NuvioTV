@@ -141,12 +141,13 @@ internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
  * 2. The analyzer's initial credits boundary is authoritative.
  * 3. If no initial boundary exists, a final-credits boundary may be used only
  *    when there are no post-credit scenes to protect.
- * 4. If no usable credit boundary exists, 85% is the runtime fallback even
- *    when analysis is still RUNNING or never started.
+ * 4. If no usable credit boundary exists, 85% is available only when the
+ *    caller explicitly allows the user-exit fallback.
  *
- * The analyzer has a long timeout, so reaching the fallback percentage with
- * no usable timestamp is treated as sufficient completion evidence. Post-
- * credit scenes never delay completion once initial credits have begun.
+ * Periodic progress saves must never use percentage completion because cached
+ * analyzer timing may still arrive later. On an intentional user exit, 85%
+ * with no usable timestamp is sufficient completion evidence. Post-credit
+ * scenes never delay completion once initial credits have begun.
  */
 internal fun completionCreditBoundaryMs(
     timing: CreditTimingUiState
@@ -174,7 +175,8 @@ internal fun shouldTreatPlaybackAsCompleted(
     durationMs: Long,
     playbackEnded: Boolean,
     fallbackThreshold: Double = MANUAL_END_ACTION_THRESHOLD,
-    creditBoundaryGraceMs: Long = 0L
+    creditBoundaryGraceMs: Long = 0L,
+    allowPercentageFallback: Boolean = false
 ): Boolean {
     if (playbackEnded) return true
     if (positionMs < 0L) return false
@@ -187,7 +189,7 @@ internal fun shouldTreatPlaybackAsCompleted(
             return positionMs >= triggerMs
         }
 
-    if (durationMs <= 0L) return false
+    if (!allowPercentageFallback || durationMs <= 0L) return false
 
     val threshold = fallbackThreshold.coerceIn(0.0, 1.0)
     return positionMs.toDouble() / durationMs.toDouble() >= threshold
@@ -287,7 +289,8 @@ internal fun shouldStartManualEndAction(
                 positionMs = positionMs,
                 durationMs = durationMs,
                 playbackEnded = false,
-                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS,
+                allowPercentageFallback = true
             )
         }
 
