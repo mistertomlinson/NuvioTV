@@ -1921,8 +1921,11 @@ private suspend fun HomeViewModel.buildNextUpItem(
             synchronized(cwBadgeSeriesStatusCache) {
                 cwBadgeSeriesStatusCache[cacheKey] = cachedMeta.status
             }
-            cachedMeta.earliestUpcomingSeasonMs()?.let { ms ->
-                cwBadgeNextSeasonMs[progress.contentId] = ms
+            val nextSeasonMs = cachedMeta.earliestUpcomingSeasonMs()
+            if (nextSeasonMs != null) {
+                cwBadgeNextSeasonMs[progress.contentId] = nextSeasonMs
+            } else {
+                cwBadgeNextSeasonMs.remove(progress.contentId)
             }
         }
         if (seedResolved) {
@@ -2581,8 +2584,11 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
         val episodes = existingSummary.watchableEpisodes()
             .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
             .toSet()
-        existingSummary.earliestUpcomingSeasonMs()?.let { ms ->
-            cwBadgeNextSeasonMs[contentId] = ms
+        val nextSeasonMs = existingSummary.earliestUpcomingSeasonMs()
+        if (nextSeasonMs != null) {
+            cwBadgeNextSeasonMs[contentId] = nextSeasonMs
+        } else {
+            cwBadgeNextSeasonMs.remove(contentId)
         }
         synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
         synchronized(cwBadgeSeriesStatusCache) {
@@ -2620,9 +2626,13 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
             val episodes = summary.watchableEpisodes()
                 .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
                 .toSet()
-            // Record upcoming season date for smart TTL scheduling.
-            summary.earliestUpcomingSeasonMs()?.let { ms ->
-                cwBadgeNextSeasonMs[contentId] = ms
+            // Record upcoming season date for smart TTL scheduling. Clear an
+            // older deadline when refreshed metadata no longer has one.
+            val nextSeasonMs = summary.earliestUpcomingSeasonMs()
+            if (nextSeasonMs != null) {
+                cwBadgeNextSeasonMs[contentId] = nextSeasonMs
+            } else {
+                cwBadgeNextSeasonMs.remove(contentId)
             }
             synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
             synchronized(cwBadgeSeriesStatusCache) {
