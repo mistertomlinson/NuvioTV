@@ -79,6 +79,31 @@ class WatchedItemsPreferences @Inject constructor(
         }
     }
 
+    suspend fun markAsWatchedBatch(items: List<WatchedItem>) {
+        if (items.isEmpty()) return
+        val incomingKeys = items
+            .map { Triple(it.contentId, it.season, it.episode) }
+            .toSet()
+
+        store().edit { preferences ->
+            val current = preferences[watchedItemsKey] ?: emptySet()
+            val retained = current.filterNot { json ->
+                runCatching {
+                    gson.fromJson(json, WatchedItem::class.java)
+                }.getOrNull()?.let { existing ->
+                    Triple(
+                        existing.contentId,
+                        existing.season,
+                        existing.episode
+                    ) in incomingKeys
+                } ?: false
+            }.toSet()
+
+            preferences[watchedItemsKey] =
+                retained + items.map(gson::toJson).toSet()
+        }
+    }
+
     suspend fun unmarkAsWatched(contentId: String, season: Int? = null, episode: Int? = null) {
         store().edit { preferences ->
             val current = preferences[watchedItemsKey] ?: emptySet()
@@ -92,6 +117,28 @@ class WatchedItemsPreferences @Inject constructor(
                 } ?: false
             }
             preferences[watchedItemsKey] = filtered.toSet()
+        }
+    }
+
+    suspend fun unmarkAsWatchedBatch(items: List<WatchedItem>) {
+        if (items.isEmpty()) return
+        val removalKeys = items
+            .map { Triple(it.contentId, it.season, it.episode) }
+            .toSet()
+
+        store().edit { preferences ->
+            val current = preferences[watchedItemsKey] ?: emptySet()
+            preferences[watchedItemsKey] = current.filterNot { json ->
+                runCatching {
+                    gson.fromJson(json, WatchedItem::class.java)
+                }.getOrNull()?.let { existing ->
+                    Triple(
+                        existing.contentId,
+                        existing.season,
+                        existing.episode
+                    ) in removalKeys
+                } ?: false
+            }.toSet()
         }
     }
 
