@@ -4095,6 +4095,7 @@ fun ModernHomeContent(
                          */
                         if (
                             doubleUpPlatformShortcutEnabled &&
+                            aggregatePlatformsEnabled &&
                             native.action ==
                                 AndroidKeyEvent.ACTION_DOWN &&
                             isUp
@@ -4500,6 +4501,7 @@ fun ModernHomeContent(
                          */
                         if (
                             doubleUpPlatformShortcutEnabled &&
+                            aggregatePlatformsEnabled &&
                             native.action ==
                                 AndroidKeyEvent.ACTION_UP &&
                             isUp
