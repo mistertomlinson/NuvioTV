@@ -2237,7 +2237,7 @@ private fun HomePosterOptionsDialog(
             )
         }
 
-        if (isMovie) {
+        if (isMovie || isSeries) {
             Button(
                 onClick = onToggleWatched,
                 enabled = !isWatchedPending,
