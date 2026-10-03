@@ -93,6 +93,46 @@ class SimklDurableProgressStore @Inject constructor(
         }
     }
 
+    suspend fun removeProgressBatch(
+        progressList: List<WatchProgress>
+    ) {
+        if (progressList.isEmpty()) return
+        val targets = progressList.map { progress ->
+            Triple(
+                progress.contentId.trim().lowercase(),
+                progress.season,
+                progress.episode
+            )
+        }
+
+        val profileId = profileManager.activeProfileId.value
+        store(profileId).edit { preferences ->
+            val current = parseProgressMap(
+                preferences[progressKey] ?: "{}"
+            ).toMutableMap()
+
+            val keysToRemove = current.entries
+                .filter { (_, stored) ->
+                    targets.any { (contentId, season, episode) ->
+                        val sameContent =
+                            stored.contentId.trim().lowercase() == contentId
+                        val sameEpisode =
+                            season == null ||
+                                episode == null ||
+                                (
+                                    stored.season == season &&
+                                        stored.episode == episode
+                                    )
+                        sameContent && sameEpisode
+                    }
+                }
+                .map { entry -> entry.key }
+
+            keysToRemove.forEach { key -> current.remove(key) }
+            preferences[progressKey] = gson.toJson(prune(current))
+        }
+    }
+
     suspend fun removeProgress(
         contentId: String,
         season: Int?,
