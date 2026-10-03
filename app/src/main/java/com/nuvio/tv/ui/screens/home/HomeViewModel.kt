@@ -856,6 +856,7 @@ class HomeViewModel @Inject constructor(
     internal var movieWatchedBatchJob: Job? = null
     internal var seriesWatchedJob: Job? = null
     internal var lastMovieWatchedItemKeys: Set<String> = emptySet()
+    internal var lastSeriesWatchedItemKeys: Set<String> = emptySet()
     internal var activePosterListPickerInput: LibraryEntryInput? = null
     @Volatile
     internal var externalMetaPrefetchEnabled: Boolean = false
