@@ -555,6 +555,17 @@ private fun CatalogOrderScreenContent(
                                             }
                                         )
                                     }
+                                    DoubleUpPlatformShortcutToggleRow(
+                                        checked =
+                                            uiState
+                                                .doubleUpPlatformShortcutEnabled,
+                                        groupPosition =
+                                            SettingsGroupPosition.MIDDLE,
+                                        onToggle = {
+                                            viewModel
+                                                .toggleDoubleUpPlatformShortcut()
+                                        }
+                                    )
                                     HidePlatformIconsOnRowExitToggleRow(
                                         checked =
                                             uiState
@@ -1333,6 +1344,28 @@ private fun FullWidthIconRowToggleRow(
     )
 }
 
+
+@Composable
+private fun DoubleUpPlatformShortcutToggleRow(
+    checked: Boolean,
+    groupPosition: SettingsGroupPosition,
+    onToggle: () -> Unit
+) {
+    SettingsToggleRow(
+        title = stringResource(
+            R.string.catalog_double_up_platform_shortcut_title
+        ),
+        subtitle = stringResource(
+            R.string.catalog_double_up_platform_shortcut_desc
+        ),
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
+}
 
 @Composable
 private fun HidePlatformIconsOnRowExitToggleRow(
