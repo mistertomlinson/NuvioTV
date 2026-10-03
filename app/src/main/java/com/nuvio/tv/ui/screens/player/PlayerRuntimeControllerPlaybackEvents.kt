@@ -137,7 +137,8 @@ internal fun PlayerRuntimeController.saveWatchProgressIfNeeded() {
 }
 
 internal fun PlayerRuntimeController.saveWatchProgress(
-    creditBoundaryGraceMs: Long = 0L
+    creditBoundaryGraceMs: Long = 0L,
+    allowPercentageFallback: Boolean = false
 ) {
     if (!hasRenderedFirstFrame) return
     val currentPosition = _exoPlayer?.currentPosition ?: return
@@ -145,7 +146,8 @@ internal fun PlayerRuntimeController.saveWatchProgress(
     saveWatchProgressInternal(
         position = currentPosition,
         duration = duration,
-        creditBoundaryGraceMs = creditBoundaryGraceMs
+        creditBoundaryGraceMs = creditBoundaryGraceMs,
+        allowPercentageFallback = allowPercentageFallback
     )
 }
 
@@ -181,7 +183,8 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
     position: Long,
     duration: Long,
     syncRemote: Boolean = true,
-    creditBoundaryGraceMs: Long = 0L
+    creditBoundaryGraceMs: Long = 0L,
+    allowPercentageFallback: Boolean = false
 ) {
     
     if (contentId.isNullOrEmpty() || contentType.isNullOrEmpty()) return
@@ -215,7 +218,8 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
             playbackEnded =
                 _exoPlayer?.playbackState == Player.STATE_ENDED ||
                     _uiState.value.playbackEnded,
-            creditBoundaryGraceMs = creditBoundaryGraceMs
+            creditBoundaryGraceMs = creditBoundaryGraceMs,
+            allowPercentageFallback = allowPercentageFallback
         )
 
     scope.launch(
@@ -382,7 +386,8 @@ internal fun PlayerRuntimeController.emitCompletionScrobbleStop(progressPercent:
 }
 
 internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress(
-    creditBoundaryGraceMs: Long = 0L
+    creditBoundaryGraceMs: Long = 0L,
+    allowPercentageFallback: Boolean = false
 ) {
     val player = _exoPlayer ?: return
     val position = player.currentPosition.coerceAtLeast(0L)
@@ -396,7 +401,8 @@ internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress(
             playbackEnded =
                 player.playbackState == Player.STATE_ENDED ||
                     _uiState.value.playbackEnded,
-            creditBoundaryGraceMs = creditBoundaryGraceMs
+            creditBoundaryGraceMs = creditBoundaryGraceMs,
+            allowPercentageFallback = allowPercentageFallback
         )
 
     if (shouldComplete) {
@@ -410,13 +416,16 @@ internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress(
 }
 
 internal fun PlayerRuntimeController.flushPlaybackSnapshotForSwitchOrExit(
-    creditBoundaryGraceMs: Long = 0L
+    creditBoundaryGraceMs: Long = 0L,
+    allowPercentageFallback: Boolean = false
 ) {
     emitStopScrobbleForCurrentProgress(
-        creditBoundaryGraceMs = creditBoundaryGraceMs
+        creditBoundaryGraceMs = creditBoundaryGraceMs,
+        allowPercentageFallback = allowPercentageFallback
     )
     saveWatchProgress(
-        creditBoundaryGraceMs = creditBoundaryGraceMs
+        creditBoundaryGraceMs = creditBoundaryGraceMs,
+        allowPercentageFallback = allowPercentageFallback
     )
 }
 
