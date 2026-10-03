@@ -47,7 +47,8 @@ class WatchedSeriesStateHolder @Inject constructor(
 
     suspend fun loadFromDisk() {
         if (loaded) return
-        val prefs = store().data.first()
+        val profileStore = store()
+        val prefs = profileStore.data.first()
         val persisted = prefs[KEY] ?: emptySet()
         val persistedValidation =
             parseTimestamps(prefs[REVALIDATE_KEY])
@@ -92,7 +93,7 @@ class WatchedSeriesStateHolder @Inject constructor(
         }
 
         if (semanticsVersion < TERMINAL_STATUS_SEMANTICS_VERSION) {
-            store().edit { mutablePrefs ->
+            profileStore.edit { mutablePrefs ->
                 mutablePrefs[SEMANTICS_VERSION_KEY] =
                     TERMINAL_STATUS_SEMANTICS_VERSION
                 mutablePrefs[REVALIDATE_KEY] =
