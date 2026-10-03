@@ -14,6 +14,8 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,10 +23,12 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Divider
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
@@ -2287,7 +2291,10 @@ private fun HomePosterOptionsDialog(
                     containerColor = HomeDialogGlassRowColor,
                     focusedContainerColor = HomeDialogGlassRowFocusedColor,
                     contentColor = NuvioColors.TextSecondary,
-                    focusedContentColor = NuvioColors.TextPrimary
+                    focusedContentColor = NuvioColors.TextPrimary,
+                    disabledContainerColor = HomeDialogGlassRowColor,
+                    disabledContentColor =
+                        NuvioColors.TextSecondary.copy(alpha = 0.52f)
                 ),
                 border = ButtonDefaults.border(
                     border = androidx.tv.material3.Border.None,
@@ -2299,13 +2306,26 @@ private fun HomePosterOptionsDialog(
                     pressedScale = 1f
                 )
             ) {
-                Text(
-                    if (isWatched) {
-                        stringResource(R.string.hero_mark_unwatched)
-                    } else {
-                        stringResource(R.string.hero_mark_watched)
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (isWatched) {
+                            stringResource(R.string.hero_mark_unwatched)
+                        } else {
+                            stringResource(R.string.hero_mark_watched)
+                        }
+                    )
+                    if (isSeries && isWatchedPending) {
+                        Spacer(modifier = Modifier.width(10.dp))
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            color =
+                                NuvioColors.TextSecondary.copy(alpha = 0.52f),
+                            strokeWidth = 2.dp
+                        )
                     }
-                )
+                }
             }
         }
             }
