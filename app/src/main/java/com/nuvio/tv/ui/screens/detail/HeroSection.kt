@@ -1027,13 +1027,56 @@ private fun formatMDBListRating(provider: String, rating: Double): String {
 }
 
 private fun formatRuntime(runtime: String): String {
-    val minutes = runtime.filter { it.isDigit() }.toIntOrNull() ?: return runtime
-    return if (minutes >= 60) {
-        val hours = minutes / 60
-        val mins = minutes % 60
-        if (mins > 0) "${hours}h ${mins}m" else "${hours}h"
-    } else {
-        "${minutes}m"
+    /*
+     * Addon runtimes may already be human-formatted ("2h 25m") or may
+     * arrive as a plain minute count ("145").
+     *
+     * Do not strip all digits from a formatted value: "2h 25m" would become
+     * "225" and be incorrectly interpreted as 225 minutes (3h 45m).
+     *
+     * Keep Details runtime parsing consistent with the Home hero.
+     */
+    val normalized =
+        runtime.trim().lowercase().takeIf { it.isNotBlank() }
+            ?: return runtime
+
+    val hours =
+        "(\\d+)\\s*h"
+            .toRegex()
+            .find(normalized)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+
+    val minutes =
+        "(\\d+)\\s*m(?:in)?"
+            .toRegex()
+            .find(normalized)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.toIntOrNull()
+
+    val totalMinutes =
+        when {
+            hours != null || minutes != null ->
+                (hours ?: 0) * 60 + (minutes ?: 0)
+
+            else ->
+                normalized.filter(Char::isDigit).toIntOrNull()
+        } ?: return runtime
+
+    val wholeHours = totalMinutes / 60
+    val remainingMinutes = totalMinutes % 60
+
+    return when {
+        wholeHours > 0 && remainingMinutes > 0 ->
+            "${wholeHours}h ${remainingMinutes}m"
+
+        wholeHours > 0 ->
+            "${wholeHours}h"
+
+        else ->
+            "${remainingMinutes}m"
     }
 }
 
