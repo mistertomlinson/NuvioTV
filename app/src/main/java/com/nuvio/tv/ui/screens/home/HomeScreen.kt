@@ -1208,20 +1208,27 @@ fun HomeScreen(
                 posterOptionsTarget = null
             },
             onToggleWatched = {
-                val wasAlreadyWatched =
-                    uiState.movieWatchedStatus[statusKey] == true
+                if (isMovie) {
+                    val wasAlreadyWatched =
+                        uiState.movieWatchedStatus[statusKey] == true
 
-                if (!wasAlreadyWatched) {
-                    /*
-                     * Arm this synchronously before removing the options Dialog.
-                     * The ViewModel's rating overlay is published later from its
-                     * asynchronous watched-status job.
-                     */
-                    watchedRatingHandoffStatusKey = statusKey
-                    watchedRatingHandoffObservedPending = false
+                    if (!wasAlreadyWatched) {
+                        /*
+                         * Arm this synchronously before removing the options
+                         * Dialog. Series bulk watched actions intentionally do
+                         * not invoke the movie-rating handoff.
+                         */
+                        watchedRatingHandoffStatusKey = statusKey
+                        watchedRatingHandoffObservedPending = false
+                    }
+
+                    viewModel.togglePosterMovieWatched(item)
+                } else if (isSeries) {
+                    viewModel.togglePosterSeriesWatched(
+                        item = item,
+                        addonBaseUrl = selectedPoster.addonBaseUrl
+                    )
                 }
-
-                viewModel.togglePosterMovieWatched(item)
                 posterOptionsTarget = null
             }
         )
