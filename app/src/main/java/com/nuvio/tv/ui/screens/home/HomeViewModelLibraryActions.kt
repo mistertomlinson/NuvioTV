@@ -2,13 +2,18 @@ package com.nuvio.tv.ui.screens.home
 
 import android.util.Log
 import androidx.lifecycle.viewModelScope
+import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.data.repository.parseContentIds
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
+import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.ui.util.buildCompletedSeriesEpisodeProgress
+import com.nuvio.tv.ui.util.isCaughtUpForWatchedAction
+import com.nuvio.tv.ui.util.releasedRegularEpisodesForWatchedAction
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -264,6 +269,238 @@ fun HomeViewModel.dismissPosterListPicker() {
         )
     }
 }
+
+fun HomeViewModel.preparePosterSeriesWatchedState(
+    item: MetaPreview,
+    addonBaseUrl: String?
+) {
+    if (!item.isSeriesForWatchedAction()) return
+    val statusKey = homeItemStatusKey(item.id, item.apiType)
+    if (statusKey in _uiState.value.seriesWatchedActionPending) return
+
+    _uiState.update { state ->
+        state.copy(
+            seriesWatchedActionPending =
+                state.seriesWatchedActionPending + statusKey
+        )
+    }
+
+    viewModelScope.launch {
+        try {
+            val meta = resolveSeriesMetaForWatchedAction(
+                item = item,
+                addonBaseUrl = addonBaseUrl
+            )
+            val watched = watchedEpisodesForSeriesAction(item)
+            val caughtUp = meta.isCaughtUpForWatchedAction(watched)
+
+            _uiState.update { state ->
+                state.copy(
+                    seriesWatchedActionStatus =
+                        state.seriesWatchedActionStatus +
+                            (statusKey to caughtUp)
+                )
+            }
+        } catch (error: Throwable) {
+            Log.w(
+                HomeViewModel.TAG,
+                "Failed to prepare series watched action for " +
+                    "${item.id}: ${error.message}"
+            )
+        } finally {
+            _uiState.update { state ->
+                state.copy(
+                    seriesWatchedActionPending =
+                        state.seriesWatchedActionPending - statusKey
+                )
+            }
+        }
+    }
+}
+
+fun HomeViewModel.togglePosterSeriesWatched(
+    item: MetaPreview,
+    addonBaseUrl: String?
+) {
+    if (!item.isSeriesForWatchedAction()) return
+    val statusKey = homeItemStatusKey(item.id, item.apiType)
+    if (statusKey in _uiState.value.seriesWatchedActionPending) return
+
+    _uiState.update { state ->
+        state.copy(
+            seriesWatchedActionPending =
+                state.seriesWatchedActionPending + statusKey
+        )
+    }
+
+    viewModelScope.launch {
+        try {
+            val meta = resolveSeriesMetaForWatchedAction(
+                item = item,
+                addonBaseUrl = addonBaseUrl
+            )
+            val released =
+                meta.releasedRegularEpisodesForWatchedAction()
+
+            check(released.isNotEmpty()) {
+                "No released regular episodes are available"
+            }
+
+            val watched = watchedEpisodesForSeriesAction(item)
+            val allReleasedWatched =
+                meta.isCaughtUpForWatchedAction(watched)
+            val affected =
+                if (allReleasedWatched) {
+                    released
+                } else {
+                    released.filter { video ->
+                        val season = video.season ?: return@filter false
+                        val episode = video.episode ?: return@filter false
+                        (season to episode) !in watched
+                    }
+                }
+            val progress = affected.map { video ->
+                meta.buildCompletedSeriesEpisodeProgress(
+                    parentContentId = item.id,
+                    video = video
+                )
+            }
+
+            if (allReleasedWatched) {
+                watchProgressRepository.removeFromHistoryBatch(progress)
+            } else {
+                watchProgressRepository.markAsCompletedBatch(progress)
+
+                runCatching {
+                    watchProgressRepository.removeProgress(
+                        item.id,
+                        season = null,
+                        episode = null
+                    )
+                }.onFailure { error ->
+                    Log.w(
+                        HomeViewModel.TAG,
+                        "Failed to remove stale playback after " +
+                            "whole-series watched action for ${item.id}: " +
+                            error.message
+                    )
+                }
+            }
+
+            _uiState.update { state ->
+                state.copy(
+                    seriesWatchedActionStatus =
+                        state.seriesWatchedActionStatus +
+                            (statusKey to !allReleasedWatched)
+                )
+            }
+
+            val message = if (allReleasedWatched) {
+                appContext.getString(
+                    com.nuvio.tv.R.string.detail_marked_episodes_unwatched,
+                    progress.size
+                )
+            } else {
+                appContext.getString(
+                    com.nuvio.tv.R.string.detail_marked_episodes_watched,
+                    progress.size
+                )
+            }
+            showHomeMessage(message)
+        } catch (error: Throwable) {
+            Log.w(
+                HomeViewModel.TAG,
+                "Failed to toggle whole-series watched state for " +
+                    "${item.id}: ${error.message}"
+            )
+            showHomeMessage(
+                error.message ?: "Failed to update watched episodes",
+                isError = true
+            )
+        } finally {
+            _uiState.update { state ->
+                state.copy(
+                    seriesWatchedActionPending =
+                        state.seriesWatchedActionPending - statusKey
+                )
+            }
+        }
+    }
+}
+
+private suspend fun HomeViewModel.resolveSeriesMetaForWatchedAction(
+    item: MetaPreview,
+    addonBaseUrl: String?
+): Meta {
+    val statusKey = homeItemStatusKey(item.id, item.apiType)
+    seriesWatchedActionMetaCache[statusKey]?.let { return it }
+
+    val result =
+        if (!addonBaseUrl.isNullOrBlank()) {
+            metaRepository.getMeta(
+                addonBaseUrl = addonBaseUrl,
+                type = item.apiType,
+                id = item.id
+            )
+        } else {
+            metaRepository.getMetaFromAllAddons(
+                type = item.apiType,
+                id = item.id
+            )
+        }.first { result -> result !is NetworkResult.Loading }
+
+    val meta = when (result) {
+        is NetworkResult.Success -> result.data
+        is NetworkResult.Error ->
+            throw IllegalStateException(result.message)
+        NetworkResult.Loading ->
+            error("Unexpected metadata loading state")
+    }
+
+    seriesWatchedActionMetaCache[statusKey] = meta
+    return meta
+}
+
+private suspend fun HomeViewModel.watchedEpisodesForSeriesAction(
+    item: MetaPreview
+): Set<Pair<Int, Int>> {
+    val watchedById = watchProgressRepository.getWatchedShowEpisodes()
+    if (watchedById.isEmpty()) return emptySet()
+
+    val siblings = watchProgressRepository.getShowIdSiblings()
+    val ids = linkedSetOf<String>()
+
+    fun addId(raw: String?) {
+        val id = raw?.trim()?.takeIf(String::isNotBlank) ?: return
+        ids += id
+        if (id.startsWith("imdb:", ignoreCase = true)) {
+            id.substringAfter(':').takeIf(String::isNotBlank)?.let(ids::add)
+        } else if (id.startsWith("tt", ignoreCase = true)) {
+            ids += "imdb:$id"
+        }
+    }
+
+    addId(item.id)
+    addId(item.imdbId)
+
+    val seedIds = ids.toList()
+    seedIds.forEach { id ->
+        siblings[id]
+            .orEmpty()
+            .filterNot { it == "__ambiguous__" }
+            .forEach(::addId)
+    }
+
+    return buildSet {
+        ids.forEach { id ->
+            watchedById[id]?.let(::addAll)
+        }
+    }
+}
+
+private fun MetaPreview.isSeriesForWatchedAction(): Boolean =
+    apiType.equals("series", ignoreCase = true) ||
+        apiType.equals("tv", ignoreCase = true)
 
 fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
     if (!item.apiType.equals("movie", ignoreCase = true)) return
