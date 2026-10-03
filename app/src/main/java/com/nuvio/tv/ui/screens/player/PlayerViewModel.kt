@@ -199,6 +199,10 @@ class PlayerViewModel @Inject constructor(
         controller.stopAndRelease()
     }
 
+    fun stopAndReleaseForUserExit() {
+        controller.stopAndReleaseForUserExit()
+    }
+
     fun willPublishCwProgressOnRelease(): Boolean =
         controller.willPublishCwProgressOnRelease()
 
