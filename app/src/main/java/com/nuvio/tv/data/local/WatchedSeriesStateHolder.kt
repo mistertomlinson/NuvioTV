@@ -25,11 +25,13 @@ class WatchedSeriesStateHolder @Inject constructor(
     companion object {
         private const val FEATURE = "watched_series_cache"
         /*
-         * V2 intentionally invalidates badges/validation produced by the old
-         * "all current episodes watched" semantics.  Terminal-only completion
-         * cannot safely reuse that persisted state.
+         * Preserve the last displayed badge set across the migration so Home
+         * does not briefly lose every checkmark on first launch.  Only the
+         * validation timestamps are versioned: that forces one background
+         * re-evaluation under terminal-only semantics, which can add missing
+         * ended shows and remove legacy badges from ongoing shows.
          */
-        private val KEY = stringSetPreferencesKey("fully_watched_ids_terminal_v2")
+        private val KEY = stringSetPreferencesKey("fully_watched_ids")
         private val REVALIDATE_KEY =
             stringPreferencesKey("revalidate_after_terminal_v2")
         private const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000
