@@ -196,6 +196,16 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
         progressPercent = fallbackPercent
     )
 
+    val shouldComplete =
+        shouldTreatPlaybackAsCompleted(
+            timing = _uiState.value.creditTiming,
+            positionMs = position,
+            durationMs = duration,
+            playbackEnded =
+                _exoPlayer?.playbackState == Player.STATE_ENDED ||
+                    _uiState.value.playbackEnded
+        )
+
     scope.launch(
         kotlinx.coroutines.NonCancellable,
         start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED
@@ -209,7 +219,7 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
         val normalizedProgress = progress.copy(contentId = effectiveContentId)
         when {
             hasMarkedCurrentItemCompleted -> Unit
-            normalizedProgress.isCompleted() -> {
+            shouldComplete -> {
                 hasMarkedCurrentItemCompleted = true
                 watchProgressRepository.markAsCompleted(
                     progress = normalizedProgress,
@@ -323,9 +333,10 @@ internal fun PlayerRuntimeController.emitScrobbleStop(
 }
 
 internal fun PlayerRuntimeController.emitPauseScrobbleStop(
-    progressPercent: Float
+    progressPercent: Float,
+    allowNearEndProgress: Boolean = false
 ) {
-    if (progressPercent >= 80f) return
+    if (!allowNearEndProgress && progressPercent >= 80f) return
 
     val item = currentScrobbleItem ?: return
     if (!hasRequestedScrobbleStartForCurrentItem) return
@@ -346,15 +357,41 @@ internal fun PlayerRuntimeController.emitPauseScrobbleStop(
 }
 
 internal fun PlayerRuntimeController.emitCompletionScrobbleStop(progressPercent: Float) {
-    if (progressPercent < 80f || hasSentCompletionScrobbleForCurrentItem) return
+    if (hasSentCompletionScrobbleForCurrentItem) return
     hasSentCompletionScrobbleForCurrentItem = true
-    emitScrobbleStop(progressPercent = progressPercent)
+
+    /*
+     * Providers such as Trakt/Simkl historically interpret STOP at 80%+ as a
+     * completed scrobble. Once our analyzer has authoritatively reached the
+     * initial credits boundary, ensure the provider receives a completion-
+     * eligible percentage even when unusually early credits start below 80%.
+     */
+    emitScrobbleStop(progressPercent = maxOf(progressPercent, 80f))
 }
 
 internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress() {
+    val player = _exoPlayer ?: return
+    val position = player.currentPosition.coerceAtLeast(0L)
+    val duration = getEffectiveDuration(position)
     val progressPercent = currentPlaybackProgressPercent()
-    emitPauseScrobbleStop(progressPercent = progressPercent)
-    emitCompletionScrobbleStop(progressPercent = progressPercent)
+    val shouldComplete =
+        shouldTreatPlaybackAsCompleted(
+            timing = _uiState.value.creditTiming,
+            positionMs = position,
+            durationMs = duration,
+            playbackEnded =
+                player.playbackState == Player.STATE_ENDED ||
+                    _uiState.value.playbackEnded
+        )
+
+    if (shouldComplete) {
+        emitCompletionScrobbleStop(progressPercent = progressPercent)
+    } else {
+        emitPauseScrobbleStop(
+            progressPercent = progressPercent,
+            allowNearEndProgress = true
+        )
+    }
 }
 
 internal fun PlayerRuntimeController.flushPlaybackSnapshotForSwitchOrExit() {
