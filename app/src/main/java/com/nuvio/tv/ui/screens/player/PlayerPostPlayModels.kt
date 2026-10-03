@@ -280,14 +280,16 @@ internal fun shouldStartManualEndAction(
             if (knownCreditsStartMs != null) {
                 positionMs >= knownCreditsStartMs
             } else {
-                // Percentage timing is strictly a last-resort path while
-                // timing is unresolved or has fallen back after failure.
+                // Percentage timing is strictly a last-resort path after
+                // the analyzer has explicitly failed/fallen back. While timing
+                // is merely not started or still running, fail closed and wait
+                // for the timestamp instead of guessing from runtime percent.
                 when (state.creditTiming.status) {
-                    CreditTimingStatus.NOT_STARTED,
-                    CreditTimingStatus.RUNNING,
                     CreditTimingStatus.FALLBACK ->
                         progressFraction >= MANUAL_END_ACTION_THRESHOLD
 
+                    CreditTimingStatus.NOT_STARTED,
+                    CreditTimingStatus.RUNNING,
                     CreditTimingStatus.COMPLETE ->
                         false
                 }
@@ -318,17 +320,15 @@ internal fun shouldStartManualEndAction(
             if (knownCreditBoundaryMs != null) {
                 positionMs >= knownCreditBoundaryMs
             } else {
-                // Use 85% only when no usable credit timestamp exists and
-                // timing is unresolved or the analyzer has failed/fallen back.
+                // Use 85% only after the analyzer has explicitly
+                // failed/fallen back. Unresolved/running analysis is not
+                // permission to guess that the episode is finished.
                 when (state.creditTiming.status) {
-                    CreditTimingStatus.NOT_STARTED,
-                    CreditTimingStatus.RUNNING,
                     CreditTimingStatus.FALLBACK ->
                         progressFraction >= MANUAL_END_ACTION_THRESHOLD
 
-                    // These statuses are supposed to carry an authoritative
-                    // timestamp. If one is unexpectedly absent, fail closed
-                    // instead of silently substituting percentage timing.
+                    CreditTimingStatus.NOT_STARTED,
+                    CreditTimingStatus.RUNNING,
                     CreditTimingStatus.COMPLETE ->
                         false
                 }
