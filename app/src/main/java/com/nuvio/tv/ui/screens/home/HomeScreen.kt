@@ -1195,8 +1195,9 @@ fun HomeScreen(
                 !selectedPoster.isFromMyList,
             isFromMyList = selectedPoster.isFromMyList,
             isMovie = isMovie,
-            isWatched = uiState.movieWatchedStatus[statusKey] == true,
-            isWatchedPending = statusKey in uiState.movieWatchedPending,
+            isSeries = isSeries,
+            isWatched = watchedActionState,
+            isWatchedPending = watchedActionPending,
             onDismiss = { posterOptionsTarget = null },
             onDetails = {
                 onNavigateToDetail(item.id, item.apiType, selectedPoster.addonBaseUrl)
