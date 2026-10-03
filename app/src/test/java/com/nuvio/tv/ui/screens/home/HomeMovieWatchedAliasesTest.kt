@@ -28,6 +28,32 @@ class HomeMovieWatchedAliasesTest {
     }
 
     @Test
+    fun `series imdb alias matches completed-series holder`() {
+        val lookupIds = homeSeriesWatchedLookupIds(
+            itemId = "imdb:tt13356646",
+            imdbId = "tt13356646"
+        )
+        val watchedIds = normalizeHomeSeriesWatchedIds(
+            setOf("tt13356646", "tmdb:119279")
+        )
+
+        assertTrue(lookupIds.any(watchedIds::contains))
+    }
+
+    @Test
+    fun `unrelated series remains unwatched`() {
+        val lookupIds = homeSeriesWatchedLookupIds(
+            itemId = "tmdb:119279",
+            imdbId = "tt13356646"
+        )
+        val watchedIds = normalizeHomeSeriesWatchedIds(
+            setOf("tt44113382", "tmdb:331616")
+        )
+
+        assertFalse(lookupIds.any(watchedIds::contains))
+    }
+
+    @Test
     fun `unrelated movie remains unwatched`() {
         val lookupIds = homeMovieWatchedLookupIds(
             itemId = "tmdb:123",
