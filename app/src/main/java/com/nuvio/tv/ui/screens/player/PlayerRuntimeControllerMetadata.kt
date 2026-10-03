@@ -477,6 +477,25 @@ internal fun PlayerRuntimeController.evaluateNextEpisodeCardVisibility(positionM
     if (!hasRenderedFirstFrame) return
 
     val state = _uiState.value
+    if (state.manualEndActionRequested) {
+        nextEpisodeAutoPlayJob?.cancel()
+        nextEpisodeAutoPlayJob = null
+        if (
+            state.showNextEpisodeCard ||
+            state.nextEpisodeAutoPlaySearching ||
+            state.nextEpisodeAutoPlayCountdownSec != null
+        ) {
+            _uiState.update {
+                it.copy(
+                    showNextEpisodeCard = false,
+                    nextEpisodeAutoPlaySearching = false,
+                    nextEpisodeAutoPlaySourceName = null,
+                    nextEpisodeAutoPlayCountdownSec = null
+                )
+            }
+        }
+        return
+    }
     if (state.blocksEndActionForRating) {
         if (state.showNextEpisodeCard) {
             _uiState.update { it.copy(showNextEpisodeCard = false) }
