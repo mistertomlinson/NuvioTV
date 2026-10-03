@@ -167,6 +167,67 @@ internal fun shouldShowSeriesWatchedBadge(
         isTerminalSeriesStatus(status) &&
         releasedRegularEpisodes.all { it in watchedEpisodes }
 
+private fun HomeViewModel.cachedBadgeSeriesStatus(
+    contentId: String,
+    summary: CwMetaSummary?
+): String? {
+    summary?.status
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { return it }
+
+    enrichmentCache[contentId]
+        ?.status
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { return it }
+
+    if (contentId.startsWith("tt")) {
+        tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
+            enrichmentCache["tmdb:$tmdbId"]
+                ?.status
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+        }
+    }
+
+    return null
+}
+
+private suspend fun HomeViewModel.resolveBadgeSeriesStatus(
+    contentId: String,
+    contentType: String,
+    summary: CwMetaSummary?
+): String? {
+    cachedBadgeSeriesStatus(contentId, summary)?.let { return it }
+
+    /*
+     * Home already repairs missing status through TMDB because addon/basic
+     * metadata can legitimately omit it.  Badge-only metadata must follow the
+     * same contract or an ended show with complete watched history can never
+     * qualify for its checkmark.
+     *
+     * This runs only on the existing badge IO worker and only when status is
+     * missing.  Nothing is added to composition, focus, or the scroll path.
+     */
+    return withTimeoutOrNull(4_000L) {
+        val tmdbId =
+            tmdbService.ensureTmdbId(
+                contentId,
+                contentType
+            ) ?: return@withTimeoutOrNull null
+
+        tmdbMetadataService.fetchFreshStatus(
+            tmdbId = tmdbId,
+            contentType = ContentType.SERIES,
+            language = currentTmdbSettings.language
+        )
+    }
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+}
+
 /**
  * A nullable next-up result is authoritative only when metadata contains the
  * completed seed episode. Missing, empty, or mismatched metadata is
@@ -1918,8 +1979,13 @@ private suspend fun HomeViewModel.buildNextUpItem(
                     cwBadgeEpisodeCache[cacheKey] = episodes
                 }
             }
-            synchronized(cwBadgeSeriesStatusCache) {
-                cwBadgeSeriesStatusCache[cacheKey] = cachedMeta.status
+            cachedBadgeSeriesStatus(
+                contentId = progress.contentId,
+                summary = cachedMeta
+            )?.let { status ->
+                synchronized(cwBadgeSeriesStatusCache) {
+                    cwBadgeSeriesStatusCache[cacheKey] = status
+                }
             }
             val nextSeasonMs = cachedMeta.earliestUpcomingSeasonMs()
             if (nextSeasonMs != null) {
@@ -2591,8 +2657,14 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
             cwBadgeNextSeasonMs.remove(contentId)
         }
         synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
+        val resolvedStatus =
+            resolveBadgeSeriesStatus(
+                contentId = contentId,
+                contentType = contentType,
+                summary = existingSummary
+            )
         synchronized(cwBadgeSeriesStatusCache) {
-            cwBadgeSeriesStatusCache[cacheKey] = existingSummary.status
+            cwBadgeSeriesStatusCache[cacheKey] = resolvedStatus
         }
         return episodes
     }
@@ -2635,8 +2707,14 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
                 cwBadgeNextSeasonMs.remove(contentId)
             }
             synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
+            val resolvedStatus =
+                resolveBadgeSeriesStatus(
+                    contentId = contentId,
+                    contentType = contentType,
+                    summary = summary
+                )
             synchronized(cwBadgeSeriesStatusCache) {
-                cwBadgeSeriesStatusCache[cacheKey] = summary.status
+                cwBadgeSeriesStatusCache[cacheKey] = resolvedStatus
             }
             return episodes
         }
@@ -2879,15 +2957,16 @@ private fun HomeViewModel.publishBadgeUpdate(
             val liveSummary = synchronized(cwMetaCache) {
                 cwMetaCache[cacheKey] ?: cwMetaCache["tv:$contentId"]
             }
-            val seriesStatus = if (liveSummary != null) {
-                liveSummary.status
-            } else {
-                synchronized(cwBadgeSeriesStatusCache) {
-                    if (cwBadgeSeriesStatusCache.containsKey(cacheKey)) {
-                        cwBadgeSeriesStatusCache[cacheKey]
-                    } else {
-                        cwBadgeSeriesStatusCache["tv:$contentId"]
-                    }
+            val liveStatus =
+                cachedBadgeSeriesStatus(
+                    contentId = contentId,
+                    summary = liveSummary
+                )
+            val seriesStatus = liveStatus ?: synchronized(cwBadgeSeriesStatusCache) {
+                if (cwBadgeSeriesStatusCache.containsKey(cacheKey)) {
+                    cwBadgeSeriesStatusCache[cacheKey]
+                } else {
+                    cwBadgeSeriesStatusCache["tv:$contentId"]
                 }
             }
 
