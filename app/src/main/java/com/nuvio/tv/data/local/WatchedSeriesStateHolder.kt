@@ -30,7 +30,11 @@ class WatchedSeriesStateHolder @Inject constructor(
             androidx.datastore.preferences.core.intPreferencesKey(
                 "watched_series_semantics_version"
             )
-        private const val TERMINAL_STATUS_SEMANTICS_VERSION = 2
+        /*
+         * v3 invalidates finite badge validations written by the old
+         * no-next-up shortcut before terminal status had been resolved.
+         */
+        private const val TERMINAL_STATUS_SEMANTICS_VERSION = 3
         private const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000
     }
 
