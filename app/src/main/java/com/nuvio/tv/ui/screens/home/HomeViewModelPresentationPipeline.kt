@@ -34,6 +34,7 @@ private data class CoreLayoutPrefs(
     val catalogAddonNameEnabled: Boolean,
     val catalogTypeSuffixEnabled: Boolean,
     val hideUnreleasedContent: Boolean,
+    val hideNewSeasonBadge: Boolean,
     val hidePlatformNameInCatalogTitleEnabled: Boolean
 )
 
@@ -55,6 +56,7 @@ private data class LayoutUiPrefs(
     val catalogAddonNameEnabled: Boolean,
     val catalogTypeSuffixEnabled: Boolean,
     val hideUnreleasedContent: Boolean,
+    val hideNewSeasonBadge: Boolean,
     val hidePlatformNameInCatalogTitleEnabled: Boolean,
     val modernLandscapePostersEnabled: Boolean,
     val continueWatchingCardStyle: ContinueWatchingCardStyle,
@@ -89,6 +91,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                 catalogAddonNameEnabled = catalogAddonNameEnabled,
                 catalogTypeSuffixEnabled = true,
                 hideUnreleasedContent = false,
+                hideNewSeasonBadge = false,
                 hidePlatformNameInCatalogTitleEnabled = false
             )
         },
@@ -100,6 +103,12 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             catalogTypeSuffixEnabled = catalogTypeSuffixEnabled,
             hideUnreleasedContent = hideUnreleasedContent,
             hidePlatformNameInCatalogTitleEnabled = hidePlatformNameInCatalogTitleEnabled
+        )
+    }.combine(
+        layoutPreferenceDataStore.hideNewSeasonBadge
+    ) { prefs, hideNewSeasonBadge ->
+        prefs.copy(
+            hideNewSeasonBadge = hideNewSeasonBadge
         )
     }
 
@@ -142,6 +151,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             catalogAddonNameEnabled = corePrefs.catalogAddonNameEnabled,
             catalogTypeSuffixEnabled = corePrefs.catalogTypeSuffixEnabled,
             hideUnreleasedContent = corePrefs.hideUnreleasedContent,
+            hideNewSeasonBadge = corePrefs.hideNewSeasonBadge,
             hidePlatformNameInCatalogTitleEnabled = corePrefs.hidePlatformNameInCatalogTitleEnabled,
             modernLandscapePostersEnabled = false,
             continueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
@@ -228,6 +238,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         catalogAddonNameEnabled = prefs.catalogAddonNameEnabled,
                         catalogTypeSuffixEnabled = prefs.catalogTypeSuffixEnabled,
                         hideUnreleasedContent = prefs.hideUnreleasedContent,
+                        hideNewSeasonBadge = prefs.hideNewSeasonBadge,
                         hidePlatformNameInCatalogTitleEnabled = prefs.hidePlatformNameInCatalogTitleEnabled,
                         modernLandscapePostersEnabled = prefs.modernLandscapePostersEnabled,
                         continueWatchingCardStyle = prefs.continueWatchingCardStyle,

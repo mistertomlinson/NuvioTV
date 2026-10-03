@@ -69,6 +69,7 @@ data class HomeUiState(
     val watchedRatingYear: Int? = null,
     val gridItems: List<GridItem> = emptyList(),
     val hideUnreleasedContent: Boolean = false,
+    val hideNewSeasonBadge: Boolean = false,
     val startupAuthNotice: StartupAuthNotice? = null,
     val aggregateStreamingPlatformsEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,

@@ -17,6 +17,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
@@ -211,7 +212,8 @@ fun ModernHomeContent(
     onHeroBackdropAlphaChanged: (Float) -> Unit = {},
     platformNavDirection: Int = 0,
     isPlatformDpadHeld: () -> Boolean = { false },
-    onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> }
+    onBackdropPreloadSizeKnown: (Int, Int) -> Unit = { _, _ -> },
+    onComingSoonGlassTextChanged: (String?) -> Unit = {}
 ) {
     val defaultBringIntoViewSpec = LocalBringIntoViewSpec.current
     val isSidebarExpanded = LocalSidebarExpanded.current
@@ -3653,6 +3655,7 @@ fun ModernHomeContent(
             focusStateFocusedRowKey: String?,
             focusStateCatalogRowScrollStates: StableMap<String, Int>,
             posterLabelsEnabled: Boolean,
+            hideNewSeasonBadge: Boolean,
             focusedPosterBackdropTrailerMuted: Boolean,
             activeRowKeyState:
                 androidx.compose.runtime.MutableState<String?>,
@@ -4848,6 +4851,8 @@ fun ModernHomeContent(
                         cardDepthAlpha =
                             fullyVisibleOverlayAlphaState,
                         rowTitleBottom = rowTitleBottom,
+                        hideNewSeasonBadge =
+                            hideNewSeasonBadge,
                         numberStyle = row.numberStyle,
                         isFirstRow = carouselRows.firstOrNull()?.key == row.key,
                         isSecondRow = carouselRows.getOrNull(1)?.key == row.key,
@@ -5019,6 +5024,72 @@ fun ModernHomeContent(
                         .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
                 }
             )
+
+            /*
+             * Persistent Coming Soon pill.
+             *
+             * This is a sibling of HeroTitleBlock and the rows LazyColumn.
+             * Its dimensions therefore cannot change catalog-row measurement
+             * or move poster rows.
+             *
+             * resolvedHero is the authoritative visible Hero presentation,
+             * so the shell survives title-to-title DPAD navigation instead of
+             * being recreated for each ModernRowSection.
+             */
+            /*
+             * Coming Soon presentation now lives one level above this content,
+             * outside Home's Haze source.
+             *
+             * Modern Home remains authoritative for WHICH label belongs to the
+             * currently presented Hero.
+             */
+            val currentComingSoonGlassText =
+                resolvedHero
+                    ?.comingSoonText
+                    ?.takeIf { it.isNotBlank() }
+
+            var retainedComingSoonGlassText by
+                remember {
+                    mutableStateOf<String?>(null)
+                }
+
+            val freezeComingSoonGlassForPopup =
+                homePopupGlassEnvironment.catalogOptionsVisible ||
+                    homePopupGlassEnvironment
+                        .catalogOptionsFocusRestoreActive
+
+            val latestOnComingSoonGlassTextChanged by
+                rememberUpdatedState(
+                    onComingSoonGlassTextChanged
+                )
+
+            LaunchedEffect(
+                currentComingSoonGlassText,
+                freezeComingSoonGlassForPopup
+            ) {
+                retainedComingSoonGlassText =
+                    if (freezeComingSoonGlassForPopup) {
+                        /*
+                         * Popup focus can temporarily clear the active poster.
+                         * Do not let that destroy the label/shell.
+                         */
+                        currentComingSoonGlassText
+                            ?: retainedComingSoonGlassText
+                    } else {
+                        currentComingSoonGlassText
+                    }
+
+                latestOnComingSoonGlassTextChanged(
+                    retainedComingSoonGlassText
+                )
+            }
+
+            androidx.compose.runtime.DisposableEffect(Unit) {
+                onDispose {
+                    latestOnComingSoonGlassTextChanged(null)
+                }
+            }
+
             EnhancedModernHomeRowsListBoundary(
                 modifier = Modifier.align(Alignment.BottomStart),
                 carouselRows = stableCarouselRowsForRowsBoundary,
@@ -5031,6 +5102,8 @@ fun ModernHomeContent(
                     stableCatalogRowScrollStatesForRowsBoundary,
                 posterLabelsEnabled =
                     rowsBoundaryPosterLabelsEnabled,
+                hideNewSeasonBadge =
+                    uiState.hideNewSeasonBadge,
                 focusedPosterBackdropTrailerMuted =
                     rowsBoundaryFocusedPosterBackdropTrailerMuted,
                 activeRowKeyState =

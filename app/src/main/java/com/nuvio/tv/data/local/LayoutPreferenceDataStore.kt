@@ -99,6 +99,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val detailPageTrailerButtonEnabledKey = booleanPreferencesKey("detail_page_trailer_button_enabled")
     private val preferExternalMetaAddonDetailKey = booleanPreferencesKey("prefer_external_meta_addon_detail")
     private val hideUnreleasedContentKey = booleanPreferencesKey("hide_unreleased_content")
+    private val hideNewSeasonBadgeKey = booleanPreferencesKey("hide_new_season_badge")
     private val focusedPosterNoBackdropImageKey = booleanPreferencesKey("focused_poster_no_backdrop_image")
     private val heroTrailerAllowLetterboxingKey = booleanPreferencesKey("hero_trailer_allow_letterboxing")
     private val aggregateStreamingPlatformsKey = booleanPreferencesKey("aggregate_streaming_platforms")
@@ -312,6 +313,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val hideUnreleasedContent: Flow<Boolean> = profileFlow { prefs ->
         prefs[hideUnreleasedContentKey] ?: false
+    }
+
+    val hideNewSeasonBadge: Flow<Boolean> = profileFlow { prefs ->
+        prefs[hideNewSeasonBadgeKey] ?: false
     }
 
     val focusedPosterNoBackdropImage: Flow<Boolean> = profileFlow { prefs ->
@@ -681,6 +686,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setHideUnreleasedContent(enabled: Boolean) {
         store().edit { prefs ->
             prefs[hideUnreleasedContentKey] = enabled
+        }
+    }
+
+    suspend fun setHideNewSeasonBadge(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[hideNewSeasonBadgeKey] = enabled
         }
     }
 

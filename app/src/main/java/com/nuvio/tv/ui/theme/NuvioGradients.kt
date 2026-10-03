@@ -28,4 +28,14 @@ object NuvioGradients {
         center = Offset.Zero,
         radius = 120f
     )
+
+    val ComingSoonHeroPill: Brush = Brush.radialGradient(
+        colors = listOf(
+            HomePurple,
+            HomePurpleMid,
+            HomeCyan
+        ),
+        center = Offset.Zero,
+        radius = 120f
+    )
 }

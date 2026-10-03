@@ -748,7 +748,7 @@ private fun HeroTitleContent(
             val hasLeadingMeta = leadingMetaText.isNotBlank()
 
             val runtimeText = preview.runtimeText
-            val releaseText = preview.comingSoonText ?: preview.yearText
+            val releaseText = preview.yearText
             val imdbText = preview.imdbText
             val hasTrailingMeta = !runtimeText.isNullOrBlank() ||
                 !releaseText.isNullOrBlank() ||

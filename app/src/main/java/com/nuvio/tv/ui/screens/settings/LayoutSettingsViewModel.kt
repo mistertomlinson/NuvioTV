@@ -50,7 +50,8 @@ data class LayoutSettingsUiState(
     val blurUnwatchedEpisodes: Boolean = false,
     val detailPageTrailerButtonEnabled: Boolean = false,
     val preferExternalMetaAddonDetail: Boolean = false,
-    val hideUnreleasedContent: Boolean = false
+    val hideUnreleasedContent: Boolean = false,
+    val hideNewSeasonBadge: Boolean = false
 )
 
 data class CatalogInfo(
@@ -110,6 +111,7 @@ sealed class LayoutSettingsEvent {
     data class SetDetailPageTrailerButtonEnabled(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetPreferExternalMetaAddonDetail(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetHideUnreleasedContent(val enabled: Boolean) : LayoutSettingsEvent()
+    data class SetHideNewSeasonBadge(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetFocusedPosterNoBackdropImage(val enabled: Boolean) : LayoutSettingsEvent()
     data class SetHeroTrailerAllowLetterboxing(val enabled: Boolean) : LayoutSettingsEvent()
     data object ResetPosterCardStyle : LayoutSettingsEvent()
@@ -288,6 +290,11 @@ class LayoutSettingsViewModel @Inject constructor(
                 updateUiStateIfChanged { it.copy(hideUnreleasedContent = enabled) }
             }
         }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.hideNewSeasonBadge.distinctUntilChanged().collectLatest { enabled ->
+                updateUiStateIfChanged { it.copy(hideNewSeasonBadge = enabled) }
+            }
+        }
         loadAvailableCatalogs()
     }
 
@@ -336,6 +343,7 @@ class LayoutSettingsViewModel @Inject constructor(
             is LayoutSettingsEvent.SetDetailPageTrailerButtonEnabled -> setDetailPageTrailerButtonEnabled(event.enabled)
             is LayoutSettingsEvent.SetPreferExternalMetaAddonDetail -> setPreferExternalMetaAddonDetail(event.enabled)
             is LayoutSettingsEvent.SetHideUnreleasedContent -> setHideUnreleasedContent(event.enabled)
+            is LayoutSettingsEvent.SetHideNewSeasonBadge -> setHideNewSeasonBadge(event.enabled)
             is LayoutSettingsEvent.SetFocusedPosterNoBackdropImage -> setFocusedPosterNoBackdropImage(event.enabled)
             is LayoutSettingsEvent.SetHeroTrailerAllowLetterboxing -> setHeroTrailerAllowLetterboxing(event.enabled)
             LayoutSettingsEvent.ResetPosterCardStyle -> resetPosterCardStyle()
@@ -573,6 +581,13 @@ class LayoutSettingsViewModel @Inject constructor(
         if (_uiState.value.hideUnreleasedContent == enabled) return
         viewModelScope.launch {
             layoutPreferenceDataStore.setHideUnreleasedContent(enabled)
+        }
+    }
+
+    private fun setHideNewSeasonBadge(enabled: Boolean) {
+        if (_uiState.value.hideNewSeasonBadge == enabled) return
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setHideNewSeasonBadge(enabled)
         }
     }
 

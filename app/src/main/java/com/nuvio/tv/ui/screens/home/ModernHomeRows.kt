@@ -216,6 +216,7 @@ private fun ModernCatalogRowItem(
     expandedTrailerPreviewUrl: String?,
     expandedTrailerPreviewAudioUrl: String?,
     isWatched: Boolean,
+    hideNewSeasonBadge: Boolean,
     showHeavyOverlays: Boolean,
     heavyOverlayAlpha: State<Float>,
     cardDepthAlpha: State<Float>,
@@ -399,7 +400,14 @@ private fun ModernCatalogRowItem(
         trailerPreviewUrl = trailerPreviewUrl,
         trailerPreviewAudioUrl = trailerPreviewAudioUrl,
         isWatched = isWatched,
-        isNewSeason = item.isNewSeason,
+        isNewSeason =
+            item.isNewSeason &&
+                !(
+                    hideNewSeasonBadge &&
+                        item.metaPreview
+                            ?.behaviorHints
+                            ?.comingSoon == true
+                ),
         releaseReminderBadge = item.releaseReminderBadge,
         showHeavyOverlays = showHeavyOverlays,
         heavyOverlayAlpha = heavyOverlayAlpha,
@@ -447,6 +455,7 @@ internal fun ModernRowSection(
     heavyOverlayAlpha: State<Float>,
     cardDepthAlpha: State<Float>,
     rowTitleBottom: Dp,
+    hideNewSeasonBadge: Boolean = false,
     defaultBringIntoViewSpec: BringIntoViewSpec,
     focusStateCatalogRowScrollStates: Map<String, Int>,
     uiCaches: ModernHomeUiCaches,
@@ -576,7 +585,10 @@ internal fun ModernRowSection(
             text = row.title,
             style = rowTitleStyle,
             color = NuvioColors.TextPrimary,
-            modifier = Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
+            modifier = Modifier.padding(
+                start = 52.dp,
+                bottom = rowTitleBottom
+            )
         )
 
         val isCwRow = row.key == "continue_watching"
@@ -1219,6 +1231,7 @@ internal fun ModernRowSection(
                                         expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
                                         expandedTrailerPreviewAudioUrl = expandedTrailerPreviewAudioUrl,
                                         isWatched = isWatched,
+                                        hideNewSeasonBadge = hideNewSeasonBadge,
                                         showHeavyOverlays = showHeavyOverlays,
                                         heavyOverlayAlpha = heavyOverlayAlpha,
                                         cardDepthAlpha = cardDepthAlpha,
@@ -1259,6 +1272,7 @@ internal fun ModernRowSection(
                                     expandedTrailerPreviewUrl = expandedTrailerPreviewUrl,
                                     expandedTrailerPreviewAudioUrl = expandedTrailerPreviewAudioUrl,
                                     isWatched = isWatched,
+                                    hideNewSeasonBadge = hideNewSeasonBadge,
                                     showHeavyOverlays = showHeavyOverlays,
                                     heavyOverlayAlpha = heavyOverlayAlpha,
                                     cardDepthAlpha = cardDepthAlpha,

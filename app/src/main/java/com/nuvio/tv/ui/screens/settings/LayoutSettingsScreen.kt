@@ -499,6 +499,17 @@ fun LayoutSettingsContent(
                         },
                         onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
                     )
+                    CompactToggleRow(
+                        title = stringResource(R.string.layout_hide_new_season_badge),
+                        subtitle = stringResource(R.string.layout_hide_new_season_badge_sub),
+                        checked = uiState.hideNewSeasonBadge,
+                        onToggle = {
+                            viewModel.onEvent(
+                                LayoutSettingsEvent.SetHideNewSeasonBadge(!uiState.hideNewSeasonBadge)
+                            )
+                        },
+                        onFocused = { focusedSection = LayoutSettingsSection.HOME_CONTENT }
+                    )
                 }
             }
 

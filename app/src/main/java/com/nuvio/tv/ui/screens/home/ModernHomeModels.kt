@@ -454,7 +454,25 @@ internal fun buildCatalogItem(
             else -> item.apiType.replaceFirstChar { ch -> ch.uppercase() }
         },
         isSeries = isSeriesType(item.apiType),
-        yearText = extractYear(item.releaseInfo),
+        yearText =
+            extractYear(item.releaseInfo)
+                ?: item.behaviorHints
+                    ?.takeIf { it.comingSoon == true }
+                    ?.let { hints ->
+                        hints.releaseYear
+                            ?.trim()
+                            ?.takeIf { value ->
+                                value.length == 4 &&
+                                    value.all(Char::isDigit)
+                            }
+                            ?: hints.releaseDate
+                                ?.trim()
+                                ?.take(4)
+                                ?.takeIf { value ->
+                                    value.length == 4 &&
+                                        value.all(Char::isDigit)
+                                }
+                    },
         runtimeText = if (item.behaviorHints?.comingSoon == true) {
             null
         } else {

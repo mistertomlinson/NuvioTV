@@ -3,6 +3,8 @@ package com.nuvio.tv.ui.screens.home
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -316,8 +318,81 @@ fun HomeScreen(
         mutableStateOf<HomePosterOptionsTarget?>(null)
     }
     val homePopupHazeState = remember { HazeState() }
+
+    /*
+     * Separate Haze source for the Coming Soon glass.
+     *
+     * This prevents the badge from sampling itself while allowing the
+     * OUTER popup Haze source to capture the fully-rendered badge.
+     */
+    val comingSoonGlassHazeState = remember { HazeState() }
+
     val homePopupBlurEnabled =
         android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+
+    /*
+     * Coming Soon glass is rendered OUTSIDE the captured Home content.
+     * ModernHomeContent reports only its current label here.
+     */
+    var comingSoonGlassText by
+        remember(uiState.homeLoadSessionId) {
+            mutableStateOf<String?>(null)
+        }
+
+    /*
+     * One authoritative visibility clock for the Coming Soon glass effect.
+     *
+     * The shell still uses AnimatedVisibility for its visual alpha, while this
+     * progress drives the actual Haze strength on the SAME timing:
+     *
+     *   enter: 0 -> 1 over 240ms
+     *   exit : 1 -> 0 over 300ms
+     *
+     * Therefore the blur cannot remain behind after the badge has disappeared.
+     */
+    val comingSoonGlassVisibilityProgress =
+        remember(uiState.homeLoadSessionId) {
+            androidx.compose.animation.core.Animatable(0f)
+        }
+
+    var comingSoonGlassHazeHold by
+        remember(uiState.homeLoadSessionId) {
+            mutableStateOf(false)
+        }
+
+    LaunchedEffect(
+        comingSoonGlassText != null
+    ) {
+        if (comingSoonGlassText != null) {
+            /*
+             * Source must exist before hazeChild begins appearing.
+             */
+            comingSoonGlassHazeHold = true
+
+            comingSoonGlassVisibilityProgress.animateTo(
+                targetValue = 1f,
+                animationSpec =
+                    tween(
+                        durationMillis = 240
+                    )
+            )
+        } else {
+            /*
+             * Blur strength falls with the badge's 300ms exit fade.
+             * Remove the Haze source only after blur has reached zero.
+             */
+            comingSoonGlassVisibilityProgress.animateTo(
+                targetValue = 0f,
+                animationSpec =
+                    tween(
+                        durationMillis = 300
+                    )
+            )
+
+            comingSoonGlassHazeHold = false
+        }
+    }
+
     var continueWatchingPopupVisible by remember { mutableStateOf(false) }
     var preserveCatalogTrailerPlayback by remember { mutableStateOf(false) }
 
@@ -343,6 +418,14 @@ fun HomeScreen(
             uiState.showWatchedRatingOverlay ||
             watchedRatingHandoffActive ||
             continueWatchingPopupVisible
+
+    /*
+     * Do NOT run Home's Haze capture during ordinary navigation.
+     *
+     * Capture exists only while:
+     *  - a normal Home popup needs it, or
+     *  - the Coming Soon glass pill is actually visible.
+     */
     val homeContentFocusRequester = LocalContentFocusRequester.current
     val homeRowFocusRestorer = LocalRowFocusRestorer.current
     var homePopupWasVisible by remember { mutableStateOf(false) }
@@ -478,6 +561,30 @@ fun HomeScreen(
         )
     }
 
+    /*
+     * OUTER capture layer:
+     *
+     * The popup Dialog samples this state. It deliberately wraps both Home
+     * AND the Coming Soon badge so the popup blurs the badge's text, glass
+     * and light edge exactly like everything else behind it.
+     */
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(
+                if (
+                    homePopupBlurEnabled &&
+                    homePopupVisible
+                ) {
+                    Modifier.haze(
+                        homePopupHazeState
+                    )
+                } else {
+                    Modifier
+                }
+            )
+    ) {
+
     CompositionLocalProvider(
         LocalHomePopupGlassEnvironment provides HomePopupGlassEnvironment(
             hazeState = homePopupHazeState,
@@ -503,8 +610,20 @@ fun HomeScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .then(
-                    if (homePopupBlurEnabled && homePopupVisible) {
-                        Modifier.haze(homePopupHazeState)
+                    if (
+                        homePopupBlurEnabled &&
+                        comingSoonGlassHazeHold
+                    ) {
+                        /*
+                         * INNER capture layer:
+                         *
+                         * Home pixels only. The Coming Soon badge itself is
+                         * rendered after this source, so hazeChild cannot
+                         * accidentally sample its own text or edge.
+                         */
+                        Modifier.haze(
+                            comingSoonGlassHazeState
+                        )
                 } else {
                     Modifier
                 }
@@ -898,6 +1017,9 @@ fun HomeScreen(
                                         addonBaseUrl = addonBaseUrl,
                                         isFromMyList = viewModel.isInWatchlist(item.id, item.apiType)
                                     )
+                                },
+                                onComingSoonGlassTextChanged = {
+                                    comingSoonGlassText = it
                                 }
                             )
                         }
@@ -937,6 +1059,69 @@ fun HomeScreen(
             }
         }
         }
+    }
+
+    var retainedComingSoonGlassDisplayText by
+        remember(uiState.homeLoadSessionId) {
+            mutableStateOf<String?>(null)
+        }
+
+    LaunchedEffect(comingSoonGlassText) {
+        comingSoonGlassText?.let {
+            retainedComingSoonGlassDisplayText = it
+        }
+    }
+
+    /*
+     * Fade the complete glass object as a unit.
+     *
+     * Width stretching remains the existing spring.
+     * Title-to-title text changes remain the existing 160ms Crossfade.
+     */
+    AnimatedVisibility(
+        visible =
+            uiState.homeLayout == HomeLayout.MODERN &&
+                comingSoonGlassText != null,
+        enter =
+            fadeIn(
+                animationSpec =
+                    tween(
+                        durationMillis = 240
+                    )
+            ),
+        exit =
+            fadeOut(
+                animationSpec =
+                    tween(
+                        durationMillis = 300
+                    )
+            )
+    ) {
+        val displayText =
+            comingSoonGlassText
+                ?: retainedComingSoonGlassDisplayText
+
+        if (displayText != null) {
+            ComingSoonHomeGlassPill(
+                text = displayText,
+                hazeState =
+                    comingSoonGlassHazeState,
+                blurEnabled =
+                    homePopupBlurEnabled,
+                glassVisibilityProgress =
+                    comingSoonGlassVisibilityProgress.value,
+                useLandscapePosters =
+                    uiState.modernLandscapePostersEnabled
+            )
+        }
+    }
+
+    /*
+     * End OUTER popup Haze source.
+     *
+     * Popup dialogs below this point remain outside their source and sample it
+     * through homePopupHazeState, exactly as Haze requires.
+     */
     }
 
     val userMessage = uiState.userMessage
@@ -1151,7 +1336,8 @@ private fun ModernHomeRoute(
     onContinueWatchingPlayManually: (ContinueWatchingItem) -> Unit,
     showContinueWatchingManualPlayOption: Boolean,
     isCatalogItemWatched: (MetaPreview) -> Boolean,
-    onCatalogItemLongPress: (MetaPreview, String) -> Unit
+    onCatalogItemLongPress: (MetaPreview, String) -> Unit,
+    onComingSoonGlassTextChanged: (String?) -> Unit
 ) {
     val focusState by viewModel.focusState.collectAsStateWithLifecycle()
     val enrichingItemId by viewModel.enrichingItemId.collectAsStateWithLifecycle()
@@ -1456,7 +1642,9 @@ private fun ModernHomeRoute(
         isAtTop = isAtTop,
         onBackdropPreloadSizeKnown = { w, h ->
             viewModel.setBackdropPreloadSize(w, h)
-        }
+        },
+        onComingSoonGlassTextChanged =
+            onComingSoonGlassTextChanged
     )
     }
 
@@ -1529,6 +1717,332 @@ private fun ModernHomeRoute(
     }
 
     } // end Box
+}
+
+@Composable
+private fun ComingSoonHomeGlassPill(
+    text: String,
+    hazeState: HazeState,
+    blurEnabled: Boolean,
+    glassVisibilityProgress: Float,
+    useLandscapePosters: Boolean
+) {
+    val pillHeight = 26.dp
+    val pillShape = remember {
+        RoundedCornerShape(7.dp)
+    }
+
+    val density =
+        androidx.compose.ui.platform.LocalDensity.current
+
+    val baseTextStyle =
+        MaterialTheme.typography.labelMedium
+
+    val textStyle =
+        remember(baseTextStyle) {
+            baseTextStyle.copy(
+                fontWeight =
+                    androidx.compose.ui.text.font
+                        .FontWeight.SemiBold
+            )
+        }
+
+    val textMeasurer =
+        androidx.compose.ui.text
+            .rememberTextMeasurer()
+
+    val targetWidthPx =
+        remember(
+            text,
+            textStyle,
+            density
+        ) {
+            val measured =
+                textMeasurer.measure(
+                    text = text,
+                    style = textStyle,
+                    maxLines = 1
+                )
+
+            measured.size.width.toFloat() +
+                with(density) {
+                    20.dp.toPx()
+                }
+        }
+
+    val widthAnim =
+        remember {
+            androidx.compose.animation.core
+                .Animatable(0f)
+        }
+
+    var initialized by
+        remember {
+            mutableStateOf(false)
+        }
+
+    var displayText by
+        remember {
+            mutableStateOf(text)
+        }
+
+    LaunchedEffect(
+        text,
+        targetWidthPx
+    ) {
+        displayText = text
+
+        if (!initialized) {
+            widthAnim.snapTo(
+                targetWidthPx
+            )
+            initialized = true
+        } else {
+            widthAnim.animateTo(
+                targetValue =
+                    targetWidthPx,
+                animationSpec =
+                    androidx.compose.animation.core
+                        .tween(
+                            durationMillis = 250,
+                            easing =
+                                androidx.compose.animation.core
+                                    .CubicBezierEasing(
+                                        0.2f,
+                                        0f,
+                                        0f,
+                                        1f
+                                    )
+                        )
+            )
+        }
+    }
+
+    val animatedWidth =
+        with(density) {
+            /*
+             * widthAnim is already expressed in physical pixels.
+             *
+             * Snap only the rendered layout width to the nearest whole
+             * physical pixel. The underlying 250ms Animatable remains
+             * continuous, so its easing curve is unchanged.
+             */
+            (
+                widthAnim.value
+                    .coerceAtLeast(0f) +
+                    0.5f
+            )
+                .toInt()
+                .toDp()
+        }
+
+    /*
+     * Exact Modern sidebar visual family.
+     */
+    val glassBrush =
+        remember {
+            Brush.verticalGradient(
+                listOf(
+                    /*
+                     * Same popup glass hue, but intentionally clearer because
+                     * this surface is only 26dp tall.
+                     *
+                     * Alpha:
+                     * 0x8F ~= 56%
+                     * 0x82 ~= 51%
+                     * 0x89 ~= 54%
+                     */
+                    Color(0x8F2A3038),
+                    Color(0x8220252C),
+                    Color(0x8924292F)
+                )
+            )
+        }
+
+    val glassBorder =
+        Color.White.copy(
+            alpha = 0.09f
+        )
+
+    val blurModifier =
+        if (blurEnabled) {
+            Modifier.hazeChild(
+                state = hazeState,
+                shape = pillShape,
+                tint = Color.Unspecified,
+                /*
+                 * Android RenderEffect cannot create a blur at 0 radius.
+                 *
+                 * Follow the same proven pattern used by Nuvio's popup glass:
+                 * keep the native blur strictly positive while the hazeChild
+                 * exists, from 1dp at zero visibility to 30dp at full glass.
+                 *
+                 * AnimatedVisibility reaches alpha 0 before the Haze source is
+                 * removed, so this 1dp floor is not visually left behind.
+                 */
+                blurRadius =
+                    (
+                        1f +
+                            (
+                                29f *
+                                    glassVisibilityProgress
+                                        .coerceIn(0f, 1f)
+                            )
+                    ).dp,
+                noiseFactor =
+                    0.025f *
+                        glassVisibilityProgress
+                            .coerceIn(0f, 1f)
+            )
+        } else {
+            Modifier
+        }
+
+    /*
+     * This full-screen overlay is OUTSIDE Home's Haze source.
+     */
+    androidx.compose.foundation.layout.BoxWithConstraints(
+        modifier =
+            Modifier.fillMaxSize()
+    ) {
+        val rowsViewportHeightFraction =
+            if (useLandscapePosters) {
+                0.49f
+            } else {
+                0.52f
+            }
+
+        val rowsViewportHeight =
+            maxHeight *
+                rowsViewportHeightFraction
+
+        val rowTitleLineHeight =
+            MaterialTheme.typography
+                .titleMedium.lineHeight
+
+        val rowTitleHeight =
+            with(density) {
+                runCatching {
+                    rowTitleLineHeight.toDp()
+                }.getOrDefault(24.dp)
+            }
+
+        val pillTop =
+            (
+                maxHeight -
+                    rowsViewportHeight +
+                    (
+                        rowTitleHeight -
+                            pillHeight
+                    ) / 2f
+            ).coerceAtLeast(0.dp)
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    top = pillTop,
+                    end = 52.dp
+                ),
+            contentAlignment =
+                Alignment.TopEnd
+        ) {
+            if (
+                animatedWidth > 0.dp
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(
+                            animatedWidth
+                        )
+                        .height(
+                            pillHeight
+                        )
+
+                        /*
+                         * Real Haze child now sits OUTSIDE its source.
+                         */
+                        .then(
+                            blurModifier
+                        )
+                        .graphicsLayer {
+                            shape = pillShape
+                            clip = true
+                        }
+                        .clip(
+                            pillShape
+                        )
+                        .background(
+                            brush =
+                                glassBrush,
+                            shape =
+                                pillShape
+                        )
+                        .border(
+                            width = 1.dp,
+                            color =
+                                glassBorder,
+                            shape =
+                                pillShape
+                        ),
+                    contentAlignment =
+                        Alignment.Center
+                ) {
+                    androidx.compose.animation.AnimatedContent(
+                    targetState = text,
+                    modifier = Modifier.fillMaxSize(),
+                    transitionSpec = {
+                        (
+                            fadeIn(
+                                animationSpec =
+                                    tween(
+                                        durationMillis = 220,
+                                        easing =
+                                            androidx.compose.animation.core
+                                                .LinearEasing
+                                    )
+                            ) togetherWith
+                                fadeOut(
+                                    animationSpec =
+                                        tween(
+                                            durationMillis = 220,
+                                            easing =
+                                                androidx.compose.animation.core
+                                                    .LinearEasing
+                                        )
+                                )
+                        ).using(
+                            sizeTransform = null
+                        )
+                    },
+                    contentAlignment = Alignment.Center,
+                    label = "comingSoonHomeGlassText"
+                ) { animatedText ->
+                    /*
+                     * Every transition state occupies the SAME geometry.
+                     *
+                     * This deliberately prevents the old and new strings
+                     * from participating in pill measurement while its width
+                     * is independently animating.
+                     */
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = animatedText,
+                            style =
+                                MaterialTheme.typography.labelMedium,
+                            color = NuvioColors.TextPrimary,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+                }
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
