@@ -704,6 +704,7 @@ class HomeViewModel @Inject constructor(
     internal val cwBadgeNextSeasonMs = Collections.synchronizedMap(mutableMapOf<String, Long>())
     @Volatile
     internal var cwLastBadgeEpisodeKeys: Set<String> = emptySet()
+    internal var cwLastBadgeEpisodeCounts: Map<String, Int> = emptyMap()
     internal val cwTmdbIdCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
     internal val cwNextUpResolutionCache = Collections.synchronizedMap(mutableMapOf<String, NextUpResolution?>())
     internal val cwNextUpNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
@@ -921,6 +922,7 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
+                    cwLastBadgeEpisodeCounts = emptyMap()
                     _fullCatalogRows.value = emptyList()
                     _uiState.update {
                         it.copy(
@@ -973,6 +975,7 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
+                    cwLastBadgeEpisodeCounts = emptyMap()
                     _uiState.update { it.copy(continueWatchingItems = emptyList(), continueWatchingEnrichmentReady = false) }
                     cwPipelineRefreshTrigger.value++
                 }
