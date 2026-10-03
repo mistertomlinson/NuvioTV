@@ -80,6 +80,7 @@ data class HomeUiState(
     val startupAuthNotice: StartupAuthNotice? = null,
     val aggregateStreamingPlatformsEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
+    val doubleUpPlatformShortcutEnabled: Boolean = true,
     val fullWidthIconRowEnabled: Boolean = false,
     val heroMetadataLarge: Boolean = false,
     val dimIconsOnRowExitEnabled: Boolean = false,
