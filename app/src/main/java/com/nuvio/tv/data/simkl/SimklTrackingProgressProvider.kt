@@ -270,12 +270,14 @@ class SimklTrackingProgressProvider @Inject constructor(
         progressList: List<WatchProgress>
     ) {
         if (progressList.isEmpty()) return
-        val completed = progressList.filter(WatchProgress::isCompleted)
+        val completed = progressList.filter { progress ->
+            progress.isCompleted()
+        }
         if (completed.isNotEmpty()) {
             durableProgressStore.removeProgressBatch(completed)
         }
         progressList
-            .filterNot(WatchProgress::isCompleted)
+            .filterNot { progress -> progress.isCompleted() }
             .forEach { progress -> persistDurableProgress(progress) }
     }
 
