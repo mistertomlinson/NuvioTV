@@ -43,6 +43,7 @@ import com.nuvio.tv.core.util.isUnreleased
 import java.time.LocalDate
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
@@ -59,6 +60,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import android.content.Context
 import com.nuvio.tv.R
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -2095,85 +2097,306 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun markSeasonWatched(season: Int) {
         val meta = _uiState.value.meta ?: return
+
         viewModelScope.launch {
-            val episodes = meta.videos.filter { it.season == season && it.episode != null }
+            /*
+             * Take one state snapshot. Do not let provider emissions that occur
+             * while the mutation is running change which episodes belong to
+             * this user action.
+             */
+            val state = _uiState.value
+
+            val episodes =
+                meta.videos.filter { video ->
+                    video.season == season &&
+                        video.episode != null
+                }
+
             val unwatched = episodes.filter { video ->
-                val s = video.season!!
-                val e = video.episode!!
-                val isWatched = _uiState.value.episodeProgressMap[s to e]?.isCompleted() == true
-                    || _uiState.value.watchedEpisodes.contains(s to e)
-                !isWatched
+                val episode =
+                    video.episode
+                        ?: return@filter false
+
+                val key = season to episode
+
+                state.episodeProgressMap[key]
+                    ?.isCompleted() != true &&
+                    key !in state.watchedEpisodes
             }
+
             if (unwatched.isEmpty()) {
-                showMessage(context.getString(R.string.detail_all_episodes_watched))
+                showMessage(
+                    context.getString(
+                        R.string.detail_all_episodes_watched
+                    )
+                )
                 return@launch
             }
 
-            val pendingKeys = unwatched.map { episodePendingKey(it) }.toSet()
-            _uiState.update {
-                it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys + pendingKeys)
+            val pendingKeys =
+                unwatched
+                    .map(::episodePendingKey)
+                    .toSet()
+
+            val coordinates =
+                unwatched
+                    .mapNotNull { video ->
+                        val s =
+                            video.season
+                                ?: return@mapNotNull null
+                        val e =
+                            video.episode
+                                ?: return@mapNotNull null
+
+                        s to e
+                    }
+                    .toSet()
+
+            val previousOverrides =
+                coordinates.associateWith { coordinate ->
+                    optimisticWatchedEpisodeOverrides
+                        .value[coordinate]
+                }
+
+            /*
+             * Flip the entire season visually in one state update. The old
+             * implementation waited for every episode write individually,
+             * which is why the checkmarks visibly marched across the row.
+             */
+            optimisticWatchedEpisodeOverrides.update { current ->
+                current +
+                    coordinates.associateWith { true }
             }
 
-            var marked = 0
-            for (video in unwatched) {
-                val key = episodePendingKey(video)
-                runCatching {
-                    watchProgressRepository.markAsCompleted(buildCompletedEpisodeProgress(meta, video))
-                    marked++
-                }.onFailure { error ->
-                    Log.w(TAG, "Failed to mark S${video.season}E${video.episode} as watched: ${error.message}")
-                }
-                _uiState.update {
-                    it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys - key)
-                }
+            _uiState.update { current ->
+                current.copy(
+                    episodeWatchedPendingKeys =
+                        current.episodeWatchedPendingKeys +
+                            pendingKeys
+                )
             }
 
-            showMessage(context.getString(R.string.detail_marked_episodes_watched, marked))
+            /*
+             * Once the user confirms this history mutation it must finish even
+             * if Details is popped from navigation and viewModelScope is
+             * cancelled. The actual remote/local mutation is a single batch.
+             */
+            withContext(NonCancellable) {
+                try {
+                    val progress =
+                        unwatched.map { video ->
+                            meta.buildCompletedSeriesEpisodeProgress(
+                                parentContentId = itemId,
+                                video = video
+                            )
+                        }
 
-            // Clean up any stale Trakt playback records so CW shows correct Next Up
-            runCatching {
-                watchProgressRepository.removeProgress(itemId, season = null, episode = null)
-            }.onFailure { error ->
-                Log.w(TAG, "Failed to remove stale playback records after markSeasonWatched: ${error.message}")
+                    watchProgressRepository
+                        .markAsCompletedBatch(progress)
+
+                    /*
+                     * Preserve the old season-action cleanup so stale playback
+                     * cannot compete with the new watched state in CW/Next Up.
+                     */
+                    runCatching {
+                        watchProgressRepository.removeProgress(
+                            itemId,
+                            season = null,
+                            episode = null
+                        )
+                    }.onFailure { error ->
+                        Log.w(
+                            TAG,
+                            "Failed to remove stale playback after " +
+                                "markSeasonWatched: ${error.message}"
+                        )
+                    }
+
+                    showMessage(
+                        context.getString(
+                            R.string.detail_marked_episodes_watched,
+                            progress.size
+                        )
+                    )
+                } catch (error: Throwable) {
+                    optimisticWatchedEpisodeOverrides.update {
+                            current ->
+                        current.toMutableMap().apply {
+                            previousOverrides.forEach {
+                                    (coordinate, oldValue) ->
+                                if (oldValue == null) {
+                                    remove(coordinate)
+                                } else {
+                                    this[coordinate] =
+                                        oldValue
+                                }
+                            }
+                        }
+                    }
+
+                    if (error is CancellationException) {
+                        throw error
+                    }
+
+                    Log.w(
+                        TAG,
+                        "Failed to mark season $season watched: " +
+                            error.message
+                    )
+
+                    showMessage(
+                        error.message
+                            ?: "Failed to mark season watched",
+                        isError = true
+                    )
+                } finally {
+                    _uiState.update { current ->
+                        current.copy(
+                            episodeWatchedPendingKeys =
+                                current.episodeWatchedPendingKeys -
+                                    pendingKeys
+                        )
+                    }
+                }
             }
         }
     }
 
     private fun markSeasonUnwatched(season: Int) {
         val meta = _uiState.value.meta ?: return
+
         viewModelScope.launch {
-            val episodes = meta.videos.filter { it.season == season && it.episode != null }
+            val state = _uiState.value
+
+            val episodes =
+                meta.videos.filter { video ->
+                    video.season == season &&
+                        video.episode != null
+                }
+
             val watched = episodes.filter { video ->
-                val s = video.season!!
-                val e = video.episode!!
-                _uiState.value.episodeProgressMap[s to e]?.isCompleted() == true
-                    || _uiState.value.watchedEpisodes.contains(s to e)
+                val episode =
+                    video.episode
+                        ?: return@filter false
+
+                val key = season to episode
+
+                state.episodeProgressMap[key]
+                    ?.isCompleted() == true ||
+                    key in state.watchedEpisodes
             }
+
             if (watched.isEmpty()) {
-                showMessage(context.getString(R.string.detail_no_watched_episodes))
+                showMessage(
+                    context.getString(
+                        R.string.detail_no_watched_episodes
+                    )
+                )
                 return@launch
             }
 
-            val pendingKeys = watched.map { episodePendingKey(it) }.toSet()
-            _uiState.update {
-                it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys + pendingKeys)
+            val pendingKeys =
+                watched
+                    .map(::episodePendingKey)
+                    .toSet()
+
+            val coordinates =
+                watched
+                    .mapNotNull { video ->
+                        val s =
+                            video.season
+                                ?: return@mapNotNull null
+                        val e =
+                            video.episode
+                                ?: return@mapNotNull null
+
+                        s to e
+                    }
+                    .toSet()
+
+            val previousOverrides =
+                coordinates.associateWith { coordinate ->
+                    optimisticWatchedEpisodeOverrides
+                        .value[coordinate]
+                }
+
+            /*
+             * Remove every visible watched state together rather than one
+             * episode at a time.
+             */
+            optimisticWatchedEpisodeOverrides.update { current ->
+                current +
+                    coordinates.associateWith { false }
             }
 
-            var unmarked = 0
-            for (video in watched) {
-                val key = episodePendingKey(video)
-                runCatching {
-                    watchProgressRepository.removeFromHistory(itemId, videoId = resolveFallbackVideoId(), season = video.season!!, episode = video.episode!!)
-                    unmarked++
-                }.onFailure { error ->
-                    Log.w(TAG, "Failed to unmark S${video.season}E${video.episode}: ${error.message}")
-                }
-                _uiState.update {
-                    it.copy(episodeWatchedPendingKeys = it.episodeWatchedPendingKeys - key)
-                }
+            _uiState.update { current ->
+                current.copy(
+                    episodeWatchedPendingKeys =
+                        current.episodeWatchedPendingKeys +
+                            pendingKeys
+                )
             }
 
-            showMessage(context.getString(R.string.detail_marked_episodes_unwatched, unmarked))
+            withContext(NonCancellable) {
+                try {
+                    val progress =
+                        watched.map { video ->
+                            meta.buildCompletedSeriesEpisodeProgress(
+                                parentContentId = itemId,
+                                video = video
+                            )
+                        }
+
+                    watchProgressRepository
+                        .removeFromHistoryBatch(progress)
+
+                    showMessage(
+                        context.getString(
+                            R.string.detail_marked_episodes_unwatched,
+                            progress.size
+                        )
+                    )
+                } catch (error: Throwable) {
+                    optimisticWatchedEpisodeOverrides.update {
+                            current ->
+                        current.toMutableMap().apply {
+                            previousOverrides.forEach {
+                                    (coordinate, oldValue) ->
+                                if (oldValue == null) {
+                                    remove(coordinate)
+                                } else {
+                                    this[coordinate] =
+                                        oldValue
+                                }
+                            }
+                        }
+                    }
+
+                    if (error is CancellationException) {
+                        throw error
+                    }
+
+                    Log.w(
+                        TAG,
+                        "Failed to mark season $season unwatched: " +
+                            error.message
+                    )
+
+                    showMessage(
+                        error.message
+                            ?: "Failed to mark season unwatched",
+                        isError = true
+                    )
+                } finally {
+                    _uiState.update { current ->
+                        current.copy(
+                            episodeWatchedPendingKeys =
+                                current.episodeWatchedPendingKeys -
+                                    pendingKeys
+                        )
+                    }
+                }
+            }
         }
     }
 
