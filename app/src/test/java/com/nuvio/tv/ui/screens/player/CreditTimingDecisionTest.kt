@@ -48,6 +48,136 @@ class CreditTimingDecisionTest {
     }
 
     @Test
+    fun `completion waits for initial credits even above eighty five percent`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.COMPLETE,
+            creditsStartMs = 95_000L,
+            finalCreditsStartMs = 120_000L
+        )
+
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 90_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 95_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `initial credits complete title without requiring post credit scenes`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.COMPLETE,
+            creditsStartMs = 80_000L,
+            finalCreditsStartMs = 120_000L,
+            hasPostCreditScenes = true,
+            postCreditScenes = listOf(
+                PostCreditSceneTiming(
+                    startMs = 95_000L,
+                    endMs = 105_000L
+                )
+            )
+        )
+
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 80_000L,
+                durationMs = 130_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `running analyzer without timestamp never uses percentage completion`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.RUNNING
+        )
+
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 99_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `eighty five percent is used only after analyzer fallback`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.FALLBACK
+        )
+
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 84_999L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 85_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `fallback timestamp still beats percentage`() {
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.FALLBACK,
+            creditsStartMs = 95_000L
+        )
+
+        assertFalse(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 90_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = timing,
+                positionMs = 95_000L,
+                durationMs = 100_000L,
+                playbackEnded = false
+            )
+        )
+    }
+
+    @Test
+    fun `natural playback end always completes`() {
+        assertTrue(
+            shouldTreatPlaybackAsCompleted(
+                timing = CreditTimingUiState(
+                    status = CreditTimingStatus.RUNNING
+                ),
+                positionMs = 50_000L,
+                durationMs = 100_000L,
+                playbackEnded = true
+            )
+        )
+    }
+
+    @Test
     fun `consumed post credit scene is not offered again after rewind`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.COMPLETE,
