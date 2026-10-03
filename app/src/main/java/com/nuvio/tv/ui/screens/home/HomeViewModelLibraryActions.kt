@@ -96,22 +96,16 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
     } else item
 
     viewModelScope.launch {
-        val sourceMode = libraryRepository.sourceMode.first()
+        /*
+         * "My List" means the provider's watchlist/default-list membership,
+         * not any provider library status.  In Simkl, Completed/Watching/etc.
+         * are library statuses too and must not be mistaken for Plan to Watch.
+         */
         val wasInDefaultList = runCatching {
-            when (sourceMode) {
-                LibrarySourceMode.SIMKL ->
-                    libraryRepository.isInLibrary(
-                        itemId = item.id,
-                        itemType = item.apiType
-                    ).first()
-
-                LibrarySourceMode.TRAKT,
-                LibrarySourceMode.LOCAL ->
-                    libraryRepository.isInWatchlist(
-                        itemId = item.id,
-                        itemType = item.apiType
-                    ).first()
-            }
+            libraryRepository.isInWatchlist(
+                itemId = item.id,
+                itemType = item.apiType
+            ).first()
         }.getOrDefault(false)
 
         val result = runCatching {
@@ -127,6 +121,9 @@ fun HomeViewModel.togglePosterLibrary(item: MetaPreview, addonBaseUrl: String?) 
                 HomeViewModel.TAG,
                 "Failed to toggle poster library for ${item.id}: " +
                     error.message
+            )
+            showHomeMessage(
+                error.message ?: "Failed to update My List"
             )
         }
 
