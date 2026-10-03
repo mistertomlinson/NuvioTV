@@ -235,19 +235,28 @@ private suspend fun HomeViewModel.resolveBadgeSeriesStatus(
      * This runs only on the existing badge IO worker and only when status is
      * missing.  Nothing is added to composition, focus, or the scroll path.
      */
-    return withTimeoutOrNull(4_000L) {
-        val tmdbId =
-            tmdbService.ensureTmdbId(
-                contentId,
-                contentType
-            ) ?: return@withTimeoutOrNull null
+    val repairedStatus =
+        try {
+            withTimeoutOrNull(4_000L) {
+                val tmdbId =
+                    tmdbService.ensureTmdbId(
+                        contentId,
+                        contentType
+                    ) ?: return@withTimeoutOrNull null
 
-        tmdbMetadataService.fetchFreshStatus(
-            tmdbId = tmdbId,
-            contentType = ContentType.SERIES,
-            language = currentTmdbSettings.language
-        )
-    }
+                tmdbMetadataService.fetchFreshStatus(
+                    tmdbId = tmdbId,
+                    contentType = ContentType.SERIES,
+                    language = currentTmdbSettings.language
+                )
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+
+    return repairedStatus
         ?.trim()
         ?.takeIf { it.isNotBlank() }
 }
