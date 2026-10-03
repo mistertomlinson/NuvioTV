@@ -1334,19 +1334,18 @@ class WatchProgressRepositoryImpl @Inject constructor(
             }
         }
 
-        completed.forEach { progress ->
-            watchProgressPreferences.markAsCompleted(progress)
-            watchedItemsPreferences.markAsWatched(
-                WatchedItem(
-                    contentId = progress.contentId,
-                    contentType = progress.contentType,
-                    title = progress.name,
-                    season = progress.season,
-                    episode = progress.episode,
-                    watchedAt = progress.lastWatched
-                )
+        val watchedItems = completed.map { progress ->
+            WatchedItem(
+                contentId = progress.contentId,
+                contentType = progress.contentType,
+                title = progress.name,
+                season = progress.season,
+                episode = progress.episode,
+                watchedAt = progress.lastWatched
             )
         }
+        watchProgressPreferences.markAsCompletedBatch(completed)
+        watchedItemsPreferences.markAsWatchedBatch(watchedItems)
 
         /*
          * One wake-up is enough for CW/Next Up/badges to recompute from the
@@ -1453,18 +1452,19 @@ class WatchProgressRepositoryImpl @Inject constructor(
             }
         }
 
-        distinct.forEach { progress ->
-            watchProgressPreferences.removeProgress(
-                progress.contentId,
-                progress.season,
-                progress.episode
-            )
-            watchedItemsPreferences.unmarkAsWatched(
-                progress.contentId,
-                progress.season,
-                progress.episode
-            )
-        }
+        watchProgressPreferences.removeProgressBatch(distinct)
+        watchedItemsPreferences.unmarkAsWatchedBatch(
+            distinct.map { progress ->
+                WatchedItem(
+                    contentId = progress.contentId,
+                    contentType = progress.contentType,
+                    title = progress.name,
+                    season = progress.season,
+                    episode = progress.episode,
+                    watchedAt = progress.lastWatched
+                )
+            }
+        )
 
         val profileId = profileManager.activeProfileId.value
         val removedContentKeys = distinct
