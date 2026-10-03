@@ -6,17 +6,20 @@ import android.media.audiofx.AudioEffect
 internal fun PlayerRuntimeController.releasePlayer() {
     releasePlayer(
         flushPlaybackState = true,
-        creditBoundaryGraceMs = 0L
+        creditBoundaryGraceMs = 0L,
+        allowPercentageFallback = false
     )
 }
 
 internal fun PlayerRuntimeController.releasePlayer(
     flushPlaybackState: Boolean,
-    creditBoundaryGraceMs: Long = 0L
+    creditBoundaryGraceMs: Long = 0L,
+    allowPercentageFallback: Boolean = false
 ) {
     if (flushPlaybackState) {
         flushPlaybackSnapshotForSwitchOrExit(
-            creditBoundaryGraceMs = creditBoundaryGraceMs
+            creditBoundaryGraceMs = creditBoundaryGraceMs,
+            allowPercentageFallback = allowPercentageFallback
         )
     }
 
