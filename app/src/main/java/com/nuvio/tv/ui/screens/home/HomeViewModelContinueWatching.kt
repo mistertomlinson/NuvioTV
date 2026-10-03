@@ -902,9 +902,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     // Skip badge evaluation if watched episodes haven't changed since
                     // last cycle (e.g. position save triggered pipeline restart).
                     val currentKeys = allWatchedEpisodes.keys
-                    if (currentKeys == cwLastBadgeEpisodeKeys) {
-                        // Keys unchanged — just re-run publishBadgeUpdate with cached data
-                        // in case in-memory badge episode cache was populated by a prior cycle.
+                    val staleValidationIds =
+                        fullyWatchedSeriesIds.filterStaleIds(currentKeys)
+                    if (
+                        currentKeys == cwLastBadgeEpisodeKeys &&
+                        staleValidationIds.isEmpty()
+                    ) {
+                        // Keys and metadata validation are unchanged — just re-run
+                        // the cheap cached calculation so optimistic episode writes
+                        // can add/remove a badge immediately.
                         publishBadgeUpdate(allWatchedEpisodes)
                         return@launch
                     }
@@ -920,10 +926,13 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     val resolvableIds = allWatchedEpisodes.keys.filter { contentId ->
                         if (contentId.startsWith("trakt:")) return@filter false
                         val cacheKey = "series:$contentId"
-                        synchronized(cwBadgeEpisodeCache) {
+                        val cacheMissing = synchronized(cwBadgeEpisodeCache) {
                             !cwBadgeEpisodeCache.containsKey(cacheKey) &&
                                 !cwBadgeEpisodeCache.containsKey("tv:$contentId")
                         }
+                        val validationStale =
+                            contentId in staleValidationIds
+                        cacheMissing || validationStale
                     }
                     // Build groups from sibling map: cluster IDs that belong to the same show.
                     val visited = mutableSetOf<String>()
@@ -971,7 +980,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     // Revalidation: process gently to avoid CPU/memory spikes.
                     if (revalidationGroups.isNotEmpty()) {
                         for (group in revalidationGroups) {
-                            resolveBadgeGroup(group)
+                            resolveBadgeGroup(group, forceRefresh = true)
                             kotlinx.coroutines.yield()
                         }
                     }
@@ -2489,14 +2498,21 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
  * Resolves badge episodes for a group of sibling IDs (same show).
  * Resolves only the primary ID, then cross-caches under all siblings.
  */
-private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
+private suspend fun HomeViewModel.resolveBadgeGroup(
+    group: List<String>,
+    forceRefresh: Boolean = false
+) {
     val primaryId = group.first()
-    val alreadyCached = synchronized(cwBadgeEpisodeCache) {
+    val alreadyCached = !forceRefresh && synchronized(cwBadgeEpisodeCache) {
         cwBadgeEpisodeCache.containsKey("series:$primaryId") ||
             cwBadgeEpisodeCache.containsKey("tv:$primaryId")
     }
     if (!alreadyCached) {
-        val episodes = resolveBadgeEpisodes(primaryId, "series")
+        val episodes = resolveBadgeEpisodes(
+            contentId = primaryId,
+            contentType = "series",
+            forceRefresh = forceRefresh
+        )
         if (episodes == null) {
         } else {
         }
@@ -2510,14 +2526,20 @@ private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
             }
             synchronized(cwBadgeEpisodeCache) {
                 for (siblingId in group.drop(1)) {
-                    if (!cwBadgeEpisodeCache.containsKey("series:$siblingId")) {
+                    if (
+                        forceRefresh ||
+                        !cwBadgeEpisodeCache.containsKey("series:$siblingId")
+                    ) {
                         cwBadgeEpisodeCache["series:$siblingId"] = episodes
                     }
                 }
             }
             synchronized(cwBadgeSeriesStatusCache) {
                 for (siblingId in group.drop(1)) {
-                    if (!cwBadgeSeriesStatusCache.containsKey("series:$siblingId")) {
+                    if (
+                        forceRefresh ||
+                        !cwBadgeSeriesStatusCache.containsKey("series:$siblingId")
+                    ) {
                         cwBadgeSeriesStatusCache["series:$siblingId"] = primaryStatus
                     }
                 }
@@ -2533,15 +2555,27 @@ private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
  */
 private suspend fun HomeViewModel.resolveBadgeEpisodes(
     contentId: String,
-    contentType: String
+    contentType: String,
+    forceRefresh: Boolean = false
 ): Set<Pair<Int, Int>>? {
     val cacheKey = "$contentType:$contentId"
-    synchronized(cwBadgeEpisodeCache) {
-        if (cwBadgeEpisodeCache.containsKey(cacheKey)) return cwBadgeEpisodeCache[cacheKey]
+    if (!forceRefresh) {
+        synchronized(cwBadgeEpisodeCache) {
+            if (cwBadgeEpisodeCache.containsKey(cacheKey)) {
+                return cwBadgeEpisodeCache[cacheKey]
+            }
+        }
     }
-    // If cwMetaCache already has this entry, extract from there instead of fetching again.
-    val existingSummary = synchronized(cwMetaCache) {
-        cwMetaCache[cacheKey] ?: cwMetaCache["series:$contentId"] ?: cwMetaCache["tv:$contentId"]
+    // First-time resolves can reuse CW metadata. TTL revalidation deliberately
+    // bypasses it so status changes such as Ended -> Returning are refreshed.
+    val existingSummary = if (!forceRefresh) {
+        synchronized(cwMetaCache) {
+            cwMetaCache[cacheKey]
+                ?: cwMetaCache["series:$contentId"]
+                ?: cwMetaCache["tv:$contentId"]
+        }
+    } else {
+        null
     }
     if (existingSummary != null) {
         val episodes = existingSummary.watchableEpisodes()
