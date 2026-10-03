@@ -85,7 +85,8 @@ internal data class CwMetaSummary(
     val imdbRating: Float?,
     val language: String?,
     val country: String?,
-    val videos: List<CwVideoSummary>
+    val videos: List<CwVideoSummary>,
+    val status: String? = null
 ) {
     fun watchableEpisodes(): List<CwVideoSummary> {
         val today = java.time.LocalDate.now()
@@ -117,6 +118,23 @@ internal data class CwMetaSummary(
      * Uses start-of-day so revalidation triggers right after midnight, not at
      * the exact broadcast time.
      */
+    fun releasedRegularEpisodeCoordinates(
+        today: LocalDate = LocalDate.now(ZoneId.systemDefault())
+    ): Set<Pair<Int, Int>> =
+        videos.asSequence()
+            .filter { (it.season ?: 0) > 0 }
+            .filter { it.available != false }
+            .filter { video ->
+                val releaseDate = parseEpisodeReleaseDate(video.released)
+                releaseDate == null || !releaseDate.isAfter(today)
+            }
+            .mapNotNull { video ->
+                val season = video.season ?: return@mapNotNull null
+                val episode = video.episode ?: return@mapNotNull null
+                season to episode
+            }
+            .toSet()
+
     fun earliestUpcomingSeasonMs(): Long? {
         val today = java.time.LocalDate.now()
         val candidates = videos.filter { (it.season ?: 0) > 0 }
@@ -150,6 +168,98 @@ internal data class CwVideoSummary(
     val overview: String?,
     val available: Boolean? = null
 )
+
+internal fun isTerminalSeriesStatus(status: String?): Boolean =
+    when (status?.trim()?.lowercase(Locale.ROOT)) {
+        "ended", "canceled", "cancelled" -> true
+        else -> false
+    }
+
+internal fun shouldShowSeriesWatchedBadge(
+    status: String?,
+    releasedRegularEpisodes: Set<Pair<Int, Int>>,
+    watchedEpisodes: Set<Pair<Int, Int>>
+): Boolean =
+    releasedRegularEpisodes.isNotEmpty() &&
+        isTerminalSeriesStatus(status) &&
+        releasedRegularEpisodes.all { it in watchedEpisodes }
+
+private fun HomeViewModel.cachedBadgeSeriesStatus(
+    contentId: String,
+    summary: CwMetaSummary?
+): String? {
+    summary?.status
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { return it }
+
+    enrichmentCache[contentId]
+        ?.status
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { return it }
+
+    if (contentId.startsWith("tt")) {
+        tmdbService.getCachedTmdbId(contentId)?.let { tmdbId ->
+            enrichmentCache["tmdb:$tmdbId"]
+                ?.status
+                ?.trim()
+                ?.takeIf { it.isNotBlank() }
+                ?.let { return it }
+        }
+    }
+
+    return null
+}
+
+private suspend fun HomeViewModel.resolveBadgeSeriesStatus(
+    contentId: String,
+    contentType: String,
+    summary: CwMetaSummary?
+): String? {
+    cachedBadgeSeriesStatus(contentId, summary)?.let { return it }
+
+    if (
+        !currentTmdbSettings.enabled ||
+        !currentTmdbSettings.useDetails
+    ) {
+        return null
+    }
+
+    /*
+     * Home already repairs missing status through TMDB because addon/basic
+     * metadata can legitimately omit it.  Badge-only metadata must follow the
+     * same contract or an ended show with complete watched history can never
+     * qualify for its checkmark.
+     *
+     * This runs only on the existing badge IO worker and only when status is
+     * missing.  Nothing is added to composition, focus, or the scroll path.
+     */
+    val repairedStatus =
+        try {
+            withTimeoutOrNull(4_000L) {
+                val tmdbId =
+                    tmdbService.ensureTmdbId(
+                        contentId,
+                        contentType
+                    ) ?: return@withTimeoutOrNull null
+
+                tmdbMetadataService.fetchFreshStatus(
+                    tmdbId = tmdbId,
+                    contentType = ContentType.SERIES,
+                    language = currentTmdbSettings.language
+                )
+            }
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Exception) {
+            null
+        }
+
+    return repairedStatus
+        ?.trim()
+        ?.takeIf { it.isNotBlank() }
+}
 
 /**
  * A nullable next-up result is authoritative only when metadata contains the
@@ -196,6 +306,7 @@ private fun Meta.toCwSummary(): CwMetaSummary = CwMetaSummary(
     description = description,
     genres = genres,
     releaseInfo = releaseInfo,
+    status = status,
     imdbRating = imdbRating,
     language = language,
     country = country,
@@ -881,19 +992,24 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // Uses getWatchedShowEpisodes() as the single source of truth.
                 launch(Dispatchers.IO) {
                     val allWatchedEpisodes = watchProgressRepository.getWatchedShowEpisodes()
+                    val showIdSiblings =
+                        watchProgressRepository.getShowIdSiblings()
+                    cwBadgeShowIdSiblings = showIdSiblings
 
-                    // Skip badge evaluation if watched episodes haven't changed since
-                    // last cycle (e.g. position save triggered pipeline restart).
+                    // Skip metadata resolution if watched episode keys and
+                    // validation freshness are unchanged. The publish step stays
+                    // cheap and uses only already-cached badge inputs.
                     val currentKeys = allWatchedEpisodes.keys
-                    if (currentKeys == cwLastBadgeEpisodeKeys) {
-                        // Keys unchanged — just re-run publishBadgeUpdate with cached data
-                        // in case in-memory badge episode cache was populated by a prior cycle.
+                    val staleValidationIds =
+                        fullyWatchedSeriesIds.filterStaleIds(currentKeys)
+                    if (
+                        currentKeys == cwLastBadgeEpisodeKeys &&
+                        staleValidationIds.isEmpty()
+                    ) {
                         publishBadgeUpdate(allWatchedEpisodes)
                         return@launch
                     }
                     cwLastBadgeEpisodeKeys = currentKeys.toSet()
-
-                    val showIdSiblings = watchProgressRepository.getShowIdSiblings()
 
                     // Deduplicate IDs using Trakt's sibling mapping (IMDB ↔ TMDB from
                     // the same show). Resolve meta once per show, then cross-cache the
@@ -903,10 +1019,13 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     val resolvableIds = allWatchedEpisodes.keys.filter { contentId ->
                         if (contentId.startsWith("trakt:")) return@filter false
                         val cacheKey = "series:$contentId"
-                        synchronized(cwBadgeEpisodeCache) {
+                        val cacheMissing = synchronized(cwBadgeEpisodeCache) {
                             !cwBadgeEpisodeCache.containsKey(cacheKey) &&
                                 !cwBadgeEpisodeCache.containsKey("tv:$contentId")
                         }
+                        val validationStale =
+                            contentId in staleValidationIds
+                        cacheMissing || validationStale
                     }
                     // Build groups from sibling map: cluster IDs that belong to the same show.
                     val visited = mutableSetOf<String>()
@@ -945,7 +1064,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         firstTimeGroups.map { group ->
                             async {
                                 metaSemaphore.withPermit {
-                                    resolveBadgeGroup(group)
+                                    resolveBadgeGroup(
+                                        group = group,
+                                        allWatchedEpisodes = allWatchedEpisodes
+                                    )
                                 }
                             }
                         }.awaitAll()
@@ -954,12 +1076,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     // Revalidation: process gently to avoid CPU/memory spikes.
                     if (revalidationGroups.isNotEmpty()) {
                         for (group in revalidationGroups) {
-                            resolveBadgeGroup(group)
+                            resolveBadgeGroup(
+                                group = group,
+                                allWatchedEpisodes = allWatchedEpisodes,
+                                forceRefresh = true
+                            )
                             kotlinx.coroutines.yield()
                         }
                     }
 
-                    // Single badge evaluation after all meta is resolved.
                     publishBadgeUpdate(allWatchedEpisodes)
                 }
 
@@ -1090,16 +1215,13 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                             }
                                         }
                                     } else if (hasResolvedNextUpSeed(seed)) {
-                                        // No next-up — validate only when metadata contains
-                                        // the completed seed episode.
-                                        val nextSeasonMs = cwBadgeNextSeasonMs[seed.contentId]
-                                        val deadline = nextSeasonMs
-                                            ?: (System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
-                                        fullyWatchedSeriesIds.updateWithValidation(
-                                            fullyWatchedSeriesIds.fullyWatchedSeriesIds.value,
-                                            setOf(seed.contentId),
-                                            mapOf(seed.contentId to deadline)
-                                        )
+                                        /*
+                                         * No next-up is authoritative for CW, but it is NOT
+                                         * sufficient to validate the parent watched badge.
+                                         * Badge validation also requires terminal-series
+                                         * status and is owned exclusively by the badge
+                                         * resolver/publisher below.
+                                         */
                                     }
                                     kotlinx.coroutines.yield()
                                 }
@@ -1883,30 +2005,36 @@ private suspend fun HomeViewModel.buildNextUpItem(
             progress.episode
         )
         if (cachedMeta != null) {
-            val episodes = cachedMeta.watchableEpisodes()
-                .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
-                .toSet()
+            val episodes = cachedMeta.releasedRegularEpisodeCoordinates()
             val cacheKey = "series:${progress.contentId}"
             synchronized(cwBadgeEpisodeCache) {
                 if (!cwBadgeEpisodeCache.containsKey(cacheKey)) {
                     cwBadgeEpisodeCache[cacheKey] = episodes
                 }
             }
-            cachedMeta.earliestUpcomingSeasonMs()?.let { ms ->
-                cwBadgeNextSeasonMs[progress.contentId] = ms
+            cachedBadgeSeriesStatus(
+                contentId = progress.contentId,
+                summary = cachedMeta
+            )?.let { status ->
+                synchronized(cwBadgeSeriesStatusCache) {
+                    cwBadgeSeriesStatusCache[cacheKey] = status
+                }
+            }
+            val nextSeasonMs = cachedMeta.earliestUpcomingSeasonMs()
+            if (nextSeasonMs != null) {
+                cwBadgeNextSeasonMs[progress.contentId] = nextSeasonMs
+            } else {
+                cwBadgeNextSeasonMs.remove(progress.contentId)
             }
         }
         if (seedResolved) {
-            // The seed exists in resolved metadata, so no eligible successor is
-            // authoritative. Missing or mismatched metadata remains retryable.
-            val nextSeasonMs = cwBadgeNextSeasonMs[progress.contentId]
-            val deadline = nextSeasonMs
-                ?: (System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
-            fullyWatchedSeriesIds.updateWithValidation(
-                fullyWatchedSeriesIds.fullyWatchedSeriesIds.value,
-                setOf(progress.contentId),
-                mapOf(progress.contentId to deadline)
-            )
+            /*
+             * The seed exists in resolved metadata, so no eligible successor
+             * is authoritative for Continue Watching. Do not mark the series
+             * badge validation fresh here: terminal status may still be
+             * unresolved, and only the badge pipeline has enough information
+             * to validate parent completion.
+             */
         }
         return null
     }
@@ -2465,26 +2593,120 @@ private suspend fun HomeViewModel.resolveMetaForProgress(
     return resolved
 }
 
+private suspend fun HomeViewModel.cacheBadgeStatusForResolvedEpisodes(
+    contentId: String,
+    contentType: String,
+    cacheKey: String,
+    summary: CwMetaSummary,
+    releasedRegularEpisodes: Set<Pair<Int, Int>>,
+    watchedEpisodes: Set<Pair<Int, Int>>,
+    forceRefresh: Boolean
+) {
+    val knownStatus =
+        cachedBadgeSeriesStatus(
+            contentId = contentId,
+            summary = summary
+        )
+    if (knownStatus != null) {
+        synchronized(cwBadgeSeriesStatusCache) {
+            cwBadgeSeriesStatusCache[cacheKey] = knownStatus
+        }
+        return
+    }
+
+    val shouldRepair =
+        releasedRegularEpisodes.isNotEmpty() &&
+            releasedRegularEpisodes.count { it !in watchedEpisodes } <= 1
+
+    val repairAlreadyAttempted =
+        synchronized(cwBadgeSeriesStatusCache) {
+            if (forceRefresh) {
+                cwBadgeSeriesStatusCache.remove(cacheKey)
+                false
+            } else {
+                cwBadgeSeriesStatusCache.containsKey(cacheKey)
+            }
+        }
+
+    if (!shouldRepair || repairAlreadyAttempted) {
+        return
+    }
+
+    val repairedStatus =
+        resolveBadgeSeriesStatus(
+            contentId = contentId,
+            contentType = contentType,
+            summary = summary
+        )
+
+    synchronized(cwBadgeSeriesStatusCache) {
+        /*
+         * A null value records a bounded failed repair so ordinary CW cycles
+         * do not retry it. Stale metadata revalidation clears it later.
+         */
+        cwBadgeSeriesStatusCache[cacheKey] = repairedStatus
+    }
+}
+
 /**
  * Resolves badge episodes for a group of sibling IDs (same show).
  * Resolves only the primary ID, then cross-caches under all siblings.
  */
-private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
+private suspend fun HomeViewModel.resolveBadgeGroup(
+    group: List<String>,
+    allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>,
+    forceRefresh: Boolean = false
+) {
     val primaryId = group.first()
-    val alreadyCached = synchronized(cwBadgeEpisodeCache) {
+    val watchedEpisodes =
+        group.asSequence()
+            .mapNotNull(allWatchedEpisodes::get)
+            .flatten()
+            .toSet()
+    val alreadyCached = !forceRefresh && synchronized(cwBadgeEpisodeCache) {
         cwBadgeEpisodeCache.containsKey("series:$primaryId") ||
             cwBadgeEpisodeCache.containsKey("tv:$primaryId")
     }
     if (!alreadyCached) {
-        val episodes = resolveBadgeEpisodes(primaryId, "series")
+        val episodes = resolveBadgeEpisodes(
+            contentId = primaryId,
+            contentType = "series",
+            watchedEpisodes = watchedEpisodes,
+            forceRefresh = forceRefresh
+        )
         if (episodes == null) {
         } else {
         }
         if (group.size > 1) {
+            val primaryStatusEntry = synchronized(cwBadgeSeriesStatusCache) {
+                when {
+                    cwBadgeSeriesStatusCache.containsKey("series:$primaryId") ->
+                        true to cwBadgeSeriesStatusCache["series:$primaryId"]
+                    cwBadgeSeriesStatusCache.containsKey("tv:$primaryId") ->
+                        true to cwBadgeSeriesStatusCache["tv:$primaryId"]
+                    else -> false to null
+                }
+            }
             synchronized(cwBadgeEpisodeCache) {
                 for (siblingId in group.drop(1)) {
-                    if (!cwBadgeEpisodeCache.containsKey("series:$siblingId")) {
+                    if (
+                        forceRefresh ||
+                        !cwBadgeEpisodeCache.containsKey("series:$siblingId")
+                    ) {
                         cwBadgeEpisodeCache["series:$siblingId"] = episodes
+                    }
+                }
+            }
+            if (primaryStatusEntry.first) {
+                synchronized(cwBadgeSeriesStatusCache) {
+                    for (siblingId in group.drop(1)) {
+                        if (
+                            forceRefresh ||
+                            !cwBadgeSeriesStatusCache.containsKey("series:$siblingId")
+                        ) {
+                            cwBadgeSeriesStatusCache["series:$siblingId"] =
+                                primaryStatusEntry.second
+                        }
                     }
                 }
             }
@@ -2499,30 +2721,54 @@ private suspend fun HomeViewModel.resolveBadgeGroup(group: List<String>) {
  */
 private suspend fun HomeViewModel.resolveBadgeEpisodes(
     contentId: String,
-    contentType: String
+    contentType: String,
+    watchedEpisodes: Set<Pair<Int, Int>>,
+    forceRefresh: Boolean = false
 ): Set<Pair<Int, Int>>? {
     val cacheKey = "$contentType:$contentId"
-    synchronized(cwBadgeEpisodeCache) {
-        if (cwBadgeEpisodeCache.containsKey(cacheKey)) return cwBadgeEpisodeCache[cacheKey]
+    if (!forceRefresh) {
+        synchronized(cwBadgeEpisodeCache) {
+            if (cwBadgeEpisodeCache.containsKey(cacheKey)) {
+                return cwBadgeEpisodeCache[cacheKey]
+            }
+        }
     }
-    // If cwMetaCache already has this entry, extract from there instead of fetching again.
-    val existingSummary = synchronized(cwMetaCache) {
-        cwMetaCache[cacheKey] ?: cwMetaCache["series:$contentId"] ?: cwMetaCache["tv:$contentId"]
+    // First-time resolves can reuse CW metadata. TTL revalidation deliberately
+    // bypasses it so status changes such as Ended -> Returning are refreshed.
+    val existingSummary = if (!forceRefresh) {
+        synchronized(cwMetaCache) {
+            cwMetaCache[cacheKey]
+                ?: cwMetaCache["series:$contentId"]
+                ?: cwMetaCache["tv:$contentId"]
+        }
+    } else {
+        null
     }
     if (existingSummary != null) {
-        val episodes = existingSummary.watchableEpisodes()
-            .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
-            .toSet()
-        existingSummary.earliestUpcomingSeasonMs()?.let { ms ->
-            cwBadgeNextSeasonMs[contentId] = ms
+        val episodes = existingSummary.releasedRegularEpisodeCoordinates()
+        val nextSeasonMs = existingSummary.earliestUpcomingSeasonMs()
+        if (nextSeasonMs != null) {
+            cwBadgeNextSeasonMs[contentId] = nextSeasonMs
+        } else {
+            cwBadgeNextSeasonMs.remove(contentId)
         }
         synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
+        cacheBadgeStatusForResolvedEpisodes(
+            contentId = contentId,
+            contentType = contentType,
+            cacheKey = cacheKey,
+            summary = existingSummary,
+            releasedRegularEpisodes = episodes,
+            watchedEpisodes = watchedEpisodes,
+            forceRefresh = forceRefresh
+        )
         return episodes
     }
 
     // Only IMDB (tt*) and TMDB IDs are resolvable by addons — skip trakt: entirely.
     if (contentId.startsWith("trakt:")) {
         synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = null }
+        synchronized(cwBadgeSeriesStatusCache) { cwBadgeSeriesStatusCache[cacheKey] = null }
         return null
     }
     val idCandidates = buildList {
@@ -2545,18 +2791,30 @@ private suspend fun HomeViewModel.resolveBadgeEpisodes(
             } ?: continue
             val meta = (result as? NetworkResult.Success<*>)?.data as? Meta ?: continue
             val summary = meta.toCwSummary()
-            val episodes = summary.watchableEpisodes()
-                .mapNotNull { v -> v.season?.let { s -> v.episode?.let { e -> s to e } } }
-                .toSet()
-            // Record upcoming season date for smart TTL scheduling.
-            summary.earliestUpcomingSeasonMs()?.let { ms ->
-                cwBadgeNextSeasonMs[contentId] = ms
+            val episodes = summary.releasedRegularEpisodeCoordinates()
+            // Record upcoming season date for smart TTL scheduling. Clear an
+            // older deadline when refreshed metadata no longer has one.
+            val nextSeasonMs = summary.earliestUpcomingSeasonMs()
+            if (nextSeasonMs != null) {
+                cwBadgeNextSeasonMs[contentId] = nextSeasonMs
+            } else {
+                cwBadgeNextSeasonMs.remove(contentId)
             }
             synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = episodes }
+            cacheBadgeStatusForResolvedEpisodes(
+                contentId = contentId,
+                contentType = contentType,
+                cacheKey = cacheKey,
+                summary = summary,
+                releasedRegularEpisodes = episodes,
+                watchedEpisodes = watchedEpisodes,
+                forceRefresh = forceRefresh
+            )
             return episodes
         }
     }
     synchronized(cwBadgeEpisodeCache) { cwBadgeEpisodeCache[cacheKey] = null }
+    synchronized(cwBadgeSeriesStatusCache) { cwBadgeSeriesStatusCache.remove(cacheKey) }
     return null
 }
 
@@ -2761,59 +3019,127 @@ private fun HomeViewModel.applyContinueWatchingEnrichmentOverlay(
     }
 }
 
+private fun HomeViewModel.expandWatchedSeriesBadgeIds(
+    ids: Set<String>
+): Set<String> {
+    if (ids.isEmpty()) return emptySet()
+
+    val siblingsSnapshot = cwBadgeShowIdSiblings
+    return buildSet {
+        for (contentId in ids) {
+            add(contentId)
+
+            siblingsSnapshot[contentId]
+                .orEmpty()
+                .asSequence()
+                .filter { it != "__ambiguous__" }
+                .forEach(::add)
+
+            /*
+             * Provider sibling maps are authoritative when available.  Keep
+             * TMDB's real cache accessor as a zero-network fallback for older
+             * locally known IMDb -> TMDB mappings.
+             */
+            if (contentId.startsWith("tt")) {
+                tmdbService.getCachedTmdbId(contentId)?.let { tmdbId ->
+                    add("tmdb:$tmdbId")
+                }
+            }
+        }
+    }
+}
+
 private fun HomeViewModel.publishBadgeUpdate(
     allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>
 ) {
     val validatedNotFullyWatched = mutableSetOf<String>()
+    val validatedNonTerminal = mutableSetOf<String>()
     val updatedFullyWatched = allWatchedEpisodes.keys
         .filter { contentId ->
             val cacheKey = "series:$contentId"
-            val airedEpisodes = synchronized(cwBadgeEpisodeCache) {
+            val releasedRegularEpisodes = synchronized(cwBadgeEpisodeCache) {
                 cwBadgeEpisodeCache[cacheKey] ?: cwBadgeEpisodeCache["tv:$contentId"]
             } ?: return@filter false
-            if (airedEpisodes.isEmpty()) return@filter false
+            if (releasedRegularEpisodes.isEmpty()) return@filter false
+
             val watched = allWatchedEpisodes[contentId] ?: return@filter false
-            val allWatched = airedEpisodes.all { it in watched }
-            if (!allWatched && watched.isNotEmpty()) {
-                validatedNotFullyWatched.add(contentId)
+            val allRegularEpisodesWatched =
+                releasedRegularEpisodes.all { it in watched }
+
+            if (!allRegularEpisodesWatched) {
+                if (watched.isNotEmpty()) {
+                    validatedNotFullyWatched.add(contentId)
+                }
+                return@filter false
             }
-            allWatched
+
+            /*
+             * Prefer a live CW metadata summary when one exists.  That lets a
+             * revived show lose its badge as soon as refreshed metadata says it
+             * is returning, without waiting for the badge-only cache TTL.
+             */
+            val liveSummary = synchronized(cwMetaCache) {
+                cwMetaCache[cacheKey] ?: cwMetaCache["tv:$contentId"]
+            }
+            val liveStatus =
+                cachedBadgeSeriesStatus(
+                    contentId = contentId,
+                    summary = liveSummary
+                )
+            val seriesStatus = liveStatus ?: synchronized(cwBadgeSeriesStatusCache) {
+                if (cwBadgeSeriesStatusCache.containsKey(cacheKey)) {
+                    cwBadgeSeriesStatusCache[cacheKey]
+                } else {
+                    cwBadgeSeriesStatusCache["tv:$contentId"]
+                }
+            }
+
+            val shouldShowBadge = shouldShowSeriesWatchedBadge(
+                status = seriesStatus,
+                releasedRegularEpisodes = releasedRegularEpisodes,
+                watchedEpisodes = watched
+            )
+            if (!shouldShowBadge) {
+                /*
+                 * All currently released regular episodes are watched, but the
+                 * show is not terminal (or status is unknown).  Keep this
+                 * revalidation finite so Ended/Returning status changes can
+                 * add or remove the badge without a force-stop.
+                 */
+                validatedNonTerminal.add(contentId)
+            }
+            shouldShowBadge
         }
         .toSet()
-    // Expand IDs: for each fully-watched IMDB ID, also include the
-    // "tmdb:<id>" variant so catalogs that use TMDB IDs get the badge too.
-    val expandedFullyWatched = buildSet {
-        addAll(updatedFullyWatched)
-        for (contentId in updatedFullyWatched) {
-            if (contentId.startsWith("tt")) {
-                tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
-                    add("tmdb:$tmdbId")
-                }
-            }
-        }
-    }
-    val expandedNotFullyWatched = buildSet {
-        addAll(validatedNotFullyWatched)
-        for (contentId in validatedNotFullyWatched) {
-            if (contentId.startsWith("tt")) {
-                tmdbService.cachedTmdbId(contentId)?.let { tmdbId ->
-                    add("tmdb:$tmdbId")
-                }
-            }
-        }
-    }
-    // Merge with persisted badges — don't remove badges we haven't re-validated yet.
-    // But DO remove badges for series we've confirmed are NOT fully watched.
+
+    val expandedFullyWatched =
+        expandWatchedSeriesBadgeIds(updatedFullyWatched)
+    val expandedNotFullyWatched =
+        expandWatchedSeriesBadgeIds(validatedNotFullyWatched)
+    val expandedNonTerminal =
+        expandWatchedSeriesBadgeIds(validatedNonTerminal)
+
+    // Merge with persisted badges — don't remove badges we have not
+    // revalidated.  Do remove badges when a released regular episode is
+    // missing OR when refreshed metadata says the show is no longer terminal.
+    val disqualified = expandedNotFullyWatched + expandedNonTerminal
     val current = fullyWatchedSeriesIds.fullyWatchedSeriesIds.value
-    val merged = (current - expandedNotFullyWatched) + expandedFullyWatched
-    if (updatedFullyWatched.isNotEmpty()) {
-    }
-    // Build per-series revalidation deadlines from upcoming season dates.
-    // Fully-watched: revalidate at next season premiere or after default TTL.
-    // Not-fully-watched: no deadline — status can only change when user watches more.
-    val allValidatedIds = expandedFullyWatched + expandedNotFullyWatched
+    val merged = (current - disqualified) + expandedFullyWatched
+
+    /*
+     * Revalidation policy:
+     * - terminal + fully watched: finite TTL so a later revival can remove ✓;
+     * - non-terminal + caught up: finite TTL so becoming Ended can add ✓;
+     * - missing watched episodes: no metadata recheck until watched history
+     *   changes, which already republishes this calculation immediately.
+     */
+    val allValidatedIds =
+        expandedFullyWatched + expandedNotFullyWatched + expandedNonTerminal
     val revalidateAt = buildMap {
         for (contentId in expandedFullyWatched) {
+            cwBadgeNextSeasonMs[contentId]?.let { put(contentId, it) }
+        }
+        for (contentId in expandedNonTerminal) {
             cwBadgeNextSeasonMs[contentId]?.let { put(contentId, it) }
         }
         for (contentId in expandedNotFullyWatched) {
