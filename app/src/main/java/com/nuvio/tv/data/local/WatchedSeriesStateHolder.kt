@@ -150,6 +150,33 @@ class WatchedSeriesStateHolder @Inject constructor(
         }
     }
 
+    @Synchronized
+    fun invalidate(ids: Set<String>) {
+        if (ids.isEmpty()) return
+
+        val currentIds = _fullyWatchedSeriesIds.value
+        val updatedIds = currentIds - ids
+        val updatedValidation =
+            revalidateAfterMap.filterKeys { key -> key !in ids }
+
+        val idsChanged = updatedIds != currentIds
+        val validationChanged =
+            updatedValidation.size != revalidateAfterMap.size
+
+        if (!idsChanged && !validationChanged) return
+
+        _fullyWatchedSeriesIds.value = updatedIds
+        revalidateAfterMap = updatedValidation
+
+        scope.launch {
+            store().edit { prefs ->
+                prefs[KEY] = updatedIds
+                prefs[REVALIDATE_KEY] =
+                    gson.toJson(updatedValidation)
+            }
+        }
+    }
+
     fun isSeriesValidationFresh(contentId: String): Boolean {
         val deadline = revalidateAfterMap[contentId] ?: return false
         return System.currentTimeMillis() < deadline
