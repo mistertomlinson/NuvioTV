@@ -2152,15 +2152,23 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
 
         if (statusKey !in posterLibraryObserverJobs) {
             posterLibraryObserverJobs[statusKey] = viewModelScope.launch {
-                libraryRepository.isInLibrary(itemId = itemId, itemType = itemType)
+                libraryRepository.isInWatchlist(
+                    itemId = itemId,
+                    itemType = itemType
+                )
                     .distinctUntilChanged()
-                    .collectLatest { isInLibrary ->
+                    .collectLatest { isInWatchlist ->
                         _uiState.update { state ->
-                            if (state.posterLibraryMembership[statusKey] == isInLibrary) {
+                            if (
+                                state.posterLibraryMembership[statusKey] ==
+                                    isInWatchlist
+                            ) {
                                 state
                             } else {
                                 state.copy(
-                                    posterLibraryMembership = state.posterLibraryMembership + (statusKey to isInLibrary)
+                                    posterLibraryMembership =
+                                        state.posterLibraryMembership +
+                                            (statusKey to isInWatchlist)
                                 )
                             }
                         }
