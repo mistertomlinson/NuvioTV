@@ -104,6 +104,8 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val heroTrailerAllowLetterboxingKey = booleanPreferencesKey("hero_trailer_allow_letterboxing")
     private val aggregateStreamingPlatformsKey = booleanPreferencesKey("aggregate_streaming_platforms")
     private val fastPlatformScrollKey = booleanPreferencesKey("fast_platform_scroll")
+    private val doubleUpPlatformShortcutKey =
+        booleanPreferencesKey("double_up_platform_shortcut")
     private val fullWidthIconRowKey = booleanPreferencesKey("full_width_icon_row")
     private val dimIconsOnRowExitKey = booleanPreferencesKey("dim_icons_on_row_exit")
     private val hidePlatformIconsOnRowExitKey = booleanPreferencesKey("hide_platform_icons_on_row_exit")
@@ -333,6 +335,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val fastPlatformScrollEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[fastPlatformScrollKey] ?: false
+    }
+
+    val doubleUpPlatformShortcutEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[doubleUpPlatformShortcutKey] ?: true
     }
 
     val fullWidthIconRowEnabled: Flow<Boolean> = profileFlow { prefs ->
@@ -716,6 +722,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setFastPlatformScrollEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[fastPlatformScrollKey] = enabled
+        }
+    }
+
+    suspend fun setDoubleUpPlatformShortcutEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[doubleUpPlatformShortcutKey] = enabled
         }
     }
 

@@ -469,7 +469,7 @@ fun ContentCard(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(end = 8.dp, top = 8.dp)
-                            .zIndex(2f)
+                            .zIndex(3f)
                             .size(21.dp)
                             .drawBehind {
                                 drawCircle(

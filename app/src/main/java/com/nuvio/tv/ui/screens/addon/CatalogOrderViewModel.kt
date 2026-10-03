@@ -215,6 +215,15 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleDoubleUpPlatformShortcut() {
+        val current = _uiState.value.doubleUpPlatformShortcutEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setDoubleUpPlatformShortcutEnabled(
+                !current
+            )
+        }
+    }
+
     fun toggleFullWidthIconRow() {
         val current = _uiState.value.fullWidthIconRowEnabled
         viewModelScope.launch {
@@ -290,6 +299,17 @@ class CatalogOrderViewModel @Inject constructor(
             layoutPreferenceDataStore.heroMetadataLarge.collectLatest { large ->
                 _uiState.update { it.copy(heroMetadataLarge = large) }
             }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .doubleUpPlatformShortcutEnabled
+                .collectLatest { enabled ->
+                    _uiState.update {
+                        it.copy(
+                            doubleUpPlatformShortcutEnabled = enabled
+                        )
+                    }
+                }
         }
         viewModelScope.launch {
             combine(
@@ -715,6 +735,7 @@ data class CatalogOrderUiState(
     val showAllCatalogsOnHome: Boolean = false,
     val fullWidthIconRowEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
+    val doubleUpPlatformShortcutEnabled: Boolean = true,
     val dimIconsOnRowExitEnabled: Boolean = false,
     val hidePlatformIconsOnRowExitEnabled: Boolean = false,
     val hidePlatformNameInCatalogTitleEnabled: Boolean = false,

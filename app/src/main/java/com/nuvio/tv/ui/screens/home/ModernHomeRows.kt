@@ -2318,57 +2318,70 @@ private fun ModernCarouselCard(
                         !(shouldPlayTrailerInCard && trailerFirstFrameRendered)
 
                 if (
-                    (showReleaseBadge || isWatched) &&
+                    showReleaseBadge &&
                     showHeavyOverlays
                 ) {
-                    Row(
+                    Text(
+                        text = stringResource(
+                            if (
+                                effectiveReleaseBadge ==
+                                    ReleaseReminderBadge.NEW_SEASON
+                            ) {
+                                R.string.cw_new_season
+                            } else {
+                                R.string.release_available_now
+                            }
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color.White,
+                        maxLines = 1,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(end = 8.dp, top = 8.dp)
                             .zIndex(2f)
                             .graphicsLayer {
                                 alpha = heavyOverlayAlpha.value
-                            },
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (showReleaseBadge) {
-                            Text(
-                                text = stringResource(
-                                    if (effectiveReleaseBadge == ReleaseReminderBadge.NEW_SEASON) {
-                                        R.string.cw_new_season
-                                    } else {
-                                        R.string.release_available_now
-                                    }
-                                ),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color.White,
-                                maxLines = 1,
-                                modifier = Modifier
-                                    .background(
-                                        brush = NuvioGradients.ReleaseStatusBadge,
-                                        shape = RoundedCornerShape(5.dp)
-                                    )
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            }
+                            .background(
+                                brush = NuvioGradients.ReleaseStatusBadge,
+                                shape = RoundedCornerShape(5.dp)
                             )
-                        }
-                        if (isWatched) {
-                            Icon(
-                                imageVector = Icons.Default.CheckCircle,
-                                contentDescription = stringResource(R.string.episodes_cd_watched),
-                                tint = Color.White,
-                                modifier = Modifier
-                                    .size(21.dp)
-                                    .drawBehind {
-                                        drawCircle(
-                                            color = Color.Black,
-                                            radius = size.minDimension / 2f + 1.5f
-                                        )
-                                    }
-                            )
-                        }
-                    }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+
+                /*
+                 * The watched marker is the final/topmost overlay inside this
+                 * poster only. It can cover release-status badges such as
+                 * "New Season", but its z-order cannot escape this card and
+                 * therefore cannot rise above Home chrome, sidebar or dialogs.
+                 */
+                if (
+                    isWatched &&
+                    showHeavyOverlays
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription =
+                            stringResource(R.string.episodes_cd_watched),
+                        tint = Color.White,
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(end = 8.dp, top = 8.dp)
+                            .zIndex(3f)
+                            .graphicsLayer {
+                                alpha = heavyOverlayAlpha.value
+                            }
+                            .size(21.dp)
+                            .drawBehind {
+                                drawCircle(
+                                    color = Color.Black,
+                                    radius =
+                                        size.minDimension / 2f + 1.5f
+                                )
+                            }
+                    )
                 }
             }
         }
