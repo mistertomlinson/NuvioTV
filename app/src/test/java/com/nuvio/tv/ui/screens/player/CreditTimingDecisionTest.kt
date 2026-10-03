@@ -178,6 +178,42 @@ class CreditTimingDecisionTest {
     }
 
     @Test
+    fun `manual near end exit does not use percentage while analyzer is running`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING
+            )
+        )
+
+        assertFalse(
+            shouldStartManualEndAction(
+                state = state,
+                positionMs = 90_000L,
+                durationMs = 100_000L
+            )
+        )
+    }
+
+    @Test
+    fun `manual near end exit uses percentage after analyzer fallback`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.FALLBACK
+            )
+        )
+
+        assertTrue(
+            shouldStartManualEndAction(
+                state = state,
+                positionMs = 90_000L,
+                durationMs = 100_000L
+            )
+        )
+    }
+
+    @Test
     fun `consumed post credit scene is not offered again after rewind`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.COMPLETE,
