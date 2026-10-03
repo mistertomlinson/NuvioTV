@@ -183,6 +183,54 @@ internal sealed interface SimklLibraryMutation {
     data object Remove : SimklLibraryMutation
 }
 
+/**
+ * Removing "My List" means leaving Plan to Watch, not deleting Simkl history.
+ * If watched history exists, preserve the record by returning it to the status
+ * that best reflects that history.  Rating-only entries remain protected
+ * because there is no truthful watched status to infer from a rating alone.
+ */
+internal fun SimklLibraryEntry.historyPreservingStatusAfterPlanToWatchRemoval():
+    TrackingListStatus? {
+    if (status != SimklListStatus.PLAN_TO_WATCH) return null
+
+    val watchedFromSeasons = seasons.sumOf { season ->
+        season.episodes.count { episode -> episode.watchedAt != null }
+    }
+    val effectiveWatchedCount =
+        maxOf(watchedEpisodesCount, watchedFromSeasons)
+    val hasWatchedHistory =
+        lastWatchedAt != null ||
+            lastWatched != null ||
+            effectiveWatchedCount > 0
+
+    if (!hasWatchedHistory) return null
+
+    val isMovieLike =
+        mediaType == SimklMediaType.MOVIES ||
+            (
+                mediaType == SimklMediaType.ANIME &&
+                    animeType.equals("movie", ignoreCase = true)
+            )
+
+    if (isMovieLike) {
+        return TrackingListStatus.COMPLETED
+    }
+
+    val releasedEpisodeCount =
+        (totalEpisodesCount - notAiredEpisodesCount)
+            .coerceAtLeast(0)
+    val allKnownEpisodesWatched =
+        releasedEpisodeCount > 0 &&
+            effectiveWatchedCount >= releasedEpisodeCount
+    val noKnownFutureEpisodes = notAiredEpisodesCount == 0
+
+    return if (allKnownEpisodesWatched && noKnownFutureEpisodes) {
+        TrackingListStatus.COMPLETED
+    } else {
+        TrackingListStatus.WATCHING
+    }
+}
+
 internal fun resolveSimklLibraryMutation(
     currentEntry: SimklLibraryEntry?,
     currentDefinition: SimklLibraryStatusDefinition?,
@@ -195,6 +243,18 @@ internal fun resolveSimklLibraryMutation(
         currentEntry?.destructiveRemovalImpacts().orEmpty().isNotEmpty() &&
         !destructiveRemovalConfirmed
     ) {
+        val safeHistoryStatus =
+            if (currentDefinition?.status == SimklListStatus.PLAN_TO_WATCH) {
+                currentEntry
+                    ?.historyPreservingStatusAfterPlanToWatchRemoval()
+            } else {
+                null
+            }
+
+        if (safeHistoryStatus != null) {
+            return SimklLibraryMutation.Move(safeHistoryStatus)
+        }
+
         throw SimklDestructiveRemovalRequiredException()
     }
     return SimklLibraryMutation.Remove
