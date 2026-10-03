@@ -1154,6 +1154,37 @@ fun HomeScreen(
         val item = selectedPoster.item
         val statusKey = homeItemStatusKey(item.id, item.apiType)
         val isMovie = item.apiType.equals("movie", ignoreCase = true)
+        val isSeries =
+            item.apiType.equals("series", ignoreCase = true) ||
+                item.apiType.equals("tv", ignoreCase = true)
+
+        LaunchedEffect(
+            item.id,
+            item.apiType,
+            selectedPoster.addonBaseUrl
+        ) {
+            if (isSeries) {
+                viewModel.preparePosterSeriesWatchedState(
+                    item = item,
+                    addonBaseUrl = selectedPoster.addonBaseUrl
+                )
+            }
+        }
+
+        val watchedActionState =
+            if (isMovie) {
+                uiState.movieWatchedStatus[statusKey] == true
+            } else {
+                uiState.seriesWatchedActionStatus[statusKey] == true
+            }
+        val watchedActionPending =
+            if (isMovie) {
+                statusKey in uiState.movieWatchedPending
+            } else {
+                statusKey in uiState.seriesWatchedActionPending ||
+                    statusKey !in uiState.seriesWatchedActionStatus
+            }
+
         HomePosterOptionsDialog(
             title = item.name,
             hazeState = homePopupHazeState,
