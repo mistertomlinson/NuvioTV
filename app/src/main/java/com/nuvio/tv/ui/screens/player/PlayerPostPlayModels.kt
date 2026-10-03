@@ -152,6 +152,26 @@ internal fun PostPlayRecommendation.isPresentationReady(): Boolean =
  * no usable timestamp is treated as sufficient completion evidence. Post-
  * credit scenes never delay completion once initial credits have begun.
  */
+internal fun completionCreditBoundaryMs(
+    timing: CreditTimingUiState
+): Long? {
+    timing.creditsStartMs
+        ?.takeIf { it >= 0L }
+        ?.let { return it }
+
+    /*
+     * If there are no post-credit scenes, final credits are effectively the
+     * only credits boundary we have and are safe to treat as completion.
+     * When post-credit scenes exist, final credits are intentionally ignored:
+     * optional scenes must never delay "finished".
+     */
+    if (!timing.hasPostCreditScenes) {
+        return timing.finalCreditsStartMs?.takeIf { it >= 0L }
+    }
+
+    return null
+}
+
 internal fun shouldTreatPlaybackAsCompleted(
     timing: CreditTimingUiState,
     positionMs: Long,
@@ -162,19 +182,10 @@ internal fun shouldTreatPlaybackAsCompleted(
     if (playbackEnded) return true
     if (positionMs < 0L) return false
 
-    timing.creditsStartMs
-        ?.takeIf { it >= 0L }
-        ?.let { initialCreditsStartMs ->
-            return positionMs >= initialCreditsStartMs
+    completionCreditBoundaryMs(timing)
+        ?.let { creditsBoundaryMs ->
+            return positionMs >= creditsBoundaryMs
         }
-
-    if (!timing.hasPostCreditScenes) {
-        timing.finalCreditsStartMs
-            ?.takeIf { it >= 0L }
-            ?.let { onlyCreditsStartMs ->
-                return positionMs >= onlyCreditsStartMs
-            }
-    }
 
     if (durationMs <= 0L) return false
 
@@ -272,9 +283,7 @@ internal fun shouldStartManualEndAction(
             // Manual movie exit may begin at the initial credits boundary;
             // the automatic rating flow remains tied to final credits.
             val knownCreditsStartMs =
-                state.creditTiming.creditsStartMs
-                    ?: state.creditTiming.postCreditScenes.firstOrNull()?.startMs
-                    ?: state.creditTiming.finalCreditsStartMs
+                completionCreditBoundaryMs(state.creditTiming)
 
             if (knownCreditsStartMs != null) {
                 positionMs >= knownCreditsStartMs
@@ -300,12 +309,11 @@ internal fun shouldStartManualEndAction(
                 return false
             }
 
-            // IntroDB, exact analyzer timing, and cross-release/cached timing
-            // are authoritative. For a series finale use the final-credit
-            // boundary so post-credit scenes remain protected.
+            // Exact/cached timing is authoritative at the first
+            // credits boundary. Optional post-credit scenes never keep the
+            // episode unfinished.
             val knownCreditBoundaryMs =
-                state.creditTiming.finalCreditsStartMs
-                    ?: state.creditTiming.creditsStartMs
+                completionCreditBoundaryMs(state.creditTiming)
 
             if (knownCreditBoundaryMs != null) {
                 positionMs >= knownCreditBoundaryMs
