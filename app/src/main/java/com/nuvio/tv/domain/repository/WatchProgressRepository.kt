@@ -156,6 +156,12 @@ interface WatchProgressRepository {
     )
 
     /**
+     * Remove multiple concrete episode records while preserving each episode's
+     * own provider/video identity. Used by whole-series watched actions.
+     */
+    suspend fun removeFromHistoryBatch(progressList: List<WatchProgress>)
+
+    /**
      * Clear all watch progress
      */
     suspend fun clearAll()
