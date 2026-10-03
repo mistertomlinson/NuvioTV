@@ -24,6 +24,7 @@ import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.model.WatchedItem
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -1318,6 +1319,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
                         "${result.attemptedCount} watched episodes"
                 }
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 completed.forEach { progress ->
                     provider.applyOptimisticRemoval(
                         contentId = progress.contentId,
@@ -1438,6 +1440,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
                         "${result.attemptedCount} watched episodes"
                 }
             } catch (error: Throwable) {
+                if (error is CancellationException) throw error
                 distinct.forEach { progress ->
                     provider.clearOptimisticRemoval(
                         contentId = progress.contentId,
