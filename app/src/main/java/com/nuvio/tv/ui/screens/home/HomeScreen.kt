@@ -2056,6 +2056,7 @@ private fun HomePosterOptionsDialog(
     showManageLists: Boolean,
     isFromMyList: Boolean = false,
     isMovie: Boolean,
+    isSeries: Boolean,
     isWatched: Boolean,
     isWatchedPending: Boolean,
     onDismiss: () -> Unit,
