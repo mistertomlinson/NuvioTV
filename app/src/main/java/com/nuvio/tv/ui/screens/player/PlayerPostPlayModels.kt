@@ -6,6 +6,7 @@ import com.nuvio.tv.domain.model.Video
 
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
 internal const val MANUAL_END_ACTION_THRESHOLD = 0.85
+internal const val CREDIT_COMPLETION_EXIT_GRACE_MS = 2 * 60_000L
 internal const val POST_CREDIT_SCENE_CONTINUITY_GAP_MS = 10_000L
 
 enum class CreditTimingStatus {
@@ -172,14 +173,18 @@ internal fun shouldTreatPlaybackAsCompleted(
     positionMs: Long,
     durationMs: Long,
     playbackEnded: Boolean,
-    fallbackThreshold: Double = MANUAL_END_ACTION_THRESHOLD
+    fallbackThreshold: Double = MANUAL_END_ACTION_THRESHOLD,
+    creditBoundaryGraceMs: Long = 0L
 ): Boolean {
     if (playbackEnded) return true
     if (positionMs < 0L) return false
 
     completionCreditBoundaryMs(timing)
         ?.let { creditsBoundaryMs ->
-            return positionMs >= creditsBoundaryMs
+            val triggerMs =
+                (creditsBoundaryMs - creditBoundaryGraceMs.coerceAtLeast(0L))
+                    .coerceAtLeast(0L)
+            return positionMs >= triggerMs
         }
 
     if (durationMs <= 0L) return false
@@ -275,24 +280,15 @@ internal fun shouldStartManualEndAction(
     if (durationMs <= 0L || positionMs < 0L) return false
     if (state.postPlayRecommendationDismissed) return false
 
-    val progressFraction = positionMs.toDouble() / durationMs.toDouble()
-
     return when (state.contentType?.trim()?.lowercase()) {
         "movie" -> {
-            // Real credit timing always wins over percentage fallback.
-            // Manual movie exit may begin at the initial credits boundary;
-            // the automatic rating flow remains tied to final credits.
-            val knownCreditsStartMs =
-                completionCreditBoundaryMs(state.creditTiming)
-
-            if (knownCreditsStartMs != null) {
-                positionMs >= knownCreditsStartMs
-            } else {
-                // With no usable credit timestamp, 85% is the runtime
-                // fallback regardless of whether analysis failed, is still
-                // running, or never started.
-                progressFraction >= MANUAL_END_ACTION_THRESHOLD
-            }
+            shouldTreatPlaybackAsCompleted(
+                timing = state.creditTiming,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                playbackEnded = false,
+                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+            )
         }
 
         "series", "tv" -> {
@@ -309,19 +305,13 @@ internal fun shouldStartManualEndAction(
                 return false
             }
 
-            // Exact/cached timing is authoritative at the first
-            // credits boundary. Optional post-credit scenes never keep the
-            // episode unfinished.
-            val knownCreditBoundaryMs =
-                completionCreditBoundaryMs(state.creditTiming)
-
-            if (knownCreditBoundaryMs != null) {
-                positionMs >= knownCreditBoundaryMs
-            } else {
-                // With no usable credit timestamp, 85% is the runtime
-                // fallback regardless of analyzer status.
-                progressFraction >= MANUAL_END_ACTION_THRESHOLD
-            }
+            shouldTreatPlaybackAsCompleted(
+                timing = state.creditTiming,
+                positionMs = positionMs,
+                durationMs = durationMs,
+                playbackEnded = false,
+                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+            )
         }
 
         else -> false
