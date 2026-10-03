@@ -1215,16 +1215,13 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                             }
                                         }
                                     } else if (hasResolvedNextUpSeed(seed)) {
-                                        // No next-up — validate only when metadata contains
-                                        // the completed seed episode.
-                                        val nextSeasonMs = cwBadgeNextSeasonMs[seed.contentId]
-                                        val deadline = nextSeasonMs
-                                            ?: (System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
-                                        fullyWatchedSeriesIds.updateWithValidation(
-                                            fullyWatchedSeriesIds.fullyWatchedSeriesIds.value,
-                                            setOf(seed.contentId),
-                                            mapOf(seed.contentId to deadline)
-                                        )
+                                        /*
+                                         * No next-up is authoritative for CW, but it is NOT
+                                         * sufficient to validate the parent watched badge.
+                                         * Badge validation also requires terminal-series
+                                         * status and is owned exclusively by the badge
+                                         * resolver/publisher below.
+                                         */
                                     }
                                     kotlinx.coroutines.yield()
                                 }
@@ -2031,16 +2028,13 @@ private suspend fun HomeViewModel.buildNextUpItem(
             }
         }
         if (seedResolved) {
-            // The seed exists in resolved metadata, so no eligible successor is
-            // authoritative. Missing or mismatched metadata remains retryable.
-            val nextSeasonMs = cwBadgeNextSeasonMs[progress.contentId]
-            val deadline = nextSeasonMs
-                ?: (System.currentTimeMillis() + 7L * 24 * 60 * 60 * 1000)
-            fullyWatchedSeriesIds.updateWithValidation(
-                fullyWatchedSeriesIds.fullyWatchedSeriesIds.value,
-                setOf(progress.contentId),
-                mapOf(progress.contentId to deadline)
-            )
+            /*
+             * The seed exists in resolved metadata, so no eligible successor
+             * is authoritative for Continue Watching. Do not mark the series
+             * badge validation fresh here: terminal status may still be
+             * unresolved, and only the badge pipeline has enough information
+             * to validate parent completion.
+             */
         }
         return null
     }
