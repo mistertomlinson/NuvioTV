@@ -65,7 +65,11 @@ class WatchedSeriesStateHolder @Inject constructor(
                  */
                 buildMap {
                     persistedValidation.keys.forEach { put(it, 0L) }
-                    persisted.forEach { putIfAbsent(it, 0L) }
+                    persisted.forEach { id ->
+                        if (id !in this) {
+                            put(id, 0L)
+                        }
+                    }
                 }
             } else {
                 persistedValidation
