@@ -64,7 +64,19 @@ class WatchedSeriesStateHolder @Inject constructor(
                  * whole library as brand-new work.
                  */
                 buildMap {
-                    persistedValidation.keys.forEach { put(it, 0L) }
+                    persistedValidation.forEach { (id, deadline) ->
+                        /*
+                         * Long.MAX_VALUE is the existing marker for a series
+                         * that still has unwatched released episodes.  Its
+                         * terminal status is irrelevant until watched history
+                         * changes, so do not create one-time migration work for
+                         * those ordinary partial shows.
+                         */
+                        val shouldRevalidate =
+                            id in persisted ||
+                                deadline != Long.MAX_VALUE
+                        put(id, if (shouldRevalidate) 0L else deadline)
+                    }
                     persisted.forEach { id ->
                         if (id !in this) {
                             put(id, 0L)
