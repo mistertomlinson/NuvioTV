@@ -103,6 +103,7 @@ import com.nuvio.tv.ui.components.MetaDetailsSkeleton
 import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.components.WatchedRatingOverlay
 import com.nuvio.tv.ui.components.TrailerPlayer
+import com.nuvio.tv.ui.util.isCaughtUpForWatchedAction
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -389,6 +390,7 @@ fun MetaDetailsScreen(
                     blurUnwatchedEpisodes = uiState.blurUnwatchedEpisodes,
                     isMovieWatched = uiState.isMovieWatched,
                     isMovieWatchedPending = uiState.isMovieWatchedPending,
+                    isSeriesWatchedPending = uiState.isSeriesWatchedPending,
                     isReleaseReminderSet = uiState.isReleaseReminderSet,
                     moreLikeThis = uiState.moreLikeThis,
                     collection = uiState.collection,
@@ -482,6 +484,7 @@ fun MetaDetailsScreen(
                     onToggleReleaseReminder = { viewModel.onEvent(MetaDetailsEvent.OnToggleReleaseReminder) },
                     onLibraryLongPress = { viewModel.onEvent(MetaDetailsEvent.OnLibraryLongPress) },
                     onToggleMovieWatched = { viewModel.onEvent(MetaDetailsEvent.OnToggleMovieWatched) },
+                    onToggleSeriesWatched = { viewModel.onEvent(MetaDetailsEvent.OnToggleSeriesWatched) },
                     onToggleEpisodeWatched = { video ->
                         viewModel.onEvent(MetaDetailsEvent.OnToggleEpisodeWatched(video))
                     },
@@ -652,6 +655,7 @@ private fun MetaDetailsContent(
     blurUnwatchedEpisodes: Boolean,
     isMovieWatched: Boolean,
     isMovieWatchedPending: Boolean,
+    isSeriesWatchedPending: Boolean,
     isReleaseReminderSet: Boolean,
     moreLikeThis: List<MetaPreview>,
     collection: List<MetaPreview>,
@@ -681,6 +685,7 @@ private fun MetaDetailsContent(
     onToggleReleaseReminder: () -> Unit,
     onLibraryLongPress: () -> Unit,
     onToggleMovieWatched: () -> Unit,
+    onToggleSeriesWatched: () -> Unit,
     onToggleEpisodeWatched: (Video) -> Unit,
     onMarkSeasonWatched: (Int) -> Unit,
     onMarkSeasonUnwatched: (Int) -> Unit,
@@ -726,6 +731,17 @@ private fun MetaDetailsContent(
     }
     val isSeries = remember(meta.type, meta.videos) {
         meta.type == ContentType.SERIES || meta.videos.isNotEmpty()
+    }
+    val isSeriesWatched = remember(
+        meta.videos,
+        watchedEpisodes,
+        episodeProgressMap
+    ) {
+        isSeries &&
+            meta.isCaughtUpForWatchedAction(
+                watchedEpisodes = watchedEpisodes,
+                episodeProgressMap = episodeProgressMap
+            )
     }
     val isComingSoon = meta.behaviorHints?.comingSoon == true
     val defaultSeriesVideo = remember(meta.behaviorHints?.defaultVideoId, meta.videos) {
@@ -1424,6 +1440,9 @@ private fun MetaDetailsContent(
                         isMovieWatched = isMovieWatched,
                         isMovieWatchedPending = isMovieWatchedPending,
                         onToggleMovieWatched = onToggleMovieWatched,
+                        isSeriesWatched = isSeriesWatched,
+                        isSeriesWatchedPending = isSeriesWatchedPending,
+                        onToggleSeriesWatched = onToggleSeriesWatched,
                         mdbListEnabled = mdbListEnabled,
                         mdbListRatings = mdbListRatings,
                         hideMetaInfoImdb = true,

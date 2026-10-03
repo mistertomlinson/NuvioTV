@@ -20,10 +20,12 @@ import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.WatchProgressSource
 import com.nuvio.tv.data.local.WatchProgressPreferences
 import com.nuvio.tv.data.local.WatchedItemsPreferences
+import com.nuvio.tv.data.local.WatchedSeriesStateHolder
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.model.WatchedItem
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -46,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.ArrayDeque
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -63,6 +66,7 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private val profileManager: ProfileManager,
     private val watchProgressSyncService: WatchProgressSyncService,
     private val watchedItemsPreferences: WatchedItemsPreferences,
+    private val watchedSeriesStateHolder: WatchedSeriesStateHolder,
     private val watchedItemsSyncService: WatchedItemsSyncService,
     private val authManager: AuthManager,
     private val metaRepository: MetaRepository
@@ -985,6 +989,10 @@ class WatchProgressRepositoryImpl @Inject constructor(
             episode
         )
 
+        if (season != null && episode != null) {
+            invalidateSeriesWatchedBadge(setOf(contentId))
+        }
+
         val playerSeedProfileId =
             profileManager.activeProfileId.value
         val playerSeedContentKey =
@@ -1246,8 +1254,121 @@ class WatchProgressRepositoryImpl @Inject constructor(
         progressList.forEach { saveProgress(it, syncRemote) }
     }
 
-    override suspend fun markAsCompletedBatch(progressList: List<WatchProgress>) {
-        progressList.forEach { markAsCompleted(it) }
+    override suspend fun markAsCompletedBatch(
+        progressList: List<WatchProgress>
+    ) {
+        if (progressList.isEmpty()) return
+
+        val distinct = progressList
+            .distinctBy { progress ->
+                Triple(
+                    progress.contentId.trim().lowercase(),
+                    progress.season,
+                    progress.episode
+                )
+            }
+        val now = System.currentTimeMillis()
+        val completed = distinct.mapIndexed { index, progress ->
+            val duration = progress.duration.takeIf { it > 0L } ?: 1L
+            progress.copy(
+                position = duration,
+                duration = duration,
+                progressPercent = 100f,
+                // Keep ordering deterministic while still treating this as one
+                // user action.
+                lastWatched = now + index
+            )
+        }
+
+        val provider =
+            activeProgressProviderId
+                ?.let(trackingProgressProviders::provider)
+                ?: activeProgressProvider()
+
+        if (provider != null) {
+            val writer = trackingHistoryWriters.writer(
+                provider.providerId
+            ) ?: throw IllegalStateException(
+                "No history writer registered for ${provider.providerId}"
+            )
+
+            completed.forEach { progress ->
+                provider.applyOptimisticProgress(
+                    progress = progress,
+                    quiet = true
+                )
+            }
+
+            val historyItems = completed.map { progress ->
+                TrackingHistoryItem(
+                    media = buildTrackingMediaReference(
+                        contentType = progress.contentType,
+                        parentMetaId = progress.contentId,
+                        videoId = progress.videoId,
+                        title = progress.name,
+                        seasonNumber = progress.season,
+                        episodeNumber = progress.episode,
+                        episodeTitle = progress.episodeTitle,
+                        posterUrl = progress.poster
+                    ),
+                    watchedAtEpochMs = progress.lastWatched
+                )
+            }
+
+            try {
+                val result = writer.addToHistory(
+                    profileId = profileManager.activeProfileId.value,
+                    items = historyItems
+                )
+                check(result.isComplete) {
+                    "Tracking provider could not match " +
+                        "${result.notFoundCount} of " +
+                        "${result.attemptedCount} watched episodes"
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                completed.forEach { progress ->
+                    provider.applyOptimisticRemoval(
+                        contentId = progress.contentId,
+                        videoId = progress.videoId,
+                        season = progress.season,
+                        episode = progress.episode
+                    )
+                }
+                throw error
+            }
+
+            provider.persistDurableProgressBatch(completed)
+        }
+
+        val watchedItems = completed.map { progress ->
+            WatchedItem(
+                contentId = progress.contentId,
+                contentType = progress.contentType,
+                title = progress.name,
+                season = progress.season,
+                episode = progress.episode,
+                watchedAt = progress.lastWatched
+            )
+        }
+        watchProgressPreferences.markAsCompletedBatch(completed)
+        watchedItemsPreferences.markAsWatchedBatch(watchedItems)
+
+        /*
+         * One wake-up is enough for CW/Next Up/badges to recompute from the
+         * completed batch. Avoid N separate Home recomputations for long shows.
+         */
+        completed.maxWithOrNull(
+            compareBy<WatchProgress>(
+                { it.season ?: Int.MIN_VALUE },
+                { it.episode ?: Int.MIN_VALUE }
+            )
+        )?.let(::emitOptimisticContinueWatchingUpdate)
+
+        if (provider == null) {
+            triggerRemoteSync()
+            triggerWatchedItemsSync()
+        }
     }
 
     override suspend fun removeFromHistoryBatch(
@@ -1258,6 +1379,147 @@ class WatchProgressRepositoryImpl @Inject constructor(
         episodes.forEach { (season, episode) ->
             removeFromHistory(contentId, videoId, season, episode)
         }
+    }
+
+    override suspend fun removeFromHistoryBatch(
+        progressList: List<WatchProgress>
+    ) {
+        if (progressList.isEmpty()) return
+
+        val distinct = progressList.distinctBy { progress ->
+            Triple(
+                progress.contentId.trim().lowercase(),
+                progress.season,
+                progress.episode
+            )
+        }
+        val provider = activeProgressProvider()
+        val remoteDeleteKeys =
+            if (provider == null) {
+                distinct.flatMap { progress ->
+                    resolveRemoteDeleteKeys(
+                        contentId = progress.contentId,
+                        season = progress.season,
+                        episode = progress.episode
+                    )
+                }.distinct()
+            } else {
+                emptyList()
+            }
+
+        if (provider != null) {
+            val writer = trackingHistoryWriters.writer(
+                provider.providerId
+            ) ?: throw IllegalStateException(
+                "No history writer registered for ${provider.providerId}"
+            )
+
+            val media = distinct.map { progress ->
+                buildTrackingMediaReference(
+                    contentType = progress.contentType,
+                    parentMetaId = progress.contentId,
+                    videoId = progress.videoId,
+                    title = progress.name,
+                    seasonNumber = progress.season,
+                    episodeNumber = progress.episode,
+                    episodeTitle = progress.episodeTitle,
+                    posterUrl = progress.poster
+                )
+            }
+
+            distinct.forEach { progress ->
+                provider.applyOptimisticRemoval(
+                    contentId = progress.contentId,
+                    videoId = progress.videoId,
+                    season = progress.season,
+                    episode = progress.episode
+                )
+            }
+
+            try {
+                val result = writer.removeFromHistory(
+                    profileId = profileManager.activeProfileId.value,
+                    items = media
+                )
+                check(result.isComplete) {
+                    "Tracking provider could not match " +
+                        "${result.notFoundCount} of " +
+                        "${result.attemptedCount} watched episodes"
+                }
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                distinct.forEach { progress ->
+                    provider.clearOptimisticRemoval(
+                        contentId = progress.contentId,
+                        videoId = progress.videoId,
+                        season = progress.season,
+                        episode = progress.episode
+                    )
+                }
+                throw error
+            }
+        }
+
+        watchProgressPreferences.removeProgressBatch(distinct)
+        watchedItemsPreferences.unmarkAsWatchedBatch(
+            distinct.map { progress ->
+                WatchedItem(
+                    contentId = progress.contentId,
+                    contentType = progress.contentType,
+                    title = progress.name,
+                    season = progress.season,
+                    episode = progress.episode,
+                    watchedAt = progress.lastWatched
+                )
+            }
+        )
+
+        invalidateSeriesWatchedBadge(
+            distinct.asSequence()
+                .filter {
+                    it.season != null &&
+                        it.episode != null
+                }
+                .map { it.contentId }
+                .toSet()
+        )
+
+        val profileId = profileManager.activeProfileId.value
+        val removedContentKeys = distinct
+            .map { rewatchSeedContentKey(it.contentId) }
+            .toSet()
+        playerCompletedNextUpSeedsByProfile.update { current ->
+            val profileSeeds = current[profileId].orEmpty()
+            val updatedProfileSeeds =
+                profileSeeds.filterKeys { key -> key !in removedContentKeys }
+
+            if (updatedProfileSeeds.isEmpty()) {
+                current - profileId
+            } else {
+                current + (profileId to updatedProfileSeeds)
+            }
+        }
+
+        if (provider != null) return
+
+        if (
+            authManager.isAuthenticated &&
+            remoteDeleteKeys.isNotEmpty()
+        ) {
+            watchProgressSyncService
+                .deleteFromRemote(remoteDeleteKeys)
+                .onFailure { error ->
+                    Log.w(
+                        TAG,
+                        "removeFromHistoryBatch remote delete failed; " +
+                            "relying on push sync",
+                        error
+                    )
+                }
+        }
+
+        triggerRemoteSync()
+        triggerWatchedItemsSync()
     }
 
     override fun isDroppedShow(contentId: String): Boolean {
@@ -1307,6 +1569,58 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return provider
             ?.normalizeParentContentId(parentContentId, videoId)
             ?: parentContentId
+    }
+
+    private suspend fun invalidateSeriesWatchedBadge(
+        contentIds: Set<String>
+    ) {
+        if (contentIds.isEmpty()) return
+
+        val siblings = try {
+            activeProgressProvider()
+                ?.showIdSiblings()
+                .orEmpty()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            emptyMap()
+        }
+
+        val aliases = linkedSetOf<String>()
+        val queue = ArrayDeque<String>()
+
+        fun enqueue(raw: String?) {
+            val id = raw?.trim()?.takeIf(String::isNotBlank) ?: return
+
+            fun add(candidate: String) {
+                if (aliases.add(candidate)) {
+                    queue.addLast(candidate)
+                }
+            }
+
+            add(id)
+
+            if (id.startsWith("imdb:", ignoreCase = true)) {
+                id.substringAfter(':')
+                    .takeIf(String::isNotBlank)
+                    ?.let(::add)
+            } else if (id.startsWith("tt", ignoreCase = true)) {
+                add("imdb:$id")
+            }
+        }
+
+        contentIds.forEach(::enqueue)
+
+        while (queue.isNotEmpty()) {
+            val id = queue.removeFirst()
+            siblings[id]
+                .orEmpty()
+                .asSequence()
+                .filter { it != "__ambiguous__" }
+                .forEach(::enqueue)
+        }
+
+        watchedSeriesStateHolder.invalidate(aliases)
     }
 
     private fun progressKey(progress: WatchProgress): String {

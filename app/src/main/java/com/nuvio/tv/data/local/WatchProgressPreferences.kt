@@ -225,6 +225,35 @@ class WatchProgressPreferences @Inject constructor(
         }
     }
 
+    suspend fun removeProgressBatch(progressList: List<WatchProgress>) {
+        if (progressList.isEmpty()) return
+
+        store().edit { preferences ->
+            val json = preferences[watchProgressKey] ?: "{}"
+            val map = parseProgressMap(json).toMutableMap()
+
+            progressList.forEach { progress ->
+                val season = progress.season
+                val episode = progress.episode
+                if (season != null && episode != null) {
+                    map.remove(
+                        "${progress.contentId}_s${season}e${episode}"
+                    )
+                    map.remove(progress.contentId)
+                } else {
+                    val keysToRemove = map.keys.filter { key ->
+                        key == progress.contentId ||
+                            key.startsWith("${progress.contentId}_s")
+                    }
+                    keysToRemove.forEach { key -> map.remove(key) }
+                }
+            }
+
+            preferences[watchProgressKey] =
+                gson.toJson(pruneOldItems(map))
+        }
+    }
+
     /**
      * Mark content as completed
      */
@@ -246,6 +275,57 @@ class WatchProgressPreferences @Inject constructor(
             lastWatched = System.currentTimeMillis()
         )
         saveProgress(completedProgress)
+    }
+
+    suspend fun markAsCompletedBatch(
+        progressList: List<WatchProgress>
+    ) {
+        if (progressList.isEmpty()) return
+
+        val profileId = profileManager.activeProfileId.value
+        store(profileId).edit { preferences ->
+            val json = preferences[watchProgressKey] ?: "{}"
+            val map = parseProgressMap(json).toMutableMap()
+
+            progressList.forEach { progress ->
+                val key = createKey(progress)
+                val effectiveDuration =
+                    if (progress.duration <= 1L) {
+                        map[key]
+                            ?.duration
+                            ?.takeIf { it > 1L }
+                            ?: progress.duration
+                    } else {
+                        progress.duration
+                    }
+
+                val completed = progress.copy(
+                    position = effectiveDuration,
+                    duration = effectiveDuration,
+                    progressPercent = 100f
+                )
+
+                map[key] = completed
+
+                if (
+                    completed.season != null &&
+                    completed.episode != null
+                ) {
+                    val seriesKey = completed.contentId
+                    val existingSeriesProgress = map[seriesKey]
+                    if (
+                        existingSeriesProgress == null ||
+                        completed.lastWatched >
+                            existingSeriesProgress.lastWatched
+                    ) {
+                        map[seriesKey] = completed
+                    }
+                }
+            }
+
+            preferences[watchProgressKey] =
+                gson.toJson(pruneOldItems(map))
+        }
     }
 
     /**

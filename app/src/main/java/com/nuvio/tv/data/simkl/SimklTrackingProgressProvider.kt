@@ -266,6 +266,21 @@ class SimklTrackingProgressProvider @Inject constructor(
         durableProgressStore.persist(progress)
     }
 
+    override suspend fun persistDurableProgressBatch(
+        progressList: List<WatchProgress>
+    ) {
+        if (progressList.isEmpty()) return
+        val completed = progressList.filter { progress ->
+            progress.isCompleted()
+        }
+        if (completed.isNotEmpty()) {
+            durableProgressStore.removeProgressBatch(completed)
+        }
+        progressList
+            .filterNot { progress -> progress.isCompleted() }
+            .forEach { progress -> persistDurableProgress(progress) }
+    }
+
     override suspend fun removeProgress(contentId: String, season: Int?, episode: Int?) {
         progressDismissalStore.dismiss(
             contentId = contentId,

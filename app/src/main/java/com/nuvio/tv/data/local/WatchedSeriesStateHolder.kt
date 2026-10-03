@@ -26,6 +26,15 @@ class WatchedSeriesStateHolder @Inject constructor(
         private const val FEATURE = "watched_series_cache"
         private val KEY = stringSetPreferencesKey("fully_watched_ids")
         private val REVALIDATE_KEY = stringPreferencesKey("revalidate_after")
+        private val SEMANTICS_VERSION_KEY =
+            androidx.datastore.preferences.core.intPreferencesKey(
+                "watched_series_semantics_version"
+            )
+        /*
+         * v3 invalidates finite badge validations written by the old
+         * no-next-up shortcut before terminal status had been resolved.
+         */
+        private const val TERMINAL_STATUS_SEMANTICS_VERSION = 3
         private const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000
     }
 
@@ -42,11 +51,58 @@ class WatchedSeriesStateHolder @Inject constructor(
 
     suspend fun loadFromDisk() {
         if (loaded) return
-        val prefs = store().data.first()
+        val profileStore = store()
+        val prefs = profileStore.data.first()
         val persisted = prefs[KEY] ?: emptySet()
-        revalidateAfterMap = parseTimestamps(prefs[REVALIDATE_KEY])
+        val persistedValidation =
+            parseTimestamps(prefs[REVALIDATE_KEY])
+        val semanticsVersion =
+            prefs[SEMANTICS_VERSION_KEY] ?: 1
+
+        revalidateAfterMap =
+            if (semanticsVersion < TERMINAL_STATUS_SEMANTICS_VERSION) {
+                /*
+                 * Preserve the visible badge set, but expire every previously
+                 * validated series once so terminal-only semantics are applied.
+                 * Keeping the IDs and validation keys means Home can use its
+                 * gentle sequential revalidation path instead of treating the
+                 * whole library as brand-new work.
+                 */
+                buildMap {
+                    persistedValidation.forEach { (id, deadline) ->
+                        /*
+                         * Long.MAX_VALUE is the existing marker for a series
+                         * that still has unwatched released episodes.  Its
+                         * terminal status is irrelevant until watched history
+                         * changes, so do not create one-time migration work for
+                         * those ordinary partial shows.
+                         */
+                        val shouldRevalidate =
+                            id in persisted ||
+                                deadline != Long.MAX_VALUE
+                        put(id, if (shouldRevalidate) 0L else deadline)
+                    }
+                    persisted.forEach { id ->
+                        if (id !in this) {
+                            put(id, 0L)
+                        }
+                    }
+                }
+            } else {
+                persistedValidation
+            }
+
         if (_fullyWatchedSeriesIds.value.isEmpty() && persisted.isNotEmpty()) {
             _fullyWatchedSeriesIds.value = persisted
+        }
+
+        if (semanticsVersion < TERMINAL_STATUS_SEMANTICS_VERSION) {
+            profileStore.edit { mutablePrefs ->
+                mutablePrefs[SEMANTICS_VERSION_KEY] =
+                    TERMINAL_STATUS_SEMANTICS_VERSION
+                mutablePrefs[REVALIDATE_KEY] =
+                    gson.toJson(revalidateAfterMap)
+            }
         }
         loaded = true
     }
@@ -90,6 +146,33 @@ class WatchedSeriesStateHolder @Inject constructor(
                     prefs[KEY] = ids
                     prefs[REVALIDATE_KEY] = gson.toJson(updated)
                 }
+            }
+        }
+    }
+
+    @Synchronized
+    fun invalidate(ids: Set<String>) {
+        if (ids.isEmpty()) return
+
+        val currentIds = _fullyWatchedSeriesIds.value
+        val updatedIds = currentIds - ids
+        val updatedValidation =
+            revalidateAfterMap.filterKeys { key -> key !in ids }
+
+        val idsChanged = updatedIds != currentIds
+        val validationChanged =
+            updatedValidation.size != revalidateAfterMap.size
+
+        if (!idsChanged && !validationChanged) return
+
+        _fullyWatchedSeriesIds.value = updatedIds
+        revalidateAfterMap = updatedValidation
+
+        scope.launch {
+            store().edit { prefs ->
+                prefs[KEY] = updatedIds
+                prefs[REVALIDATE_KEY] =
+                    gson.toJson(updatedValidation)
             }
         }
     }

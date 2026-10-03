@@ -700,6 +700,9 @@ class HomeViewModel @Inject constructor(
     internal val cwMetaCache = Collections.synchronizedMap(mutableMapOf<String, CwMetaSummary?>())
     internal val cwMetaNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
     internal val cwBadgeEpisodeCache = Collections.synchronizedMap(mutableMapOf<String, Set<Pair<Int, Int>>?>())
+    internal val cwBadgeSeriesStatusCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
+    @Volatile
+    internal var cwBadgeShowIdSiblings: Map<String, Set<String>> = emptyMap()
     internal val cwBadgeNextSeasonMs = Collections.synchronizedMap(mutableMapOf<String, Long>())
     @Volatile
     internal var cwLastBadgeEpisodeKeys: Set<String> = emptySet()
@@ -853,6 +856,11 @@ class HomeViewModel @Inject constructor(
     internal var movieWatchedBatchJob: Job? = null
     internal var seriesWatchedJob: Job? = null
     internal var lastMovieWatchedItemKeys: Set<String> = emptySet()
+    internal var lastSeriesWatchedItemKeys: Set<String> = emptySet()
+    internal val seriesWatchedActionMetaCache =
+        Collections.synchronizedMap(
+            mutableMapOf<String, com.nuvio.tv.domain.model.Meta>()
+        )
     internal var activePosterListPickerInput: LibraryEntryInput? = null
     @Volatile
     internal var externalMetaPrefetchEnabled: Boolean = false
@@ -910,6 +918,8 @@ class HomeViewModel @Inject constructor(
                     cwMetaCache.clear()
                     cwMetaNegativeCacheTimestamps.clear()
                     cwBadgeEpisodeCache.clear()
+                    cwBadgeSeriesStatusCache.clear()
+                    cwBadgeShowIdSiblings = emptyMap()
                     cwBadgeNextSeasonMs.clear()
                     cwTmdbIdCache.clear()
                     cwNextUpResolutionCache.clear()
@@ -919,6 +929,7 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
+                    seriesWatchedActionMetaCache.clear()
                     _fullCatalogRows.value = emptyList()
                     _uiState.update {
                         it.copy(
@@ -961,6 +972,8 @@ class HomeViewModel @Inject constructor(
                     cwMetaCache.clear()
                     cwMetaNegativeCacheTimestamps.clear()
                     cwBadgeEpisodeCache.clear()
+                    cwBadgeSeriesStatusCache.clear()
+                    cwBadgeShowIdSiblings = emptyMap()
                     cwBadgeNextSeasonMs.clear()
                     cwTmdbIdCache.clear()
                     cwNextUpResolutionCache.clear()

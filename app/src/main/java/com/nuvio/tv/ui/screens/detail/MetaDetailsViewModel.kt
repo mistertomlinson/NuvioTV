@@ -28,6 +28,8 @@ import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.repository.LibraryRepository
 import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
+import com.nuvio.tv.ui.util.buildCompletedSeriesEpisodeProgress
+import com.nuvio.tv.ui.util.releasedRegularEpisodesForWatchedAction
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -287,6 +289,7 @@ class MetaDetailsViewModel @Inject constructor(
             MetaDetailsEvent.OnDismissSharedTrailer -> dismissSharedTrailerOverlay()
             MetaDetailsEvent.OnRetrySharedTrailer -> retrySharedTrailer()
             MetaDetailsEvent.OnToggleMovieWatched -> toggleMovieWatched()
+            MetaDetailsEvent.OnToggleSeriesWatched -> toggleSeriesWatched()
             is MetaDetailsEvent.OnToggleEpisodeWatched -> toggleEpisodeWatched(event.video)
             is MetaDetailsEvent.OnMarkSeasonWatched -> markSeasonWatched(event.season)
             is MetaDetailsEvent.OnMarkSeasonUnwatched -> markSeasonUnwatched(event.season)
@@ -372,19 +375,30 @@ class MetaDetailsViewModel @Inject constructor(
     private fun observeWatchProgress() {
         if (itemType.lowercase() == "movie") return
         viewModelScope.launch {
-            watchProgressRepository.getAllEpisodeProgress(itemId)
-                .distinctUntilChanged()
-                .collectLatest { progressMap ->
-                _uiState.update { state ->
-                    if (state.episodeProgressMap == progressMap) {
-                        state
-                    } else {
-                        state.copy(episodeProgressMap = progressMap)
+            kotlinx.coroutines.flow.combine(
+                watchProgressRepository.getAllEpisodeProgress(itemId),
+                optimisticWatchedEpisodeOverrides
+            ) { progressMap, optimisticOverrides ->
+                if (optimisticOverrides.none { (_, watched) -> !watched }) {
+                    progressMap
+                } else {
+                    progressMap.filterKeys { coordinates ->
+                        optimisticOverrides[coordinates] != false
                     }
                 }
-                // Recalculate next to watch when progress changes
-                calculateNextToWatch()
             }
+                .distinctUntilChanged()
+                .collectLatest { progressMap ->
+                    _uiState.update { state ->
+                        if (state.episodeProgressMap == progressMap) {
+                            state
+                        } else {
+                            state.copy(episodeProgressMap = progressMap)
+                        }
+                    }
+                    // Recalculate next to watch when progress changes
+                    calculateNextToWatch()
+                }
         }
     }
 
@@ -1872,6 +1886,142 @@ class MetaDetailsViewModel @Inject constructor(
                 )
             }
             _uiState.update { it.copy(isMovieWatchedPending = false) }
+        }
+    }
+
+    private fun toggleSeriesWatched() {
+        val meta = _uiState.value.meta ?: return
+        if (_uiState.value.isSeriesWatchedPending) return
+
+        viewModelScope.launch {
+            val releasedEpisodes =
+                meta.releasedRegularEpisodesForWatchedAction()
+
+            if (releasedEpisodes.isEmpty()) {
+                showMessage("No released regular episodes are available")
+                return@launch
+            }
+
+            val state = _uiState.value
+            val currentlyWatched = releasedEpisodes.filter { video ->
+                val season = video.season ?: return@filter false
+                val episode = video.episode ?: return@filter false
+                val key = season to episode
+                key in state.watchedEpisodes ||
+                    state.episodeProgressMap[key]?.isCompleted() == true
+            }
+            val allReleasedWatched =
+                currentlyWatched.size == releasedEpisodes.size
+            val affectedEpisodes =
+                if (allReleasedWatched) {
+                    releasedEpisodes
+                } else {
+                    releasedEpisodes.filterNot { it in currentlyWatched }
+                }
+            val pendingKeys =
+                affectedEpisodes.map(::episodePendingKey).toSet()
+            val optimisticCoordinates =
+                affectedEpisodes.mapNotNull { video ->
+                    val season = video.season ?: return@mapNotNull null
+                    val episode = video.episode ?: return@mapNotNull null
+                    season to episode
+                }.toSet()
+            val targetWatched = !allReleasedWatched
+            val previousOptimisticOverrides =
+                optimisticCoordinates.associateWith { coordinate ->
+                    optimisticWatchedEpisodeOverrides.value[coordinate]
+                }
+
+            /*
+             * Match the existing single-episode toggle semantics. The Details
+             * screen merges local + authoritative provider history, so a stale
+             * provider snapshot can otherwise resurrect episodes immediately
+             * after a successful bulk unwatch until the next refresh.
+             */
+            optimisticWatchedEpisodeOverrides.update { current ->
+                current + optimisticCoordinates.associateWith { targetWatched }
+            }
+
+            _uiState.update {
+                it.copy(
+                    isSeriesWatchedPending = true,
+                    episodeWatchedPendingKeys =
+                        it.episodeWatchedPendingKeys + pendingKeys
+                )
+            }
+
+            try {
+                val progress = affectedEpisodes.map { video ->
+                    meta.buildCompletedSeriesEpisodeProgress(
+                        parentContentId = itemId,
+                        video = video
+                    )
+                }
+
+                if (allReleasedWatched) {
+                    watchProgressRepository.removeFromHistoryBatch(progress)
+                    showMessage(
+                        context.getString(
+                            R.string.detail_marked_episodes_unwatched,
+                            progress.size
+                        )
+                    )
+                } else {
+                    watchProgressRepository.markAsCompletedBatch(progress)
+
+                    runCatching {
+                        watchProgressRepository.removeProgress(
+                            itemId,
+                            season = null,
+                            episode = null
+                        )
+                    }.onFailure { error ->
+                        Log.w(
+                            TAG,
+                            "Failed to remove stale playback after " +
+                                "toggleSeriesWatched: ${error.message}"
+                        )
+                    }
+
+                    showMessage(
+                        context.getString(
+                            R.string.detail_marked_episodes_watched,
+                            progress.size
+                        )
+                    )
+                }
+            } catch (error: Throwable) {
+                optimisticWatchedEpisodeOverrides.update { current ->
+                    current.toMutableMap().apply {
+                        previousOptimisticOverrides.forEach {
+                                (coordinate, previousValue) ->
+                            if (previousValue == null) {
+                                remove(coordinate)
+                            } else {
+                                this[coordinate] = previousValue
+                            }
+                        }
+                    }
+                }
+                if (error is CancellationException) throw error
+                Log.w(
+                    TAG,
+                    "Failed to toggle whole-series watched state for " +
+                        "$itemId: ${error.message}"
+                )
+                showMessage(
+                    error.message ?: "Failed to update watched episodes",
+                    isError = true
+                )
+            } finally {
+                _uiState.update {
+                    it.copy(
+                        isSeriesWatchedPending = false,
+                        episodeWatchedPendingKeys =
+                            it.episodeWatchedPendingKeys - pendingKeys
+                    )
+                }
+            }
         }
     }
 
