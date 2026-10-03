@@ -857,6 +857,10 @@ class HomeViewModel @Inject constructor(
     internal var seriesWatchedJob: Job? = null
     internal var lastMovieWatchedItemKeys: Set<String> = emptySet()
     internal var lastSeriesWatchedItemKeys: Set<String> = emptySet()
+    internal val seriesWatchedActionMetaCache =
+        Collections.synchronizedMap(
+            mutableMapOf<String, com.nuvio.tv.domain.model.Meta>()
+        )
     internal var activePosterListPickerInput: LibraryEntryInput? = null
     @Volatile
     internal var externalMetaPrefetchEnabled: Boolean = false
@@ -925,6 +929,7 @@ class HomeViewModel @Inject constructor(
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
+                    seriesWatchedActionMetaCache.clear()
                     _fullCatalogRows.value = emptyList()
                     _uiState.update {
                         it.copy(
