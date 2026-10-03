@@ -136,11 +136,17 @@ internal fun PlayerRuntimeController.saveWatchProgressIfNeeded() {
     }
 }
 
-internal fun PlayerRuntimeController.saveWatchProgress() {
+internal fun PlayerRuntimeController.saveWatchProgress(
+    creditBoundaryGraceMs: Long = 0L
+) {
     if (!hasRenderedFirstFrame) return
     val currentPosition = _exoPlayer?.currentPosition ?: return
     val duration = getEffectiveDuration(currentPosition)
-    saveWatchProgressInternal(currentPosition, duration)
+    saveWatchProgressInternal(
+        position = currentPosition,
+        duration = duration,
+        creditBoundaryGraceMs = creditBoundaryGraceMs
+    )
 }
 
 /*
@@ -171,7 +177,12 @@ internal fun PlayerRuntimeController.getEffectiveDuration(position: Long): Long 
     return effectiveDuration
 }
 
-internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, duration: Long, syncRemote: Boolean = true) {
+internal fun PlayerRuntimeController.saveWatchProgressInternal(
+    position: Long,
+    duration: Long,
+    syncRemote: Boolean = true,
+    creditBoundaryGraceMs: Long = 0L
+) {
     
     if (contentId.isNullOrEmpty() || contentType.isNullOrEmpty()) return
     
@@ -203,7 +214,8 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(position: Long, d
             durationMs = duration,
             playbackEnded =
                 _exoPlayer?.playbackState == Player.STATE_ENDED ||
-                    _uiState.value.playbackEnded
+                    _uiState.value.playbackEnded,
+            creditBoundaryGraceMs = creditBoundaryGraceMs
         )
 
     scope.launch(
@@ -369,7 +381,9 @@ internal fun PlayerRuntimeController.emitCompletionScrobbleStop(progressPercent:
     emitScrobbleStop(progressPercent = maxOf(progressPercent, 80f))
 }
 
-internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress() {
+internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress(
+    creditBoundaryGraceMs: Long = 0L
+) {
     val player = _exoPlayer ?: return
     val position = player.currentPosition.coerceAtLeast(0L)
     val duration = getEffectiveDuration(position)
@@ -381,7 +395,8 @@ internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress() {
             durationMs = duration,
             playbackEnded =
                 player.playbackState == Player.STATE_ENDED ||
-                    _uiState.value.playbackEnded
+                    _uiState.value.playbackEnded,
+            creditBoundaryGraceMs = creditBoundaryGraceMs
         )
 
     if (shouldComplete) {
@@ -394,9 +409,15 @@ internal fun PlayerRuntimeController.emitStopScrobbleForCurrentProgress() {
     }
 }
 
-internal fun PlayerRuntimeController.flushPlaybackSnapshotForSwitchOrExit() {
-    emitStopScrobbleForCurrentProgress()
-    saveWatchProgress()
+internal fun PlayerRuntimeController.flushPlaybackSnapshotForSwitchOrExit(
+    creditBoundaryGraceMs: Long = 0L
+) {
+    emitStopScrobbleForCurrentProgress(
+        creditBoundaryGraceMs = creditBoundaryGraceMs
+    )
+    saveWatchProgress(
+        creditBoundaryGraceMs = creditBoundaryGraceMs
+    )
 }
 
 internal fun PlayerRuntimeController.emitSeekScrobbleRestart(
