@@ -267,7 +267,22 @@ internal fun HomeViewModel.stagePendingSeasonalSpotlight(
                                         visibleItems,
                                     settings =
                                         tmdbSettings
-                                )
+                                ).mapIndexed { index, enriched ->
+                                    /*
+                                     * Seasonal Spotlight's English-only
+                                     * curation is an addon eligibility rule,
+                                     * not presentation metadata. Preserve the
+                                     * catalog item's original language field
+                                     * so TMDB enrichment cannot surface "EN"
+                                     * in Nuvio's Home hero for this addon.
+                                     */
+                                    enriched.copy(
+                                        language =
+                                            visibleItems
+                                                .getOrNull(index)
+                                                ?.language
+                                    )
+                                }
                             } else {
                                 visibleItems
                             }
