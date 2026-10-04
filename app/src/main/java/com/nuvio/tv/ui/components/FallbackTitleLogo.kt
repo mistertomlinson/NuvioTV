@@ -770,13 +770,47 @@ internal fun RasterizedFallbackTitleLogo(
 
     val supersample = 4
 
+    /*
+     * Transparent SOURCE gutter for the animated loading logo.
+     *
+     * The title still renders into the exact original targetWidth x
+     * targetHeight content area. These pixels are added OUTSIDE that area,
+     * so the title does not get smaller.
+     *
+     * At the loading screen's 320x180 target this produces a 336x190
+     * padded bitmap: 8dp horizontal gutter per side and 5dp vertical.
+     */
+    val sourcePaddingHorizontalPx =
+        8f * density.density
+
+    val sourcePaddingVerticalPx =
+        5f * density.density
+
+    val rasterContentWidthPx =
+        targetWidthPx * supersample
+
+    val rasterContentHeightPx =
+        targetHeightPx * supersample
+
+    val rasterPaddingHorizontalPx =
+        sourcePaddingHorizontalPx * supersample
+
+    val rasterPaddingVerticalPx =
+        sourcePaddingVerticalPx * supersample
+
     val rasterWidthPx =
-        (targetWidthPx * supersample)
+        (
+            rasterContentWidthPx +
+                rasterPaddingHorizontalPx * 2f
+            )
             .toInt()
             .coerceAtLeast(1)
 
     val rasterHeightPx =
-        (targetHeightPx * supersample)
+        (
+            rasterContentHeightPx +
+                rasterPaddingVerticalPx * 2f
+            )
             .toInt()
             .coerceAtLeast(1)
 
@@ -815,11 +849,15 @@ internal fun RasterizedFallbackTitleLogo(
             val rasterHeight =
                 rasterHeightPx.toFloat()
 
+            /*
+             * Preserve the exact old title scale. The transparent padding
+             * must never participate in ContentScale.Fit.
+             */
             val scale =
                 minOf(
-                    rasterWidth /
+                    rasterContentWidthPx /
                         canonicalLayout.contentWidthPx,
-                    rasterHeight /
+                    rasterContentHeightPx /
                         canonicalLayout.contentHeightPx
                 )
                     .coerceAtLeast(0f)
@@ -837,25 +875,37 @@ internal fun RasterizedFallbackTitleLogo(
             val originX =
                 when (horizontalAlignment) {
                     FallbackTitleLogoHorizontalAlignment.Start ->
-                        0f
+                        rasterPaddingHorizontalPx
 
                     FallbackTitleLogoHorizontalAlignment.Center ->
-                        (rasterWidth - renderedContentWidth) / 2f
+                        rasterPaddingHorizontalPx +
+                            (
+                                rasterContentWidthPx -
+                                    renderedContentWidth
+                            ) / 2f
 
                     FallbackTitleLogoHorizontalAlignment.End ->
-                        rasterWidth - renderedContentWidth
+                        rasterPaddingHorizontalPx +
+                            rasterContentWidthPx -
+                            renderedContentWidth
                 }
 
             val originY =
                 when (verticalAlignment) {
                     FallbackTitleLogoVerticalAlignment.Top ->
-                        0f
+                        rasterPaddingVerticalPx
 
                     FallbackTitleLogoVerticalAlignment.Center ->
-                        (rasterHeight - renderedContentHeight) / 2f
+                        rasterPaddingVerticalPx +
+                            (
+                                rasterContentHeightPx -
+                                    renderedContentHeight
+                            ) / 2f
 
                     FallbackTitleLogoVerticalAlignment.Bottom ->
-                        rasterHeight - renderedContentHeight
+                        rasterPaddingVerticalPx +
+                            rasterContentHeightPx -
+                            renderedContentHeight
                 }
 
             val paint =
@@ -904,11 +954,18 @@ internal fun RasterizedFallbackTitleLogo(
          * Keep the normal visible logo at targetWidth x targetHeight.
          * The Canvas itself is slightly larger so a 1.04 pulse cannot clip.
          */
+        /*
+         * Draw the complete padded bitmap at its natural logical size.
+         * Because the bitmap contains a 320x180 content region plus gutters,
+         * the visible title itself remains exactly the original 320x180 size.
+         */
         val baseWidth =
-            targetWidthPx
+            targetWidthPx +
+                sourcePaddingHorizontalPx * 2f
 
         val baseHeight =
-            targetHeightPx
+            targetHeightPx +
+                sourcePaddingVerticalPx * 2f
 
         val drawWidth =
             baseWidth * pulseScale

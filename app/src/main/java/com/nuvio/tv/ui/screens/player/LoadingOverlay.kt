@@ -195,9 +195,14 @@ private fun LoadingOverlayLogo(
             targetHeight = 180.dp,
             pulseScale = logoScale,
             alpha = logoAlpha,
+            /*
+             * The visible fallback logo remains 320x180. This larger canvas
+             * is transparent breathing room for the 1.00 -> 1.04 pulse so
+             * glyph edges cannot be clipped by the animated draw surface.
+             */
             modifier = Modifier
-                .width(336.dp)
-                .height(190.dp),
+                .width(360.dp)
+                .height(210.dp),
             horizontalAlignment =
                 com.nuvio.tv.ui.components
                     .FallbackTitleLogoHorizontalAlignment
