@@ -1,13 +1,17 @@
 package com.nuvio.tv.data.simkl
 
+import android.util.Log
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingHistoryItem
 import com.nuvio.tv.core.tracking.TrackingHistoryWriter
+import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingMutationResult
 import com.nuvio.tv.core.tracking.TrackingProviderId
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 
 @Singleton
 class SimklTrackingHistoryWriter @Inject constructor(
@@ -39,10 +43,118 @@ class SimklTrackingHistoryWriter @Inject constructor(
         if (profileId != profileManager.activeProfileId.value) return TrackingMutationResult(0)
         syncRepository.ensureLoaded()
         val snapshot = syncRepository.state.value.snapshot
-        return service.removeFromHistory(
-            items.map { ref ->
-                snapshot.enrichMediaReference(ref).resolveAnimeEpisodeForSimkl()
+
+        /*
+         * Keep the enriched parent identity separate from the final API
+         * mutation identity. Anime episode routing may intentionally replace
+         * the parent's IDs with a season-specific MAL/Kitsu/etc. ID; that is
+         * correct for removing the episode but must not prevent us from finding
+         * the parent show afterward for zero-history Watching cleanup.
+         */
+        val enrichedItems = items.map(snapshot::enrichMediaReference)
+        val removalItems = enrichedItems.map(TrackingMediaReference::resolveAnimeEpisodeForSimkl)
+        val result = service.removeFromHistory(removalItems)
+
+        /*
+         * Simkl keeps a show's list status separate from episode history.
+         * Removing the final watched episode therefore leaves a zero-progress
+         * show stranded in "Watching" unless the parent show is removed too.
+         *
+         * The episode-removal receipt is committed synchronously, so inspect
+         * the updated snapshot instead of making an extra network read. Only
+         * clean up shows that are still explicitly Watching and now have no
+         * watched episodes. Partially watched shows and every other list status
+         * are left untouched.
+         *
+         * IMPORTANT: this parent cleanup is secondary to the requested episode
+         * unwatch. The episode mutation has already succeeded at this point.
+         * A provider/API/reconciliation failure while deleting the stale parent
+         * must therefore NEVER escape this method and make the repository roll
+         * back its optimistic/local episode unwatch. That rollback was the cause
+         * of E1 becoming watched again and E2 remaining in Continue Watching
+         * even though Simkl had already removed the show from Watching.
+         *
+         * Simkl's parent-show removal also removes a rating, if one exists.
+         * That is intentional here: Simkl automatically puts a rated TV show
+         * back into Watching, so preserving the rating would recreate the stale
+         * Watching state the user just explicitly cleared by unwatching the
+         * final episode.
+         */
+        val cleanupTargets =
+            syncRepository
+                .state
+                .value
+                .snapshot
+                .zeroHistoryWatchingCleanupTargets(enrichedItems)
+
+        if (cleanupTargets.isNotEmpty()) {
+            try {
+                service.removeFromList(cleanupTargets)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.w(
+                    TAG,
+                    "Simkl zero-history Watching cleanup failed after episode unwatch; " +
+                        "keeping the successful episode removal and reconciling separately",
+                    error
+                )
+                syncRepository.refreshAsync(TrackingRefreshIntent.INVALIDATED)
             }
-        )
+        }
+
+        return result
     }
+
+    private companion object {
+        const val TAG = "SimklHistoryWriter"
+    }
+}
+
+/**
+ * Finds parent shows that were touched by an episode-history removal and are
+ * now stale zero-progress Watching entries.
+ */
+internal fun SimklSyncSnapshot.zeroHistoryWatchingCleanupTargets(
+    touchedItems: Collection<TrackingMediaReference>
+): List<TrackingMediaReference> =
+    touchedItems
+        .asSequence()
+        .filter { reference ->
+            reference.kind != TrackingMediaKind.MOVIE && reference.episode != null
+        }
+        .mapNotNull { reference ->
+            val enriched = enrichMediaReference(reference)
+            val entry = entries.firstOrNull { candidate ->
+                candidate.matchesTrackingReference(enriched)
+            } ?: return@mapNotNull null
+
+            if (entry.status != SimklListStatus.WATCHING) return@mapNotNull null
+            if (entry.hasWatchedEpisodeHistory()) return@mapNotNull null
+
+            enriched.copy(episode = null)
+        }
+        .distinctBy(TrackingMediaReference::stableKey)
+        .toList()
+
+private fun SimklLibraryEntry.hasWatchedEpisodeHistory(): Boolean =
+    watchedEpisodesCount > 0 ||
+        seasons.any { season ->
+            season.episodes.any { episode -> episode.watchedAt != null }
+        }
+
+private fun SimklLibraryEntry.matchesTrackingReference(
+    reference: TrackingMediaReference
+): Boolean {
+    val candidate = media?.toTrackingExternalIds() ?: return false
+    val target = reference.ids
+
+    return (candidate.simkl != null && candidate.simkl == target.simkl) ||
+        (!candidate.imdb.isNullOrBlank() && candidate.imdb.equals(target.imdb, ignoreCase = true)) ||
+        (candidate.tmdb != null && candidate.tmdb == target.tmdb) ||
+        (!candidate.tvdb.isNullOrBlank() && candidate.tvdb.equals(target.tvdb, ignoreCase = true)) ||
+        (candidate.mal != null && candidate.mal == target.mal) ||
+        (candidate.anidb != null && candidate.anidb == target.anidb) ||
+        (candidate.anilist != null && candidate.anilist == target.anilist) ||
+        (candidate.kitsu != null && candidate.kitsu == target.kitsu)
 }
