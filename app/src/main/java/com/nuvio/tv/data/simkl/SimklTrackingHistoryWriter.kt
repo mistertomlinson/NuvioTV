@@ -1,5 +1,6 @@
 package com.nuvio.tv.data.simkl
 
+import android.util.Log
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingHistoryItem
 import com.nuvio.tv.core.tracking.TrackingHistoryWriter
@@ -7,8 +8,10 @@ import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingMutationResult
 import com.nuvio.tv.core.tracking.TrackingProviderId
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 
 @Singleton
 class SimklTrackingHistoryWriter @Inject constructor(
@@ -63,6 +66,14 @@ class SimklTrackingHistoryWriter @Inject constructor(
          * watched episodes. Partially watched shows and every other list status
          * are left untouched.
          *
+         * IMPORTANT: this parent cleanup is secondary to the requested episode
+         * unwatch. The episode mutation has already succeeded at this point.
+         * A provider/API/reconciliation failure while deleting the stale parent
+         * must therefore NEVER escape this method and make the repository roll
+         * back its optimistic/local episode unwatch. That rollback was the cause
+         * of E1 becoming watched again and E2 remaining in Continue Watching
+         * even though Simkl had already removed the show from Watching.
+         *
          * Simkl's parent-show removal also removes a rating, if one exists.
          * That is intentional here: Simkl automatically puts a rated TV show
          * back into Watching, so preserving the rating would recreate the stale
@@ -77,10 +88,26 @@ class SimklTrackingHistoryWriter @Inject constructor(
                 .zeroHistoryWatchingCleanupTargets(enrichedItems)
 
         if (cleanupTargets.isNotEmpty()) {
-            service.removeFromList(cleanupTargets)
+            try {
+                service.removeFromList(cleanupTargets)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                Log.w(
+                    TAG,
+                    "Simkl zero-history Watching cleanup failed after episode unwatch; " +
+                        "keeping the successful episode removal and reconciling separately",
+                    error
+                )
+                syncRepository.refreshAsync(TrackingRefreshIntent.INVALIDATED)
+            }
         }
 
         return result
+    }
+
+    private companion object {
+        const val TAG = "SimklHistoryWriter"
     }
 }
 
