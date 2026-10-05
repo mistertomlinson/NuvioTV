@@ -23,7 +23,7 @@ class SimklZeroHistoryWatchingCleanupTest {
         val targets = snapshot.zeroHistoryWatchingCleanupTargets(listOf(episodeReference()))
 
         assertEquals(1, targets.size)
-        assertNull(targets.single().reference.episode)
+        assertNull(targets.single().episode)
     }
 
     @Test
@@ -53,7 +53,7 @@ class SimklZeroHistoryWatchingCleanupTest {
     }
 
     @Test
-    fun `existing rating is carried through cleanup`() {
+    fun `rated zero-progress Watching show is still removed`() {
         val snapshot = snapshot(
             status = SimklListStatus.WATCHING,
             watchedEpisodesCount = 0,
@@ -63,7 +63,8 @@ class SimklZeroHistoryWatchingCleanupTest {
 
         val targets = snapshot.zeroHistoryWatchingCleanupTargets(listOf(episodeReference()))
 
-        assertEquals(8, targets.single().rating)
+        assertEquals(1, targets.size)
+        assertNull(targets.single().episode)
     }
 
     private fun snapshot(
