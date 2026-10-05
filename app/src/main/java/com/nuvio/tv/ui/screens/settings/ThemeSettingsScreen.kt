@@ -69,6 +69,7 @@ import androidx.tv.material3.Text
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
+import com.nuvio.tv.domain.model.BadgeColorStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.ThemeColors
 import com.nuvio.tv.ui.theme.getFontFamily
@@ -78,6 +79,7 @@ import java.util.Locale
 
 private enum class AppearanceSection {
     THEME,
+    BADGE_COLORS,
     FONT,
     LANGUAGE
 }
@@ -111,8 +113,10 @@ fun ThemeSettingsContent(
     val appearanceListState = rememberLazyListState()
     val appearanceListSettleOffsetY = remember { Animatable(0f) }
 
+    var badgeColorsExpanded by remember { mutableStateOf(false) }
     var fontExpanded by remember { mutableStateOf(false) }
     var languageExpanded by remember { mutableStateOf(false) }
+    var pendingBadgeColorsFocusRestore by remember { mutableStateOf(false) }
     var pendingFontFocusRestore by remember { mutableStateOf(false) }
     var pendingLanguageFocusRestore by remember { mutableStateOf(false) }
     var pendingLanguageRestart by remember { mutableStateOf(false) }
@@ -123,6 +127,7 @@ fun ThemeSettingsContent(
         mutableStateOf<Set<AppearanceSection>>(emptySet())
     }
 
+    val badgeColorsHeaderFocus = remember { FocusRequester() }
     val fontHeaderFocus = remember { FocusRequester() }
     val languageHeaderFocus = remember { FocusRequester() }
 
@@ -156,6 +161,14 @@ fun ThemeSettingsContent(
             ?: strLanguageSystem
     val strRestartHint =
         stringResource(R.string.appearance_language_restart_hint)
+
+    LaunchedEffect(badgeColorsExpanded, pendingBadgeColorsFocusRestore) {
+        if (!badgeColorsExpanded && pendingBadgeColorsFocusRestore) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { badgeColorsHeaderFocus.requestFocus() }
+            pendingBadgeColorsFocusRestore = false
+        }
+    }
 
     LaunchedEffect(fontExpanded, pendingFontFocusRestore) {
         if (!fontExpanded && pendingFontFocusRestore) {
@@ -192,10 +205,12 @@ fun ThemeSettingsContent(
 
     val visibleSections = listOf(
         AppearanceSection.THEME,
+        AppearanceSection.BADGE_COLORS,
         AppearanceSection.FONT,
         AppearanceSection.LANGUAGE
     )
     val expandedSections = buildSet {
+        if (badgeColorsExpanded) add(AppearanceSection.BADGE_COLORS)
         if (fontExpanded) add(AppearanceSection.FONT)
         if (languageExpanded) add(AppearanceSection.LANGUAGE)
     }
@@ -251,6 +266,7 @@ fun ThemeSettingsContent(
     ) {
         when (section) {
             AppearanceSection.THEME -> Unit
+            AppearanceSection.BADGE_COLORS -> badgeColorsExpanded = expanded
             AppearanceSection.FONT -> fontExpanded = expanded
             AppearanceSection.LANGUAGE -> languageExpanded = expanded
         }
@@ -477,6 +493,63 @@ fun ThemeSettingsContent(
                         )
                     }
 
+                    item(key = "appearance_badge_colors") {
+                        AppearanceExpandableSection(
+                            title = stringResource(R.string.appearance_badge_colors),
+                            subtitle = stringResource(
+                                R.string.appearance_badge_colors_subtitle
+                            ),
+                            value = badgeColorStyleLabel(
+                                uiState.selectedBadgeColorStyle
+                            ),
+                            expanded = badgeColorsExpanded,
+                            onToggle = {
+                                if (badgeColorsExpanded) {
+                                    collapseSection(
+                                        AppearanceSection.BADGE_COLORS,
+                                        "appearance_badge_colors"
+                                    )
+                                } else {
+                                    expandSection(
+                                        AppearanceSection.BADGE_COLORS
+                                    )
+                                }
+                            },
+                            focusRequester = badgeColorsHeaderFocus,
+                            groupPosition = groupPositionFor(
+                                AppearanceSection.BADGE_COLORS
+                            ),
+                            animateTopFlatten = animateTopFlattenFor(
+                                AppearanceSection.BADGE_COLORS
+                            ),
+                            animateBottomFlatten = animateBottomFlattenFor(
+                                AppearanceSection.BADGE_COLORS
+                            ),
+                            deferBottomCorner =
+                                AppearanceSection.BADGE_COLORS in
+                                    deferredBottomCornerSections
+                        ) {
+                            uiState.availableBadgeColorStyles.forEach { style ->
+                                AppearanceChoiceRow(
+                                    label = badgeColorStyleLabel(style),
+                                    selected =
+                                        style == uiState.selectedBadgeColorStyle,
+                                    onClick = {
+                                        viewModel.onEvent(
+                                            ThemeSettingsEvent
+                                                .SelectBadgeColorStyle(style)
+                                        )
+                                        pendingBadgeColorsFocusRestore = true
+                                        collapseSection(
+                                            AppearanceSection.BADGE_COLORS,
+                                            "appearance_badge_colors"
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
                     item(key = "appearance_font") {
                         AppearanceExpandableSection(
                             title = stringResource(R.string.appearance_font),
@@ -606,6 +679,13 @@ fun ThemeSettingsContent(
         }
     }
 }
+
+@Composable
+private fun badgeColorStyleLabel(style: BadgeColorStyle): String =
+    when (style) {
+        BadgeColorStyle.NUVIO -> stringResource(R.string.appearance_badge_colors_nuvio)
+        BadgeColorStyle.LEGACY -> stringResource(R.string.appearance_badge_colors_legacy)
+    }
 
 @Composable
 private fun AppearanceThemeSelector(

@@ -10,6 +10,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
+import com.nuvio.tv.domain.model.BadgeColorStyle
 
 data class NuvioExtendedColors(
     val backgroundElevated: Color,
@@ -38,12 +39,14 @@ val LocalNuvioExtendedColors = staticCompositionLocalOf {
 }
 
 val LocalAppTheme = staticCompositionLocalOf { AppTheme.WHITE }
+val LocalBadgeColorStyle = staticCompositionLocalOf { BadgeColorStyle.NUVIO }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun NuvioTheme(
     appTheme: AppTheme = AppTheme.WHITE,
     appFont: AppFont = AppFont.INTER,
+    badgeColorStyle: BadgeColorStyle = BadgeColorStyle.NUVIO,
     content: @Composable () -> Unit
 ) {
     val palette = ThemeColors.getColorPalette(appTheme)
@@ -76,7 +79,8 @@ fun NuvioTheme(
     CompositionLocalProvider(
         LocalNuvioColors provides colorScheme,
         LocalNuvioExtendedColors provides extendedColors,
-        LocalAppTheme provides appTheme
+        LocalAppTheme provides appTheme,
+        LocalBadgeColorStyle provides badgeColorStyle
     ) {
         MaterialTheme(
             colorScheme = materialColorScheme,
@@ -101,4 +105,9 @@ object NuvioTheme {
         @Composable
         @ReadOnlyComposable
         get() = LocalAppTheme.current
+
+    val badgeColorStyle: BadgeColorStyle
+        @Composable
+        @ReadOnlyComposable
+        get() = LocalBadgeColorStyle.current
 }

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.ThemeDataStore
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
+import com.nuvio.tv.domain.model.BadgeColorStyle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -19,12 +20,15 @@ data class ThemeSettingsUiState(
     val selectedTheme: AppTheme = AppTheme.WHITE,
     val availableThemes: List<AppTheme> = listOf(AppTheme.WHITE) + AppTheme.entries.filterNot { it == AppTheme.WHITE },
     val selectedFont: AppFont = AppFont.INTER,
-    val availableFonts: List<AppFont> = AppFont.entries.toList()
+    val availableFonts: List<AppFont> = AppFont.entries.toList(),
+    val selectedBadgeColorStyle: BadgeColorStyle = BadgeColorStyle.NUVIO,
+    val availableBadgeColorStyles: List<BadgeColorStyle> = BadgeColorStyle.entries.toList()
 )
 
 sealed class ThemeSettingsEvent {
     data class SelectTheme(val theme: AppTheme) : ThemeSettingsEvent()
     data class SelectFont(val font: AppFont) : ThemeSettingsEvent()
+    data class SelectBadgeColorStyle(val style: BadgeColorStyle) : ThemeSettingsEvent()
 }
 
 @HiltViewModel
@@ -54,6 +58,16 @@ class ThemeSettingsViewModel @Inject constructor(
                     }
                 }
         }
+        viewModelScope.launch {
+            themeDataStore.selectedBadgeColorStyle
+                .distinctUntilChanged()
+                .collectLatest { style ->
+                    _uiState.update { state ->
+                        if (state.selectedBadgeColorStyle == style) state
+                        else state.copy(selectedBadgeColorStyle = style)
+                    }
+                }
+        }
     }
 
     private fun currentTheme(): AppTheme {
@@ -64,6 +78,7 @@ class ThemeSettingsViewModel @Inject constructor(
         when (event) {
             is ThemeSettingsEvent.SelectTheme -> selectTheme(event.theme)
             is ThemeSettingsEvent.SelectFont -> selectFont(event.font)
+            is ThemeSettingsEvent.SelectBadgeColorStyle -> selectBadgeColorStyle(event.style)
         }
     }
 
@@ -78,6 +93,13 @@ class ThemeSettingsViewModel @Inject constructor(
         if (_uiState.value.selectedFont == font) return
         viewModelScope.launch {
             themeDataStore.setFont(font)
+        }
+    }
+
+    private fun selectBadgeColorStyle(style: BadgeColorStyle) {
+        if (_uiState.value.selectedBadgeColorStyle == style) return
+        viewModelScope.launch {
+            themeDataStore.setBadgeColorStyle(style)
         }
     }
 }

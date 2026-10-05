@@ -108,6 +108,8 @@ import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.components.ContinueWatchingCard
 import com.nuvio.tv.ui.theme.NuvioGradients
+import com.nuvio.tv.ui.theme.NuvioBadgeSemantic
+import com.nuvio.tv.ui.theme.nuvioBadgeBrush
 import com.nuvio.tv.ui.components.LocalHomePopupGlassEnvironment
 import com.nuvio.tv.ui.components.MonochromePosterPlaceholder
 import com.nuvio.tv.ui.components.rememberPosterShimmerTranslateState
@@ -2321,6 +2323,15 @@ private fun ModernCarouselCard(
                     showReleaseBadge &&
                     showHeavyOverlays
                 ) {
+                    val releaseBadgeBrush = nuvioBadgeBrush(
+                        semantic = if (
+                            effectiveReleaseBadge == ReleaseReminderBadge.NEW_SEASON
+                        ) {
+                            NuvioBadgeSemantic.NEW_SEASON
+                        } else {
+                            NuvioBadgeSemantic.AVAILABLE_NOW
+                        }
+                    )
                     Text(
                         text = stringResource(
                             if (
@@ -2344,7 +2355,7 @@ private fun ModernCarouselCard(
                                 alpha = heavyOverlayAlpha.value
                             }
                             .background(
-                                brush = NuvioGradients.ReleaseStatusBadge,
+                                brush = releaseBadgeBrush,
                                 shape = RoundedCornerShape(5.dp)
                             )
                             .padding(horizontal = 8.dp, vertical = 4.dp)

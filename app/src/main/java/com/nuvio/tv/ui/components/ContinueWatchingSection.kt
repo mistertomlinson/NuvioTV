@@ -69,6 +69,8 @@ import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.theme.NuvioTheme
+import com.nuvio.tv.ui.theme.NuvioBadgeSemantic
+import com.nuvio.tv.ui.theme.nuvioBadgeBrush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
@@ -547,22 +549,16 @@ fun ContinueWatchingCard(
         )
     }
 
-    val badgeBackground = remember(
-        bgColor,
-        nextUp?.isReleaseAlert,
-        nextUp?.isNewSeasonRelease
-    ) {
-        when {
-            nextUp?.isNewSeasonRelease == true ||
-                nextUp?.isReleaseAlert == true ->
-                NuvioGradients.ReleaseStatusBadge
-
+    val badgeBackground = nuvioBadgeBrush(
+        semantic = when {
+            nextUp?.isNewSeasonRelease == true ->
+                NuvioBadgeSemantic.NEW_SEASON
+            nextUp?.isReleaseAlert == true ->
+                NuvioBadgeSemantic.NEW_EPISODE
             else ->
-                SolidColor(
-                    bgColor.copy(alpha = 0.8f)
-                )
+                NuvioBadgeSemantic.STANDARD
         }
-    }
+    )
 
     Card(
         onClick = {

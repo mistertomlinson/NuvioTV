@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
+import com.nuvio.tv.domain.model.BadgeColorStyle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -25,6 +26,7 @@ class ThemeDataStore @Inject constructor(
 
     private val themeKey = stringPreferencesKey("selected_theme")
     private val fontKey = stringPreferencesKey("selected_font")
+    private val badgeColorStyleKey = stringPreferencesKey("badge_color_style")
 
     val selectedTheme: Flow<AppTheme> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -48,6 +50,17 @@ class ThemeDataStore @Inject constructor(
         }
     }
 
+    val selectedBadgeColorStyle: Flow<BadgeColorStyle> = profileManager.activeProfileId.flatMapLatest { pid ->
+        factory.get(pid, FEATURE).data.map { prefs ->
+            val styleName = prefs[badgeColorStyleKey] ?: BadgeColorStyle.NUVIO.name
+            try {
+                BadgeColorStyle.valueOf(styleName)
+            } catch (e: IllegalArgumentException) {
+                BadgeColorStyle.NUVIO
+            }
+        }
+    }
+
     suspend fun setTheme(theme: AppTheme) {
         store().edit { prefs ->
             prefs[themeKey] = theme.name
@@ -57,6 +70,12 @@ class ThemeDataStore @Inject constructor(
     suspend fun setFont(font: AppFont) {
         store().edit { prefs ->
             prefs[fontKey] = font.name
+        }
+    }
+
+    suspend fun setBadgeColorStyle(style: BadgeColorStyle) {
+        store().edit { prefs ->
+            prefs[badgeColorStyleKey] = style.name
         }
     }
 }

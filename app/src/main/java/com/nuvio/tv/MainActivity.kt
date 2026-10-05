@@ -124,6 +124,7 @@ import com.nuvio.tv.core.tracking.TrackingProgressRefreshCoordinator
 import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
+import com.nuvio.tv.domain.model.BadgeColorStyle
 import com.nuvio.tv.domain.model.AuthState
 import com.nuvio.tv.core.sync.ProfileSyncService
 import com.nuvio.tv.core.sync.StartupSyncService
@@ -239,6 +240,7 @@ private fun captureSettingsBackdrop(
 private data class MainUiPrefs(
     val theme: AppTheme = AppTheme.WHITE,
     val font: AppFont = AppFont.INTER,
+    val badgeColorStyle: BadgeColorStyle = BadgeColorStyle.NUVIO,
     val hasChosenLayout: Boolean? = null,
     val cardDepthStyle: CardDepthStyle = CardDepthStyle()
 )
@@ -397,11 +399,13 @@ class MainActivity : ComponentActivity() {
                 combine(
                     themeDataStore.selectedTheme,
                     themeDataStore.selectedFont,
+                    themeDataStore.selectedBadgeColorStyle,
                     layoutPreferenceDataStore.hasChosenLayout,
-                ) { theme, font, hasChosenLayout ->
+                ) { theme, font, badgeColorStyle, hasChosenLayout ->
                     MainUiPrefs(
                         theme = theme,
                         font = font,
+                        badgeColorStyle = badgeColorStyle,
                         hasChosenLayout = hasChosenLayout,
                     )
                 }.combine(layoutPreferenceDataStore.cardDepthStyle) { prefs, cardDepthStyle ->
@@ -410,7 +414,11 @@ class MainActivity : ComponentActivity() {
             }
             val mainUiPrefs by mainUiPrefsFlow.collectAsState(initial = MainUiPrefs(hasChosenLayout = null))
 
-            NuvioTheme(appTheme = mainUiPrefs.theme, appFont = mainUiPrefs.font) {
+            NuvioTheme(
+                appTheme = mainUiPrefs.theme,
+                appFont = mainUiPrefs.font,
+                badgeColorStyle = mainUiPrefs.badgeColorStyle
+            ) {
                 CompositionLocalProvider(
                     LocalBringIntoViewSpec provides NuvioScrollDefaults.smoothScrollSpec,
                       LocalCardDepthStyle provides mainUiPrefs.cardDepthStyle
