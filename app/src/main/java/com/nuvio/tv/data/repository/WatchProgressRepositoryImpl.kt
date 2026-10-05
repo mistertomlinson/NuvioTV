@@ -56,6 +56,18 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.flowOf
 
+internal fun <T> gateProviderProjectionForActiveProfile(
+    value: T,
+    projectionProfileId: Int?,
+    activeProfileId: Int,
+    emptyValue: T
+): T =
+    if (projectionProfileId == activeProfileId) {
+        value
+    } else {
+        emptyValue
+    }
+
 @Singleton
 @OptIn(ExperimentalCoroutinesApi::class)
 class WatchProgressRepositoryImpl @Inject constructor(
@@ -308,11 +320,44 @@ class WatchProgressRepositoryImpl @Inject constructor(
     private fun progressProjectionKey(progress: WatchProgress): String =
         "${progress.contentId}_${progress.season}_${progress.episode}"
 
+    private fun <T> profileSafeProviderFlow(
+        provider: TrackingProgressProvider,
+        source: Flow<T>,
+        emptyValue: T
+    ): Flow<T> {
+        val stampFlow =
+            provider.projectionProfileId
+                ?: return source
+
+        return combine(
+            source,
+            stampFlow,
+            profileManager.activeProfileId
+        ) {
+            value,
+            projectionProfileId,
+            activeProfileId ->
+
+            gateProviderProjectionForActiveProfile(
+                value = value,
+                projectionProfileId =
+                    projectionProfileId,
+                activeProfileId =
+                    activeProfileId,
+                emptyValue = emptyValue
+            )
+        }.distinctUntilChanged()
+    }
+
     private fun providerAllProgressFlow(
         provider: TrackingProgressProvider
     ): Flow<List<WatchProgress>> {
         return combine(
-            provider.allProgress.onStart { emit(emptyList()) },
+            profileSafeProviderFlow(
+                provider = provider,
+                source = provider.allProgress,
+                emptyValue = emptyList()
+            ).onStart { emit(emptyList()) },
             watchProgressPreferences.allProgress.onStart { emit(emptyList()) },
             watchedItemsPreferences.allItems.onStart { emit(emptyList()) },
             metadataState
@@ -384,19 +429,31 @@ class WatchProgressRepositoryImpl @Inject constructor(
             items.filter(WatchProgress::isInProgress)
         }
 
-    override fun getProgress(contentId: String): Flow<WatchProgress?> {
+    override fun getProgress(
+        contentId: String
+    ): Flow<WatchProgress?> {
         return activeProgressProviderFlow()
             .flatMapLatest { provider ->
                 if (provider != null) {
-                    provider.allProgress.map { items ->
+                    profileSafeProviderFlow(
+                        provider = provider,
+                        source = provider.allProgress,
+                        emptyValue = emptyList()
+                    ).map { items ->
                         items
                             .filter { item ->
-                                item.contentId.equals(contentId, ignoreCase = true)
+                                item.contentId.equals(
+                                    contentId,
+                                    ignoreCase = true
+                                )
                             }
-                            .maxByOrNull(WatchProgress::lastWatched)
+                            .maxByOrNull(
+                                WatchProgress::lastWatched
+                            )
                     }
                 } else {
-                    watchProgressPreferences.getProgress(contentId)
+                    watchProgressPreferences
+                        .getProgress(contentId)
                 }
             }
     }
@@ -410,7 +467,14 @@ class WatchProgressRepositoryImpl @Inject constructor(
             .flatMapLatest { provider ->
                 if (provider != null) {
                     combine(
-                        provider.episodeProgress(contentId),
+                        profileSafeProviderFlow(
+                            provider = provider,
+                            source =
+                                provider.episodeProgress(
+                                    contentId
+                                ),
+                            emptyValue = emptyMap()
+                        ),
                         watchedItemsPreferences.allItems
                     ) { providerMap, watchedItems ->
                         suppressStaleSimklPlaybackAlreadyWatched(
@@ -438,8 +502,15 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return activeProgressProviderFlow()
             .flatMapLatest { provider ->
                 if (provider != null) {
+                    val profileSafeNextUpSeeds =
+                        profileSafeProviderFlow(
+                            provider = provider,
+                            source = provider.nextUpSeeds,
+                            emptyValue = emptyList()
+                        )
+
                     combine(
-                        provider.nextUpSeeds,
+                        profileSafeNextUpSeeds,
                         playerCompletedNextUpSeedsByProfile,
                         profileManager.activeProfileId
                     ) {
@@ -633,7 +704,12 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return activeProgressProviderFlow()
             .flatMapLatest { provider ->
                 if (provider != null) {
-                    provider.watchedMovieIds
+                    profileSafeProviderFlow(
+                        provider = provider,
+                        source =
+                            provider.watchedMovieIds,
+                        emptyValue = emptySet()
+                    )
                 } else {
                     combine(
                         watchProgressPreferences.allProgress,
@@ -667,7 +743,17 @@ class WatchProgressRepositoryImpl @Inject constructor(
         return activeProgressProviderFlow()
             .flatMapLatest { provider ->
                 if (provider != null) {
-                    provider.isWatched(contentId, videoId, season, episode)
+                    profileSafeProviderFlow(
+                        provider = provider,
+                        source =
+                            provider.isWatched(
+                                contentId,
+                                videoId,
+                                season,
+                                episode
+                            ),
+                        emptyValue = false
+                    )
                 } else {
                     val progressFlow =
                         if (season != null && episode != null) {
@@ -851,8 +937,9 @@ class WatchProgressRepositoryImpl @Inject constructor(
          * Rewatch progression is only injected into provider-backed Next Up.
          * Local/Nuvio Sync continues using its existing dismissal semantics.
          */
-        activeProgressProvider()
-            ?: return false
+        val provider =
+            activeProgressProvider()
+                ?: return false
 
         val profileId =
             profileManager.activeProfileId.value
@@ -911,7 +998,20 @@ class WatchProgressRepositoryImpl @Inject constructor(
         }
 
         /*
-         * Consume only the short-lived Player seed.
+         * Watched-history resolution above may suspend. Never consume
+         * replay state against a profile selected after this operation
+         * started.
+         */
+        if (
+            profileManager.activeProfileId.value !=
+                profileId
+        ) {
+            return false
+        }
+
+        /*
+         * Consume the short-lived Player seed without dismissing
+         * provider history.
          *
          * Critically, do NOT call provider.dismissNextUp(). For Trakt that
          * operation maps to hideShowFromProgress(), which would hide the
@@ -934,6 +1034,22 @@ class WatchProgressRepositoryImpl @Inject constructor(
                     )
             }
         }
+
+        /*
+         * The Player bridge is gone, but the selected provider can still
+         * retain this replay episode as an optimistic completion.
+         *
+         * We reached this point only after proving this was an already-
+         * watched rewatch successor. Therefore canonical provider history
+         * already contains the durable watched state. Remove only the
+         * temporary replay projection so the provider's real caught-up
+         * seed can immediately regain authority.
+         */
+        provider.clearOptimisticProgress(
+            contentId = contentId,
+            season = resolvedSeedSeason,
+            episode = resolvedSeedEpisode
+        )
 
         return true
     }
@@ -1251,7 +1367,16 @@ class WatchProgressRepositoryImpl @Inject constructor(
     override fun observeRemoteProgressLoaded(): Flow<Boolean> {
         return activeProgressProviderFlow()
             .flatMapLatest { provider ->
-                provider?.remoteProgressLoaded ?: flowOf(true)
+                if (provider != null) {
+                    profileSafeProviderFlow(
+                        provider = provider,
+                        source =
+                            provider.remoteProgressLoaded,
+                        emptyValue = false
+                    )
+                } else {
+                    flowOf(true)
+                }
             }
             .distinctUntilChanged()
     }

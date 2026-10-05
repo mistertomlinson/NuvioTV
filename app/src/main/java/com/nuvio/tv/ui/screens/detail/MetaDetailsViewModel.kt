@@ -68,6 +68,79 @@ import javax.inject.Inject
 
 private const val TAG = "MetaDetailsViewModel"
 
+private const val DETAILS_FRESH_REWATCH_SEED_WINDOW_MS =
+    3L * 60L * 1000L
+
+internal fun resolveFreshRewatchSuccessor(
+    contentIds: Set<String>,
+    episodes: List<Video>,
+    watchedEpisodes: Set<Pair<Int, Int>>,
+    fallbackProgressMap: Map<Pair<Int, Int>, WatchProgress>,
+    nextUpSeeds: List<WatchProgress>,
+    nowEpochMs: Long,
+    maxAgeMs: Long = DETAILS_FRESH_REWATCH_SEED_WINDOW_MS
+): Video? {
+    if (contentIds.isEmpty() || episodes.isEmpty()) return null
+
+    val normalizedIds =
+        contentIds
+            .asSequence()
+            .map { it.trim().lowercase() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+    if (normalizedIds.isEmpty()) return null
+
+    val freshSeed =
+        nextUpSeeds
+            .asSequence()
+            .filter { seed ->
+                seed.contentId.trim().lowercase() in normalizedIds &&
+                    seed.season != null &&
+                    seed.episode != null &&
+                    seed.season != 0 &&
+                    seed.isCompleted()
+            }
+            .filter { seed ->
+                val ageMs = nowEpochMs - seed.lastWatched
+                ageMs in 0L..maxAgeMs
+            }
+            .maxByOrNull(WatchProgress::lastWatched)
+            ?: return null
+
+    val seedSeason = freshSeed.season ?: return null
+    val seedEpisode = freshSeed.episode ?: return null
+
+    val seedIndex =
+        episodes.indexOfFirst { video ->
+            video.season == seedSeason &&
+                video.episode == seedEpisode
+        }
+
+    if (seedIndex < 0) return null
+
+    /*
+     * Rewatch progression is sequential rather than "first unwatched".
+     * Home intentionally shows the immediate successor even when that
+     * successor was already watched.
+     */
+    val successor =
+        episodes
+            .drop(seedIndex + 1)
+            .firstOrNull()
+            ?: return null
+
+    val successorSeason = successor.season ?: return null
+    val successorEpisode = successor.episode ?: return null
+    val successorKey = successorSeason to successorEpisode
+
+    val successorAlreadyWatched =
+        successorKey in watchedEpisodes ||
+            fallbackProgressMap[successorKey]?.isCompleted() == true
+
+    return successor.takeIf { successorAlreadyWatched }
+}
+
 @HiltViewModel
 class MetaDetailsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -1528,14 +1601,96 @@ class MetaDetailsViewModel @Inject constructor(
                 episodePool.any { it.id == preferred.id }
             }
 
-            val nextToWatch = buildNextToWatchFromLatestProgress(
-                latestProgress = latestSeriesProgress,
-                episodes = episodePool,
-                fallbackProgressMap = progressMap,
-                watchedEpisodes = watchedEpisodes,
-                metaId = meta.id,
-                defaultEpisode = defaultEpisode
-            )
+            /*
+             * Details historically ignores Home's short-lived Player
+             * completion bridge. That makes a completed-series rewatch fall
+             * through to "Play S1E1" even while Home correctly shows the
+             * immediate successor.
+             *
+             * Preserve every ordinary Details rule. Only override it for the
+             * same narrow rewatch signature used by Home:
+             * fresh completed seed + already-watched immediate successor.
+             */
+            val hasActiveResume =
+                progressMap.values.any(::shouldResumeProgress)
+
+            val freshRewatchSuccessor =
+                if (!hasActiveResume) {
+                    val nextUpSeeds =
+                        runCatching {
+                            watchProgressRepository
+                                .observeNextUpSeeds()
+                                .first()
+                        }.getOrDefault(emptyList())
+
+                    val siblingMap =
+                        runCatching {
+                            watchProgressRepository
+                                .getShowIdSiblings()
+                        }.getOrDefault(emptyMap())
+
+                    val directIds =
+                        buildSet {
+                            itemId.trim()
+                                .takeIf { it.isNotBlank() }
+                                ?.let(::add)
+                            meta.id.trim()
+                                .takeIf { it.isNotBlank() }
+                                ?.let(::add)
+                            meta.imdbId
+                                ?.trim()
+                                ?.takeIf { it.isNotBlank() }
+                                ?.let(::add)
+                        }
+
+                    val lookupIds =
+                        buildSet {
+                            addAll(directIds)
+                            directIds.forEach { id ->
+                                siblingMap[id]
+                                    .orEmpty()
+                                    .asSequence()
+                                    .filter { it != "__ambiguous__" }
+                                    .forEach(::add)
+                            }
+                        }
+
+                    resolveFreshRewatchSuccessor(
+                        contentIds = lookupIds,
+                        episodes = episodePool,
+                        watchedEpisodes = watchedEpisodes,
+                        fallbackProgressMap = progressMap,
+                        nextUpSeeds = nextUpSeeds,
+                        nowEpochMs = System.currentTimeMillis()
+                    )
+                } else {
+                    null
+                }
+
+            val nextToWatch =
+                if (freshRewatchSuccessor != null) {
+                    NextToWatch(
+                        watchProgress = null,
+                        isResume = false,
+                        nextVideoId = freshRewatchSuccessor.id,
+                        nextSeason = freshRewatchSuccessor.season,
+                        nextEpisode = freshRewatchSuccessor.episode,
+                        displayText = context.getString(
+                            R.string.detail_btn_next_episode,
+                            freshRewatchSuccessor.season,
+                            freshRewatchSuccessor.episode
+                        )
+                    )
+                } else {
+                    buildNextToWatchFromLatestProgress(
+                        latestProgress = latestSeriesProgress,
+                        episodes = episodePool,
+                        fallbackProgressMap = progressMap,
+                        watchedEpisodes = watchedEpisodes,
+                        metaId = meta.id,
+                        defaultEpisode = defaultEpisode
+                    )
+                }
 
             updateNextToWatch(nextToWatch)
         }

@@ -155,6 +155,18 @@ class TraktProgressService @Inject constructor(
     private val watchedShowSeedsMutex = Mutex()
     private val episodeProgressState = MutableStateFlow<Map<String, EpisodeProgressCacheEntry>>(emptyMap())
     private val hasLoadedRemoteProgress = MutableStateFlow(false)
+
+    /*
+     * Profile identity of the currently exposed Trakt projection.
+     * The previous profile ID remains visible until reset begins, allowing
+     * repository consumers to reject it immediately after activeProfileId
+     * changes.
+     */
+    private val projectionProfileIdState =
+        MutableStateFlow<Int?>(null)
+    val projectionProfileId: Flow<Int?> =
+        projectionProfileIdState
+
     private val cacheMutex = Mutex()
     private val metadataMutex = Mutex()
     private val watchedMoviesMutex = Mutex()
@@ -362,6 +374,22 @@ class TraktProgressService @Inject constructor(
         // requestFastSync() is called after the delete completes in removeProgress().
     }
 
+    fun clearOptimisticProgress(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) {
+        val resolvedSeason = season ?: return
+        val resolvedEpisode = episode ?: return
+
+        val key =
+            "${contentId.trim()}_s${resolvedSeason}e${resolvedEpisode}"
+
+        optimisticProgress.update { current ->
+            current - key
+        }
+    }
+
     fun clearOptimistic() {
         optimisticProgress.value = emptyMap()
     }
@@ -380,6 +408,11 @@ class TraktProgressService @Inject constructor(
     }
 
     fun resetForProfileSwitch() {
+        val profileId =
+            profileManager.activeProfileId.value
+
+        projectionProfileIdState.value = null
+
         remoteProgress.value = emptyList()
         optimisticProgress.value = emptyMap()
         metadataState.value = emptyMap()
@@ -411,8 +444,18 @@ class TraktProgressService @Inject constructor(
         refreshIntervalMs = baseRefreshIntervalMs
         consecutiveRefreshFailures = 0
         episodeProgressActivityVersion.set(0L)
-        forceRefreshUntilMs = System.currentTimeMillis() + 30_000L
+        forceRefreshUntilMs =
+            System.currentTimeMillis() + 30_000L
         refreshSignals.tryEmit(Unit)
+
+        /*
+         * State is now empty/reset for this profile. Reopen only if another
+         * profile switch did not race this reset.
+         */
+        if (profileManager.activeProfileId.value == profileId) {
+            projectionProfileIdState.value =
+                profileId
+        }
     }
 
     fun observeAllProgress(): Flow<List<WatchProgress>> {

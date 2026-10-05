@@ -34,17 +34,34 @@ class SimklSyncRepository @Inject constructor(
     private val refreshGate = SimklRefreshGate()
     private val _state = MutableStateFlow(SimklSyncState())
     private val _projection = MutableStateFlow(SimklSnapshotProjection.Empty)
+
+    /*
+     * Identity of the profile that owns the currently exposed projection.
+     * null means the provider is between profiles.
+     */
+    private val _projectionProfileId =
+        MutableStateFlow<Int?>(null)
+
     private var loadedProfileId: Int? = null
     private var profileGeneration = 0L
 
     val state: StateFlow<SimklSyncState> = _state.asStateFlow()
-    internal val projection: StateFlow<SimklSnapshotProjection> = _projection.asStateFlow()
+    internal val projection: StateFlow<SimklSnapshotProjection> =
+        _projection.asStateFlow()
+    internal val projectionProfileId: StateFlow<Int?> =
+        _projectionProfileId.asStateFlow()
 
     init {
         scope.launch {
             profileManager.activeProfileId.collect { profileId ->
                 if (loadedProfileId != profileId) {
                     profileGeneration += 1L
+
+                    /*
+                     * Close ownership before clearing/loading. The active
+                     * profile StateFlow can change before this collector runs.
+                     */
+                    _projectionProfileId.value = null
                     loadedProfileId = null
                     _state.value = SimklSyncState()
                     _projection.value = SimklSnapshotProjection.Empty
@@ -94,6 +111,7 @@ class SimklSyncRepository @Inject constructor(
             loadedProfileId = profileId
             _projection.value = SimklSnapshotProjection.Empty
             _state.value = SimklSyncState(hasLoaded = true)
+            _projectionProfileId.value = profileId
         }
     }
 
@@ -180,7 +198,16 @@ class SimklSyncRepository @Inject constructor(
         if (profileId == profileManager.activeProfileId.value) {
             loadedProfileId = profileId
             _projection.value = projection
-            _state.value = SimklSyncState(snapshot = snapshot, hasLoaded = true)
+            _state.value = SimklSyncState(
+                snapshot = snapshot,
+                hasLoaded = true
+            )
+
+            /*
+             * Publish ownership LAST. Consumers can never see the new
+             * profile stamp while the old projection is still installed.
+             */
+            _projectionProfileId.value = profileId
         }
     }
 

@@ -31,10 +31,11 @@ class WatchedSeriesStateHolder @Inject constructor(
                 "watched_series_semantics_version"
             )
         /*
-         * v3 invalidates finite badge validations written by the old
-         * no-next-up shortcut before terminal status had been resolved.
+         * v4 invalidates finite validation deadlines once so existing installs
+         * immediately adopt the restored seven-day new-season window and
+         * next-episode revalidation schedule.
          */
-        private const val TERMINAL_STATUS_SEMANTICS_VERSION = 3
+        private const val TERMINAL_STATUS_SEMANTICS_VERSION = 4
         private const val DEFAULT_TTL_MS = 7L * 24 * 60 * 60 * 1000
     }
 
@@ -45,13 +46,20 @@ class WatchedSeriesStateHolder @Inject constructor(
 
     @Volatile
     private var revalidateAfterMap: Map<String, Long> = emptyMap()
-    private var loaded = false
 
-    private fun store() = factory.get(profileManager.activeProfileId.value, FEATURE)
+    @Volatile
+    private var loadedForProfileId: Int? = null
 
-    suspend fun loadFromDisk() {
-        if (loaded) return
-        val profileStore = store()
+    private fun store(
+        profileId: Int = profileManager.activeProfileId.value
+    ) = factory.get(profileId, FEATURE)
+
+    suspend fun loadFromDisk(
+        profileId: Int = profileManager.activeProfileId.value
+    ) {
+        if (loadedForProfileId == profileId) return
+
+        val profileStore = store(profileId)
         val prefs = profileStore.data.first()
         val persisted = prefs[KEY] ?: emptySet()
         val persistedValidation =
@@ -104,21 +112,34 @@ class WatchedSeriesStateHolder @Inject constructor(
                     gson.toJson(revalidateAfterMap)
             }
         }
-        loaded = true
+        loadedForProfileId = profileId
     }
 
     fun update(ids: Set<String>) {
         _fullyWatchedSeriesIds.value = ids
+        val profileId = profileManager.activeProfileId.value
         scope.launch {
-            store().edit { prefs -> prefs[KEY] = ids }
+            store(profileId).edit { prefs ->
+                prefs[KEY] = ids
+            }
         }
+    }
+
+    /**
+     * Clear only process-local state. The selected profile's persisted badge
+     * and validation state is reloaded separately.
+     */
+    fun clearInMemory() {
+        _fullyWatchedSeriesIds.value = emptySet()
+        revalidateAfterMap = emptyMap()
     }
 
     @Synchronized
     fun updateWithValidation(
         ids: Set<String>,
         validatedIds: Set<String>,
-        revalidateAt: Map<String, Long> = emptyMap()
+        revalidateAt: Map<String, Long> = emptyMap(),
+        profileId: Int = profileManager.activeProfileId.value
     ) {
         val idsChanged = _fullyWatchedSeriesIds.value != ids
         _fullyWatchedSeriesIds.value = ids
@@ -142,7 +163,7 @@ class WatchedSeriesStateHolder @Inject constructor(
         revalidateAfterMap = updated
         if (idsChanged || deadlinesChanged) {
             scope.launch {
-                store().edit { prefs ->
+                store(profileId).edit { prefs ->
                     prefs[KEY] = ids
                     prefs[REVALIDATE_KEY] = gson.toJson(updated)
                 }
@@ -168,11 +189,28 @@ class WatchedSeriesStateHolder @Inject constructor(
         _fullyWatchedSeriesIds.value = updatedIds
         revalidateAfterMap = updatedValidation
 
+        val profileId = profileManager.activeProfileId.value
         scope.launch {
-            store().edit { prefs ->
+            store(profileId).edit { prefs ->
                 prefs[KEY] = updatedIds
                 prefs[REVALIDATE_KEY] =
                     gson.toJson(updatedValidation)
+            }
+        }
+    }
+
+    /**
+     * Clear only validation deadlines, forcing the next CW cycle to re-check
+     * series metadata. Used by the explicit Continue Watching cache clear.
+     */
+    fun clearValidationState(
+        profileId: Int = profileManager.activeProfileId.value
+    ) {
+        revalidateAfterMap = emptyMap()
+
+        scope.launch {
+            store(profileId).edit { prefs ->
+                prefs.remove(REVALIDATE_KEY)
             }
         }
     }

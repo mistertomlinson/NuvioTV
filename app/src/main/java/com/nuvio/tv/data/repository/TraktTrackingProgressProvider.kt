@@ -24,8 +24,12 @@ class TraktTrackingProgressProvider @Inject constructor(
     override val isAuthenticated = authDataStore.isEffectivelyAuthenticated
     override val ownsCompletedHistoryProjection = true
     override val allProgress = service.observeAllProgress()
-    override val remoteProgressLoaded = service.observeRemoteProgressLoaded()
-    override val watchedMovieIds = service.observeAllWatchedMovieIds()
+    override val remoteProgressLoaded =
+        service.observeRemoteProgressLoaded()
+    override val projectionProfileId =
+        service.projectionProfileId
+    override val watchedMovieIds =
+        service.observeAllWatchedMovieIds()
     override val nextUpSeeds = combine(
         service.observeNextUpSeeds(),
         service.observeAllProgress().map { items ->
@@ -85,6 +89,17 @@ class TraktTrackingProgressProvider @Inject constructor(
         episode: Int?
     ) =
         service.applyOptimisticRemoval(contentId, season, episode)
+
+    override fun clearOptimisticProgress(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) =
+        service.clearOptimisticProgress(
+            contentId,
+            season,
+            episode
+        )
 
     override fun clearOptimistic() = service.clearOptimistic()
 

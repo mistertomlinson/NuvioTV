@@ -124,4 +124,46 @@ class TrackingNextUpDismissRoutingTest {
 
         assertFalse(handled)
     }
+    @Test
+    fun `old provider projection is rejected after profile switch`() {
+        val result =
+            gateProviderProjectionForActiveProfile(
+                value = listOf("foreign-next-up"),
+                projectionProfileId = 1,
+                activeProfileId = 2,
+                emptyValue = emptyList()
+            )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `unstamped provider projection is rejected during profile handoff`() {
+        val result =
+            gateProviderProjectionForActiveProfile(
+                value = listOf("foreign-next-up"),
+                projectionProfileId = null,
+                activeProfileId = 2,
+                emptyValue = emptyList()
+            )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `matching provider projection is accepted`() {
+        val result =
+            gateProviderProjectionForActiveProfile(
+                value = listOf("wife-next-up"),
+                projectionProfileId = 2,
+                activeProfileId = 2,
+                emptyValue = emptyList()
+            )
+
+        assertEquals(
+            listOf("wife-next-up"),
+            result
+        )
+    }
+
 }

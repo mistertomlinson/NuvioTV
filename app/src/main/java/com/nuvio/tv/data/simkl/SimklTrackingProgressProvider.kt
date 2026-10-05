@@ -30,12 +30,28 @@ class SimklTrackingProgressProvider @Inject constructor(
     private val progressDismissalStore: SimklProgressDismissalStore
 ) : TrackingProgressProvider {
     override val providerId = TrackingProviderId.SIMKL
+    override val projectionProfileId =
+        syncRepository.projectionProfileId
+
+    /*
+     * These were previously singleton/global. A completed replay on one
+     * profile could therefore alter another profile's Next Up projection.
+     */
     private val optimisticMovieWatchedOverrides =
-        MutableStateFlow<Map<String, Boolean>>(emptyMap())
+        MutableStateFlow<
+            Map<Int, Map<String, Boolean>>
+        >(emptyMap())
+
     private val optimisticEpisodeWatchedOverrides =
-        MutableStateFlow<Map<SimklOptimisticEpisodeKey, SimklOptimisticEpisodeOverride>>(
-            emptyMap()
-        )
+        MutableStateFlow<
+            Map<
+                Int,
+                Map<
+                    SimklOptimisticEpisodeKey,
+                    SimklOptimisticEpisodeOverride
+                >
+            >
+        >(emptyMap())
 
     // Current local playback must be visible immediately even before the
     // durable store or Simkl playback projection settles.
@@ -112,8 +128,20 @@ class SimklTrackingProgressProvider @Inject constructor(
         syncRepository.projection,
         layoutPreferences.nextUpFromFurthestEpisode,
         progressDismissalStore.dismissedAtByKey,
-        optimisticEpisodeWatchedOverrides
-    ) { projection, preferFurthestEpisode, dismissedAtByKey, episodeOverrides ->
+        optimisticEpisodeWatchedOverrides,
+        profileManager.activeProfileId
+    ) {
+        projection,
+        preferFurthestEpisode,
+        dismissedAtByKey,
+        episodeOverridesByProfile,
+        activeProfileId ->
+
+        val episodeOverrides =
+            episodeOverridesByProfile[
+                activeProfileId
+            ].orEmpty()
+
         filterSimklDismissedProgress(
             entries = buildSimklNextUpWithEpisodeOverrides(
                 remoteEntries = projection.watched.items
@@ -134,11 +162,15 @@ class SimklTrackingProgressProvider @Inject constructor(
     }.distinctUntilChanged()
     override val watchedMovieIds = combine(
         syncRepository.projection,
-        optimisticMovieWatchedOverrides
-    ) { projection, overrides ->
+        optimisticMovieWatchedOverrides,
+        profileManager.activeProfileId
+    ) { projection, overridesByProfile, activeProfileId ->
         applySimklWatchedMovieOverrides(
             remoteIds = projection.watchedMovieIds,
-            overrides = overrides
+            overrides =
+                overridesByProfile[
+                    activeProfileId
+                ].orEmpty()
         )
     }.distinctUntilChanged()
     override val watchedItems = syncRepository.projection.map { projection ->
@@ -152,9 +184,22 @@ class SimklTrackingProgressProvider @Inject constructor(
         syncRepository.projection,
         durableProgressStore.episodeProgress(contentId),
         progressDismissalStore.dismissedAtByKey,
-        optimisticEpisodeWatchedOverrides
-    ) { projection, durableEntries, dismissedAtByKey, episodeOverrides ->
-        val resolved = mergeSimklEpisodeProgressWithDurable(
+        optimisticEpisodeWatchedOverrides,
+        profileManager.activeProfileId
+    ) {
+        projection,
+        durableEntries,
+        dismissedAtByKey,
+        episodeOverridesByProfile,
+        activeProfileId ->
+
+        val episodeOverrides =
+            episodeOverridesByProfile[
+                activeProfileId
+            ].orEmpty()
+
+        val resolved =
+            mergeSimklEpisodeProgressWithDurable(
             remoteEntries = projection.episodeProgress(contentId),
             durableEntries = durableEntries,
             isWatched = projection::isWatchedAtOrAfter
@@ -182,8 +227,18 @@ class SimklTrackingProgressProvider @Inject constructor(
         episode: Int?
     ): Flow<Boolean> = combine(
         syncRepository.projection,
-        optimisticEpisodeWatchedOverrides
-    ) { projection, episodeOverrides ->
+        optimisticEpisodeWatchedOverrides,
+        profileManager.activeProfileId
+    ) {
+        projection,
+        episodeOverridesByProfile,
+        activeProfileId ->
+
+        val episodeOverrides =
+            episodeOverridesByProfile[
+                activeProfileId
+            ].orEmpty()
+
         if (season != null && episode != null) {
             episodeOverrides[
                 simklOptimisticEpisodeKey(contentId, season, episode)
@@ -201,9 +256,20 @@ class SimklTrackingProgressProvider @Inject constructor(
 
     override suspend fun watchedShowEpisodes(): Map<String, Set<Pair<Int, Int>>> {
         syncRepository.refresh(TrackingRefreshIntent.AUTOMATIC)
+        val profileId =
+            profileManager.activeProfileId.value
+
         return applySimklEpisodeOverridesToWatchedEpisodes(
-            remoteEntries = syncRepository.projection.value.watchedShowEpisodes,
-            overrides = optimisticEpisodeWatchedOverrides.value.values
+            remoteEntries =
+                syncRepository
+                    .projection
+                    .value
+                    .watchedShowEpisodes,
+            overrides =
+                optimisticEpisodeWatchedOverrides
+                    .value[profileId]
+                    .orEmpty()
+                    .values
         )
     }
 
@@ -370,12 +436,20 @@ class SimklTrackingProgressProvider @Inject constructor(
                 episode
             )
             optimisticEpisodeWatchedOverrides.update { current ->
+                val profileOverrides =
+                    current[profileId].orEmpty()
+
                 current + (
-                    key to SimklOptimisticEpisodeOverride(
-                        key = key,
-                        watched = true,
-                        progress = progress,
-                        updatedAtEpochMs = System.currentTimeMillis()
+                    profileId to (
+                        profileOverrides + (
+                            key to SimklOptimisticEpisodeOverride(
+                                key = key,
+                                watched = true,
+                                progress = progress,
+                                updatedAtEpochMs =
+                                    System.currentTimeMillis()
+                            )
+                        )
                     )
                 )
             }
@@ -384,7 +458,15 @@ class SimklTrackingProgressProvider @Inject constructor(
 
         val watchedIds = optimisticSimklMovieIds(progress.contentId, progress.videoId)
         optimisticMovieWatchedOverrides.update { current ->
-            current + watchedIds.associateWith { true }
+            val profileOverrides =
+                current[profileId].orEmpty()
+
+            current + (
+                profileId to (
+                    profileOverrides +
+                        watchedIds.associateWith { true }
+                )
+            )
         }
     }
 
@@ -485,12 +567,20 @@ class SimklTrackingProgressProvider @Inject constructor(
         if (season != null && episode != null) {
             val key = simklOptimisticEpisodeKey(contentId, season, episode)
             optimisticEpisodeWatchedOverrides.update { current ->
+                val profileOverrides =
+                    current[profileId].orEmpty()
+
                 current + (
-                    key to SimklOptimisticEpisodeOverride(
-                        key = key,
-                        watched = false,
-                        progress = null,
-                        updatedAtEpochMs = System.currentTimeMillis()
+                    profileId to (
+                        profileOverrides + (
+                            key to SimklOptimisticEpisodeOverride(
+                                key = key,
+                                watched = false,
+                                progress = null,
+                                updatedAtEpochMs =
+                                    System.currentTimeMillis()
+                            )
+                        )
                     )
                 )
             }
@@ -500,7 +590,15 @@ class SimklTrackingProgressProvider @Inject constructor(
         if (season != null || episode != null) return
         val watchedIds = optimisticSimklMovieIds(contentId, videoId)
         optimisticMovieWatchedOverrides.update { current ->
-            current + watchedIds.associateWith { false }
+            val profileOverrides =
+                current[profileId].orEmpty()
+
+            current + (
+                profileId to (
+                    profileOverrides +
+                        watchedIds.associateWith { false }
+                )
+            )
         }
     }
 
@@ -510,17 +608,96 @@ class SimklTrackingProgressProvider @Inject constructor(
         season: Int?,
         episode: Int?
     ) {
+        val profileId =
+            profileManager.activeProfileId.value
+
         if (season != null && episode != null) {
             val key = simklOptimisticEpisodeKey(contentId, season, episode)
             optimisticEpisodeWatchedOverrides.update { current ->
-                current - key
+                val remaining =
+                    current[profileId].orEmpty() - key
+
+                if (remaining.isEmpty()) {
+                    current - profileId
+                } else {
+                    current + (
+                        profileId to remaining
+                    )
+                }
             }
             return
         }
 
         val watchedIds = optimisticSimklMovieIds(contentId, videoId)
         optimisticMovieWatchedOverrides.update { current ->
-            current - watchedIds
+            val remaining =
+                current[profileId].orEmpty() - watchedIds
+
+            if (remaining.isEmpty()) {
+                current - profileId
+            } else {
+                current + (
+                    profileId to remaining
+                )
+            }
+        }
+    }
+
+    override fun clearOptimisticProgress(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) {
+        val resolvedSeason = season ?: return
+        val resolvedEpisode = episode ?: return
+        val profileId =
+            profileManager.activeProfileId.value
+
+        val episodeKey =
+            simklOptimisticEpisodeKey(
+                contentId,
+                resolvedSeason,
+                resolvedEpisode
+            )
+
+        optimisticEpisodeWatchedOverrides.update { current ->
+            val remaining =
+                current[profileId]
+                    .orEmpty() - episodeKey
+
+            if (remaining.isEmpty()) {
+                current - profileId
+            } else {
+                current + (
+                    profileId to remaining
+                )
+            }
+        }
+
+        optimisticPlaybackProgress.update { current ->
+            val remaining =
+                current[profileId]
+                    .orEmpty()
+                    .filterValues { existing ->
+                        !(
+                            existing.contentId.equals(
+                                contentId,
+                                ignoreCase = true
+                            ) &&
+                                existing.season ==
+                                    resolvedSeason &&
+                                existing.episode ==
+                                    resolvedEpisode
+                            )
+                    }
+
+            if (remaining.isEmpty()) {
+                current - profileId
+            } else {
+                current + (
+                    profileId to remaining
+                )
+            }
         }
     }
 

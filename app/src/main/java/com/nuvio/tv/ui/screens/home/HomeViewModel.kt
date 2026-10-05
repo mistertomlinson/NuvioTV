@@ -34,6 +34,7 @@ import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -709,6 +710,87 @@ class HomeViewModel @Inject constructor(
     internal val cwTmdbIdCache = Collections.synchronizedMap(mutableMapOf<String, String?>())
     internal val cwNextUpResolutionCache = Collections.synchronizedMap(mutableMapOf<String, NextUpResolution?>())
     internal val cwNextUpNegativeCacheTimestamps = Collections.synchronizedMap(mutableMapOf<String, Long>())
+
+    /*
+     * Immediate/session-local barrier for Next Up removals.
+     *
+     * Rewatch dismissal classification is asynchronous. Without this barrier,
+     * an already-running CW cycle can republish the same Player-generated
+     * Next Up between optimistic UI removal and consumption of the Player seed.
+     *
+     * This is intentionally not persisted. Normal dismissals still use the
+     * existing DataStore/provider path; fresh Player completion re-arms the
+     * exact seed.
+     */
+    /*
+     * Immediate/session-local Next Up removal barrier, owned by profile.
+     *
+     * Removal survives leaving and returning to a profile, but can never
+     * suppress the same title for another profile.
+     *
+     * A fresh Player completion re-arms the exact key.
+     */
+    internal val cwPendingNextUpDismissKeysByProfile =
+        Collections.synchronizedMap(
+            mutableMapOf<Int, MutableSet<String>>()
+        )
+
+    internal fun pendingNextUpDismissKeys(
+        profileId: Int
+    ): Set<String> =
+        synchronized(cwPendingNextUpDismissKeysByProfile) {
+            cwPendingNextUpDismissKeysByProfile[
+                profileId
+            ]?.toSet().orEmpty()
+        }
+
+    internal fun addPendingNextUpDismissKey(
+        profileId: Int,
+        dismissKey: String
+    ) {
+        synchronized(cwPendingNextUpDismissKeysByProfile) {
+            cwPendingNextUpDismissKeysByProfile
+                .getOrPut(profileId) {
+                    mutableSetOf()
+                }
+                .add(dismissKey)
+        }
+    }
+
+    internal fun removePendingNextUpDismissKeysWithPrefix(
+        profileId: Int,
+        dismissKeyPrefix: String
+    ) {
+        synchronized(cwPendingNextUpDismissKeysByProfile) {
+            val keys =
+                cwPendingNextUpDismissKeysByProfile[
+                    profileId
+                ]
+
+            if (keys != null) {
+                keys.removeAll { key ->
+                    key.startsWith(dismissKeyPrefix)
+                }
+
+                if (keys.isEmpty()) {
+                    cwPendingNextUpDismissKeysByProfile.remove(
+                        profileId
+                    )
+                }
+            }
+        }
+    }
+
+    internal fun clearPendingNextUpDismissKeys(
+        profileId: Int
+    ) {
+        synchronized(cwPendingNextUpDismissKeysByProfile) {
+            cwPendingNextUpDismissKeysByProfile.remove(
+                profileId
+            )
+        }
+    }
+
     internal val discoveredOlderNextUpItems = Collections.synchronizedList(mutableListOf<ContinueWatchingItem.NextUp>())
     internal val cwLastProcessedNextUpContentIds = Collections.synchronizedSet(mutableSetOf<String>())
     internal val cwEnrichedNextUpOverlay = Collections.synchronizedMap(mutableMapOf<String, NextUpInfo>())
@@ -912,6 +994,18 @@ class HomeViewModel @Inject constructor(
             profileManager.activeProfileId.collect { newId ->
                 if (newId != previousProfileId) {
                     previousProfileId = newId
+
+                    /*
+                     * Stop the previous profile's CW writer before doing
+                     * anything that can suspend for the new profile.
+                     *
+                     * loadFromDisk(newId) can suspend. If the old pipeline
+                     * survives across that suspension it can republish the
+                     * previous profile's CW state after the profile switch.
+                     */
+                    cwPipelineJob?.cancelAndJoin()
+                    cwPipelineJob = null
+
                     val activeProf = profileManager.activeProfile
                     android.util.Log.d("NuvioProfile", "Switched to profile $newId name=${activeProf?.name} usesPrimaryPlugins=${activeProf?.usesPrimaryPlugins} isPrimary=${activeProf?.isPrimary}")
                     resetHomeWarmupForProfileSwitch()
@@ -951,8 +1045,17 @@ class HomeViewModel @Inject constructor(
                                 it.homeLoadSessionId + 1L
                         )
                     }
+                    /*
+                     * Validation deadlines are profile-owned. Clear only the
+                     * previous profile's in-memory holder state, restore the
+                     * newly selected profile from disk, then start its CW
+                     * pipeline. Do not persist an artificial empty badge set.
+                     */
+                    watchedSeriesStateHolder.clearInMemory()
+                    watchedSeriesStateHolder.loadFromDisk(
+                        profileId = newId
+                    )
                     loadContinueWatching()
-                    watchedSeriesStateHolder.update(emptySet())
                     _uiState.update { it.copy(movieWatchedStatus = emptyMap()) }
                     clearFocusState()
                     // Disk cache is intentionally preserved on profile switch.
@@ -978,11 +1081,15 @@ class HomeViewModel @Inject constructor(
                     cwTmdbIdCache.clear()
                     cwNextUpResolutionCache.clear()
                     cwNextUpNegativeCacheTimestamps.clear()
+                    clearPendingNextUpDismissKeys(
+                        profileManager.activeProfileId.value
+                    )
                     discoveredOlderNextUpItems.clear()
                     cwLastProcessedNextUpContentIds.clear()
                     cwEnrichedNextUpOverlay.clear()
                     cwEnrichedInProgressOverlay.clear()
                     cwLastBadgeEpisodeKeys = emptySet()
+                    watchedSeriesStateHolder.clearValidationState()
                     _uiState.update { it.copy(continueWatchingItems = emptyList(), continueWatchingEnrichmentReady = false) }
                     cwPipelineRefreshTrigger.value++
                 }

@@ -1,6 +1,10 @@
 package com.nuvio.tv.ui.screens.home
 
 import com.nuvio.tv.domain.model.WatchProgress
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -38,6 +42,97 @@ class HomeNextUpResolutionTest {
         assertFalse(hasResolvedNextUpSeed(meta, seedSeason = null, seedEpisode = 2))
         assertFalse(hasResolvedNextUpSeed(meta, seedSeason = 1, seedEpisode = null))
         assertFalse(hasResolvedNextUpSeed(meta, seedSeason = 0, seedEpisode = 2))
+    }
+
+
+    @Test
+    fun `upcoming season opens revalidation window seven days before premiere`() {
+        val today = LocalDate.now()
+        val premiere = today.plusDays(14)
+
+        val meta = metaWith(
+            video(
+                season = 1,
+                episode = 1,
+                released = today.minusDays(30).toString()
+            ),
+            video(
+                season = 2,
+                episode = 1,
+                released = premiere.toString()
+            )
+        )
+
+        val deadline =
+            requireNotNull(meta.earliestUpcomingSeasonMs())
+
+        val deadlineDate =
+            Instant.ofEpochMilli(deadline)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+
+        assertEquals(
+            premiere.minusDays(7),
+            deadlineDate
+        )
+    }
+
+    @Test
+    fun `season already inside seven day window is immediately stale`() {
+        val today = LocalDate.now()
+        val premiere = today.plusDays(3)
+
+        val meta = metaWith(
+            video(
+                season = 1,
+                episode = 1,
+                released = today.minusDays(30).toString()
+            ),
+            video(
+                season = 2,
+                episode = 1,
+                released = premiere.toString()
+            )
+        )
+
+        val before = System.currentTimeMillis()
+        val deadline =
+            requireNotNull(meta.earliestUpcomingSeasonMs())
+        val after = System.currentTimeMillis()
+
+        assertTrue(deadline in before..after)
+    }
+
+    @Test
+    fun `caught up airing series revalidates on next future episode date`() {
+        val today = LocalDate.now()
+        val nextEpisodeDate = today.plusDays(3)
+
+        val meta = metaWith(
+            video(
+                season = 1,
+                episode = 1,
+                released = today.minusDays(7).toString()
+            ),
+            video(
+                season = 1,
+                episode = 2,
+                released = nextEpisodeDate.toString()
+            )
+        )
+
+        val deadline =
+            requireNotNull(meta.earliestRevalidationMs())
+
+        val deadlineDate =
+            Instant.ofEpochMilli(deadline)
+                .atZone(ZoneId.systemDefault())
+                .toLocalDate()
+
+        assertEquals(
+            nextEpisodeDate,
+            deadlineDate
+        )
     }
 
 
@@ -177,10 +272,14 @@ class HomeNextUpResolutionTest {
         progressPercent = progressPercent
     )
 
-    private fun video(season: Int, episode: Int) = CwVideoSummary(
+    private fun video(
+        season: Int,
+        episode: Int,
+        released: String = "2026-09-01"
+    ) = CwVideoSummary(
         id = "episode-$season-$episode",
         title = "Episode $episode",
-        released = "2026-09-01",
+        released = released,
         thumbnail = null,
         season = season,
         episode = episode,

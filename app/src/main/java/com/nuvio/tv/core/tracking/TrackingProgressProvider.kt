@@ -12,6 +12,17 @@ interface TrackingProgressProvider {
     val isAuthenticated: Flow<Boolean>
     val allProgress: Flow<List<WatchProgress>>
     val remoteProgressLoaded: Flow<Boolean>
+
+    /*
+     * Optional identity stamp for providers whose in-memory projection is
+     * profile-scoped.
+     *
+     * A non-null Flow means the provider supports profile stamping.
+     * An emitted null means a profile handoff is currently in progress.
+     */
+    val projectionProfileId: Flow<Int?>?
+        get() = null
+
     val nextUpSeeds: Flow<List<WatchProgress>>
     val watchedMovieIds: Flow<Set<String>>
     val ownsCompletedHistoryProjection: Boolean
@@ -50,6 +61,18 @@ interface TrackingProgressProvider {
         season: Int?,
         episode: Int?
     ) = Unit
+    /*
+     * Drop only a temporary optimistic playback/completion projection.
+     *
+     * This must not alter durable watched history, remote history, or
+     * provider-level Next Up dismissal state.
+     */
+    fun clearOptimisticProgress(
+        contentId: String,
+        season: Int?,
+        episode: Int?
+    ) = Unit
+
     fun clearOptimistic()
     fun retainsLocalProgress(contentId: String): Boolean = false
     fun retainsLocalWatchedEpisode(item: WatchedItem): Boolean = false
