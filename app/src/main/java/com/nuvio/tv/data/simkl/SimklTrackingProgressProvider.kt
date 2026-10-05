@@ -478,6 +478,40 @@ class SimklTrackingProgressProvider @Inject constructor(
     ) {
         val profileId = profileManager.activeProfileId.value
 
+        val episodeAliasKeys =
+            if (season != null && episode != null) {
+                simklOptimisticEpisodeAliasKeys(
+                    contentId = contentId,
+                    season = season,
+                    episode = episode,
+                    showIdSiblings =
+                        syncRepository
+                            .projection
+                            .value
+                            .showIdSiblings
+                )
+            } else {
+                emptySet()
+            }
+
+        val aliasContentIds =
+            episodeAliasKeys.mapTo(linkedSetOf()) {
+                key -> key.contentId
+            }
+
+        fun matchesContentId(candidate: String): Boolean {
+            return if (aliasContentIds.isNotEmpty()) {
+                candidate
+                    .trim()
+                    .lowercase() in aliasContentIds
+            } else {
+                candidate.equals(
+                    contentId,
+                    ignoreCase = true
+                )
+            }
+        }
+
         // Marking an episode unwatched must also hide any stale Simkl playback
         // record for that episode. Otherwise an old near-complete playback
         // session can immediately resurrect as a Resume card.
@@ -488,7 +522,7 @@ class SimklTrackingProgressProvider @Inject constructor(
         val remoteProgressForRemoval =
             if (season != null && episode != null) {
                 syncRepository.projection.value.progress.firstOrNull { existing ->
-                    existing.contentId.equals(contentId, ignoreCase = true) &&
+                    matchesContentId(existing.contentId) &&
                         existing.season == season &&
                         existing.episode == episode
                 }
@@ -501,7 +535,7 @@ class SimklTrackingProgressProvider @Inject constructor(
 
             val matchingLocalEntry =
                 profileEntries.values.firstOrNull { existing ->
-                    existing.contentId.equals(contentId, ignoreCase = true) &&
+                    matchesContentId(existing.contentId) &&
                         (
                             season == null ||
                                 episode == null ||
@@ -515,7 +549,7 @@ class SimklTrackingProgressProvider @Inject constructor(
             val withoutRemovedEntry =
                 profileEntries.filterValues { existing ->
                     val sameContent =
-                        existing.contentId.equals(contentId, ignoreCase = true)
+                        matchesContentId(existing.contentId)
                     val sameEpisode =
                         season == null ||
                             episode == null ||
@@ -565,22 +599,27 @@ class SimklTrackingProgressProvider @Inject constructor(
         }
 
         if (season != null && episode != null) {
-            val key = simklOptimisticEpisodeKey(contentId, season, episode)
+            val updatedAt =
+                System.currentTimeMillis()
+
+            val aliasOverrides =
+                episodeAliasKeys.associateWith { key ->
+                    SimklOptimisticEpisodeOverride(
+                        key = key,
+                        watched = false,
+                        progress = null,
+                        updatedAtEpochMs = updatedAt
+                    )
+                }
+
             optimisticEpisodeWatchedOverrides.update { current ->
                 val profileOverrides =
                     current[profileId].orEmpty()
 
                 current + (
                     profileId to (
-                        profileOverrides + (
-                            key to SimklOptimisticEpisodeOverride(
-                                key = key,
-                                watched = false,
-                                progress = null,
-                                updatedAtEpochMs =
-                                    System.currentTimeMillis()
-                            )
-                        )
+                        profileOverrides +
+                            aliasOverrides
                     )
                 )
             }
@@ -612,10 +651,25 @@ class SimklTrackingProgressProvider @Inject constructor(
             profileManager.activeProfileId.value
 
         if (season != null && episode != null) {
-            val key = simklOptimisticEpisodeKey(contentId, season, episode)
+            val keys =
+                simklOptimisticEpisodeAliasKeys(
+                    contentId = contentId,
+                    season = season,
+                    episode = episode,
+                    showIdSiblings =
+                        syncRepository
+                            .projection
+                            .value
+                            .showIdSiblings
+                )
+
             optimisticEpisodeWatchedOverrides.update { current ->
                 val remaining =
-                    current[profileId].orEmpty() - key
+                    current[profileId]
+                        .orEmpty()
+                        .filterKeys { key ->
+                            key !in keys
+                        }
 
                 if (remaining.isEmpty()) {
                     current - profileId
@@ -728,6 +782,99 @@ internal data class SimklOptimisticEpisodeOverride(
     val progress: WatchProgress?,
     val updatedAtEpochMs: Long
 )
+
+internal fun simklOptimisticEpisodeAliasKeys(
+    contentId: String,
+    season: Int,
+    episode: Int,
+    showIdSiblings: Map<String, Set<String>>
+): Set<SimklOptimisticEpisodeKey> {
+    val aliases = linkedSetOf<String>()
+
+    fun addAlias(raw: String?) {
+        val normalized =
+            raw
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf(String::isNotBlank)
+                ?: return
+
+        aliases.add(normalized)
+
+        /*
+         * Nuvio commonly encounters both raw IMDb IDs ("tt...") and
+         * prefixed IDs ("imdb:tt..."). Treat them as the same identity
+         * while resolving the sibling closure.
+         */
+        if (normalized.startsWith("imdb:")) {
+            normalized
+                .substringAfter(':')
+                .takeIf(String::isNotBlank)
+                ?.let(aliases::add)
+        } else if (normalized.startsWith("tt")) {
+            aliases.add("imdb:$normalized")
+        }
+    }
+
+    addAlias(contentId)
+
+    /*
+     * showIdSiblings contains every known external ID for one Simkl show.
+     * Walk to a fixed point so this remains correct even if the map is not
+     * perfectly symmetric.
+     */
+    var changed: Boolean
+    do {
+        val before = aliases.size
+
+        showIdSiblings.forEach { (id, siblings) ->
+            val group =
+                buildSet {
+                    addAliasForSet(id, this)
+                    siblings.forEach { sibling ->
+                        addAliasForSet(sibling, this)
+                    }
+                }
+
+            if (group.any { it in aliases }) {
+                group.forEach(::addAlias)
+            }
+        }
+
+        changed = aliases.size != before
+    } while (changed)
+
+    return aliases.mapTo(linkedSetOf()) { alias ->
+        simklOptimisticEpisodeKey(
+            alias,
+            season,
+            episode
+        )
+    }
+}
+
+private fun addAliasForSet(
+    raw: String?,
+    destination: MutableSet<String>
+) {
+    val normalized =
+        raw
+            ?.trim()
+            ?.lowercase()
+            ?.takeIf(String::isNotBlank)
+            ?: return
+
+    destination.add(normalized)
+
+    if (normalized.startsWith("imdb:")) {
+        normalized
+            .substringAfter(':')
+            .takeIf(String::isNotBlank)
+            ?.let(destination::add)
+    } else if (normalized.startsWith("tt")) {
+        destination.add("imdb:$normalized")
+    }
+}
 
 internal fun simklOptimisticEpisodeKey(
     contentId: String,

@@ -1620,10 +1620,26 @@ class WatchProgressRepositoryImpl @Inject constructor(
                     profileId = profileManager.activeProfileId.value,
                     items = media
                 )
-                check(result.isComplete) {
-                    "Tracking provider could not match " +
-                        "${result.notFoundCount} of " +
-                        "${result.attemptedCount} watched episodes"
+
+                /*
+                 * History removal is intentionally idempotent.
+                 *
+                 * A tracking provider can report an episode as not_found when
+                 * it is already absent remotely. That is already the state the
+                 * user requested, so it must not turn an otherwise-successful
+                 * season/batch unwatch into a failure.
+                 *
+                 * Actual request/API failures still throw from the writer and
+                 * enter the rollback path below. Mark-as-watched remains strict
+                 * and continues to reject provider not_found results.
+                 */
+                if (result.notFoundCount > 0) {
+                    Log.d(
+                        TAG,
+                        "removeFromHistoryBatch accepted " +
+                            "${result.notFoundCount} already-absent item(s) " +
+                            "of ${result.attemptedCount}"
+                    )
                 }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error

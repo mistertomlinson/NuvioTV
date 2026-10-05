@@ -9,6 +9,81 @@ import org.junit.Test
 class SimklOptimisticWatchedEpisodesTest {
 
     @Test
+    fun `alias unwatch removes canonical next up seed immediately`() {
+        val routeId = "tmdb:987654"
+
+        val siblings =
+            mapOf(
+                routeId to
+                    setOf(
+                        CONTENT_ID,
+                        "simkl:123456"
+                    ),
+                CONTENT_ID to
+                    setOf(
+                        routeId,
+                        "simkl:123456"
+                    ),
+                "simkl:123456" to
+                    setOf(
+                        routeId,
+                        CONTENT_ID
+                    )
+            )
+
+        val keys =
+            simklOptimisticEpisodeAliasKeys(
+                contentId = routeId,
+                season = 4,
+                episode = 1,
+                showIdSiblings = siblings
+            )
+
+        /*
+         * Prove the route-ID mutation reaches the canonical ID used by
+         * Simkl's watched/Next Up projection.
+         */
+        assertTrue(
+            simklOptimisticEpisodeKey(
+                CONTENT_ID,
+                4,
+                1
+            ) in keys
+        )
+
+        val overrides =
+            keys.map { key ->
+                SimklOptimisticEpisodeOverride(
+                    key = key,
+                    watched = false,
+                    progress = null,
+                    updatedAtEpochMs = 6_000L
+                )
+            }
+
+        val result =
+            buildSimklNextUpWithEpisodeOverrides(
+                remoteEntries =
+                    listOf(
+                        progress(
+                            episode = 1,
+                            lastWatched = 5_000L
+                        )
+                    ),
+                overrides = overrides,
+                preferFurthestEpisode = true
+            )
+
+        /*
+         * Brand-new series:
+         * watched E1 -> E2 Next Up
+         * unwatch E1 -> no watched seed remains,
+         * therefore the series must leave CW.
+         */
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
     fun `successive unmarks promote the previous watched episode`() {
         val remote = (1..7).map { episode ->
             progress(episode = episode, lastWatched = episode * 1_000L)
