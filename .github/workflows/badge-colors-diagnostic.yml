@@ -1,4 +1,4 @@
-name: Badge Colors Diagnostic
+name: Apply Badge Colors Feature
 
 on:
   push:
@@ -6,20 +6,43 @@ on:
       - feature/badge-colors
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  inspect:
+  apply-build-commit:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Locate badge code
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Apply Badge Colors patch
+        run: python3 tools/apply_badge_colors.py
+
+      - name: Verify palette wiring
         run: |
-          echo '===== AVAILABLE NOW USAGE ====='
-          grep -R -n -C 12 --include='*.kt' 'release_available_now\|Available Now' app/src/main/java || true
-          echo
-          echo '===== RELEASE BADGE REFERENCES ====='
-          grep -R -n -C 8 --include='*.kt' 'ReleaseStatusBadge\|isReleaseAlert\|isNewSeasonRelease' app/src/main/java/com/nuvio/tv/ui | head -n 500 || true
-          echo
-          echo '===== APPEARANCE SECTION ====='
-          grep -n -C 12 'AppearanceSection\|appearance_color_theme' app/src/main/java/com/nuvio/tv/ui/screens/settings/ThemeSettingsScreen.kt | head -n 500 || true
+          grep -R -n 'BadgeColorStyle' app/src/main/java/com/nuvio/tv | head -n 100
+          grep -R -n 'LegacyAvailableNowBadge\|LegacyNewEpisodeBadge\|LegacyNewSeasonBadge' app/src/main/java/com/nuvio/tv/ui/theme/NuvioBadgeColors.kt
+          grep -n -A70 -B15 'appearance_badge_colors' app/src/main/java/com/nuvio/tv/ui/screens/settings/ThemeSettingsScreen.kt | head -n 180
+
+      - name: Build sideload variant
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:assembleSideload --stacktrace --no-daemon
+
+      - name: Commit verified feature
+        run: |
+          rm -f tools/apply_badge_colors.py
+          rm -f .github/workflows/badge-colors-diagnostic.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git status --short
+          git commit -m 'Add selectable badge color palettes'
+          git push origin HEAD:feature/badge-colors
