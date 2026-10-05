@@ -40,10 +40,17 @@ class SimklTrackingHistoryWriter @Inject constructor(
         if (profileId != profileManager.activeProfileId.value) return TrackingMutationResult(0)
         syncRepository.ensureLoaded()
         val snapshot = syncRepository.state.value.snapshot
-        val enrichedItems = items.map { ref ->
-            snapshot.enrichMediaReference(ref).resolveAnimeEpisodeForSimkl()
-        }
-        val result = service.removeFromHistory(enrichedItems)
+
+        /*
+         * Keep the enriched parent identity separate from the final API
+         * mutation identity. Anime episode routing may intentionally replace
+         * the parent's IDs with a season-specific MAL/Kitsu/etc. ID; that is
+         * correct for removing the episode but must not prevent us from finding
+         * the parent show afterward for zero-history Watching cleanup.
+         */
+        val enrichedItems = items.map(snapshot::enrichMediaReference)
+        val removalItems = enrichedItems.map(TrackingMediaReference::resolveAnimeEpisodeForSimkl)
+        val result = service.removeFromHistory(removalItems)
 
         /*
          * Simkl keeps a show's list status separate from episode history.
