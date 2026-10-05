@@ -1,0 +1,25 @@
+name: Badge Colors Diagnostic
+
+on:
+  push:
+    branches:
+      - feature/badge-colors
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Locate badge code
+        run: |
+          echo '===== AVAILABLE NOW USAGE ====='
+          grep -R -n -C 12 --include='*.kt' 'release_available_now\|Available Now' app/src/main/java || true
+          echo
+          echo '===== RELEASE BADGE REFERENCES ====='
+          grep -R -n -C 8 --include='*.kt' 'ReleaseStatusBadge\|isReleaseAlert\|isNewSeasonRelease' app/src/main/java/com/nuvio/tv/ui | head -n 500 || true
+          echo
+          echo '===== APPEARANCE SECTION ====='
+          grep -n -C 12 'AppearanceSection\|appearance_color_theme' app/src/main/java/com/nuvio/tv/ui/screens/settings/ThemeSettingsScreen.kt | head -n 500 || true
