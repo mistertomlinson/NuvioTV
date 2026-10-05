@@ -830,6 +830,10 @@ fun ModernHomeContent(
     val heroFocusSettleDelayMsRef = remember { java.util.concurrent.atomic.AtomicLong(MODERN_HERO_FOCUS_DEBOUNCE_MS) }
         val lastKeyRepeatTimeRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val isFastScrollingRef = remember { kotlinx.coroutines.flow.MutableStateFlow(false) }
+    val suppressCatalogSelectionForDoubleUpRef =
+        remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
     val lastKeyUpTimeRef = remember { java.util.concurrent.atomic.AtomicLong(0L) }
     val rowsBoundaryFocusedCatalogSelectionState =
         remember { mutableStateOf<FocusedCatalogSelection?>(null) }
@@ -888,6 +892,7 @@ fun ModernHomeContent(
     val gatedOnCatalogSelectionFocused: (FocusedCatalogSelection) -> Unit = remember(Unit) {
         { selection ->
             if (
+                !suppressCatalogSelectionForDoubleUpRef.get() &&
                 !isFastScrollingRef.value &&
                 !fastScrollLandingVisualPendingRef.get() &&
                 focusedCatalogSelection != selection
@@ -904,6 +909,12 @@ fun ModernHomeContent(
     val catchUpFastScrollLandingHero:
         suspend () -> Unit =
         catchUp@{
+            if (
+                suppressCatalogSelectionForDoubleUpRef.get()
+            ) {
+                return@catchUp
+            }
+
             val rowKey = focusHolder.activeRowKey ?: return@catchUp
             val row = currentCarouselRows.firstOrNull { it.key == rowKey } ?: return@catchUp
             val item = row.items.getOrNull(
@@ -4162,6 +4173,9 @@ fun ModernHomeContent(
 
                                     doubleUpInProgress.set(true)
 
+                                    suppressCatalogSelectionForDoubleUpRef
+                                        .set(true)
+
                                     isFastScrollingRef.value =
                                         true
 
@@ -4178,6 +4192,9 @@ fun ModernHomeContent(
                                         null
 
                                     doubleUpScope.launch {
+                                        var handoffToCarousel =
+                                            false
+
                                         try {
                                             val fullRowCount =
                                                 carouselRows.size
@@ -4426,16 +4443,14 @@ fun ModernHomeContent(
                                                 aggregatePlatformsEnabled
                                             ) {
                                                 /*
-                                                 * Existing carousel focus
-                                                 * state owns hidden/dim icon
-                                                 * presentation.
+                                                 * Do not transfer focus yet.
+                                                 * Finish every piece of the
+                                                 * custom fast-scroll lifecycle
+                                                 * first, then use the same
+                                                 * handoff as normal Up.
                                                  */
-                                                onCarouselOpenRequested()
-
-                                                runCatching {
-                                                    carouselFocusRequester
-                                                        .requestFocus()
-                                                }
+                                                handoffToCarousel =
+                                                    true
                                             } else {
                                                 if (
                                                     firstRow.items
@@ -4487,7 +4502,33 @@ fun ModernHomeContent(
 
                                             doubleUpInProgress.set(false)
 
-                                            fastScrollHeroCatchUpGeneration++
+                                            if (
+                                                handoffToCarousel
+                                            ) {
+                                                focusedCatalogSelection =
+                                                    null
+
+                                                onCarouselOpenRequested()
+
+                                                runCatching {
+                                                    carouselFocusRequester
+                                                        .requestFocus()
+                                                }
+
+                                                /*
+                                                 * Keep the synchronous guard
+                                                 * armed through the handoff
+                                                 * frame. Any queued row-focus
+                                                 * or fast-scroll callback from
+                                                 * the custom return therefore
+                                                 * cannot reclaim catalog
+                                                 * trailer ownership afterward.
+                                                 */
+                                                withFrameNanos { }
+                                            }
+
+                                            suppressCatalogSelectionForDoubleUpRef
+                                                .set(false)
                                         }
                                     }
 
@@ -4699,6 +4740,7 @@ fun ModernHomeContent(
                              */
                             if (
                                 confirmedFocus &&
+                                !suppressCatalogSelectionForDoubleUpRef.get() &&
                                 fastScrollLandingVisualPendingRef
                                     .compareAndSet(
                                         true,
