@@ -3,9 +3,11 @@ package com.nuvio.tv.data.simkl
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tracking.TrackingHistoryItem
 import com.nuvio.tv.core.tracking.TrackingHistoryWriter
+import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
 import com.nuvio.tv.core.tracking.TrackingMutationResult
 import com.nuvio.tv.core.tracking.TrackingProviderId
+import com.nuvio.tv.core.tracking.TrackingRefreshIntent
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,10 +41,110 @@ class SimklTrackingHistoryWriter @Inject constructor(
         if (profileId != profileManager.activeProfileId.value) return TrackingMutationResult(0)
         syncRepository.ensureLoaded()
         val snapshot = syncRepository.state.value.snapshot
-        return service.removeFromHistory(
-            items.map { ref ->
-                snapshot.enrichMediaReference(ref).resolveAnimeEpisodeForSimkl()
+        val enrichedItems = items.map { ref ->
+            snapshot.enrichMediaReference(ref).resolveAnimeEpisodeForSimkl()
+        }
+        val result = service.removeFromHistory(enrichedItems)
+
+        /*
+         * Simkl keeps a show's list status separate from episode history.
+         * Removing the final watched episode therefore leaves a zero-progress
+         * show stranded in "Watching" unless the parent show is removed too.
+         *
+         * The mutation receipt above is committed synchronously, so inspect the
+         * updated snapshot instead of making an extra network read. Only clean
+         * up shows that are still explicitly Watching and now have no watched
+         * episodes. Partially watched shows and every other list status are left
+         * untouched.
+         */
+        val cleanupTargets =
+            syncRepository
+                .state
+                .value
+                .snapshot
+                .zeroHistoryWatchingCleanupTargets(enrichedItems)
+
+        if (cleanupTargets.isNotEmpty()) {
+            val cleanupResult = service.removeFromList(
+                cleanupTargets.map(SimklWatchingCleanupTarget::reference)
+            )
+
+            /*
+             * Simkl implements full list removal through show-level history
+             * removal, which can also clear a rating. Preserve an existing
+             * rating after the Watching entry is removed. Rating restoration is
+             * intentionally limited to successfully matched cleanup targets.
+             */
+            if (cleanupResult.isComplete) {
+                val ratedTargets = cleanupTargets.filter { target -> target.rating != null }
+                ratedTargets.forEach { target ->
+                    service.rate(
+                        media = target.reference,
+                        rating = requireNotNull(target.rating)
+                    )
+                }
+                if (ratedTargets.isNotEmpty()) {
+                    syncRepository.refreshAsync(TrackingRefreshIntent.INVALIDATED)
+                }
             }
-        )
+        }
+
+        return result
     }
+}
+
+internal data class SimklWatchingCleanupTarget(
+    val reference: TrackingMediaReference,
+    val rating: Int?
+)
+
+/**
+ * Finds parent shows that were touched by an episode-history removal and are
+ * now stale zero-progress Watching entries.
+ */
+internal fun SimklSyncSnapshot.zeroHistoryWatchingCleanupTargets(
+    touchedItems: Collection<TrackingMediaReference>
+): List<SimklWatchingCleanupTarget> =
+    touchedItems
+        .asSequence()
+        .filter { reference ->
+            reference.kind != TrackingMediaKind.MOVIE && reference.episode != null
+        }
+        .mapNotNull { reference ->
+            val enriched = enrichMediaReference(reference)
+            val entry = entries.firstOrNull { candidate ->
+                candidate.matchesTrackingReference(enriched)
+            } ?: return@mapNotNull null
+
+            if (entry.status != SimklListStatus.WATCHING) return@mapNotNull null
+            if (entry.hasWatchedEpisodeHistory()) return@mapNotNull null
+
+            SimklWatchingCleanupTarget(
+                reference = enriched.copy(episode = null),
+                rating = entry.userRating
+            )
+        }
+        .distinctBy { target -> target.reference.stableKey }
+        .toList()
+
+private fun SimklLibraryEntry.hasWatchedEpisodeHistory(): Boolean =
+    watchedEpisodesCount > 0 ||
+        seasons.any { season ->
+            season.episodes.any { episode -> episode.watchedAt != null }
+        }
+
+private fun SimklLibraryEntry.matchesTrackingReference(
+    reference: TrackingMediaReference
+): Boolean {
+    val candidate = media?.toTrackingExternalIds() ?: return false
+    val target = reference.ids
+
+    return (candidate.simkl != null && candidate.simkl == target.simkl) ||
+        (!candidate.imdb.isNullOrBlank() && candidate.imdb.equals(target.imdb, ignoreCase = true)) ||
+        (candidate.tmdb != null && candidate.tmdb == target.tmdb) ||
+        (!candidate.tvdb.isNullOrBlank() && candidate.tvdb.equals(target.tvdb, ignoreCase = true)) ||
+        (candidate.mal != null && candidate.mal == target.mal) ||
+        (candidate.anidb != null && candidate.anidb == target.anidb) ||
+        (candidate.anilist != null && candidate.anilist == target.anilist) ||
+        (candidate.kitsu != null && candidate.kitsu == target.kitsu)
 }
