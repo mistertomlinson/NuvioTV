@@ -553,8 +553,10 @@ fun ContinueWatchingCard(
         semantic = when {
             nextUp?.isNewSeasonRelease == true ->
                 NuvioBadgeSemantic.NEW_SEASON
+
             nextUp?.isReleaseAlert == true ->
                 NuvioBadgeSemantic.NEW_EPISODE
+
             else ->
                 NuvioBadgeSemantic.STANDARD
         }

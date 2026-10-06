@@ -50,6 +50,9 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
@@ -530,8 +533,8 @@ fun ThemeSettingsContent(
                                     deferredBottomCornerSections
                         ) {
                             uiState.availableBadgeColorStyles.forEach { style ->
-                                AppearanceChoiceRow(
-                                    label = badgeColorStyleLabel(style),
+                                BadgeColorChoiceRow(
+                                    style = style,
                                     selected =
                                         style == uiState.selectedBadgeColorStyle,
                                     onClick = {
@@ -675,6 +678,197 @@ fun ThemeSettingsContent(
                 SettingsVerticalScrollIndicators(
                     state = appearanceListState
                 )
+            }
+        }
+    }
+}
+
+private enum class BadgePreviewSemantic {
+    NEW_SEASON,
+    NEW_EPISODE,
+    AVAILABLE_NOW,
+    STANDARD
+}
+
+@Composable
+private fun BadgeColorChoiceRow(
+    style: BadgeColorStyle,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(49.dp)
+            .onFocusChanged { state ->
+                isFocused = state.isFocused
+            },
+        colors = CardDefaults.colors(
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
+        shape = CardDefaults.shape(
+            RoundedCornerShape(SettingsInnerRowRadius)
+        ),
+        scale = CardDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(
+                    horizontal = 14.dp,
+                    vertical = 1.dp
+                ),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = badgeColorStyleLabel(style),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color =
+                        if (isFocused || selected) {
+                            NuvioColors.TextPrimary
+                        } else {
+                            NuvioColors.TextSecondary
+                        },
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                if (selected) {
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = stringResource(
+                            R.string.cd_selected
+                        ),
+                        tint = NuvioColors.Secondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(1.dp))
+
+            BadgeColorPreviewRow(
+                style = style,
+                focused = isFocused
+            )
+        }
+    }
+}
+
+@Composable
+private fun BadgeColorPreviewRow(
+    style: BadgeColorStyle,
+    focused: Boolean
+) {
+    val previews = listOf(
+        "New Season" to BadgePreviewSemantic.NEW_SEASON,
+        "New Episode" to BadgePreviewSemantic.NEW_EPISODE,
+        "Now Available" to BadgePreviewSemantic.AVAILABLE_NOW,
+        "Next Up" to BadgePreviewSemantic.STANDARD,
+        "Resume" to BadgePreviewSemantic.STANDARD,
+        "Airs In" to BadgePreviewSemantic.STANDARD,
+        "Upcoming" to BadgePreviewSemantic.STANDARD
+    )
+
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        previews.forEach { (label, semantic) ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color =
+                        if (focused) {
+                            NuvioColors.TextPrimary
+                        } else {
+                            NuvioColors.TextSecondary
+                        },
+                    maxLines = 1
+                )
+
+                Spacer(modifier = Modifier.width(5.dp))
+
+                Box(
+                    modifier = Modifier
+                        .size(9.dp)
+                        .background(
+                            brush = badgePreviewBrush(
+                                style = style,
+                                semantic = semantic
+                            ),
+                            shape = CircleShape
+                        )
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun badgePreviewBrush(
+    style: BadgeColorStyle,
+    semantic: BadgePreviewSemantic
+): Brush {
+    val standard =
+        SolidColor(
+            NuvioColors.Background.copy(alpha = 0.8f)
+        )
+
+    return when (style) {
+        BadgeColorStyle.NUVIO -> {
+            when (semantic) {
+                BadgePreviewSemantic.NEW_SEASON,
+                BadgePreviewSemantic.NEW_EPISODE,
+                BadgePreviewSemantic.AVAILABLE_NOW ->
+                    Brush.linearGradient(
+                        colors = listOf(
+                            Color(0xFF9B5FE0).copy(alpha = 0.8f),
+                            Color(0xFF6A3FD4).copy(alpha = 0.8f),
+                            Color(0xFF00C8C8).copy(alpha = 0.8f)
+                        ),
+                        start = Offset.Zero,
+                        end = Offset(10f, 10f)
+                    )
+
+                BadgePreviewSemantic.STANDARD ->
+                    standard
+            }
+        }
+
+        BadgeColorStyle.LEGACY -> {
+            when (semantic) {
+                BadgePreviewSemantic.NEW_SEASON ->
+                    SolidColor(Color(0xFFB45309))
+
+                BadgePreviewSemantic.NEW_EPISODE ->
+                    SolidColor(Color(0xFF1D4ED8))
+
+                BadgePreviewSemantic.AVAILABLE_NOW ->
+                    SolidColor(Color(0xFFB91C1C))
+
+                BadgePreviewSemantic.STANDARD ->
+                    standard
             }
         }
     }

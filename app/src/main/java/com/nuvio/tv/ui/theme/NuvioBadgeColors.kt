@@ -25,17 +25,27 @@ internal fun nuvioBadgeBrush(semantic: NuvioBadgeSemantic): Brush {
 
     return when (NuvioTheme.badgeColorStyle) {
         BadgeColorStyle.NUVIO -> when (semantic) {
-            NuvioBadgeSemantic.STANDARD -> SolidColor(background.copy(alpha = 0.8f))
+            NuvioBadgeSemantic.STANDARD ->
+                SolidColor(background.copy(alpha = 0.8f))
+
             NuvioBadgeSemantic.NEW_EPISODE,
             NuvioBadgeSemantic.NEW_SEASON,
-            NuvioBadgeSemantic.AVAILABLE_NOW -> NuvioGradients.ReleaseStatusBadge
+            NuvioBadgeSemantic.AVAILABLE_NOW ->
+                NuvioGradients.ReleaseStatusBadge
         }
 
         BadgeColorStyle.LEGACY -> when (semantic) {
-            NuvioBadgeSemantic.STANDARD -> SolidColor(background.copy(alpha = 0.8f))
-            NuvioBadgeSemantic.NEW_EPISODE -> SolidColor(LegacyNewEpisodeBadge)
-            NuvioBadgeSemantic.NEW_SEASON -> SolidColor(LegacyNewSeasonBadge)
-            NuvioBadgeSemantic.AVAILABLE_NOW -> SolidColor(LegacyAvailableNowBadge)
+            NuvioBadgeSemantic.STANDARD ->
+                SolidColor(background.copy(alpha = 0.8f))
+
+            NuvioBadgeSemantic.NEW_EPISODE ->
+                SolidColor(LegacyNewEpisodeBadge)
+
+            NuvioBadgeSemantic.NEW_SEASON ->
+                SolidColor(LegacyNewSeasonBadge)
+
+            NuvioBadgeSemantic.AVAILABLE_NOW ->
+                SolidColor(LegacyAvailableNowBadge)
         }
     }
 }
