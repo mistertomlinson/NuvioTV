@@ -487,7 +487,11 @@ fun HeroContentSection(
                         )
                     }
 
-                    MetaInfoRow(meta = meta, hideImdbRating = hideMetaInfoImdb)
+                    MetaInfoRow(
+                        meta = meta,
+                        hideImdbRating = hideMetaInfoImdb,
+                        isComingSoon = isComingSoon
+                    )
                 }
             }
         }
@@ -746,7 +750,8 @@ private fun ActionIconButton(
 @Composable
 private fun MetaInfoRow(
     meta: Meta,
-    hideImdbRating: Boolean
+    hideImdbRating: Boolean,
+    isComingSoon: Boolean
 ) {
     val context = LocalContext.current
     val genresText = remember(meta.genres) { meta.genres.joinToString(" • ") }
@@ -769,24 +774,71 @@ private fun MetaInfoRow(
     val strStatusContinuing = stringResource(R.string.series_status_continuing)
     val strStatusCurrent = stringResource(R.string.series_status_current)
     val strStatusCancelled = stringResource(R.string.series_status_cancelled)
-    val strStatusReleased = stringResource(R.string.series_status_released)
+    val strStatusReleased =
+        stringResource(R.string.series_status_released)
+    val strStatusInTheaters =
+        stringResource(R.string.content_status_in_theaters)
+    val strStatusUpcoming =
+        stringResource(R.string.cw_upcoming)
     val strStatusPlanned = stringResource(R.string.series_status_planned)
     val strStatusRumored = stringResource(R.string.series_status_rumored)
     val strStatusInProduction = stringResource(R.string.series_status_in_production)
     val strStatusPostProduction = stringResource(R.string.series_status_post_production)
-    val statusBadge = remember(meta.status) {
-        when (meta.status?.trim()?.lowercase()) {
-            "ended" -> strStatusEnded.uppercase()
-            "continuing", "returning series" -> strStatusContinuing.uppercase()
-            "current" -> strStatusCurrent.uppercase()
-            "cancelled", "canceled" -> strStatusCancelled.uppercase()
-            "released" -> strStatusReleased.uppercase()
-            "planned" -> strStatusPlanned.uppercase()
-            "rumored" -> strStatusRumored.uppercase()
-            "in production" -> strStatusInProduction.uppercase()
-            "post production" -> strStatusPostProduction.uppercase()
-            else -> meta.status?.trim()?.takeIf { it.isNotBlank() }?.uppercase()
+    val globalComingSoonMovieStatus =
+        if (
+            isComingSoon &&
+            meta.apiType.equals("movie", ignoreCase = true) &&
+            meta.behaviorHints?.platformId.equals(
+                "global",
+                ignoreCase = true
+            )
+        ) {
+            val theatricalDate =
+                meta.behaviorHints
+                    ?.theatricalReleaseDate
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { raw ->
+                        runCatching {
+                            java.time.LocalDate.parse(raw)
+                        }.getOrNull()
+                    }
+
+            if (
+                theatricalDate != null &&
+                !theatricalDate.isAfter(
+                    java.time.LocalDate.now()
+                )
+            ) {
+                strStatusInTheaters.uppercase()
+            } else {
+                strStatusUpcoming.uppercase()
+            }
+        } else {
+            null
         }
+
+    val statusBadge = remember(
+        meta.status,
+        globalComingSoonMovieStatus
+    ) {
+        globalComingSoonMovieStatus
+            ?: when (meta.status?.trim()?.lowercase()) {
+                "ended" -> strStatusEnded.uppercase()
+                "continuing", "returning series" -> strStatusContinuing.uppercase()
+                "current" -> strStatusCurrent.uppercase()
+                "cancelled", "canceled" -> strStatusCancelled.uppercase()
+                "released" -> strStatusReleased.uppercase()
+                "planned" -> strStatusPlanned.uppercase()
+                "rumored" -> strStatusRumored.uppercase()
+                "in production" -> strStatusInProduction.uppercase()
+                "post production" -> strStatusPostProduction.uppercase()
+                else ->
+                    meta.status
+                        ?.trim()
+                        ?.takeIf { it.isNotBlank() }
+                        ?.uppercase()
+            }
     }
     Log.d("HeroBadge", "name=${meta.name} ageRating=${meta.ageRating} status=${meta.status} ageRatingBadge=$ageRatingBadge statusBadge=$statusBadge")
     val secondaryItems = remember(runtimeText, meta.country, meta.language) {

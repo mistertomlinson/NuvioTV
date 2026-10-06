@@ -150,6 +150,7 @@
     <string name="series_status_current">Current</string>
     <string name="series_status_cancelled">Cancelled</string>
     <string name="series_status_released">Released</string>
+    <string name="content_status_in_theaters">In Theaters</string>
     <string name="series_status_planned">Planned</string>
     <string name="series_status_rumored">Rumored</string>
     <string name="series_status_in_production">In Production</string>

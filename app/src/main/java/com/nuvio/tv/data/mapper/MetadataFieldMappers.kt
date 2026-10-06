@@ -61,7 +61,9 @@ internal fun mapBehaviorHints(dto: MetaBehaviorHintsDto?): MetaBehaviorHints? {
         newSeason = dto.newSeason,
         newSeasonNumber = dto.newSeasonNumber,
         newSeasonReleaseDate = dto.newSeasonReleaseDate?.trim()?.takeIf { it.isNotBlank() },
-        platformId = dto.platformId?.trim()?.takeIf { it.isNotBlank() }
+        platformId = dto.platformId?.trim()?.takeIf { it.isNotBlank() },
+        theatricalReleaseDate =
+            dto.theatricalReleaseDate?.trim()?.takeIf { it.isNotBlank() }
     )
 }
 

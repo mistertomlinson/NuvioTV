@@ -435,6 +435,53 @@ private fun isReturningSeasonCatalogItem(item: MetaPreview): Boolean {
     return seasonNumber != null && seasonNumber >= 2
 }
 
+private fun globalComingSoonMovieStatus(
+    item: MetaPreview
+): String? {
+    val hints = item.behaviorHints ?: return null
+
+    val isGlobalComingSoonMovie =
+        item.apiType.equals("movie", ignoreCase = true) &&
+            hints.comingSoon == true &&
+            hints.platformId.equals(
+                "global",
+                ignoreCase = true
+            )
+
+    if (!isGlobalComingSoonMovie) {
+        return null
+    }
+
+    val theatricalDate =
+        hints.theatricalReleaseDate
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { raw ->
+                runCatching {
+                    java.time.LocalDate.parse(raw)
+                }.getOrNull()
+            }
+
+    /*
+     * "IN THEATERS" means the title has reached its known US
+     * theatrical/limited release date while its home release is
+     * still upcoming.
+     *
+     * Unknown or future theatrical date => UPCOMING.
+     */
+    return if (
+        theatricalDate != null &&
+        !theatricalDate.isAfter(
+            java.time.LocalDate.now()
+        )
+    ) {
+        "In Theaters"
+    } else {
+        "Upcoming"
+    }
+}
+
+
 internal fun buildCatalogItem(
     item: MetaPreview,
     row: CatalogRow,
@@ -479,7 +526,8 @@ internal fun buildCatalogItem(
             formatHeroRuntime(item.runtime)
         },
         ageRatingText = item.ageRating,
-        statusText = item.status,
+        statusText =
+            globalComingSoonMovieStatus(item) ?: item.status,
         countryText = item.country,
         languageText = item.language?.uppercase(),
         genres = item.genres.take(3),

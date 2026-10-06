@@ -820,7 +820,10 @@ class MetaDetailsViewModel @Inject constructor(
             newSeasonNumber = source.newSeasonNumber ?: current?.newSeasonNumber,
             newSeasonReleaseDate = source.newSeasonReleaseDate?.takeIf { it.isNotBlank() }
                 ?: current?.newSeasonReleaseDate,
-            platformId = source.platformId?.takeIf { it.isNotBlank() } ?: current?.platformId
+            platformId = source.platformId?.takeIf { it.isNotBlank() } ?: current?.platformId,
+            theatricalReleaseDate =
+                source.theatricalReleaseDate?.takeIf { it.isNotBlank() }
+                    ?: current?.theatricalReleaseDate
         )
         return base.copy(behaviorHints = merged)
     }
