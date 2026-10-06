@@ -8,6 +8,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.nuvio.tv.domain.model.CardDepthStyle
 import com.nuvio.tv.domain.model.CardDepthSurface
@@ -63,6 +64,10 @@ fun Modifier.cardDepthVisual(
     val withEdge =
         if (edgeTop > 0f) {
             border(
+                width = Dp.Hairline,
+                color = Color.Black,
+                shape = shape
+            ).border(
                 width = 1.dp,
                 brush = Brush.verticalGradient(
                     colors = listOf(
