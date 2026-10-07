@@ -24,6 +24,7 @@
 -keep class com.nuvio.tv.core.tmdb.TmdbEnrichment { *; }
 -keep class com.nuvio.tv.data.local.HomeEnrichmentEntry { *; }
 -keep class com.nuvio.tv.data.local.TmdbEnrichmentEntry { *; }
+-keep class com.nuvio.tv.data.local.ImdbTmdbEntry { *; }
 
 # ── Retrofit ───────────────────────────────────────────────────────────────────
 # Keep generic signatures for Retrofit service methods

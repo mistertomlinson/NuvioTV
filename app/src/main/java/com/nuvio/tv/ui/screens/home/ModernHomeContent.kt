@@ -2652,13 +2652,8 @@ fun ModernHomeContent(
             with(localDensity) { heroBackdropHeight.roundToPx() }
         }
 
-        // Patch 15: focus-following backdrop prewarm. Warm the hero backdrops of
-        // likely-next items (in-row neighbors + remembered-focus item of adjacent
-        // rows) into Coil's memory cache the moment focus moves — during the slide,
-        // while the hero is frozen. At un-freeze the incoming backdrop is cached,
-        // so the backdrop's cache-check flips displayedFrame same-frame and the
-        // crossfade starts immediately instead of waiting on network+decode.
-        // Sized identically to the backdrop renderer so the cache key matches.
+        // Speculative hero images are warmed only after navigation settles.
+        // The displayed hero and cold-start request retain their existing paths.
         val prewarmImageLoader = remember(context) { coil.Coil.imageLoader(context) }
         // Cold-start hero prewarm: the CW pre-render paints cards from disk cache
         // ~1s before the enrichment restore + debounced hero flow produce a
@@ -2680,65 +2675,46 @@ fun ModernHomeContent(
                     .build()
             )
         }
-        LaunchedEffect(Unit) {
-            snapshotFlow { activeRowKey to activeItemIndex }
-                .collect { (rowKey, index) ->
-                    if (rowKey == null) return@collect
-                    val rows = latestCarouselRows
-                    val rowIdx = rows.indexOfFirst { it.key == rowKey }
-                    val row = rows.getOrNull(rowIdx) ?: return@collect
-                    val targets = buildList {
-                        row.items.getOrNull(index - 1)?.let { add(it) }
-                        row.items.getOrNull(index + 1)?.let { add(it) }
-                        for (adj in intArrayOf(rowIdx - 1, rowIdx + 1)) {
-                            rows.getOrNull(adj)?.let { r ->
-                                if (r.items.isNotEmpty()) {
-                                    val ri = (focusedItemByRow[r.key] ?: 0)
-                                        .coerceIn(0, r.items.size - 1)
-                                    r.items.getOrNull(ri)?.let { add(it) }
-                                }
+        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
+            if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
+            kotlinx.coroutines.flow.combine(
+                snapshotFlow { activeRowKey to activeItemIndex },
+                snapshotFlow {
+                    verticalRowListState.isScrollInProgress ||
+                        rowListStates.values.any { it.isScrollInProgress }
+                },
+                isFastScrollingRef
+            ) { selection, scrolling, fastScrolling ->
+                selection to (scrolling || fastScrolling)
+            }.collectLatest { (selection, scrolling) ->
+                // collectLatest cancels the delay AND pending image work as soon
+                // as focus moves or either axis starts scrolling again.
+                if (scrolling) return@collectLatest
+                delay(240L)
+                val (rowKey, index) = selection
+                if (rowKey == null) return@collectLatest
+                val rows = latestCarouselRows
+                val rowIdx = rows.indexOfFirst { it.key == rowKey }
+                val row = rows.getOrNull(rowIdx) ?: return@collectLatest
+                val targets = buildList {
+                    row.items.getOrNull(index - 1)?.let { add(it) }
+                    row.items.getOrNull(index + 1)?.let { add(it) }
+                    for (adj in intArrayOf(rowIdx - 1, rowIdx + 1)) {
+                        rows.getOrNull(adj)?.let { adjacent ->
+                            if (adjacent.items.isNotEmpty()) {
+                                val remembered = (focusedItemByRow[adjacent.key] ?: 0)
+                                    .coerceIn(0, adjacent.items.lastIndex)
+                                add(adjacent.items[remembered])
                             }
                         }
                     }
-                    targets.asSequence()
-                        .mapNotNull { it.heroPreview.backdrop?.takeIf { u -> u.isNotBlank() } }
-                        .distinct()
-                        .forEach { url ->
-                            prewarmImageLoader.enqueue(
-                                coil.request.ImageRequest.Builder(context)
-                                    .data(url)
-                                    .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
-                                    .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                    .build()
-                            )
-                        }
                 }
-        }
-        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
-            if (heroMediaWidthPx > 0 && heroMediaHeightPx > 0) {
-                onBackdropPreloadSizeKnown(heroMediaWidthPx, heroMediaHeightPx)
-            }
-        }
-        // Re-warm platform first backdrops from the POST-enrichment URLs (same
-        // source as the renderer). The startup preload reads catalogsMap before
-        // enrichment swaps most backdrop URLs, so its cache entries miss — this
-        // keeps the real keys warm as enrichment lands. Coil dedupes requests,
-        // so repeated emissions are cheap.
-        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
-            if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
-            snapshotFlow {
-                uiState.catalogRows
-                    .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) != null }
-                    .groupBy { inferPlatformId(it.catalogName) }
-                    .mapNotNull { (_, rows) -> rows.firstOrNull()?.items?.firstOrNull()?.backdropUrl }
-                    .filter { it.isNotBlank() }
-                    .toSet()
-            }
-                .distinctUntilChanged()
-                .collect { urls ->
-                    val loader = coil.Coil.imageLoader(context)
-                    urls.forEach { url ->
-                        loader.enqueue(
+                targets.mapNotNull { it.heroPreview.backdrop?.takeIf(String::isNotBlank) }
+                    .distinct()
+                    .forEach { url ->
+                        // Sequential, cancellable speculation avoids launching
+                        // four large decodes alongside the next D-pad animation.
+                        prewarmImageLoader.execute(
                             coil.request.ImageRequest.Builder(context)
                                 .data(url)
                                 .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
@@ -2746,7 +2722,51 @@ fun ModernHomeContent(
                                 .build()
                         )
                     }
+            }
+        }
+        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
+            if (heroMediaWidthPx > 0 && heroMediaHeightPx > 0) {
+                onBackdropPreloadSizeKnown(heroMediaWidthPx, heroMediaHeightPx)
+            }
+        }
+        val latestPrefetchCatalogRows by rememberUpdatedState(uiState.catalogRows)
+
+        // Enrichment can change a platform's first backdrop URL. Warm the new
+        // URLs serially at rest; cancel immediately when navigation resumes.
+        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
+            if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
+            val warmedUrls = mutableSetOf<String>()
+            kotlinx.coroutines.flow.combine(
+                snapshotFlow {
+                    latestPrefetchCatalogRows
+                    .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) != null }
+                    .groupBy { inferPlatformId(it.catalogName) }
+                    .mapNotNull { (_, rows) -> rows.firstOrNull()?.items?.firstOrNull()?.backdropUrl }
+                    .filter { it.isNotBlank() }
+                    .toSet()
+                },
+                snapshotFlow {
+                    verticalRowListState.isScrollInProgress ||
+                        rowListStates.values.any { it.isScrollInProgress }
                 }
+            ) { urls, scrolling ->
+                urls to scrolling
+            }.collectLatest { (urls, scrolling) ->
+                if (scrolling) return@collectLatest
+                delay(240L)
+                warmedUrls.retainAll(urls)
+                urls.forEach { url ->
+                    if (url in warmedUrls) return@forEach
+                    val result = prewarmImageLoader.execute(
+                        coil.request.ImageRequest.Builder(context)
+                            .data(url)
+                            .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
+                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                            .build()
+                    )
+                    if (result is coil.request.SuccessResult) warmedUrls.add(url)
+                }
+            }
         }
         val catalogSlideAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
         val catalogSlideOffset = remember { androidx.compose.animation.core.Animatable(0f) }

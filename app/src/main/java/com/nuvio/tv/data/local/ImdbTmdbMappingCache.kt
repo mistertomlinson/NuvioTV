@@ -2,7 +2,7 @@ package com.nuvio.tv.data.local
 
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
+import com.google.gson.annotations.SerializedName
 import com.google.gson.reflect.TypeToken
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
@@ -14,7 +14,10 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 private data class ImdbTmdbEntry(
+    // Accept the field names used by the existing minified Enhanced build.
+    @SerializedName(value = "tmdbId", alternate = ["a"])
     val tmdbId: Int,
+    @SerializedName(value = "cachedAtMs", alternate = ["b"])
     val cachedAtMs: Long
 )
 
@@ -28,7 +31,6 @@ class ImdbTmdbMappingCache @Inject constructor(
         private const val MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000 // 30 days
     }
 
-    private val gson = Gson()
     private val mutex = Mutex()
     private val cacheFile: File get() {
         val dir = File(context.filesDir, "imdb_tmdb_mapping")
@@ -36,14 +38,15 @@ class ImdbTmdbMappingCache @Inject constructor(
         return File(dir, "cache.json")
     }
 
+    private val store = SnapshotJsonFile<ImdbTmdbEntry>(
+        file = { cacheFile },
+        type = object : TypeToken<Map<String, ImdbTmdbEntry>>() {}.type
+    )
+
     suspend fun loadAll(): Map<String, Int> = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                val file = cacheFile
-                if (!file.exists()) return@withLock emptyMap()
-                val type = object : TypeToken<Map<String, ImdbTmdbEntry>>() {}.type
-                val entries: Map<String, ImdbTmdbEntry> =
-                    gson.fromJson(file.readText(), type) ?: emptyMap()
+                val entries = store.read()
                 val now = System.currentTimeMillis()
                 val valid = entries.filter { (_, v) -> now - v.cachedAtMs < MAX_AGE_MS }
                 Log.d(TAG, "Loaded ${valid.size} valid mappings (${entries.size - valid.size} expired)")
@@ -59,13 +62,9 @@ class ImdbTmdbMappingCache @Inject constructor(
         mutex.withLock {
             try {
                 val now = System.currentTimeMillis()
-                val file = cacheFile
-                val existing: Map<String, ImdbTmdbEntry> = if (file.exists()) {
-                    try {
-                        val type = object : TypeToken<Map<String, ImdbTmdbEntry>>() {}.type
-                        gson.fromJson(file.readText(), type) ?: emptyMap()
-                    } catch (_: Exception) { emptyMap() }
-                } else emptyMap()
+                val existing = try {
+                    store.read()
+                } catch (_: Exception) { emptyMap() }
 
                 val merged = mappings.entries
                     .map { (k, v) ->
@@ -77,7 +76,7 @@ class ImdbTmdbMappingCache @Inject constructor(
                     .take(MAX_ENTRIES)
                     .toMap()
 
-                atomicWrite(file, gson.toJson(merged))
+                store.write(merged)
                 Log.d(TAG, "Saved ${merged.size} IMDB->TMDB mappings to disk")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to save mapping cache: ${e.message}")
@@ -85,12 +84,4 @@ class ImdbTmdbMappingCache @Inject constructor(
         }
     }
 
-    private fun atomicWrite(target: File, content: String) {
-        val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.writeText(content)
-        if (!tmp.renameTo(target)) {
-            tmp.copyTo(target, overwrite = true)
-            tmp.delete()
-        }
-    }
 }

@@ -10,6 +10,10 @@ import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -79,4 +83,39 @@ class TmdbServiceTest {
         assertEquals("tt1877368", service.tmdbToImdb(87012, "series"))
         coVerify(exactly = 1) { tmdbApi.getTvExternalIds(87012, any()) }
     }
+    @Test
+    fun `concurrent lookups wait for disk restoration instead of fetching again`() = runTest {
+        val tmdbApi = mockk<TmdbApi>()
+        val mappingCache = mockk<ImdbTmdbMappingCache>()
+        coEvery { mappingCache.loadAll() } coAnswers {
+            delay(100)
+            (1..32).associate { "tt$it" to it }
+        }
+        val service = TmdbService(tmdbApi, mappingCache)
+        val results = (1..32).map { id ->
+            async { service.imdbToTmdb("tt$id", "movie") }
+        }.awaitAll()
+        assertEquals((1..32).toList(), results)
+        coVerify(exactly = 1) { mappingCache.loadAll() }
+        coVerify(exactly = 0) { tmdbApi.findByExternalId(any(), any(), any()) }
+    }
+
+    @Test
+    fun `cancelled restoration is retried by the next lookup`() = runTest {
+        val mappingCache = mockk<ImdbTmdbMappingCache>()
+        var attempts = 0
+        coEvery { mappingCache.loadAll() } coAnswers {
+            attempts++
+            if (attempts == 1) throw CancellationException("cancelled load")
+            mapOf("tt1" to 123)
+        }
+        val service = TmdbService(mockk(), mappingCache)
+        try {
+            service.imdbToTmdb("tt1", "movie")
+            org.junit.Assert.fail("Expected cancellation")
+        } catch (_: CancellationException) { }
+        assertEquals(123, service.imdbToTmdb("tt1", "movie"))
+        assertEquals(2, attempts)
+    }
+
 }

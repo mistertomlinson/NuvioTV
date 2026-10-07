@@ -1,6 +1,9 @@
 package com.nuvio.tv.core.tmdb
 
 import android.util.Log
+import com.nuvio.tv.core.util.CoalescingCacheWriter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.data.remote.api.TmdbApi
 import kotlinx.coroutines.CancellationException
@@ -13,8 +16,6 @@ import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.nuvio.tv.data.local.ImdbTmdbMappingCache
-import kotlinx.coroutines.GlobalScope
-import kotlinx.coroutines.launch
 
 private const val TAG = "TmdbService"
 private val TMDB_API_KEY = BuildConfig.TMDB_API_KEY
@@ -41,17 +42,31 @@ class TmdbService @Inject constructor(
     private val cacheMutex = Mutex()
 
     @Volatile private var mappingDiskCacheLoaded = false
+    private val diskLoadMutex = Mutex()
+    private val diskWriter = CoalescingCacheWriter(
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    ) {
+        imdbTmdbMappingCache.saveAll(imdbToTmdbCache.toMap())
+    }
 
     private suspend fun ensureMappingDiskCacheLoaded() {
         if (mappingDiskCacheLoaded) return
-        mappingDiskCacheLoaded = true
-        val loaded = imdbTmdbMappingCache.loadAll()
-        if (loaded.isNotEmpty()) {
-            loaded.forEach { (imdbId, tmdbId) -> preCacheMapping(imdbId, tmdbId) }
+        diskLoadMutex.withLock {
+            if (mappingDiskCacheLoaded) return
+            val loaded = imdbTmdbMappingCache.loadAll()
+            loaded.forEach { (imdbId, tmdbId) ->
+                // Preserve mappings learned while the disk read was in flight.
+                val normalized = imdbId.trim()
+                if (normalized.isNotBlank()) {
+                    val resolved = imdbToTmdbCache.putIfAbsent(normalized, tmdbId) ?: tmdbId
+                    tmdbToImdbCache.putIfAbsent(resolved, normalized)
+                }
+            }
+            mappingDiskCacheLoaded = true
             Log.d(TAG, "Restored ${loaded.size} IMDB->TMDB mappings from disk")
         }
     }
-    
+
     /**
      * Convert an IMDB ID to a TMDB ID.
      * 
@@ -116,9 +131,7 @@ class TmdbService @Inject constructor(
                     imdbToTmdbCache[imdbId] = found.id
                     tmdbToImdbCache[found.id] = imdbId
                 }
-                GlobalScope.launch(Dispatchers.IO) {
-                    imdbTmdbMappingCache.saveAll(imdbToTmdbCache.toMap())
-                }
+                diskWriter.requestSave()
                 
                 requestDeferred.complete(found.id)
                 return@withContext found.id

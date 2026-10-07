@@ -1,6 +1,9 @@
 package com.nuvio.tv.core.tmdb
 
 import android.util.Log
+import com.nuvio.tv.core.util.CoalescingCacheWriter
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.data.remote.api.TmdbApi
 import com.nuvio.tv.data.remote.api.TmdbEpisode
@@ -33,8 +36,6 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.Locale
 import com.nuvio.tv.data.local.TmdbEnrichmentDiskCache
 import javax.inject.Inject
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.GlobalScope
 import javax.inject.Singleton
 
 private const val TAG = "TmdbMetadataService"
@@ -53,35 +54,24 @@ class TmdbMetadataService @Inject constructor(
     private val enrichmentCache = ConcurrentHashMap<String, TmdbEnrichment>()
     @Volatile private var diskCacheLoaded = false
 
-    // Debounced disk persistence: during a cold-launch enrichment burst (hundreds of
-    // items completing within seconds), writing the entire cache to disk after every
-    // single completion was causing ~1 full-file rewrite per second, saturating
-    // Dispatchers.IO and delaying everything else sharing that dispatcher (network
-    // fetches, image decoding). Collapsing these into one write ~2s after the last
-    // completion keeps the same end-state on disk with a fraction of the I/O.
-    private val saveScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
-    private var pendingSaveJob: kotlinx.coroutines.Job? = null
-    private val saveDebounceMutex = Mutex()
-
-    private fun scheduleDiskSave() {
-        saveScope.launch {
-            saveDebounceMutex.withLock {
-                pendingSaveJob?.cancel()
-                pendingSaveJob = saveScope.launch {
-                    kotlinx.coroutines.delay(2_000L)
-                    diskCache.saveAll(enrichmentCache.toMap())
-                }
-            }
-        }
+    private val diskLoadMutex = Mutex()
+    private val diskWriter = CoalescingCacheWriter(
+        CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    ) {
+        diskCache.saveAll(enrichmentCache.toMap())
     }
+
+    private fun scheduleDiskSave() = diskWriter.requestSave()
 
     private suspend fun ensureDiskCacheLoaded() {
         if (diskCacheLoaded) return
-        diskCacheLoaded = true
-        val loaded = diskCache.loadAll()
-        if (loaded.isNotEmpty()) {
-            enrichmentCache.putAll(loaded)
-            android.util.Log.d("TmdbMetadataService", "Restored ${loaded.size} enrichment entries from disk")
+        diskLoadMutex.withLock {
+            if (diskCacheLoaded) return
+            val loaded = diskCache.loadAll()
+            loaded.forEach { (key, value) -> enrichmentCache.putIfAbsent(key, value) }
+            // Publish readiness only after every restored entry is visible.
+            diskCacheLoaded = true
+            Log.d(TAG, "Restored ${loaded.size} enrichment entries from disk")
         }
     }
     private val episodeCache = ConcurrentHashMap<String, Map<Pair<Int, Int>, TmdbEpisodeEnrichment>>()

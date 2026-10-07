@@ -2,7 +2,6 @@ package com.nuvio.tv.data.local
 
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.tmdb.TmdbEnrichment
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -35,256 +34,95 @@ class HomeEnrichmentDiskCache @Inject constructor(
         private const val MAX_ENTRIES = 3000
     }
 
-    private val gson = Gson()
     private val mutex = Mutex()
-    private val cacheFile: File get() {
-        val dir = File(context.filesDir, "home_enrichment")
-        dir.mkdirs()
-        // v2 invalidates entries written before TmdbEnrichment's nested
-        // MetaCompany generic types were preserved in minified builds.
-        return File(dir, "cache_v2.json")
-    }
+    private val store = SnapshotJsonFile<HomeEnrichmentEntry>(
+        file = {
+            val dir = File(context.filesDir, "home_enrichment")
+            dir.mkdirs()
+            // Retain the existing format and minification-safe cache version.
+            File(dir, "cache_v2.json")
+        },
+        type = object : TypeToken<Map<String, HomeEnrichmentEntry>>() {}.type
+    )
 
     suspend fun loadAll(): Map<String, TmdbEnrichment> = withContext(Dispatchers.IO) {
         mutex.withLock {
-            try {
-                val file = cacheFile
-                if (!file.exists()) return@withLock emptyMap()
-                val type = object : TypeToken<Map<String, HomeEnrichmentEntry>>() {}.type
-                val entries: Map<String, HomeEnrichmentEntry> =
-                    gson.fromJson(file.readText(), type) ?: emptyMap()
-                Log.d(TAG, "Loaded ${entries.size} enrichment cache entries")
-                entries.mapValues { it.value.enrichment }
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to load home enrichment cache: ${e.message}")
-                emptyMap()
-            }
+            readEntries().mapValues { it.value.enrichment }
         }
     }
 
     suspend fun loadExternalMetaStates(): Map<String, HomeExternalMetaState> =
         withContext(Dispatchers.IO) {
             mutex.withLock {
-                try {
-                    val file = cacheFile
-                    if (!file.exists()) return@withLock emptyMap()
-
-                    val type =
-                        object :
-                            TypeToken<
-                                Map<String, HomeEnrichmentEntry>
-                            >() { }.type
-
-                    val entries:
-                        Map<String, HomeEnrichmentEntry> =
-                        gson.fromJson(
-                            file.readText(),
-                            type
-                        ) ?: emptyMap()
-
-                    entries.mapValues { (_, entry) ->
-                        HomeExternalMetaState(
-                            settled =
-                                entry.externalMetaSettled,
-                            imdbRating =
-                                entry.externalImdbRating
-                        )
-                    }
-                } catch (error: Exception) {
-                    Log.w(
-                        TAG,
-                        "Failed to load external Home " +
-                            "metadata state: " +
-                            error.message
-                    )
-                    emptyMap()
+                // Reuse the same parsed snapshot as loadAll, including null ratings.
+                readEntries().mapValues { (_, entry) ->
+                    HomeExternalMetaState(entry.externalMetaSettled, entry.externalImdbRating)
                 }
             }
         }
 
     suspend fun saveAll(
         cache: Map<String, TmdbEnrichment>,
-        externalMetaStates:
-            Map<String, HomeExternalMetaState> =
-                emptyMap()
+        externalMetaStates: Map<String, HomeExternalMetaState> = emptyMap()
     ) = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
                 val now = System.currentTimeMillis()
-                val file = cacheFile
-                val existing: Map<String, HomeEnrichmentEntry> = if (file.exists()) {
-                    try {
-                        val type = object : TypeToken<Map<String, HomeEnrichmentEntry>>() {}.type
-                        gson.fromJson(file.readText(), type) ?: emptyMap()
-                    } catch (_: Exception) { emptyMap() }
-                } else emptyMap()
-
-                val merged = cache.entries
-                    .map { (k, v) ->
-                        val existingEntry =
-                            existing[k]
-
-                        val incomingExternal =
-                            externalMetaStates[k]
-
-                        val settled =
-                            incomingExternal?.settled
-                                ?: existingEntry
-                                    ?.externalMetaSettled
-                                ?: false
-
-                        val imdbRating =
-                            if (
-                                incomingExternal?.settled ==
-                                    true
-                            ) {
-                                incomingExternal.imdbRating
-                            } else {
-                                existingEntry
-                                    ?.externalImdbRating
-                            }
-
-                        val unchanged =
-                            existingEntry?.enrichment == v &&
-                                existingEntry
-                                    .externalMetaSettled ==
-                                    settled &&
-                                existingEntry
-                                    .externalImdbRating ==
-                                    imdbRating
-
-                        val ts =
-                            if (unchanged) {
-                                existingEntry.cachedAtMs
-                            } else {
-                                now
-                            }
-
-                        k to
-                            HomeEnrichmentEntry(
-                                enrichment = v,
-                                cachedAtMs = ts,
-                                externalMetaSettled =
-                                    settled,
-                                externalImdbRating =
-                                    imdbRating
-                            )
+                val existing = readEntries()
+                val merged = cache.map { (key, enrichment) ->
+                    val previous = existing[key]
+                    val incoming = externalMetaStates[key]
+                    val settled = incoming?.settled ?: previous?.externalMetaSettled ?: false
+                    val rating = if (incoming?.settled == true) {
+                        incoming.imdbRating
+                    } else {
+                        previous?.externalImdbRating
                     }
-                    .sortedByDescending {
-                        it.second.cachedAtMs
-                    }
+                    val unchanged = previous?.enrichment == enrichment &&
+                        previous.externalMetaSettled == settled &&
+                        previous.externalImdbRating == rating
+                    key to HomeEnrichmentEntry(
+                        enrichment = enrichment,
+                        cachedAtMs = if (unchanged) previous.cachedAtMs else now,
+                        externalMetaSettled = settled,
+                        externalImdbRating = rating
+                    )
+                }.sortedByDescending { it.second.cachedAtMs }
                     .take(MAX_ENTRIES)
                     .toMap()
-
-                atomicWrite(file, gson.toJson(merged))
-                Log.d(TAG, "Saved ${merged.size} home enrichment entries to disk")
-            } catch (e: Exception) {
-                Log.w(TAG, "Failed to save home enrichment cache: ${e.message}")
+                store.write(merged)
+            } catch (error: Exception) {
+                Log.w(TAG, "Failed to save home enrichment cache: ${error.message}")
             }
         }
     }
 
-    /*
-     * Persist one repaired title without requiring callers to copy and submit
-     * the complete in-memory Home cache.
-     */
-    suspend fun saveEntry(
-        key: String,
-        enrichment: TmdbEnrichment
-    ) = withContext(Dispatchers.IO) {
+    /** Persist a focused repair without losing the other titles or rating state. */
+    suspend fun saveEntry(key: String, enrichment: TmdbEnrichment) = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                val now =
-                    System.currentTimeMillis()
-
-                val file =
-                    cacheFile
-
-                val type =
-                    object :
-                        TypeToken<
-                            Map<
-                                String,
-                                HomeEnrichmentEntry
-                            >
-                        >() { }.type
-
-                val existing:
-                    Map<
-                        String,
-                        HomeEnrichmentEntry
-                    > =
-                    if (file.exists()) {
-                        try {
-                            gson.fromJson(
-                                file.readText(),
-                                type
-                            ) ?: emptyMap()
-                        } catch (_: Exception) {
-                            emptyMap()
-                        }
-                    } else {
-                        emptyMap()
-                    }
-
-                val updated =
-                    existing.toMutableMap()
-
-                val previousEntry =
-                    updated[key]
-
-                updated[key] =
-                    HomeEnrichmentEntry(
-                        enrichment =
-                            enrichment,
-                        cachedAtMs =
-                            now,
-                        externalMetaSettled =
-                            previousEntry
-                                ?.externalMetaSettled
-                                ?: false,
-                        externalImdbRating =
-                            previousEntry
-                                ?.externalImdbRating
-                    )
-
-                val trimmed =
-                    updated.entries
-                        .sortedByDescending {
-                            it.value.cachedAtMs
-                        }
-                        .take(MAX_ENTRIES)
-                        .associate {
-                            it.key to it.value
-                        }
-
-                atomicWrite(
-                    file,
-                    gson.toJson(trimmed)
+                val existing = readEntries()
+                val previous = existing[key]
+                if (previous?.enrichment == enrichment) return@withLock
+                val updated = existing.toMutableMap()
+                updated[key] = HomeEnrichmentEntry(
+                    enrichment = enrichment,
+                    cachedAtMs = System.currentTimeMillis(),
+                    externalMetaSettled = previous?.externalMetaSettled ?: false,
+                    externalImdbRating = previous?.externalImdbRating
                 )
-
-                Log.d(
-                    TAG,
-                    "Saved focused enrichment " +
-                        "repair for $key"
-                )
+                store.write(updated.entries.sortedByDescending { it.value.cachedAtMs }
+                    .take(MAX_ENTRIES).associate { it.key to it.value })
             } catch (error: Exception) {
-                Log.w(
-                    TAG,
-                    "Failed to save focused " +
-                        "enrichment repair: " +
-                        error.message
-                )
+                Log.w(TAG, "Failed to save focused enrichment repair: ${error.message}")
             }
         }
     }
 
-    private fun atomicWrite(target: File, content: String) {
-        val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.writeText(content)
-        if (!tmp.renameTo(target)) {
-            tmp.copyTo(target, overwrite = true)
-            tmp.delete()
-        }
+    private fun readEntries(): Map<String, HomeEnrichmentEntry> = try {
+        store.read()
+    } catch (error: Exception) {
+        Log.w(TAG, "Failed to load home enrichment cache: ${error.message}")
+        emptyMap()
     }
 }

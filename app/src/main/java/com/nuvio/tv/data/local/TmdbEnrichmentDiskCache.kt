@@ -2,7 +2,6 @@ package com.nuvio.tv.data.local
 
 import android.content.Context
 import android.util.Log
-import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.tmdb.TmdbEnrichment
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -29,7 +28,6 @@ class TmdbEnrichmentDiskCache @Inject constructor(
         private const val MAX_AGE_MS = 7L * 24 * 60 * 60 * 1000 // 7 days
     }
 
-    private val gson = Gson()
     private val mutex = Mutex()
     private val cacheFile: File get() {
         val dir = File(context.filesDir, "tmdb_enrichment")
@@ -39,14 +37,15 @@ class TmdbEnrichmentDiskCache @Inject constructor(
         return File(dir, "cache_v3.json")
     }
 
+    private val store = SnapshotJsonFile<TmdbEnrichmentEntry>(
+        file = { cacheFile },
+        type = object : TypeToken<Map<String, TmdbEnrichmentEntry>>() {}.type
+    )
+
     suspend fun loadAll(): Map<String, TmdbEnrichment> = withContext(Dispatchers.IO) {
         mutex.withLock {
             try {
-                val file = cacheFile
-                if (!file.exists()) return@withLock emptyMap()
-                val type = object : TypeToken<Map<String, TmdbEnrichmentEntry>>() {}.type
-                val entries: Map<String, TmdbEnrichmentEntry> =
-                    gson.fromJson(file.readText(), type) ?: emptyMap()
+                val entries = store.read()
                 val now = System.currentTimeMillis()
                 val valid = entries.filter { (_, v) -> now - v.cachedAtMs < MAX_AGE_MS }
                 Log.d(TAG, "Loaded ${valid.size} valid entries (${entries.size - valid.size} expired)")
@@ -63,13 +62,9 @@ class TmdbEnrichmentDiskCache @Inject constructor(
             try {
                 val now = System.currentTimeMillis()
                 // Load existing entries to preserve timestamps for unchanged keys
-                val file = cacheFile
-                val existing: Map<String, TmdbEnrichmentEntry> = if (file.exists()) {
-                    try {
-                        val type = object : TypeToken<Map<String, TmdbEnrichmentEntry>>() {}.type
-                        gson.fromJson(file.readText(), type) ?: emptyMap()
-                    } catch (_: Exception) { emptyMap() }
-                } else emptyMap()
+                val existing = try {
+                    store.read()
+                } catch (_: Exception) { emptyMap() }
 
                 val merged = cache.entries
                     .map { (k, v) ->
@@ -82,7 +77,7 @@ class TmdbEnrichmentDiskCache @Inject constructor(
                     .take(MAX_ENTRIES)
                     .toMap()
 
-                atomicWrite(file, gson.toJson(merged))
+                store.write(merged)
                 Log.d(TAG, "Saved ${merged.size} enrichment entries to disk")
             } catch (e: Exception) {
                 Log.w(TAG, "Failed to save enrichment cache: ${e.message}")
@@ -90,12 +85,4 @@ class TmdbEnrichmentDiskCache @Inject constructor(
         }
     }
 
-    private fun atomicWrite(target: File, content: String) {
-        val tmp = File(target.parentFile, "${target.name}.tmp")
-        tmp.writeText(content)
-        if (!tmp.renameTo(target)) {
-            tmp.copyTo(target, overwrite = true)
-            tmp.delete()
-        }
-    }
 }
