@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import coil.compose.AsyncImage
@@ -61,38 +62,134 @@ fun CastSection(
     title: String = "Cast",
     leadingCast: List<MetaCastMember> = emptyList(),
     upFocusRequester: FocusRequester? = null,
-    restorePersonId: Int? = null,
+    restoreFocusKey: String? = null,
     restoreFocusToken: Int = 0,
     onRestoreFocusHandled: () -> Unit = {},
     onCastMemberFocused: (MetaCastMember) -> Unit = {},
-    onCastMemberClick: (MetaCastMember) -> Unit = {}
+    onCastMemberClick: (MetaCastMember, String) -> Unit = { _, _ -> }
 ) {
     if (cast.isEmpty() && leadingCast.isEmpty()) return
 
     val firstItemFocusRequester = remember { FocusRequester() }
-    val restoreFocusRequester = remember { FocusRequester() }
     val itemFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
-    val castPrefetchStrategy = remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
-    val lazyListState = rememberLazyListState(prefetchStrategy = castPrefetchStrategy)
+    val castPrefetchStrategy =
+        remember { LazyListPrefetchStrategy(nestedPrefetchItemCount = 2) }
+    val lazyListState =
+        rememberLazyListState(prefetchStrategy = castPrefetchStrategy)
+
+    fun focusKeyFor(
+        section: String,
+        index: Int,
+        member: MetaCastMember
+    ): String {
+        return "$section:$index:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
+    }
+
+    val firstFocusKey = remember(leadingCast, cast) {
+        when {
+            leadingCast.isNotEmpty() ->
+                focusKeyFor("leading", 0, leadingCast.first())
+
+            cast.isNotEmpty() ->
+                focusKeyFor("cast", 0, cast.first())
+
+            else -> null
+        }
+    }
 
     LaunchedEffect(cast, leadingCast) {
         val validKeys = buildSet {
-            leadingCast.forEach { member ->
-                add("leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}")
+            leadingCast.forEachIndexed { index, member ->
+                add(focusKeyFor("leading", index, member))
             }
-            cast.forEach { member ->
-                add("cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}")
+            cast.forEachIndexed { index, member ->
+                add(focusKeyFor("cast", index, member))
             }
         }
         itemFocusRequesters.keys.retainAll(validKeys)
     }
 
-    LaunchedEffect(restoreFocusToken, restorePersonId, leadingCast, cast) {
-        if (restoreFocusToken <= 0 || restorePersonId == null) return@LaunchedEffect
-        val existsInLeading = leadingCast.any { it.tmdbId == restorePersonId }
-        val existsInCast = cast.any { it.tmdbId == restorePersonId }
-        if (!existsInLeading && !existsInCast) return@LaunchedEffect
-        restoreFocusRequester.requestFocusAfterFrames()
+    /*
+     * CAST_RETURN_STABLE_FOCUS
+     *
+     * Every card keeps one FocusRequester for its lifetime. Restoration
+     * requests that card's existing requester rather than temporarily
+     * replacing it with a shared restore requester.
+     */
+    LaunchedEffect(
+        restoreFocusToken,
+        restoreFocusKey,
+        leadingCast,
+        cast
+    ) {
+        val targetKey = restoreFocusKey
+        if (restoreFocusToken <= 0 || targetKey.isNullOrBlank()) {
+            return@LaunchedEffect
+        }
+
+        val leadingIndex =
+            leadingCast.indices.firstOrNull { index ->
+                focusKeyFor(
+                    "leading",
+                    index,
+                    leadingCast[index]
+                ) == targetKey
+            }
+
+        val castIndex =
+            cast.indices.firstOrNull { index ->
+                focusKeyFor(
+                    "cast",
+                    index,
+                    cast[index]
+                ) == targetKey
+            }
+
+        val targetLazyIndex = when {
+            leadingIndex != null -> leadingIndex
+
+            castIndex != null -> {
+                val dividerCount =
+                    if (leadingCast.isNotEmpty() && cast.isNotEmpty()) 1 else 0
+
+                leadingCast.size + dividerCount + castIndex
+            }
+
+            else -> return@LaunchedEffect
+        }
+
+        // Allow the returning Detail composition/focus tree to attach.
+        repeat(2) {
+            withFrameNanos { }
+        }
+
+        repeat(8) { attempt ->
+            val requester =
+                if (targetKey == firstFocusKey) {
+                    firstItemFocusRequester
+                } else {
+                    itemFocusRequesters[targetKey]
+                }
+
+            if (
+                requester != null &&
+                runCatching { requester.requestFocus() }
+                    .getOrDefault(false)
+            ) {
+                return@LaunchedEffect
+            }
+
+            /*
+             * Normally the selected card is still composed because the
+             * retained LazyRow state places us exactly where we left it.
+             * This is only a safety fallback if that card is not composed.
+             */
+            if (attempt == 0 && requester == null) {
+                lazyListState.scrollToItem(targetLazyIndex)
+            }
+
+            withFrameNanos { }
+        }
     }
 
     val itemWidth = 150.dp
@@ -139,14 +236,21 @@ fun CastSection(
                 ) { index, member ->
                     val isLastLeading = member == leadingCast.last()
                     val endPadding = if (isLastLeading && cast.isNotEmpty()) 0.dp else standardGap
-                    val isRestoreTarget = member.tmdbId == restorePersonId
-                    val isFirstItem = index == 0
-                    val focusKey = "leading:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                    val focusRequester = when {
-                        isRestoreTarget -> restoreFocusRequester
-                        isFirstItem -> firstItemFocusRequester
-                        else -> remember(focusKey) { itemFocusRequesters.getOrPut(focusKey) { FocusRequester() } }
-                    }
+                    val focusKey =
+                        focusKeyFor("leading", index, member)
+                    val isRestoreTarget =
+                        focusKey == restoreFocusKey
+
+                    val focusRequester =
+                        if (focusKey == firstFocusKey) {
+                            firstItemFocusRequester
+                        } else {
+                            remember(focusKey) {
+                                itemFocusRequesters.getOrPut(focusKey) {
+                                    FocusRequester()
+                                }
+                            }
+                        }
 
                     Box(modifier = Modifier.padding(end = endPadding)) {
                         CastMemberItem(
@@ -162,7 +266,9 @@ fun CastSection(
                                     onRestoreFocusHandled()
                                 }
                             },
-                            onClick = { onCastMemberClick(member) }
+                            onClick = {
+                                onCastMemberClick(member, focusKey)
+                            }
                         )
                     }
                 }
@@ -191,14 +297,21 @@ fun CastSection(
                     index.toString() + "|" + (member.tmdbId?.toString() ?: member.name) + "|" + (member.character ?: "") + "|" + (member.photo ?: "")
                 }
             ) { index, member ->
-                val isRestoreTarget = member.tmdbId == restorePersonId
-                val isFirstCastItem = index == 0 && leadingCast.isEmpty()
-                val focusKey = "cast:${member.tmdbId ?: member.name}:${member.character.orEmpty()}"
-                val focusRequester = when {
-                    isRestoreTarget -> restoreFocusRequester
-                    isFirstCastItem -> firstItemFocusRequester
-                    else -> remember(focusKey) { itemFocusRequesters.getOrPut(focusKey) { FocusRequester() } }
-                }
+                val focusKey =
+                    focusKeyFor("cast", index, member)
+                val isRestoreTarget =
+                    focusKey == restoreFocusKey
+
+                val focusRequester =
+                    if (focusKey == firstFocusKey) {
+                        firstItemFocusRequester
+                    } else {
+                        remember(focusKey) {
+                            itemFocusRequesters.getOrPut(focusKey) {
+                                FocusRequester()
+                            }
+                        }
+                    }
 
                 Box(modifier = Modifier.padding(end = standardGap)) {
                     CastMemberItem(
@@ -214,7 +327,9 @@ fun CastSection(
                                 onRestoreFocusHandled()
                             }
                         },
-                        onClick = { onCastMemberClick(member) }
+                        onClick = {
+                            onCastMemberClick(member, focusKey)
+                        }
                     )
                 }
             }

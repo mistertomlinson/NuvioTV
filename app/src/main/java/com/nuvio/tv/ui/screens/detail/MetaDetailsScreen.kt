@@ -885,7 +885,9 @@ private fun MetaDetailsContent(
     val ratingsContentFocusRequester = remember { FocusRequester() }
     var pendingRestoreType by rememberSaveable { mutableStateOf<RestoreTarget?>(null) }
     var pendingRestoreEpisodeId by rememberSaveable { mutableStateOf<String?>(null) }
-    var pendingRestoreCastPersonId by rememberSaveable { mutableStateOf<Int?>(null) }
+    var pendingRestoreCastFocusKey by rememberSaveable {
+        mutableStateOf<String?>(null)
+    }
     var pendingRestoreMoreLikeItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var restoreFocusToken by rememberSaveable { mutableIntStateOf(0) }
     var initialHeroFocusRequested by rememberSaveable(meta.id) { mutableStateOf(false) }
@@ -903,21 +905,21 @@ private fun MetaDetailsContent(
     fun clearPendingRestore() {
         pendingRestoreType = null
         pendingRestoreEpisodeId = null
-        pendingRestoreCastPersonId = null
+        pendingRestoreCastFocusKey = null
         pendingRestoreMoreLikeItemId = null
     }
 
     fun markHeroRestore() {
         pendingRestoreType = RestoreTarget.HERO
         pendingRestoreEpisodeId = null
-        pendingRestoreCastPersonId = null
+        pendingRestoreCastFocusKey = null
         pendingRestoreMoreLikeItemId = null
     }
 
     fun markEpisodeRestore(episodeId: String) {
         pendingRestoreType = RestoreTarget.EPISODE
         pendingRestoreEpisodeId = episodeId
-        pendingRestoreCastPersonId = null
+        pendingRestoreCastFocusKey = null
         pendingRestoreMoreLikeItemId = null
     }
 
@@ -928,17 +930,25 @@ private fun MetaDetailsContent(
         markEpisodeRestore(episodeId)
     }
 
-    fun markCastMemberRestore(personId: Int) {
+    fun markCastMemberRestore(focusKey: String) {
+        /*
+         * CAST_RETURN_REARM
+         *
+         * A completed restore leaves a non-zero token behind. Re-arm it
+         * before navigation so the current screen cannot consume/clear the
+         * next restore before the actor destination has even opened.
+         */
+        restoreFocusToken = 0
         pendingRestoreType = RestoreTarget.CAST_MEMBER
         pendingRestoreEpisodeId = null
-        pendingRestoreCastPersonId = personId
+        pendingRestoreCastFocusKey = focusKey
         pendingRestoreMoreLikeItemId = null
     }
 
     fun markMoreLikeThisRestore(itemId: String) {
         pendingRestoreType = RestoreTarget.MORE_LIKE_THIS
         pendingRestoreEpisodeId = null
-        pendingRestoreCastPersonId = null
+        pendingRestoreCastFocusKey = null
         pendingRestoreMoreLikeItemId = itemId
     }
 
@@ -946,7 +956,7 @@ private fun MetaDetailsContent(
     fun markCollectionRestore(itemId: String) {
         pendingRestoreType = RestoreTarget.COLLECTION
         pendingRestoreEpisodeId = null
-        pendingRestoreCastPersonId = null
+        pendingRestoreCastFocusKey = null
         pendingRestoreMoreLikeItemId = null
         pendingRestoreCollectionItemId = itemId
     }
@@ -955,14 +965,17 @@ private fun MetaDetailsContent(
         lifecycleOwner,
         pendingRestoreType,
         pendingRestoreEpisodeId,
-        pendingRestoreCastPersonId,
+        pendingRestoreCastFocusKey,
         pendingRestoreMoreLikeItemId,
         pendingRestoreCollectionItemId
     ) {
         val observer = LifecycleEventObserver { _, event ->
             if (
                 event == Lifecycle.Event.ON_START &&
-                pendingRestoreType == RestoreTarget.EPISODE
+                (
+                    pendingRestoreType == RestoreTarget.EPISODE ||
+                        pendingRestoreType == RestoreTarget.CAST_MEMBER
+                )
             ) {
                 restoreFocusToken += 1
             }
@@ -970,7 +983,8 @@ private fun MetaDetailsContent(
             if (
                 event == Lifecycle.Event.ON_RESUME &&
                 pendingRestoreType != null &&
-                pendingRestoreType != RestoreTarget.EPISODE
+                pendingRestoreType != RestoreTarget.EPISODE &&
+                pendingRestoreType != RestoreTarget.CAST_MEMBER
             ) {
                 restoreFocusToken += 1
             }
@@ -1578,26 +1592,88 @@ private fun MetaDetailsContent(
                     ) { section ->
                         when (section) {
                             PeopleSectionTab.CAST -> {
+                                val castReturnFocusRestoreActive =
+                                    pendingRestoreType ==
+                                        RestoreTarget.CAST_MEMBER &&
+                                        restoreFocusToken > 0
+
                                 CastSection(
                                     cast = normalCastMembers,
                                     title = if (hasVisiblePeopleTabs) "" else strTabCast,
                                     leadingCast = directorWriterMembers,
                                     upFocusRequester = if (hasVisiblePeopleTabs) castTabFocusRequester else seasonDownFocusRequester,
-                                    restorePersonId = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) pendingRestoreCastPersonId else null,
-                                    restoreFocusToken = if (pendingRestoreType == RestoreTarget.CAST_MEMBER) restoreFocusToken else 0,
+                                    restoreFocusKey =
+                                        if (
+                                            pendingRestoreType ==
+                                                RestoreTarget.CAST_MEMBER
+                                        ) {
+                                            pendingRestoreCastFocusKey
+                                        } else {
+                                            null
+                                        },
+                                    restoreFocusToken =
+                                        if (
+                                            pendingRestoreType ==
+                                                RestoreTarget.CAST_MEMBER
+                                        ) {
+                                            restoreFocusToken
+                                        } else {
+                                            0
+                                        },
                                     onRestoreFocusHandled = {
                                         clearPendingRestore()
                                     },
-                                    onCastMemberClick = { member ->
+                                    onCastMemberClick = {
+                                            member,
+                                            focusKey ->
                                         member.tmdbId?.let { id ->
-                                            markCastMemberRestore(id)
-                                            val preferCrew = member.character.equals("Creator", ignoreCase = true) ||
-                                                member.character.equals("Director", ignoreCase = true) ||
-                                                member.character.equals("Writer", ignoreCase = true)
-                                            onNavigateToCastDetail(id, member.name, preferCrew)
+                                            markCastMemberRestore(focusKey)
+
+                                            val preferCrew =
+                                                member.character.equals(
+                                                    "Creator",
+                                                    ignoreCase = true
+                                                ) ||
+                                                    member.character.equals(
+                                                        "Director",
+                                                        ignoreCase = true
+                                                    ) ||
+                                                    member.character.equals(
+                                                        "Writer",
+                                                        ignoreCase = true
+                                                    )
+
+                                            onNavigateToCastDetail(
+                                                id,
+                                                member.name,
+                                                preferCrew
+                                            )
                                         }
                                     },
-                                    modifier = Modifier.onSizeChanged { castSectionHeightPx = it.height }
+                                    modifier =
+                                        (
+                                            if (
+                                                castReturnFocusRestoreActive
+                                            ) {
+                                                /*
+                                                 * CAST_RETURN_NO_VERTICAL_BOUNCE
+                                                 *
+                                                 * The selected cast card is
+                                                 * already visible at the saved
+                                                 * Detail viewport. Focus restore
+                                                 * must not reposition the parent
+                                                 * LazyColumn.
+                                                 */
+                                                Modifier
+                                                    .bringIntoViewResponder(
+                                                        heroNoScrollResponder
+                                                    )
+                                            } else {
+                                                Modifier
+                                            }
+                                        ).onSizeChanged {
+                                            castSectionHeightPx = it.height
+                                        }
                                 )
                             }
 

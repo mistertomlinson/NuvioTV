@@ -6,6 +6,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.fadeIn
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -25,6 +26,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -84,26 +87,30 @@ fun CastDetailScreen(
             .fillMaxSize()
             .background(NuvioColors.Background)
     ) {
-        Crossfade(
-            targetState = uiState,
-            label = "CastDetailStateCrossfade"
-        ) { state ->
-            when (state) {
-                is CastDetailUiState.Loading -> {
-                    CastDetailSkeleton(personName = viewModel.personName)
-                }
-                is CastDetailUiState.Error -> {
-                    CastDetailError(
-                        message = state.message,
-                        onRetry = { viewModel.retry() }
-                    )
-                }
-                is CastDetailUiState.Success -> {
-                    CastDetailContent(
-                        person = state.personDetail,
-                        onNavigateToDetail = onNavigateToDetail
-                    )
-                }
+        /*
+         * Navigation already owns the Details <-> Actor fade.
+         *
+         * Do not crossfade the complete actor UI again when the ViewModel
+         * advances Loading -> Success or publishes hydrated ratings.
+         * Success -> Success should simply recompose the retained content.
+         */
+        when (val state = uiState) {
+            is CastDetailUiState.Loading -> {
+                CastDetailSkeleton(personName = viewModel.personName)
+            }
+
+            is CastDetailUiState.Error -> {
+                CastDetailError(
+                    message = state.message,
+                    onRetry = { viewModel.retry() }
+                )
+            }
+
+            is CastDetailUiState.Success -> {
+                CastDetailContent(
+                    person = state.personDetail,
+                    onNavigateToDetail = onNavigateToDetail
+                )
             }
         }
     }
@@ -134,7 +141,34 @@ private fun CastDetailContent(
         )
     }
 
-    val firstPosterFocusRequester = remember { FocusRequester() }
+    val firstPosterFocusRequester =
+        remember(person.tmdbId) { FocusRequester() }
+
+    /*
+     * ACTOR_PAGE_INITIAL_FOCUS
+     *
+     * Request focus once from composition, not from layout callbacks.
+     * The key deliberately ignores hydrated rating updates so the second
+     * Success emission cannot re-run initial focus and cause a blink.
+     */
+    LaunchedEffect(
+        person.tmdbId,
+        allCredits.firstOrNull()?.id
+    ) {
+        if (allCredits.isEmpty()) return@LaunchedEffect
+
+        repeat(6) {
+            withFrameNanos { }
+
+            if (
+                runCatching {
+                    firstPosterFocusRequester.requestFocus()
+                }.getOrDefault(false)
+            ) {
+                return@LaunchedEffect
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         // Left accent gradient overlay
@@ -192,12 +226,8 @@ private fun CastDetailContent(
                 .background(bottomGradient)
         )
 
-        // Main content
-        AnimatedVisibility(
-            visible = true,
-            enter = fadeIn()
-        ) {
-            Column(modifier = Modifier.fillMaxSize()) {
+        // Navigation owns the only full-page fade.
+        Column(modifier = Modifier.fillMaxSize()) {
                 HeroSection(person = person)
 
                 if (allCredits.isNotEmpty()) {
@@ -215,7 +245,6 @@ private fun CastDetailContent(
                     )
                 }
             }
-        }
     }
 }
 
@@ -237,58 +266,51 @@ private fun HeroSection(person: PersonDetail) {
         verticalAlignment = Alignment.Top
     ) {
         // Avatar / Profile Photo
-        Card(
-            onClick = { },
+        //
+        // This is display-only. Using a clickable TV Card here creates a
+        // competing focus target even though the modifier says focusable(false).
+        val avatarShape = RoundedCornerShape(16.dp)
+
+        Box(
             modifier = Modifier
                 .width(160.dp)
                 .height(240.dp)
-                .focusable(false),
-            shape = CardDefaults.shape(
-                shape = RoundedCornerShape(16.dp)
-            ),
-            colors = CardDefaults.colors(
-                containerColor = NuvioColors.SurfaceVariant,
-                focusedContainerColor = NuvioColors.SurfaceVariant
-            ),
-            border = CardDefaults.border(
-                border = Border(
-                    border = BorderStroke(1.dp, NuvioColors.Border),
-                    shape = RoundedCornerShape(16.dp)
+                .clip(avatarShape)
+                .background(NuvioColors.SurfaceVariant)
+                .border(
+                    BorderStroke(1.dp, NuvioColors.Border),
+                    avatarShape
                 ),
-                focusedBorder = Border(
-                    border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                    shape = RoundedCornerShape(16.dp)
-                )
-            )
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(16.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                val photo = person.profilePhoto
-                if (!photo.isNullOrBlank()) {
-                    AsyncImage(
-                        model = ImageRequest.Builder(LocalContext.current)
-                            .data(photo)
-                            .crossfade(true)
-                            .size(
-                                width = with(LocalDensity.current) { 160.dp.roundToPx() },
-                                height = with(LocalDensity.current) { 240.dp.roundToPx() }
-                            )
-                            .build(),
-                        contentDescription = person.name,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Text(
-                        text = person.name.firstOrNull()?.uppercase() ?: "?",
-                        style = MaterialTheme.typography.displayLarge,
-                        color = NuvioColors.TextTertiary
-                    )
-                }
+            val photo = person.profilePhoto
+
+            if (!photo.isNullOrBlank()) {
+                AsyncImage(
+                    model = ImageRequest.Builder(LocalContext.current)
+                        .data(photo)
+                        .crossfade(true)
+                        .size(
+                            width = with(LocalDensity.current) {
+                                160.dp.roundToPx()
+                            },
+                            height = with(LocalDensity.current) {
+                                240.dp.roundToPx()
+                            }
+                        )
+                        .build(),
+                    contentDescription = person.name,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            } else {
+                Text(
+                    text =
+                        person.name.firstOrNull()?.uppercase()
+                            ?: "?",
+                    style = MaterialTheme.typography.displayLarge,
+                    color = NuvioColors.TextTertiary
+                )
             }
         }
 
@@ -396,8 +418,6 @@ private fun FilmographyRow(
     firstItemFocusRequester: FocusRequester,
     onItemClick: (MetaPreview) -> Unit
 ) {
-    val hasRequestedInitialFocus = remember(credits) { mutableStateOf(false) }
-
     LazyRow(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(horizontal = 48.dp, vertical = 4.dp),
@@ -410,16 +430,7 @@ private fun FilmographyRow(
             GridContentCard(
                 item = item,
                 onClick = { onItemClick(item) },
-                modifier = if (index == 0) {
-                    Modifier.onGloballyPositioned {
-                        if (!hasRequestedInitialFocus.value) {
-                            hasRequestedInitialFocus.value = true
-                            runCatching { firstItemFocusRequester.requestFocus() }
-                        }
-                    }
-                } else {
-                    Modifier
-                },
+                modifier = Modifier,
                 posterCardStyle = posterCardStyle,
                 showLabel = true,
                 focusRequester = if (index == 0) firstItemFocusRequester else null
