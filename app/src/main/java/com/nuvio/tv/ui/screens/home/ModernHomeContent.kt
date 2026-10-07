@@ -822,6 +822,37 @@ fun ModernHomeContent(
             currentContinueWatchingOrderKeys.isNotEmpty() &&
             focusState.continueWatchingOrderKeys !=
                 currentContinueWatchingOrderKeys
+
+    /*
+     * PATCH_DETAILS_RETURN_EXACT_FOCUS_PRIORITY
+     *
+     * Focus identity and horizontal viewport position are separate.
+     *
+     * If Details is opened while the LazyRow is still settling, the saved
+     * first-visible index can legitimately describe the previous card even
+     * though Compose focus has already reached the card the user selected.
+     *
+     * Seed the row's authoritative focus cache synchronously, before its
+     * focusRestorer is composed, so the exact selected card outranks the
+     * still-moving viewport position on return from Details.
+     *
+     * Leave the saved LazyRow index/offset untouched: the row may finish its
+     * normal visual settlement after return, but focus remains on the card
+     * that actually opened Details.
+     *
+     * Continue Watching's structural-reorder reset remains authoritative.
+     */
+    if (
+        !restoredFromSavedState &&
+        focusState.hasSavedFocus &&
+        !forceContinueWatchingRestoreToStart
+    ) {
+        focusState.focusedRowKey?.let { savedRowKey ->
+            focusedItemByRow[savedRowKey] =
+                focusState.focusedItemIndex
+        }
+    }
+
     val rowsBoundaryOptionsItemState =
         remember { mutableStateOf<ContinueWatchingItem?>(null) }
     var optionsItem by rowsBoundaryOptionsItemState
@@ -1447,8 +1478,16 @@ fun ModernHomeContent(
 
             pendingRowFocus.key = resolvedRow.key
             pendingRowFocus.index = resolvedIndex
-            pendingRowFocus.suppressBringIntoView =
-                resolvedRow.key == "continue_watching"
+
+            /*
+             * PATCH_DETAILS_RETURN_SUPPRESS_BRING_INTO_VIEW
+             *
+             * The restored card already has an authoritative saved focus
+             * target. Do not let requesting that focus start or resume a
+             * horizontal bring-into-view animation while Home is becoming
+             * visible again.
+             */
+            pendingRowFocus.suppressBringIntoView = true
             pendingRowFocus.nonce++
             restoredFromSavedState = true
             lastRestoredRowKey = focusState.focusedRowKey
@@ -1991,6 +2030,34 @@ fun ModernHomeContent(
     val focusSnapshotSavedForNavigation = remember {
         java.util.concurrent.atomic.AtomicBoolean(false)
     }
+
+    /*
+     * PATCH_DETAILS_RETURN_FINAL_VIEWPORT_SNAPSHOT
+     *
+     * Navigation identity is frozen at Select time, while the horizontal
+     * viewport is allowed to finish settling during the outgoing transition.
+     * Disposal will refresh only the viewport coordinates while retaining
+     * these authoritative navigation values.
+     */
+    val navigationSnapshotVerticalIndexRef = remember {
+        java.util.concurrent.atomic.AtomicInteger(0)
+    }
+    val navigationSnapshotVerticalOffsetRef = remember {
+        java.util.concurrent.atomic.AtomicInteger(0)
+    }
+    val navigationSnapshotFocusedRowIndexRef = remember {
+        java.util.concurrent.atomic.AtomicInteger(0)
+    }
+    val navigationSnapshotFocusedItemIndexRef = remember {
+        java.util.concurrent.atomic.AtomicInteger(0)
+    }
+    val navigationSnapshotFocusedRowKeyRef = remember {
+        java.util.concurrent.atomic.AtomicReference<String?>(null)
+    }
+    val navigationSnapshotPlatformIdRef = remember {
+        java.util.concurrent.atomic.AtomicReference("home")
+    }
+
     val latestSelectedPlatformId by rememberUpdatedState(selectedPlatformId)
     val wrappedOnNavigateToDetail: (String, String, String) -> Unit = remember(onNavigateToDetail, onSaveFocusState) {
         { itemId, itemType, addonBaseUrl ->
@@ -2017,11 +2084,37 @@ fun ModernHomeContent(
                         )
                     }
             }
+            val navigationVerticalIndex =
+                latestVerticalRowListState.firstVisibleItemIndex
+            val navigationVerticalOffset =
+                latestVerticalRowListState.firstVisibleItemScrollOffset
+            val navigationFocusedItemIndex =
+                latestActiveItemIndex
+
+            navigationSnapshotVerticalIndexRef.set(
+                navigationVerticalIndex
+            )
+            navigationSnapshotVerticalOffsetRef.set(
+                navigationVerticalOffset
+            )
+            navigationSnapshotFocusedRowIndexRef.set(
+                focusedRowIndex
+            )
+            navigationSnapshotFocusedItemIndexRef.set(
+                navigationFocusedItemIndex
+            )
+            navigationSnapshotFocusedRowKeyRef.set(
+                focusedRowKey
+            )
+            navigationSnapshotPlatformIdRef.set(
+                latestSelectedPlatformId
+            )
+
             onSaveFocusState(
-                latestVerticalRowListState.firstVisibleItemIndex,
-                latestVerticalRowListState.firstVisibleItemScrollOffset,
+                navigationVerticalIndex,
+                navigationVerticalOffset,
                 focusedRowIndex,
-                latestActiveItemIndex,
+                navigationFocusedItemIndex,
                 catalogRowScrollStates,
                 focusedRowKey,
                 latestSelectedPlatformId
@@ -2033,15 +2126,60 @@ fun ModernHomeContent(
 
     DisposableEffect(Unit) {
         onDispose {
-            // Details navigation already captured the authoritative focus state
-            // before NavHost began its fade. Do not overwrite it at disposal time.
-            if (focusSnapshotSavedForNavigation.get()) {
-                return@onDispose
-            }
+            /*
+             * If Details navigation already captured focus identity, preserve
+             * that identity exactly. The LazyRow is nevertheless allowed to
+             * keep settling during the outgoing NavHost transition, so refresh
+             * its viewport coordinates below at the later disposal point.
+             *
+             * For every other disposal path, preserve the existing behavior.
+             */
+            val navigationSnapshotSaved =
+                focusSnapshotSavedForNavigation.get()
 
             val row = latestActiveRow
-            val focusedRowIndex = row?.globalRowIndex ?: 0
-            val focusedRowKey = row?.key
+
+            val focusedRowIndex =
+                if (navigationSnapshotSaved) {
+                    navigationSnapshotFocusedRowIndexRef.get()
+                } else {
+                    row?.globalRowIndex ?: 0
+                }
+
+            val focusedRowKey =
+                if (navigationSnapshotSaved) {
+                    navigationSnapshotFocusedRowKeyRef.get()
+                } else {
+                    row?.key
+                }
+
+            val focusedItemIndex =
+                if (navigationSnapshotSaved) {
+                    navigationSnapshotFocusedItemIndexRef.get()
+                } else {
+                    latestActiveItemIndex
+                }
+
+            val verticalScrollIndex =
+                if (navigationSnapshotSaved) {
+                    navigationSnapshotVerticalIndexRef.get()
+                } else {
+                    latestVerticalRowListState.firstVisibleItemIndex
+                }
+
+            val verticalScrollOffset =
+                if (navigationSnapshotSaved) {
+                    navigationSnapshotVerticalOffsetRef.get()
+                } else {
+                    latestVerticalRowListState.firstVisibleItemScrollOffset
+                }
+
+            val savedPlatformId =
+                if (navigationSnapshotSaved) {
+                    navigationSnapshotPlatformIdRef.get()
+                } else {
+                    latestSelectedPlatformId
+                }
             val catalogRowScrollStates = buildMap {
                 latestCarouselRows
                     .filter {
@@ -2064,13 +2202,13 @@ fun ModernHomeContent(
             }
 
             onSaveFocusState(
-                latestVerticalRowListState.firstVisibleItemIndex,
-                latestVerticalRowListState.firstVisibleItemScrollOffset,
+                verticalScrollIndex,
+                verticalScrollOffset,
                 focusedRowIndex,
-                latestActiveItemIndex,
+                focusedItemIndex,
                 catalogRowScrollStates,
                 focusedRowKey,
-                latestSelectedPlatformId
+                savedPlatformId
             )
         }
     }
