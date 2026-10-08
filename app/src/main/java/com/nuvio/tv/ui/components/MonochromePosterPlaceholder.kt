@@ -52,9 +52,9 @@ fun rememberPosterShimmerTranslateState(): State<Float> {
 @Composable
 fun MonochromePosterPlaceholder(
     modifier: Modifier = Modifier,
-    shimmerTranslateState: State<Float> =
-        rememberPosterShimmerTranslateState()
+    shimmerTranslateState: State<Float>? = null
 ) {
+    val activeShimmer = shimmerTranslateState ?: rememberPosterShimmerTranslateState()
     val shimmerColors = listOf(
         NuvioColors.SurfaceVariant.copy(alpha = 0.30f),
         NuvioColors.SurfaceVariant.copy(alpha = 0.60f),
@@ -67,7 +67,7 @@ fun MonochromePosterPlaceholder(
             .drawWithCache {
                 onDrawBehind {
                     val translate =
-                        shimmerTranslateState.value
+                        activeShimmer.value
 
                     drawRect(
                         brush = Brush.linearGradient(

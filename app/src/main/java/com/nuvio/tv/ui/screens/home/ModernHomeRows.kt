@@ -205,7 +205,7 @@ private fun ModernCatalogRowItem(
     heroMetadataLarge: Boolean,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
-    shimmerTranslateState: State<Float>,
+    shimmerTranslateState: State<Float>?,
     modernCatalogCardWidth: Dp,
     modernCatalogCardHeight: Dp,
     landscapeTrailerExpandedHeight: Dp,
@@ -709,8 +709,8 @@ internal fun ModernRowSection(
             pendingRowFocus.nonce++
         }
 
-        // One shimmer clock shared by all loaded cards in this row.
-        val rowShimmerTranslateState = rememberPosterShimmerTranslateState()
+        // Loaded rows have no animation clock. Each visible placeholder owns
+        // its clock only until the artwork loads (skeleton rows share theirs).
 
         val retainedRealFocusIndex =
             uiCaches.lastActuallyFocusedIndexByRow[row.key]
@@ -924,11 +924,22 @@ internal fun ModernRowSection(
             fontWeight = androidx.compose.ui.text.font.FontWeight.W500,
             color = androidx.compose.ui.graphics.Color(0xFF888888)
         )
-        val rowTextMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
-        val singleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("8", numberBaseStyleRow).size.width }
-        val oneDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("1", numberBaseStyleRow).size.width }
-        val doubleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("88", numberBaseStyleRow).size.width }
-        val tripleDigitWidth = remember(numberBaseStyleRow) { rowTextMeasurer.measure("888", numberBaseStyleRow).size.width }
+        // Ranking widths are used only by numbered rows. Avoid text layout
+        // during composition/prefetch of ordinary catalog and Continue Watching rows.
+        val rowTextMeasurer = if (isNumbered) {
+            androidx.compose.ui.text.rememberTextMeasurer()
+        } else {
+            null
+        }
+        val oneDigitWidth = remember(numberBaseStyleRow, rowTextMeasurer) {
+            rowTextMeasurer?.measure("1", numberBaseStyleRow)?.size?.width ?: 0
+        }
+        val doubleDigitWidth = remember(numberBaseStyleRow, rowTextMeasurer) {
+            rowTextMeasurer?.measure("88", numberBaseStyleRow)?.size?.width ?: 0
+        }
+        val tripleDigitWidth = remember(numberBaseStyleRow, rowTextMeasurer) {
+            rowTextMeasurer?.measure("888", numberBaseStyleRow)?.size?.width ?: 0
+        }
 
         val numberedRowStartPadding = if (isNumbered) {
             val singleDigitDp = with(density) { oneDigitWidth.toDp() }
@@ -1220,7 +1231,7 @@ internal fun ModernRowSection(
                                         heroMetadataLarge = heroMetadataLarge,
                                         showLabels = showLabels,
                                         posterCardCornerRadius = posterCardCornerRadius,
-                                        shimmerTranslateState = rowShimmerTranslateState,
+                                        shimmerTranslateState = null,
                                         modernCatalogCardWidth = modernCatalogCardWidth,
                                         modernCatalogCardHeight = modernCatalogCardHeight,
                                         landscapeTrailerExpandedHeight = landscapeTrailerExpandedHeight,
@@ -1261,7 +1272,7 @@ internal fun ModernRowSection(
                                     heroMetadataLarge = heroMetadataLarge,
                                     showLabels = showLabels,
                                     posterCardCornerRadius = posterCardCornerRadius,
-                                    shimmerTranslateState = rowShimmerTranslateState,
+                                    shimmerTranslateState = null,
                                     modernCatalogCardWidth = modernCatalogCardWidth,
                                     modernCatalogCardHeight = modernCatalogCardHeight,
                                     landscapeTrailerExpandedHeight = landscapeTrailerExpandedHeight,
@@ -1507,7 +1518,7 @@ private fun ModernCarouselCard(
     heroMetadataLarge: Boolean,
     showLabels: Boolean,
     cardCornerRadius: Dp,
-    shimmerTranslateState: State<Float>,
+    shimmerTranslateState: State<Float>?,
     cardWidth: Dp,
     cardHeight: Dp,
     expandedCardHeight: Dp,

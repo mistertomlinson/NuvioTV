@@ -539,7 +539,6 @@ fun ModernHomeContent(
             activeCatalogItemIds = activeCatalogItemIds
         )
     }
-    val rowIndexByKey = carouselLookups.rowIndexByKey
     val rowByKey = carouselLookups.rowByKey
     val activeRowKeys = carouselLookups.activeRowKeys
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
@@ -3695,11 +3694,6 @@ fun ModernHomeContent(
                 carouselRows.asStable()
             }
 
-        val stableRowIndexByKeyForRowsBoundary =
-            remember(rowIndexByKey) {
-                rowIndexByKey.asStable()
-            }
-
         val stableLandscapeCatalogKeysForRowsBoundary =
             remember(uiState.landscapeCatalogKeys) {
                 uiState.landscapeCatalogKeys.asStable()
@@ -3709,9 +3703,6 @@ fun ModernHomeContent(
             remember(focusState.catalogRowScrollStates) {
                 focusState.catalogRowScrollStates.asStable()
             }
-
-        val rowsBoundaryFocusedRowKey =
-            focusState.focusedRowKey
 
         val rowsBoundaryPosterLabelsEnabled =
             uiState.posterLabelsEnabled
@@ -3808,1307 +3799,6 @@ fun ModernHomeContent(
                     addonBaseUrl
                 )
             }
-        }
-
-        /*
-         * Keep the rows LazyColumn behind a stable composition boundary so
-         * Hero, platform and backdrop state changes do not broadly recompose
-         * row content.
-         */
-        @Composable
-        fun EnhancedModernHomeRowsListBoundary(
-            modifier: Modifier,
-            carouselRows: StableList<HeroCarouselRow>,
-            rowIndexByKey: StableMap<String, Int>,
-            landscapeCatalogKeys: StableSet<String>,
-            focusStateFocusedRowKey: String?,
-            focusStateCatalogRowScrollStates: StableMap<String, Int>,
-            posterLabelsEnabled: Boolean,
-            hideNewSeasonBadge: Boolean,
-            focusedPosterBackdropTrailerMuted: Boolean,
-            activeRowKeyState:
-                androidx.compose.runtime.MutableState<String?>,
-            activeItemIndexState:
-                androidx.compose.runtime.MutableState<Int>,
-            isFastScrollingState:
-                androidx.compose.runtime.MutableState<Boolean>,
-            fastScrollLandingVisualPendingState:
-                androidx.compose.runtime.MutableState<Boolean>,
-            focusedCatalogSelectionState:
-                androidx.compose.runtime.MutableState<FocusedCatalogSelection?>,
-            expandedCatalogFocusKeyState:
-                androidx.compose.runtime.MutableState<String?>,
-            expansionInteractionNonceState:
-                androidx.compose.runtime.MutableState<Int>,
-            heroFrozenForRapidNavState:
-                androidx.compose.runtime.MutableState<Boolean>,
-            heroFrozenForSlideState:
-                androidx.compose.runtime.MutableState<Boolean>,
-            heroItemState:
-                androidx.compose.runtime.MutableState<HeroPreview?>,
-            heroItemRowKeyState:
-                androidx.compose.runtime.MutableState<String?>,
-            frozenHeroItemState:
-                androidx.compose.runtime.MutableState<HeroPreview?>,
-            frozenHeroItemRowKeyState:
-                androidx.compose.runtime.MutableState<String?>,
-            optionsItemState:
-                androidx.compose.runtime.MutableState<ContinueWatchingItem?>,
-            fastScrollHeroCatchUpGenerationState:
-                androidx.compose.runtime.MutableState<Int>,
-            currentCarouselRowsState:
-                androidx.compose.runtime.State<List<HeroCarouselRow>>,
-            focusHolder: EnhancedHomeRowsFocusHolder,
-            aggregatePlatformsEnabled: Boolean,
-            doubleUpPlatformShortcutEnabled: Boolean,
-            isVerticalRowsScrolling: Boolean,
-            rowsViewportHeight: androidx.compose.ui.unit.Dp,
-            catalogBottomPadding: androidx.compose.ui.unit.Dp,
-            rowTitleBottom: androidx.compose.ui.unit.Dp,
-            useLandscapePosters: Boolean,
-            effectiveExpandEnabled: Boolean,
-            effectiveAutoplayEnabled: Boolean,
-            expandLandscapePostersEnabled: Boolean,
-            trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
-            expandedCatalogTrailerUrl: String?,
-            expandedCatalogTrailerAudioUrl: String?,
-            fullyVisibleOverlayAlphaState:
-                androidx.compose.runtime.State<Float>,
-            myListSlotGeneration: Int,
-            forceContinueWatchingRestoreToStart: Boolean,
-            posterCardCornerRadius: androidx.compose.ui.unit.Dp,
-            portraitBaseWidth: androidx.compose.ui.unit.Dp,
-            portraitBaseHeight: androidx.compose.ui.unit.Dp,
-            modernCatalogCardWidth: androidx.compose.ui.unit.Dp,
-            modernCatalogCardHeight: androidx.compose.ui.unit.Dp,
-            continueWatchingCardWidth: androidx.compose.ui.unit.Dp,
-            continueWatchingCardHeight: androidx.compose.ui.unit.Dp,
-            useThemeColorForNumbers: Boolean,
-            verticalRowListState:
-                androidx.compose.foundation.lazy.LazyListState,
-            verticalRowBringIntoViewSpec: BringIntoViewSpec,
-            contentFocusRequester: FocusRequester,
-            focusRestorerRequester: FocusRequester,
-            carouselFocusRequester: FocusRequester,
-            uiCaches: ModernHomeUiCaches,
-            pendingRowFocus: PendingRowFocusHolder,
-            rowFocusRestorerState:
-                androidx.compose.runtime.MutableState<FocusRequester>,
-            catalogSlideAlpha:
-                androidx.compose.animation.core.Animatable<
-                    Float,
-                    androidx.compose.animation.core.AnimationVector1D
-                >,
-            defaultBringIntoViewSpec: BringIntoViewSpec,
-            onCarouselOpenRequested: () -> Unit,
-            onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
-            isCatalogItemWatched: (MetaPreview) -> Boolean,
-            onCatalogItemLongPress: (MetaPreview, String) -> Unit,
-            gatedOnItemFocus: (MetaPreview) -> Unit,
-            gatedOnPreloadAdjacentItem: (MetaPreview) -> Unit,
-            gatedOnCatalogSelectionFocused:
-                (FocusedCatalogSelection) -> Unit,
-            wrappedOnNavigateToDetail:
-                (String, String, String) -> Unit,
-            onLoadMoreCatalog:
-                (String, String, String) -> Unit
-        ) {
-            /*
-             * Rows-boundary hot-state handles.
-             *
-             * These delegated aliases preserve the exact names and behavior
-             * of the pre-extraction implementation while making the state
-             * dependency explicit at the rows composition boundary.
-             */
-            var activeRowKey by activeRowKeyState
-            var activeItemIndex by activeItemIndexState
-            var isFastScrolling by isFastScrollingState
-            var fastScrollLandingVisualPending by
-                fastScrollLandingVisualPendingState
-            var focusedCatalogSelection by
-                focusedCatalogSelectionState
-            var expandedCatalogFocusKey by
-                expandedCatalogFocusKeyState
-            var expansionInteractionNonce by
-                expansionInteractionNonceState
-            var heroFrozenForRapidNav by
-                heroFrozenForRapidNavState
-            var heroFrozenForSlide by
-                heroFrozenForSlideState
-            var heroItem by heroItemState
-            var heroItemRowKey by heroItemRowKeyState
-            var frozenHeroItem by frozenHeroItemState
-            var frozenHeroItemRowKey by frozenHeroItemRowKeyState
-            var optionsItem by optionsItemState
-            var fastScrollHeroCatchUpGeneration by
-                fastScrollHeroCatchUpGenerationState
-            val currentCarouselRows by currentCarouselRowsState
-
-            val doubleUpScope =
-                rememberCoroutineScope()
-
-            val doubleUpDensity =
-                LocalDensity.current
-
-            val doubleUpInProgress =
-                remember {
-                    java.util.concurrent.atomic.AtomicBoolean(false)
-                }
-
-            val doubleUpLastReleaseMs =
-                remember {
-                    java.util.concurrent.atomic.AtomicLong(0L)
-                }
-
-            val doubleUpLastReleaseStartedBelowTop =
-                remember {
-                    java.util.concurrent.atomic.AtomicBoolean(false)
-                }
-
-            val doubleUpCurrentPressEligible =
-                remember {
-                    java.util.concurrent.atomic.AtomicBoolean(false)
-                }
-
-            val doubleUpCurrentPressStartedBelowTop =
-                remember {
-                    java.util.concurrent.atomic.AtomicBoolean(false)
-                }
-
-            /*
-             * During a long double-Up return we temporarily remove only the
-             * unseen middle rows.
-             *
-             * The top runway and the currently visible/lower segment keep
-             * their original stable row keys. LazyColumn can therefore keep
-             * the current viewport anchored while the middle disappears.
-             *
-             * There is no mid-scroll scrollToItem(), bitmap or fade.
-             */
-            var doubleUpCompressedRows by
-                remember {
-                    mutableStateOf<List<HeroCarouselRow>?>(null)
-                }
-
-            val doubleUpRenderedRows =
-                doubleUpCompressedRows ?: carouselRows
-
-            CompositionLocalProvider(
-                LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
-            ) {
-            LazyColumn(
-                state = verticalRowListState,
-                modifier = modifier
-                    .fillMaxWidth()
-                    .height(rowsViewportHeight)
-                    .padding(bottom = catalogBottomPadding)
-                    .focusRequester(contentFocusRequester)
-                    .focusRestorer { focusRestorerRequester }
-
-                    .dpadVerticalFastScroll(
-                        scrollableState = verticalRowListState,
-                        verticalVelocityDpPerSec = 1200f,
-                        onFastScrollingChanged = { scrolling ->
-                            if (!scrolling) {
-                                fastScrollLandingVisualPendingRef
-                                    .set(true)
-
-                                fastScrollLandingVisualPending =
-                                    true
-                            }
-
-                            isFastScrollingRef.value =
-                                scrolling
-                        },
-                        shouldHaltForward = {
-                            val info = verticalRowListState.layoutInfo
-                            val lastIdx = carouselRows.size - 1
-                            val lastVisible = info.visibleItemsInfo.lastOrNull { it.index == lastIdx }
-                            lastIdx >= 0 && lastVisible != null &&
-                                lastVisible.offset + lastVisible.size <= info.viewportEndOffset
-                        },
-                        resolveVerticalLanding = { sign ->
-                            val layoutInfo =
-                                verticalRowListState.layoutInfo
-
-                            val visibleItems =
-                                layoutInfo.visibleItemsInfo
-
-                            val lastIdx =
-                                carouselRows.size - 1
-
-                            val viewportEnd =
-                                layoutInfo.viewportEndOffset
-
-                            val lastRowAtBottom =
-                                lastIdx >= 0 &&
-                                    visibleItems
-                                        .lastOrNull {
-                                            it.index == lastIdx
-                                        }
-                                        ?.let {
-                                            it.offset + it.size <=
-                                                viewportEnd
-                                        } == true
-
-                            val upwardTopRow =
-                                if (sign < 0) {
-                                    visibleItems
-                                        .firstOrNull()
-                                        ?.takeIf {
-                                            it.offset >
-                                                -it.size / 2
-                                        }
-                                } else {
-                                    null
-                                }
-
-                            val targetRowIndex =
-                                when {
-                                    lastRowAtBottom ->
-                                        lastIdx
-
-                                    upwardTopRow != null ->
-                                        upwardTopRow.index
-
-                                    else ->
-                                        visibleItems
-                                            .firstOrNull {
-                                                it.offset >= 0
-                                            }
-                                            ?.index
-                                            ?: visibleItems
-                                                .firstOrNull()
-                                                ?.index
-                                            ?: verticalRowListState
-                                                .firstVisibleItemIndex
-                                }
-
-                            val targetRow =
-                                carouselRows
-                                    .getOrNull(targetRowIndex)
-
-                            if (targetRow == null) {
-                                fastScrollLandingVisualPendingRef
-                                    .set(false)
-
-                                fastScrollLandingVisualPending =
-                                    false
-
-                                fastScrollHeroCatchUpGeneration++
-
-                                null
-                            } else {
-                                val savedItemIndex =
-                                    (
-                                        uiCaches
-                                            .focusedItemByRow[
-                                                targetRow.key
-                                            ]
-                                            ?: 0
-                                    ).coerceIn(
-                                        0,
-                                        (
-                                            targetRow.items.size - 1
-                                        ).coerceAtLeast(0)
-                                    )
-
-                                val destinationAlreadyFocused =
-                                    focusHolder.activeRowKey ==
-                                        targetRow.key &&
-                                        focusHolder.activeItemIndex ==
-                                            savedItemIndex
-
-                                /*
-                                 * Resolve the logical destination first. Real
-                                 * focus is committed by the row-local handoff
-                                 * below after fast scrolling has ended.
-                                 *
-                                 * No secondary vertical alignment animation is
-                                 * performed here.
-                                 */
-                                activeRowKey =
-                                    targetRow.key
-
-                                activeItemIndex =
-                                    savedItemIndex
-
-                                /*
-                                 * The saved horizontal destination card may not
-                                 * be composed in the same turn that fast-scroll
-                                 * landing resolves. Arm the existing row-local
-                                 * focus handoff after scrolling has ended.
-                                 *
-                                 * This does not add work to the active
-                                 * frame-driven fast-scroll path.
-                                 */
-                                if (
-                                    !destinationAlreadyFocused &&
-                                    targetRow.items.isNotEmpty()
-                                ) {
-                                    pendingRowFocus.key =
-                                        targetRow.key
-
-                                    pendingRowFocus.index =
-                                        savedItemIndex
-
-                                    pendingRowFocus
-                                        .suppressBringIntoView =
-                                        false
-
-                                    pendingRowFocus.nonce++
-                                }
-
-                                if (destinationAlreadyFocused) {
-                                    /*
-                                     * A landing can occasionally resolve to the
-                                     * card that already owns focus. There will
-                                     * be no new onFocusChanged callback in that
-                                     * case, so finish the landing here.
-                                     */
-                                    fastScrollLandingVisualPendingRef
-                                        .set(false)
-
-                                    fastScrollLandingVisualPending =
-                                        false
-
-                                    fastScrollHeroCatchUpGeneration++
-                                }
-
-                                if (
-                                    targetRow.items.isEmpty() &&
-                                    targetRow.isLoading
-                                ) {
-                                    /*
-                                     * Enhanced keeps real focusable skeleton
-                                     * cards. They do not yet participate in the
-                                     * Phase-3A real-card self-claim path.
-                                     */
-                                    val skeletonRequester =
-                                        uiCaches.requesterFor(
-                                            targetRow.key,
-                                            "skeleton_0"
-                                        )
-
-                                    runCatching {
-                                        skeletonRequester
-                                            .requestFocus()
-                                    }
-
-                                    "skeleton_0"
-                                } else {
-                                    targetRow.items
-                                        .getOrNull(savedItemIndex)
-                                        ?.key
-                                        ?: "${targetRow.key}_$savedItemIndex"
-                                }
-                            }
-                        }
-                    )
-                    .onPreviewKeyEvent { event ->
-                        val native =
-                            event.nativeKeyEvent
-
-                        val keyCode =
-                            native.keyCode
-
-                        val isUp =
-                            keyCode ==
-                                android.view.KeyEvent.KEYCODE_DPAD_UP
-
-                        val isDpad =
-                            isUp ||
-                                keyCode ==
-                                    android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
-                                keyCode ==
-                                    android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
-                                keyCode ==
-                                    android.view.KeyEvent.KEYCODE_DPAD_RIGHT
-
-                        /*
-                         * The automated return owns D-pad navigation until
-                         * the top/platform focus handoff is complete.
-                         */
-                        if (
-                            doubleUpInProgress.get() &&
-                            isDpad
-                        ) {
-                            return@onPreviewKeyEvent true
-                        }
-
-                        /*
-                         * A different D-pad direction cancels an armed first
-                         * Up tap.
-                         */
-                        if (
-                            native.action ==
-                                AndroidKeyEvent.ACTION_DOWN &&
-                            isDpad &&
-                            !isUp
-                        ) {
-                            doubleUpLastReleaseMs.set(0L)
-
-                            doubleUpLastReleaseStartedBelowTop
-                                .set(false)
-
-                            doubleUpCurrentPressEligible
-                                .set(false)
-
-                            doubleUpCurrentPressStartedBelowTop
-                                .set(false)
-                        }
-
-                        /*
-                         * Only two distinct physical Up presses qualify.
-                         * Held-key repeat events never count.
-                         */
-                        if (
-                            doubleUpPlatformShortcutEnabled &&
-                            aggregatePlatformsEnabled &&
-                            native.action ==
-                                AndroidKeyEvent.ACTION_DOWN &&
-                            isUp
-                        ) {
-                            if (
-                                native.repeatCount > 0
-                            ) {
-                                doubleUpLastReleaseMs.set(0L)
-
-                                doubleUpLastReleaseStartedBelowTop
-                                    .set(false)
-
-                                doubleUpCurrentPressEligible
-                                    .set(false)
-
-                                doubleUpCurrentPressStartedBelowTop
-                                    .set(false)
-                            } else {
-                                val firstRow =
-                                    carouselRows.firstOrNull()
-
-                                val startedBelowTop =
-                                    firstRow != null &&
-                                        focusHolder.activeRowKey !=
-                                            firstRow.key
-
-                                val now =
-                                    android.os.SystemClock
-                                        .elapsedRealtime()
-
-                                val previousRelease =
-                                    doubleUpLastReleaseMs
-                                        .getAndSet(0L)
-
-                                val previousStartedBelowTop =
-                                    doubleUpLastReleaseStartedBelowTop
-                                        .getAndSet(false)
-
-                                val gap =
-                                    now - previousRelease
-
-                                val isDoubleUp =
-                                    previousRelease > 0L &&
-                                        previousStartedBelowTop &&
-                                        gap >= 0L &&
-                                        gap <=
-                                            HOME_DOUBLE_UP_GAP_MS
-
-                                doubleUpCurrentPressEligible
-                                    .set(!isDoubleUp)
-
-                                doubleUpCurrentPressStartedBelowTop
-                                    .set(startedBelowTop)
-
-                                if (
-                                    isDoubleUp &&
-                                    firstRow != null
-                                ) {
-                                    doubleUpCurrentPressEligible
-                                        .set(false)
-
-                                    doubleUpCurrentPressStartedBelowTop
-                                        .set(false)
-
-                                    doubleUpInProgress.set(true)
-
-                                    suppressCatalogSelectionForDoubleUpRef
-                                        .set(true)
-
-                                    isFastScrollingRef.value =
-                                        true
-
-                                    fastScrollLandingVisualPendingRef
-                                        .set(true)
-
-                                    fastScrollLandingVisualPending =
-                                        true
-
-                                    focusedCatalogSelection =
-                                        null
-
-                                    expandedCatalogFocusKey =
-                                        null
-
-                                    doubleUpScope.launch {
-                                        var handoffToCarousel =
-                                            false
-
-                                        try {
-                                            val fullRowCount =
-                                                carouselRows.size
-
-                                            val layoutInfo =
-                                                verticalRowListState
-                                                    .layoutInfo
-
-                                            val visibleItems =
-                                                layoutInfo
-                                                    .visibleItemsInfo
-
-                                            val firstVisibleIndex =
-                                                verticalRowListState
-                                                    .firstVisibleItemIndex
-
-                                            val lastVisibleIndex =
-                                                visibleItems
-                                                    .lastOrNull()
-                                                    ?.index
-                                                    ?: firstVisibleIndex
-
-                                            val activeFullIndex =
-                                                carouselRows
-                                                    .indexOfFirst {
-                                                        it.key ==
-                                                            focusHolder
-                                                                .activeRowKey
-                                                    }
-                                                    .takeIf {
-                                                        it >= 0
-                                                    }
-                                                    ?: firstVisibleIndex
-
-                                            val topKeepCount =
-                                                minOf(
-                                                    HOME_DOUBLE_UP_TOP_RUNWAY_ROWS,
-                                                    fullRowCount
-                                                )
-
-                                            /*
-                                             * Long trips only:
-                                             *
-                                             * Keep:
-                                             * - top six rows
-                                             * - three rows immediately above
-                                             *   the current viewport
-                                             * - every currently visible row
-                                             * - one row just below the viewport
-                                             *
-                                             * Everything between those two
-                                             * regions is removed BEFORE any
-                                             * visible scrolling starts.
-                                             */
-                                            val tailStart =
-                                                (
-                                                    firstVisibleIndex -
-                                                        HOME_DOUBLE_UP_LEAD_ROWS
-                                                ).coerceAtLeast(
-                                                    topKeepCount
-                                                )
-
-                                            val tailEnd =
-                                                (
-                                                    maxOf(
-                                                        lastVisibleIndex,
-                                                        activeFullIndex,
-                                                        firstVisibleIndex
-                                                    ) + 1
-                                                ).coerceAtMost(
-                                                    fullRowCount - 1
-                                                )
-
-                                            val hasMiddleToCompress =
-                                                fullRowCount > 0 &&
-                                                    tailStart >
-                                                        topKeepCount &&
-                                                    firstVisibleIndex >
-                                                        topKeepCount +
-                                                            HOME_DOUBLE_UP_LEAD_ROWS +
-                                                            1
-
-                                            if (
-                                                hasMiddleToCompress
-                                            ) {
-                                                val compressedRows =
-                                                    buildList {
-                                                        addAll(
-                                                            carouselRows
-                                                                .take(
-                                                                    topKeepCount
-                                                                )
-                                                        )
-
-                                                        addAll(
-                                                            carouselRows
-                                                                .subList(
-                                                                    tailStart,
-                                                                    tailEnd + 1
-                                                                )
-                                                        )
-                                                    }
-
-                                                doubleUpCompressedRows =
-                                                    compressedRows
-
-                                                /*
-                                                 * Let LazyColumn apply the
-                                                 * keyed list change while the
-                                                 * screen is stationary.
-                                                 *
-                                                 * The currently visible row
-                                                 * keys remain present, so the
-                                                 * viewport should stay visually
-                                                 * anchored.
-                                                 */
-                                                withFrameNanos { }
-
-                                                withFrameNanos { }
-                                            }
-
-                                            val velocityPxPerSecond =
-                                                with(
-                                                    doubleUpDensity
-                                                ) {
-                                                    HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC
-                                                        .dp
-                                                        .toPx()
-                                                }
-
-                                            /*
-                                             * ONE AND ONLY scroll mutation.
-                                             *
-                                             * There is no position reset or
-                                             * second scroll session in the
-                                             * middle.
-                                             */
-                                            verticalRowListState
-                                                .scroll {
-                                                    var previousFrame:
-                                                        Long? = null
-
-                                                    while (
-                                                        verticalRowListState
-                                                            .canScrollBackward
-                                                    ) {
-                                                        val frame =
-                                                            withFrameNanos {
-                                                                it
-                                                            }
-
-                                                        val lastFrame =
-                                                            previousFrame
-
-                                                        val dtSeconds =
-                                                            if (
-                                                                lastFrame ==
-                                                                    null
-                                                            ) {
-                                                                1f / 60f
-                                                            } else {
-                                                                (
-                                                                    (
-                                                                        frame -
-                                                                            lastFrame
-                                                                    ) /
-                                                                        1_000_000_000f
-                                                                ).coerceIn(
-                                                                    0f,
-                                                                    0.048f
-                                                                )
-                                                            }
-
-                                                        previousFrame =
-                                                            frame
-
-                                                        val requested =
-                                                            -velocityPxPerSecond *
-                                                                dtSeconds
-
-                                                        val consumed =
-                                                            scrollBy(
-                                                                requested
-                                                            )
-
-                                                        if (
-                                                            kotlin.math.abs(
-                                                                consumed
-                                                            ) < 0.5f &&
-                                                            requested != 0f
-                                                        ) {
-                                                            break
-                                                        }
-                                                    }
-                                                }
-
-                                            /*
-                                             * We are now visually at the real
-                                             * first row. Restore all omitted
-                                             * middle rows. They are inserted
-                                             * BELOW the six-row top runway, so
-                                             * the current top viewport does
-                                             * not move.
-                                             */
-                                            doubleUpCompressedRows =
-                                                null
-
-                                            withFrameNanos { }
-
-                                            verticalRowListState
-                                                .requestScrollToItem(
-                                                    0,
-                                                    0
-                                                )
-
-                                            val savedItemIndex =
-                                                (
-                                                    uiCaches
-                                                        .focusedItemByRow[
-                                                            firstRow.key
-                                                        ]
-                                                        ?: 0
-                                                ).coerceIn(
-                                                    0,
-                                                    (
-                                                        firstRow.items.size -
-                                                            1
-                                                    ).coerceAtLeast(0)
-                                                )
-
-                                            focusHolder.activeRowKey =
-                                                firstRow.key
-
-                                            focusHolder.activeItemIndex =
-                                                savedItemIndex
-
-                                            activeRowKey =
-                                                firstRow.key
-
-                                            activeItemIndex =
-                                                savedItemIndex
-
-                                            withFrameNanos { }
-
-                                            if (
-                                                aggregatePlatformsEnabled
-                                            ) {
-                                                /*
-                                                 * Do not transfer focus yet.
-                                                 * Finish every piece of the
-                                                 * custom fast-scroll lifecycle
-                                                 * first, then use the same
-                                                 * handoff as normal Up.
-                                                 */
-                                                handoffToCarousel =
-                                                    true
-                                            } else {
-                                                if (
-                                                    firstRow.items
-                                                        .isNotEmpty()
-                                                ) {
-                                                    pendingRowFocus.key =
-                                                        firstRow.key
-
-                                                    pendingRowFocus.index =
-                                                        savedItemIndex
-
-                                                    pendingRowFocus
-                                                        .suppressBringIntoView =
-                                                        false
-
-                                                    pendingRowFocus.nonce++
-                                                } else if (
-                                                    firstRow.isLoading
-                                                ) {
-                                                    withFrameNanos { }
-
-                                                    runCatching {
-                                                        uiCaches
-                                                            .requesterFor(
-                                                                firstRow.key,
-                                                                "skeleton_0"
-                                                            )
-                                                            .requestFocus()
-                                                    }
-                                                }
-                                            }
-                                        } finally {
-                                            /*
-                                             * Always put the complete list
-                                             * back, including cancellation or
-                                             * unexpected focus loss.
-                                             */
-                                            doubleUpCompressedRows =
-                                                null
-
-                                            fastScrollLandingVisualPendingRef
-                                                .set(false)
-
-                                            fastScrollLandingVisualPending =
-                                                false
-
-                                            isFastScrollingRef.value =
-                                                false
-
-                                            doubleUpInProgress.set(false)
-
-                                            if (
-                                                handoffToCarousel
-                                            ) {
-                                                focusedCatalogSelection =
-                                                    null
-
-                                                onCarouselOpenRequested()
-
-                                                runCatching {
-                                                    carouselFocusRequester
-                                                        .requestFocus()
-                                                }
-
-                                                /*
-                                                 * Keep the synchronous guard
-                                                 * armed through the handoff
-                                                 * frame. Any queued row-focus
-                                                 * or fast-scroll callback from
-                                                 * the custom return therefore
-                                                 * cannot reclaim catalog
-                                                 * trailer ownership afterward.
-                                                 */
-                                                withFrameNanos { }
-                                            }
-
-                                            suppressCatalogSelectionForDoubleUpRef
-                                                .set(false)
-                                        }
-                                    }
-
-                                    return@onPreviewKeyEvent true
-                                }
-                            }
-                        }
-
-                        /*
-                         * Arm the first tap only on its physical release.
-                         */
-                        if (
-                            doubleUpPlatformShortcutEnabled &&
-                            aggregatePlatformsEnabled &&
-                            native.action ==
-                                AndroidKeyEvent.ACTION_UP &&
-                            isUp
-                        ) {
-                            val eligible =
-                                doubleUpCurrentPressEligible
-                                    .getAndSet(false)
-
-                            val startedBelowTop =
-                                doubleUpCurrentPressStartedBelowTop
-                                    .getAndSet(false)
-
-                            if (
-                                eligible &&
-                                startedBelowTop
-                            ) {
-                                doubleUpLastReleaseMs.set(
-                                    android.os.SystemClock
-                                        .elapsedRealtime()
-                                )
-
-                                doubleUpLastReleaseStartedBelowTop
-                                    .set(true)
-                            } else {
-                                doubleUpLastReleaseMs.set(0L)
-
-                                doubleUpLastReleaseStartedBelowTop
-                                    .set(false)
-                            }
-                        }
-
-                        /*
-                         * Existing normal/held D-pad behavior.
-                         */
-                        if (
-                            native.action ==
-                                AndroidKeyEvent.ACTION_UP &&
-                            isDpad
-                        ) {
-                            lastKeyUpTimeRef.set(
-                                System.currentTimeMillis()
-                            )
-
-                            isFastScrollingRef.value =
-                                false
-                        }
-
-                        if (
-                            native.action ==
-                                AndroidKeyEvent.ACTION_DOWN &&
-                            native.repeatCount > 0 &&
-                            isDpad
-                        ) {
-                            isFastScrollingRef.value =
-                                true
-
-                            val now =
-                                System.currentTimeMillis()
-
-                            if (
-                                keyCode ==
-                                    android.view.KeyEvent.KEYCODE_DPAD_UP ||
-                                keyCode ==
-                                    android.view.KeyEvent.KEYCODE_DPAD_DOWN
-                            ) {
-                                if (
-                                    now -
-                                        lastKeyRepeatTimeRef.get() <
-                                        KEY_REPEAT_THROTTLE_MS
-                                ) {
-                                    return@onPreviewKeyEvent true
-                                }
-
-                                lastKeyRepeatTimeRef.set(now)
-                            }
-                        }
-
-                        /*
-                         * Existing normal Up-from-first-row behavior.
-                         */
-                        if (
-                            native.action ==
-                                AndroidKeyEvent.ACTION_DOWN &&
-                            isUp
-                        ) {
-                            val isAtTopRow =
-                                carouselRows
-                                    .firstOrNull()
-                                    ?.let {
-                                        focusHolder.activeRowKey ==
-                                            it.key
-                                    } == true
-
-                            if (isAtTopRow) {
-                                if (
-                                    isFastScrollingRef.value
-                                ) {
-                                    return@onPreviewKeyEvent true
-                                }
-
-                                if (
-                                    aggregatePlatformsEnabled
-                                ) {
-                                    focusedCatalogSelection =
-                                        null
-
-                                    onCarouselOpenRequested()
-
-                                    runCatching {
-                                        carouselFocusRequester
-                                            .requestFocus()
-                                    }
-
-                                    return@onPreviewKeyEvent true
-                                }
-                            }
-                        }
-
-                        false
-                    },
-                contentPadding = PaddingValues(bottom = rowsViewportHeight),
-                verticalArrangement = Arrangement.spacedBy(24.dp)
-            ) {
-                itemsIndexed(
-                    items = doubleUpRenderedRows,
-                    key = { _, row -> row.key },
-                    contentType = { _, _ -> "modern_home_row" }
-                ) { rowIndex, row ->
-                    val stableOnContinueWatchingOptions = remember(Unit) {
-                        { item: ContinueWatchingItem -> optionsItem = item }
-                    }
-                    val stableOnRequestCarouselFocus = remember(Unit) {
-                        {
-                            if (aggregatePlatformsEnabled) {
-                                focusedCatalogSelection = null
-                                onCarouselOpenRequested()
-                                try { carouselFocusRequester.requestFocus() } catch (e: Exception) {}
-                            }
-                        }
-                    }
-                    /*
-                     * PATCH_CURRENT_ROW_SNAPSHOT_FOR_FOCUS_CALLBACK
-                     *
-                     * This lambda remains stable, but every lookup reads the
-                     * latest row ordering through rememberUpdatedState.
-                     */
-                    val stableOnRowItemFocused = remember(Unit) {
-                        { rowKey: String, index: Int, isContinueWatchingRow: Boolean, confirmedFocus: Boolean ->
-                            /*
-                             * Logical row focus updates also pass through this
-                             * callback so hero/navigation state can stay fast.
-                             * Only confirmedFocus may update state that is
-                             * specifically used as confirmed restoration focus.
-                             */
-
-                            if (confirmedFocus) {
-                                uiCaches.lastActuallyFocusedIndexByRow[
-                                    rowKey
-                                ] = index
-
-                                /*
-                                 * Publish the exact requester synchronously with
-                                 * confirmed focus. The row-position cache maps
-                                 * are not Compose snapshot state, so relying on
-                                 * the derived global restorer alone can leave it
-                                 * pointing at an older card in the same row.
-                                 */
-                                val confirmedRow =
-                                    currentCarouselRows.firstOrNull {
-                                        it.key == rowKey
-                                    }
-                                val confirmedItemKey =
-                                    confirmedRow?.items
-                                        ?.getOrNull(index)
-                                        ?.key
-
-                                if (confirmedItemKey != null) {
-                                    val confirmedRequester =
-                                        uiCaches.requesterFor(
-                                            rowKey,
-                                            confirmedItemKey
-                                        )
-
-                                    rowFocusRestorerState.value =
-                                        confirmedRequester
-                                }
-                            }
-                            /*
-                             * Phase 3B: actual destination focus is now the
-                             * complete fast-scroll landing signal.
-                             *
-                             * Keep fastScrollLandingVisualPending only until
-                             * this callback so the Phase-4 hero work can still
-                             * freeze the outgoing Hero during the handoff.
-                             */
-                            if (
-                                confirmedFocus &&
-                                !suppressCatalogSelectionForDoubleUpRef.get() &&
-                                fastScrollLandingVisualPendingRef
-                                    .compareAndSet(
-                                        true,
-                                        false
-                                    )
-                            ) {
-                                fastScrollLandingVisualPending =
-                                    false
-
-                                fastScrollHeroCatchUpGeneration++
-                            }
-
-                            // If this row has no items (skeleton), clear focusedCatalogSelection
-                            // so the autoplay debounce timer doesn't fire for the previously
-                            // focused real item while the user is parked on a loading row.
-                            val activeRow = currentCarouselRows.firstOrNull { it.key == rowKey }
-                            if (activeRow != null && activeRow.items.isEmpty()) {
-                                focusedCatalogSelection = null
-                                expandedCatalogFocusKey = null
-                            }
-                            val rowBecameActive = focusHolder.activeRowKey != rowKey
-                            val itemChanged = focusHolder.activeItemIndex != index
-                            if (rowBecameActive || itemChanged) {
-                                val now = System.currentTimeMillis()
-                                val previousNavAt =
-                                    lastHeroNavigationAtMsRef.get()
-                                val timeSinceLastHeroNav =
-                                    now - previousNavAt
-
-                                /*
-                                 * Official beta timing:
-                                 *   <130 ms between focus changes -> 400 ms settle
-                                 *   otherwise                       -> 450 ms settle
-                                 */
-                                heroFocusSettleDelayMsRef.set(
-                                    if (
-                                        previousNavAt != 0L &&
-                                        timeSinceLastHeroNav in
-                                            1 until
-                                                MODERN_HERO_RAPID_NAV_THRESHOLD_MS
-                                    ) {
-                                        MODERN_HERO_RAPID_NAV_SETTLE_MS
-                                    } else {
-                                        MODERN_HERO_NORMAL_SETTLE_MS
-                                    }
-                                )
-
-                                /*
-                                 * Official beta only treats repeated movement
-                                 * inside the SAME row as rapid horizontal nav.
-                                 * Row changes must not activate this freeze.
-                                 */
-                                val rapidSameRowMove =
-                                    !rowBecameActive &&
-                                        itemChanged &&
-                                        previousNavAt != 0L &&
-                                        timeSinceLastHeroNav in 1..300L
-
-                                if (rapidSameRowMove) {
-                                    if (
-                                        !heroFrozenForRapidNav &&
-                                        !isFastScrolling &&
-                                        !heroFrozenForSlide
-                                    ) {
-                                        val outgoingRow =
-                                            currentCarouselRows.firstOrNull {
-                                                it.key ==
-                                                    focusHolder.activeRowKey
-                                            }
-                                        val outgoingHero =
-                                            outgoingRow?.items
-                                                ?.getOrNull(
-                                                    focusHolder
-                                                        .activeItemIndex
-                                                )
-                                                ?.heroPreview
-
-                                        frozenHeroItem =
-                                            outgoingHero ?: heroItem
-                                        frozenHeroItemRowKey =
-                                            focusHolder.activeRowKey
-                                                ?: heroItemRowKey
-                                    }
-
-                                    heroFrozenForRapidNav = true
-                                }
-
-                                lastHeroNavigationAtMsRef.set(now)
-                                lastHeroFocusChangeAtMsRef.set(now)
-
-                                focusHolder.activeRowKey = rowKey
-                                focusHolder.activeItemIndex = index
-                                activeRowKey = rowKey
-                                activeItemIndex = index
-                            }
-                            if (uiCaches.focusedItemByRow[rowKey] != index) {
-                                uiCaches.focusedItemByRow[rowKey] = index
-                                uiCaches.userInteractedRows.add(rowKey)
-                            }
-                            if (isContinueWatchingRow) {
-                                if (lastFocusedContinueWatchingIndexRef.get() != index) {
-                                    lastFocusedContinueWatchingIndexRef.set(index)
-                                }
-                                /*
-                                 * Continue Watching does not publish a
-                                 * FocusedCatalogSelection. The settled Hero
-                                 * pipeline owns the destination backdrop, so
-                                 * only clear catalog trailer ownership here.
-                                 */
-                                if (focusedCatalogSelection != null) {
-                                    focusedCatalogSelection = null
-                                }
-                            }
-                        }
-                    }
-                    val stableOnCatalogSelectionFocused = remember(Unit) {
-                        { selection: FocusedCatalogSelection ->
-                            if (focusedCatalogSelection != selection) {
-                                focusedCatalogSelection = selection
-                            }
-                        }
-                    }
-                    val stableOnPendingRowFocusCleared = remember(Unit) {
-                        {
-                            pendingRowFocus.key = null
-                            pendingRowFocus.index = null
-                            pendingRowFocus.suppressBringIntoView = false
-                            Unit
-                        }
-                    }
-                    val stableOnBackdropInteraction = remember(Unit) {
-                        { expansionInteractionNonce++; Unit }
-                    }
-                    val stableOnExpandedCatalogFocusKeyChange = remember(Unit) {
-                        { key: String? -> expandedCatalogFocusKey = key }
-                    }
-                    val rowExpandedFocusKey = expandedCatalogFocusKey
-                    val rowHasExpanded by remember(row.key) {
-                        derivedStateOf {
-                            val expandedKey = expandedCatalogFocusKey
-                            expandedKey != null && (
-                                row.items.any { (it.payload as? ModernPayload.Catalog)?.focusKey == expandedKey } ||
-                                expandedKey.startsWith(row.key + "::")
-                            )
-                        }
-                    }
-                    ModernRowSection(
-                        row = row,
-                        myListSlotGeneration = myListSlotGeneration,
-                        forceContinueWatchingRestoreToStart =
-                            forceContinueWatchingRestoreToStart,
-                        showHeavyOverlays = true,
-                        heavyOverlayAlpha =
-                            fullyVisibleOverlayAlphaState,
-                        cardDepthAlpha =
-                            fullyVisibleOverlayAlphaState,
-                        rowTitleBottom = rowTitleBottom,
-                        hideNewSeasonBadge =
-                            hideNewSeasonBadge,
-                        numberStyle = row.numberStyle,
-                        isFirstRow = carouselRows.firstOrNull()?.key == row.key,
-                        isSecondRow = carouselRows.getOrNull(1)?.key == row.key,
-                        catalogSlideAnimatable = catalogSlideAlpha,
-                        onRequestCarouselFocus = stableOnRequestCarouselFocus,
-                        defaultBringIntoViewSpec = defaultBringIntoViewSpec,
-                        focusStateCatalogRowScrollStates = focusStateCatalogRowScrollStates,
-                        uiCaches = uiCaches,
-                        pendingRowFocus = pendingRowFocus,
-                        onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
-                        onRowItemFocused = stableOnRowItemFocused,
-                        useLandscapePosters = useLandscapePosters || row.key in landscapeCatalogKeys,
-                        heroMetadataLarge =
-                            if (effectiveFullWidthIconRowEnabled) {
-                                heroMetadataLarge
-                            } else {
-                                true
-                            },
-                        perCatalogLandscape = !useLandscapePosters && row.key in landscapeCatalogKeys,
-                        showLabels = posterLabelsEnabled,
-                        posterCardCornerRadius = posterCardCornerRadius,
-                        focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
-                        effectiveExpandEnabled = effectiveExpandEnabled,
-                        effectiveAutoplayEnabled = effectiveAutoplayEnabled && row.items.isNotEmpty(),
-                        expandLandscapePostersEnabled = expandLandscapePostersEnabled,
-                        trailerPlaybackTarget = trailerPlaybackTarget,
-                        expandedCatalogFocusKey = rowExpandedFocusKey,
-                        expandedTrailerPreviewUrl = if (rowHasExpanded) expandedCatalogTrailerUrl else null,
-                        expandedTrailerPreviewAudioUrl = if (rowHasExpanded) expandedCatalogTrailerAudioUrl else null,
-                        modernCatalogCardWidth = if (useLandscapePosters || row.key in landscapeCatalogKeys) portraitBaseWidth * 1.24f * 1.34f else modernCatalogCardWidth,
-                        modernCatalogCardHeight = if (useLandscapePosters || row.key in landscapeCatalogKeys) (portraitBaseWidth * 1.24f * 1.34f) / 1.77f else modernCatalogCardHeight,
-                        landscapeTrailerExpandedHeight = portraitBaseHeight * 0.84f * 1.08f,
-                        continueWatchingCardWidth = continueWatchingCardWidth,
-                        continueWatchingCardHeight = continueWatchingCardHeight,
-                        continueWatchingCardStyle = uiState.continueWatchingCardStyle,
-                        onContinueWatchingClick = onContinueWatchingClick,
-                        onContinueWatchingOptions = stableOnContinueWatchingOptions,
-                        isCatalogItemWatched = isCatalogItemWatched,
-                        onCatalogItemLongPress = onCatalogItemLongPress,
-                        onItemFocus = gatedOnItemFocus,
-                        onPreloadAdjacentItem = gatedOnPreloadAdjacentItem,
-                        onCatalogSelectionFocused = gatedOnCatalogSelectionFocused,
-                        onNavigateToDetail = wrappedOnNavigateToDetail,
-                        onLoadMoreCatalog = onLoadMoreCatalog,
-                        onBackdropInteraction = stableOnBackdropInteraction,
-                        onExpandedCatalogFocusKeyChange = stableOnExpandedCatalogFocusKeyChange,
-                        useThemeColorForNumbers = useThemeColorForNumbers
-                    )
-                }
-            }
-        }
         }
 
         // Unified slide+fade wrapper — HeroTitleBlock and LazyColumn animate as one
@@ -5296,13 +3986,22 @@ fun ModernHomeContent(
             }
 
             EnhancedModernHomeRowsListBoundary(
+                fastScrollLandingVisualPendingRef = fastScrollLandingVisualPendingRef,
+                isFastScrollingRef = isFastScrollingRef,
+                suppressCatalogSelectionForDoubleUpRef = suppressCatalogSelectionForDoubleUpRef,
+                lastKeyUpTimeRef = lastKeyUpTimeRef,
+                lastKeyRepeatTimeRef = lastKeyRepeatTimeRef,
+                lastHeroNavigationAtMsRef = lastHeroNavigationAtMsRef,
+                heroFocusSettleDelayMsRef = heroFocusSettleDelayMsRef,
+                lastHeroFocusChangeAtMsRef = lastHeroFocusChangeAtMsRef,
+                lastFocusedContinueWatchingIndexRef = lastFocusedContinueWatchingIndexRef,
+                effectiveFullWidthIconRowEnabled = effectiveFullWidthIconRowEnabled,
+                heroMetadataLarge = heroMetadataLarge,
+                continueWatchingCardStyle = uiState.continueWatchingCardStyle,
                 modifier = Modifier.align(Alignment.BottomStart),
                 carouselRows = stableCarouselRowsForRowsBoundary,
-                rowIndexByKey = stableRowIndexByKeyForRowsBoundary,
                 landscapeCatalogKeys =
                     stableLandscapeCatalogKeysForRowsBoundary,
-                focusStateFocusedRowKey =
-                    rowsBoundaryFocusedRowKey,
                 focusStateCatalogRowScrollStates =
                     stableCatalogRowScrollStatesForRowsBoundary,
                 posterLabelsEnabled =
@@ -5348,8 +4047,6 @@ fun ModernHomeContent(
                     aggregatePlatformsEnabled,
                 doubleUpPlatformShortcutEnabled =
                     uiState.doubleUpPlatformShortcutEnabled,
-                isVerticalRowsScrolling =
-                    isVerticalRowsScrolling,
                 rowsViewportHeight =
                     rowsViewportHeight,
                 catalogBottomPadding =
@@ -5481,3 +4178,1315 @@ internal fun shouldSuppressFocusedPosterAutoplayForPopup(
     preservePlayingTrailer: Boolean
 ): Boolean =
     popupVisible && !preservePlayingTrailer
+
+/*
+ * Keep the rows LazyColumn behind a stable composition boundary so
+ * Hero, platform and backdrop state changes do not broadly recompose
+ * row content. This must be a top-level function: local composable
+ * functions do not get their own restartable/skippable compiler boundary.
+ */
+@Composable
+private fun EnhancedModernHomeRowsListBoundary(
+    modifier: Modifier,
+    fastScrollLandingVisualPendingRef: java.util.concurrent.atomic.AtomicBoolean,
+    isFastScrollingRef: kotlinx.coroutines.flow.MutableStateFlow<Boolean>,
+    suppressCatalogSelectionForDoubleUpRef: java.util.concurrent.atomic.AtomicBoolean,
+    lastKeyUpTimeRef: java.util.concurrent.atomic.AtomicLong,
+    lastKeyRepeatTimeRef: java.util.concurrent.atomic.AtomicLong,
+    lastHeroNavigationAtMsRef: java.util.concurrent.atomic.AtomicLong,
+    heroFocusSettleDelayMsRef: java.util.concurrent.atomic.AtomicLong,
+    lastHeroFocusChangeAtMsRef: java.util.concurrent.atomic.AtomicLong,
+    lastFocusedContinueWatchingIndexRef: java.util.concurrent.atomic.AtomicInteger,
+    effectiveFullWidthIconRowEnabled: Boolean,
+    heroMetadataLarge: Boolean,
+    continueWatchingCardStyle: ContinueWatchingCardStyle,
+
+    carouselRows: StableList<HeroCarouselRow>,
+    landscapeCatalogKeys: StableSet<String>,
+    focusStateCatalogRowScrollStates: StableMap<String, Int>,
+    posterLabelsEnabled: Boolean,
+    hideNewSeasonBadge: Boolean,
+    focusedPosterBackdropTrailerMuted: Boolean,
+    activeRowKeyState:
+        androidx.compose.runtime.MutableState<String?>,
+    activeItemIndexState:
+        androidx.compose.runtime.MutableState<Int>,
+    isFastScrollingState:
+        androidx.compose.runtime.MutableState<Boolean>,
+    fastScrollLandingVisualPendingState:
+        androidx.compose.runtime.MutableState<Boolean>,
+    focusedCatalogSelectionState:
+        androidx.compose.runtime.MutableState<FocusedCatalogSelection?>,
+    expandedCatalogFocusKeyState:
+        androidx.compose.runtime.MutableState<String?>,
+    expansionInteractionNonceState:
+        androidx.compose.runtime.MutableState<Int>,
+    heroFrozenForRapidNavState:
+        androidx.compose.runtime.MutableState<Boolean>,
+    heroFrozenForSlideState:
+        androidx.compose.runtime.MutableState<Boolean>,
+    heroItemState:
+        androidx.compose.runtime.MutableState<HeroPreview?>,
+    heroItemRowKeyState:
+        androidx.compose.runtime.MutableState<String?>,
+    frozenHeroItemState:
+        androidx.compose.runtime.MutableState<HeroPreview?>,
+    frozenHeroItemRowKeyState:
+        androidx.compose.runtime.MutableState<String?>,
+    optionsItemState:
+        androidx.compose.runtime.MutableState<ContinueWatchingItem?>,
+    fastScrollHeroCatchUpGenerationState:
+        androidx.compose.runtime.MutableState<Int>,
+    currentCarouselRowsState:
+        androidx.compose.runtime.State<List<HeroCarouselRow>>,
+    focusHolder: EnhancedHomeRowsFocusHolder,
+    aggregatePlatformsEnabled: Boolean,
+    doubleUpPlatformShortcutEnabled: Boolean,
+    rowsViewportHeight: androidx.compose.ui.unit.Dp,
+    catalogBottomPadding: androidx.compose.ui.unit.Dp,
+    rowTitleBottom: androidx.compose.ui.unit.Dp,
+    useLandscapePosters: Boolean,
+    effectiveExpandEnabled: Boolean,
+    effectiveAutoplayEnabled: Boolean,
+    expandLandscapePostersEnabled: Boolean,
+    trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
+    expandedCatalogTrailerUrl: String?,
+    expandedCatalogTrailerAudioUrl: String?,
+    fullyVisibleOverlayAlphaState:
+        androidx.compose.runtime.State<Float>,
+    myListSlotGeneration: Int,
+    forceContinueWatchingRestoreToStart: Boolean,
+    posterCardCornerRadius: androidx.compose.ui.unit.Dp,
+    portraitBaseWidth: androidx.compose.ui.unit.Dp,
+    portraitBaseHeight: androidx.compose.ui.unit.Dp,
+    modernCatalogCardWidth: androidx.compose.ui.unit.Dp,
+    modernCatalogCardHeight: androidx.compose.ui.unit.Dp,
+    continueWatchingCardWidth: androidx.compose.ui.unit.Dp,
+    continueWatchingCardHeight: androidx.compose.ui.unit.Dp,
+    useThemeColorForNumbers: Boolean,
+    verticalRowListState:
+        androidx.compose.foundation.lazy.LazyListState,
+    verticalRowBringIntoViewSpec: BringIntoViewSpec,
+    contentFocusRequester: FocusRequester,
+    focusRestorerRequester: FocusRequester,
+    carouselFocusRequester: FocusRequester,
+    uiCaches: ModernHomeUiCaches,
+    pendingRowFocus: PendingRowFocusHolder,
+    rowFocusRestorerState:
+        androidx.compose.runtime.MutableState<FocusRequester>,
+    catalogSlideAlpha:
+        androidx.compose.animation.core.Animatable<
+            Float,
+            androidx.compose.animation.core.AnimationVector1D
+        >,
+    defaultBringIntoViewSpec: BringIntoViewSpec,
+    onCarouselOpenRequested: () -> Unit,
+    onContinueWatchingClick: (ContinueWatchingItem) -> Unit,
+    isCatalogItemWatched: (MetaPreview) -> Boolean,
+    onCatalogItemLongPress: (MetaPreview, String) -> Unit,
+    gatedOnItemFocus: (MetaPreview) -> Unit,
+    gatedOnPreloadAdjacentItem: (MetaPreview) -> Unit,
+    gatedOnCatalogSelectionFocused:
+        (FocusedCatalogSelection) -> Unit,
+    wrappedOnNavigateToDetail:
+        (String, String, String) -> Unit,
+    onLoadMoreCatalog:
+        (String, String, String) -> Unit
+) {
+    /*
+     * Rows-boundary hot-state handles.
+     *
+     * These delegated aliases preserve the exact names and behavior
+     * of the pre-extraction implementation while making the state
+     * dependency explicit at the rows composition boundary.
+     */
+    var activeRowKey by activeRowKeyState
+    var activeItemIndex by activeItemIndexState
+    var isFastScrolling by isFastScrollingState
+    var fastScrollLandingVisualPending by
+        fastScrollLandingVisualPendingState
+    var focusedCatalogSelection by
+        focusedCatalogSelectionState
+    var expandedCatalogFocusKey by
+        expandedCatalogFocusKeyState
+    var expansionInteractionNonce by
+        expansionInteractionNonceState
+    var heroFrozenForRapidNav by
+        heroFrozenForRapidNavState
+    var heroFrozenForSlide by
+        heroFrozenForSlideState
+    var heroItem by heroItemState
+    var heroItemRowKey by heroItemRowKeyState
+    var frozenHeroItem by frozenHeroItemState
+    var frozenHeroItemRowKey by frozenHeroItemRowKeyState
+    var optionsItem by optionsItemState
+    var fastScrollHeroCatchUpGeneration by
+        fastScrollHeroCatchUpGenerationState
+    val currentCarouselRows by currentCarouselRowsState
+
+    val doubleUpScope =
+        rememberCoroutineScope()
+
+    val doubleUpDensity =
+        LocalDensity.current
+
+    val doubleUpInProgress =
+        remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val doubleUpLastReleaseMs =
+        remember {
+            java.util.concurrent.atomic.AtomicLong(0L)
+        }
+
+    val doubleUpLastReleaseStartedBelowTop =
+        remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val doubleUpCurrentPressEligible =
+        remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val doubleUpCurrentPressStartedBelowTop =
+        remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    /*
+     * During a long double-Up return we temporarily remove only the
+     * unseen middle rows.
+     *
+     * The top runway and the currently visible/lower segment keep
+     * their original stable row keys. LazyColumn can therefore keep
+     * the current viewport anchored while the middle disappears.
+     *
+     * There is no mid-scroll scrollToItem(), bitmap or fade.
+     */
+    var doubleUpCompressedRows by
+        remember {
+            mutableStateOf<List<HeroCarouselRow>?>(null)
+        }
+
+    val doubleUpRenderedRows =
+        doubleUpCompressedRows ?: carouselRows
+
+    CompositionLocalProvider(
+        LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
+    ) {
+    LazyColumn(
+        state = verticalRowListState,
+        modifier = modifier
+            .fillMaxWidth()
+            .height(rowsViewportHeight)
+            .padding(bottom = catalogBottomPadding)
+            .focusRequester(contentFocusRequester)
+            .focusRestorer { focusRestorerRequester }
+
+            .dpadVerticalFastScroll(
+                scrollableState = verticalRowListState,
+                verticalVelocityDpPerSec = 1200f,
+                onFastScrollingChanged = { scrolling ->
+                    if (!scrolling) {
+                        fastScrollLandingVisualPendingRef
+                            .set(true)
+
+                        fastScrollLandingVisualPending =
+                            true
+                    }
+
+                    isFastScrollingRef.value =
+                        scrolling
+                },
+                shouldHaltForward = {
+                    val info = verticalRowListState.layoutInfo
+                    val lastIdx = carouselRows.size - 1
+                    val lastVisible = info.visibleItemsInfo.lastOrNull { it.index == lastIdx }
+                    lastIdx >= 0 && lastVisible != null &&
+                        lastVisible.offset + lastVisible.size <= info.viewportEndOffset
+                },
+                resolveVerticalLanding = { sign ->
+                    val layoutInfo =
+                        verticalRowListState.layoutInfo
+
+                    val visibleItems =
+                        layoutInfo.visibleItemsInfo
+
+                    val lastIdx =
+                        carouselRows.size - 1
+
+                    val viewportEnd =
+                        layoutInfo.viewportEndOffset
+
+                    val lastRowAtBottom =
+                        lastIdx >= 0 &&
+                            visibleItems
+                                .lastOrNull {
+                                    it.index == lastIdx
+                                }
+                                ?.let {
+                                    it.offset + it.size <=
+                                        viewportEnd
+                                } == true
+
+                    val upwardTopRow =
+                        if (sign < 0) {
+                            visibleItems
+                                .firstOrNull()
+                                ?.takeIf {
+                                    it.offset >
+                                        -it.size / 2
+                                }
+                        } else {
+                            null
+                        }
+
+                    val targetRowIndex =
+                        when {
+                            lastRowAtBottom ->
+                                lastIdx
+
+                            upwardTopRow != null ->
+                                upwardTopRow.index
+
+                            else ->
+                                visibleItems
+                                    .firstOrNull {
+                                        it.offset >= 0
+                                    }
+                                    ?.index
+                                    ?: visibleItems
+                                        .firstOrNull()
+                                        ?.index
+                                    ?: verticalRowListState
+                                        .firstVisibleItemIndex
+                        }
+
+                    val targetRow =
+                        carouselRows
+                            .getOrNull(targetRowIndex)
+
+                    if (targetRow == null) {
+                        fastScrollLandingVisualPendingRef
+                            .set(false)
+
+                        fastScrollLandingVisualPending =
+                            false
+
+                        fastScrollHeroCatchUpGeneration++
+
+                        null
+                    } else {
+                        val savedItemIndex =
+                            (
+                                uiCaches
+                                    .focusedItemByRow[
+                                        targetRow.key
+                                    ]
+                                    ?: 0
+                            ).coerceIn(
+                                0,
+                                (
+                                    targetRow.items.size - 1
+                                ).coerceAtLeast(0)
+                            )
+
+                        val destinationAlreadyFocused =
+                            focusHolder.activeRowKey ==
+                                targetRow.key &&
+                                focusHolder.activeItemIndex ==
+                                    savedItemIndex
+
+                        /*
+                         * Resolve the logical destination first. Real
+                         * focus is committed by the row-local handoff
+                         * below after fast scrolling has ended.
+                         *
+                         * No secondary vertical alignment animation is
+                         * performed here.
+                         */
+                        activeRowKey =
+                            targetRow.key
+
+                        activeItemIndex =
+                            savedItemIndex
+
+                        /*
+                         * The saved horizontal destination card may not
+                         * be composed in the same turn that fast-scroll
+                         * landing resolves. Arm the existing row-local
+                         * focus handoff after scrolling has ended.
+                         *
+                         * This does not add work to the active
+                         * frame-driven fast-scroll path.
+                         */
+                        if (
+                            !destinationAlreadyFocused &&
+                            targetRow.items.isNotEmpty()
+                        ) {
+                            pendingRowFocus.key =
+                                targetRow.key
+
+                            pendingRowFocus.index =
+                                savedItemIndex
+
+                            pendingRowFocus
+                                .suppressBringIntoView =
+                                false
+
+                            pendingRowFocus.nonce++
+                        }
+
+                        if (destinationAlreadyFocused) {
+                            /*
+                             * A landing can occasionally resolve to the
+                             * card that already owns focus. There will
+                             * be no new onFocusChanged callback in that
+                             * case, so finish the landing here.
+                             */
+                            fastScrollLandingVisualPendingRef
+                                .set(false)
+
+                            fastScrollLandingVisualPending =
+                                false
+
+                            fastScrollHeroCatchUpGeneration++
+                        }
+
+                        if (
+                            targetRow.items.isEmpty() &&
+                            targetRow.isLoading
+                        ) {
+                            /*
+                             * Enhanced keeps real focusable skeleton
+                             * cards. They do not yet participate in the
+                             * Phase-3A real-card self-claim path.
+                             */
+                            val skeletonRequester =
+                                uiCaches.requesterFor(
+                                    targetRow.key,
+                                    "skeleton_0"
+                                )
+
+                            runCatching {
+                                skeletonRequester
+                                    .requestFocus()
+                            }
+
+                            "skeleton_0"
+                        } else {
+                            targetRow.items
+                                .getOrNull(savedItemIndex)
+                                ?.key
+                                ?: "${targetRow.key}_$savedItemIndex"
+                        }
+                    }
+                }
+            )
+            .onPreviewKeyEvent { event ->
+                val native =
+                    event.nativeKeyEvent
+
+                val keyCode =
+                    native.keyCode
+
+                val isUp =
+                    keyCode ==
+                        android.view.KeyEvent.KEYCODE_DPAD_UP
+
+                val isDpad =
+                    isUp ||
+                        keyCode ==
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
+                        keyCode ==
+                            android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+                        keyCode ==
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+
+                /*
+                 * The automated return owns D-pad navigation until
+                 * the top/platform focus handoff is complete.
+                 */
+                if (
+                    doubleUpInProgress.get() &&
+                    isDpad
+                ) {
+                    return@onPreviewKeyEvent true
+                }
+
+                /*
+                 * A different D-pad direction cancels an armed first
+                 * Up tap.
+                 */
+                if (
+                    native.action ==
+                        AndroidKeyEvent.ACTION_DOWN &&
+                    isDpad &&
+                    !isUp
+                ) {
+                    doubleUpLastReleaseMs.set(0L)
+
+                    doubleUpLastReleaseStartedBelowTop
+                        .set(false)
+
+                    doubleUpCurrentPressEligible
+                        .set(false)
+
+                    doubleUpCurrentPressStartedBelowTop
+                        .set(false)
+                }
+
+                /*
+                 * Only two distinct physical Up presses qualify.
+                 * Held-key repeat events never count.
+                 */
+                if (
+                    doubleUpPlatformShortcutEnabled &&
+                    aggregatePlatformsEnabled &&
+                    native.action ==
+                        AndroidKeyEvent.ACTION_DOWN &&
+                    isUp
+                ) {
+                    if (
+                        native.repeatCount > 0
+                    ) {
+                        doubleUpLastReleaseMs.set(0L)
+
+                        doubleUpLastReleaseStartedBelowTop
+                            .set(false)
+
+                        doubleUpCurrentPressEligible
+                            .set(false)
+
+                        doubleUpCurrentPressStartedBelowTop
+                            .set(false)
+                    } else {
+                        val firstRow =
+                            carouselRows.firstOrNull()
+
+                        val startedBelowTop =
+                            firstRow != null &&
+                                focusHolder.activeRowKey !=
+                                    firstRow.key
+
+                        val now =
+                            android.os.SystemClock
+                                .elapsedRealtime()
+
+                        val previousRelease =
+                            doubleUpLastReleaseMs
+                                .getAndSet(0L)
+
+                        val previousStartedBelowTop =
+                            doubleUpLastReleaseStartedBelowTop
+                                .getAndSet(false)
+
+                        val gap =
+                            now - previousRelease
+
+                        val isDoubleUp =
+                            previousRelease > 0L &&
+                                previousStartedBelowTop &&
+                                gap >= 0L &&
+                                gap <=
+                                    HOME_DOUBLE_UP_GAP_MS
+
+                        doubleUpCurrentPressEligible
+                            .set(!isDoubleUp)
+
+                        doubleUpCurrentPressStartedBelowTop
+                            .set(startedBelowTop)
+
+                        if (
+                            isDoubleUp &&
+                            firstRow != null
+                        ) {
+                            doubleUpCurrentPressEligible
+                                .set(false)
+
+                            doubleUpCurrentPressStartedBelowTop
+                                .set(false)
+
+                            doubleUpInProgress.set(true)
+
+                            suppressCatalogSelectionForDoubleUpRef
+                                .set(true)
+
+                            isFastScrollingRef.value =
+                                true
+
+                            fastScrollLandingVisualPendingRef
+                                .set(true)
+
+                            fastScrollLandingVisualPending =
+                                true
+
+                            focusedCatalogSelection =
+                                null
+
+                            expandedCatalogFocusKey =
+                                null
+
+                            doubleUpScope.launch {
+                                var handoffToCarousel =
+                                    false
+
+                                try {
+                                    val fullRowCount =
+                                        carouselRows.size
+
+                                    val layoutInfo =
+                                        verticalRowListState
+                                            .layoutInfo
+
+                                    val visibleItems =
+                                        layoutInfo
+                                            .visibleItemsInfo
+
+                                    val firstVisibleIndex =
+                                        verticalRowListState
+                                            .firstVisibleItemIndex
+
+                                    val lastVisibleIndex =
+                                        visibleItems
+                                            .lastOrNull()
+                                            ?.index
+                                            ?: firstVisibleIndex
+
+                                    val activeFullIndex =
+                                        carouselRows
+                                            .indexOfFirst {
+                                                it.key ==
+                                                    focusHolder
+                                                        .activeRowKey
+                                            }
+                                            .takeIf {
+                                                it >= 0
+                                            }
+                                            ?: firstVisibleIndex
+
+                                    val topKeepCount =
+                                        minOf(
+                                            HOME_DOUBLE_UP_TOP_RUNWAY_ROWS,
+                                            fullRowCount
+                                        )
+
+                                    /*
+                                     * Long trips only:
+                                     *
+                                     * Keep:
+                                     * - top six rows
+                                     * - three rows immediately above
+                                     *   the current viewport
+                                     * - every currently visible row
+                                     * - one row just below the viewport
+                                     *
+                                     * Everything between those two
+                                     * regions is removed BEFORE any
+                                     * visible scrolling starts.
+                                     */
+                                    val tailStart =
+                                        (
+                                            firstVisibleIndex -
+                                                HOME_DOUBLE_UP_LEAD_ROWS
+                                        ).coerceAtLeast(
+                                            topKeepCount
+                                        )
+
+                                    val tailEnd =
+                                        (
+                                            maxOf(
+                                                lastVisibleIndex,
+                                                activeFullIndex,
+                                                firstVisibleIndex
+                                            ) + 1
+                                        ).coerceAtMost(
+                                            fullRowCount - 1
+                                        )
+
+                                    val hasMiddleToCompress =
+                                        fullRowCount > 0 &&
+                                            tailStart >
+                                                topKeepCount &&
+                                            firstVisibleIndex >
+                                                topKeepCount +
+                                                    HOME_DOUBLE_UP_LEAD_ROWS +
+                                                    1
+
+                                    if (
+                                        hasMiddleToCompress
+                                    ) {
+                                        val compressedRows =
+                                            buildList {
+                                                addAll(
+                                                    carouselRows
+                                                        .take(
+                                                            topKeepCount
+                                                        )
+                                                )
+
+                                                addAll(
+                                                    carouselRows
+                                                        .subList(
+                                                            tailStart,
+                                                            tailEnd + 1
+                                                        )
+                                                )
+                                            }
+
+                                        doubleUpCompressedRows =
+                                            compressedRows
+
+                                        /*
+                                         * Let LazyColumn apply the
+                                         * keyed list change while the
+                                         * screen is stationary.
+                                         *
+                                         * The currently visible row
+                                         * keys remain present, so the
+                                         * viewport should stay visually
+                                         * anchored.
+                                         */
+                                        withFrameNanos { }
+
+                                        withFrameNanos { }
+                                    }
+
+                                    val velocityPxPerSecond =
+                                        with(
+                                            doubleUpDensity
+                                        ) {
+                                            HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC
+                                                .dp
+                                                .toPx()
+                                        }
+
+                                    /*
+                                     * ONE AND ONLY scroll mutation.
+                                     *
+                                     * There is no position reset or
+                                     * second scroll session in the
+                                     * middle.
+                                     */
+                                    verticalRowListState
+                                        .scroll {
+                                            var previousFrame:
+                                                Long? = null
+
+                                            while (
+                                                verticalRowListState
+                                                    .canScrollBackward
+                                            ) {
+                                                val frame =
+                                                    withFrameNanos {
+                                                        it
+                                                    }
+
+                                                val lastFrame =
+                                                    previousFrame
+
+                                                val dtSeconds =
+                                                    if (
+                                                        lastFrame ==
+                                                            null
+                                                    ) {
+                                                        1f / 60f
+                                                    } else {
+                                                        (
+                                                            (
+                                                                frame -
+                                                                    lastFrame
+                                                            ) /
+                                                                1_000_000_000f
+                                                        ).coerceIn(
+                                                            0f,
+                                                            0.048f
+                                                        )
+                                                    }
+
+                                                previousFrame =
+                                                    frame
+
+                                                val requested =
+                                                    -velocityPxPerSecond *
+                                                        dtSeconds
+
+                                                val consumed =
+                                                    scrollBy(
+                                                        requested
+                                                    )
+
+                                                if (
+                                                    kotlin.math.abs(
+                                                        consumed
+                                                    ) < 0.5f &&
+                                                    requested != 0f
+                                                ) {
+                                                    break
+                                                }
+                                            }
+                                        }
+
+                                    /*
+                                     * We are now visually at the real
+                                     * first row. Restore all omitted
+                                     * middle rows. They are inserted
+                                     * BELOW the six-row top runway, so
+                                     * the current top viewport does
+                                     * not move.
+                                     */
+                                    doubleUpCompressedRows =
+                                        null
+
+                                    withFrameNanos { }
+
+                                    verticalRowListState
+                                        .requestScrollToItem(
+                                            0,
+                                            0
+                                        )
+
+                                    val savedItemIndex =
+                                        (
+                                            uiCaches
+                                                .focusedItemByRow[
+                                                    firstRow.key
+                                                ]
+                                                ?: 0
+                                        ).coerceIn(
+                                            0,
+                                            (
+                                                firstRow.items.size -
+                                                    1
+                                            ).coerceAtLeast(0)
+                                        )
+
+                                    focusHolder.activeRowKey =
+                                        firstRow.key
+
+                                    focusHolder.activeItemIndex =
+                                        savedItemIndex
+
+                                    activeRowKey =
+                                        firstRow.key
+
+                                    activeItemIndex =
+                                        savedItemIndex
+
+                                    withFrameNanos { }
+
+                                    if (
+                                        aggregatePlatformsEnabled
+                                    ) {
+                                        /*
+                                         * Do not transfer focus yet.
+                                         * Finish every piece of the
+                                         * custom fast-scroll lifecycle
+                                         * first, then use the same
+                                         * handoff as normal Up.
+                                         */
+                                        handoffToCarousel =
+                                            true
+                                    } else {
+                                        if (
+                                            firstRow.items
+                                                .isNotEmpty()
+                                        ) {
+                                            pendingRowFocus.key =
+                                                firstRow.key
+
+                                            pendingRowFocus.index =
+                                                savedItemIndex
+
+                                            pendingRowFocus
+                                                .suppressBringIntoView =
+                                                false
+
+                                            pendingRowFocus.nonce++
+                                        } else if (
+                                            firstRow.isLoading
+                                        ) {
+                                            withFrameNanos { }
+
+                                            runCatching {
+                                                uiCaches
+                                                    .requesterFor(
+                                                        firstRow.key,
+                                                        "skeleton_0"
+                                                    )
+                                                    .requestFocus()
+                                            }
+                                        }
+                                    }
+                                } finally {
+                                    /*
+                                     * Always put the complete list
+                                     * back, including cancellation or
+                                     * unexpected focus loss.
+                                     */
+                                    doubleUpCompressedRows =
+                                        null
+
+                                    fastScrollLandingVisualPendingRef
+                                        .set(false)
+
+                                    fastScrollLandingVisualPending =
+                                        false
+
+                                    isFastScrollingRef.value =
+                                        false
+
+                                    doubleUpInProgress.set(false)
+
+                                    if (
+                                        handoffToCarousel
+                                    ) {
+                                        focusedCatalogSelection =
+                                            null
+
+                                        onCarouselOpenRequested()
+
+                                        runCatching {
+                                            carouselFocusRequester
+                                                .requestFocus()
+                                        }
+
+                                        /*
+                                         * Keep the synchronous guard
+                                         * armed through the handoff
+                                         * frame. Any queued row-focus
+                                         * or fast-scroll callback from
+                                         * the custom return therefore
+                                         * cannot reclaim catalog
+                                         * trailer ownership afterward.
+                                         */
+                                        withFrameNanos { }
+                                    }
+
+                                    suppressCatalogSelectionForDoubleUpRef
+                                        .set(false)
+                                }
+                            }
+
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                }
+
+                /*
+                 * Arm the first tap only on its physical release.
+                 */
+                if (
+                    doubleUpPlatformShortcutEnabled &&
+                    aggregatePlatformsEnabled &&
+                    native.action ==
+                        AndroidKeyEvent.ACTION_UP &&
+                    isUp
+                ) {
+                    val eligible =
+                        doubleUpCurrentPressEligible
+                            .getAndSet(false)
+
+                    val startedBelowTop =
+                        doubleUpCurrentPressStartedBelowTop
+                            .getAndSet(false)
+
+                    if (
+                        eligible &&
+                        startedBelowTop
+                    ) {
+                        doubleUpLastReleaseMs.set(
+                            android.os.SystemClock
+                                .elapsedRealtime()
+                        )
+
+                        doubleUpLastReleaseStartedBelowTop
+                            .set(true)
+                    } else {
+                        doubleUpLastReleaseMs.set(0L)
+
+                        doubleUpLastReleaseStartedBelowTop
+                            .set(false)
+                    }
+                }
+
+                /*
+                 * Existing normal/held D-pad behavior.
+                 */
+                if (
+                    native.action ==
+                        AndroidKeyEvent.ACTION_UP &&
+                    isDpad
+                ) {
+                    lastKeyUpTimeRef.set(
+                        System.currentTimeMillis()
+                    )
+
+                    isFastScrollingRef.value =
+                        false
+                }
+
+                if (
+                    native.action ==
+                        AndroidKeyEvent.ACTION_DOWN &&
+                    native.repeatCount > 0 &&
+                    isDpad
+                ) {
+                    isFastScrollingRef.value =
+                        true
+
+                    val now =
+                        System.currentTimeMillis()
+
+                    if (
+                        keyCode ==
+                            android.view.KeyEvent.KEYCODE_DPAD_UP ||
+                        keyCode ==
+                            android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                    ) {
+                        if (
+                            now -
+                                lastKeyRepeatTimeRef.get() <
+                                KEY_REPEAT_THROTTLE_MS
+                        ) {
+                            return@onPreviewKeyEvent true
+                        }
+
+                        lastKeyRepeatTimeRef.set(now)
+                    }
+                }
+
+                /*
+                 * Existing normal Up-from-first-row behavior.
+                 */
+                if (
+                    native.action ==
+                        AndroidKeyEvent.ACTION_DOWN &&
+                    isUp
+                ) {
+                    val isAtTopRow =
+                        carouselRows
+                            .firstOrNull()
+                            ?.let {
+                                focusHolder.activeRowKey ==
+                                    it.key
+                            } == true
+
+                    if (isAtTopRow) {
+                        if (
+                            isFastScrollingRef.value
+                        ) {
+                            return@onPreviewKeyEvent true
+                        }
+
+                        if (
+                            aggregatePlatformsEnabled
+                        ) {
+                            focusedCatalogSelection =
+                                null
+
+                            onCarouselOpenRequested()
+
+                            runCatching {
+                                carouselFocusRequester
+                                    .requestFocus()
+                            }
+
+                            return@onPreviewKeyEvent true
+                        }
+                    }
+                }
+
+                false
+            },
+        contentPadding = PaddingValues(bottom = rowsViewportHeight),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        itemsIndexed(
+            items = doubleUpRenderedRows,
+            key = { _, row -> row.key },
+            contentType = { _, _ -> "modern_home_row" }
+        ) { rowIndex, row ->
+            val stableOnContinueWatchingOptions = remember(Unit) {
+                { item: ContinueWatchingItem -> optionsItem = item }
+            }
+            val stableOnRequestCarouselFocus = remember(Unit) {
+                {
+                    if (aggregatePlatformsEnabled) {
+                        focusedCatalogSelection = null
+                        onCarouselOpenRequested()
+                        try { carouselFocusRequester.requestFocus() } catch (e: Exception) {}
+                    }
+                }
+            }
+            /*
+             * PATCH_CURRENT_ROW_SNAPSHOT_FOR_FOCUS_CALLBACK
+             *
+             * This lambda remains stable, but every lookup reads the
+             * latest row ordering through rememberUpdatedState.
+             */
+            val stableOnRowItemFocused = remember(Unit) {
+                { rowKey: String, index: Int, isContinueWatchingRow: Boolean, confirmedFocus: Boolean ->
+                    /*
+                     * Logical row focus updates also pass through this
+                     * callback so hero/navigation state can stay fast.
+                     * Only confirmedFocus may update state that is
+                     * specifically used as confirmed restoration focus.
+                     */
+
+                    if (confirmedFocus) {
+                        uiCaches.lastActuallyFocusedIndexByRow[
+                            rowKey
+                        ] = index
+
+                        /*
+                         * Publish the exact requester synchronously with
+                         * confirmed focus. The row-position cache maps
+                         * are not Compose snapshot state, so relying on
+                         * the derived global restorer alone can leave it
+                         * pointing at an older card in the same row.
+                         */
+                        val confirmedRow =
+                            currentCarouselRows.firstOrNull {
+                                it.key == rowKey
+                            }
+                        val confirmedItemKey =
+                            confirmedRow?.items
+                                ?.getOrNull(index)
+                                ?.key
+
+                        if (confirmedItemKey != null) {
+                            val confirmedRequester =
+                                uiCaches.requesterFor(
+                                    rowKey,
+                                    confirmedItemKey
+                                )
+
+                            rowFocusRestorerState.value =
+                                confirmedRequester
+                        }
+                    }
+                    /*
+                     * Phase 3B: actual destination focus is now the
+                     * complete fast-scroll landing signal.
+                     *
+                     * Keep fastScrollLandingVisualPending only until
+                     * this callback so the Phase-4 hero work can still
+                     * freeze the outgoing Hero during the handoff.
+                     */
+                    if (
+                        confirmedFocus &&
+                        !suppressCatalogSelectionForDoubleUpRef.get() &&
+                        fastScrollLandingVisualPendingRef
+                            .compareAndSet(
+                                true,
+                                false
+                            )
+                    ) {
+                        fastScrollLandingVisualPending =
+                            false
+
+                        fastScrollHeroCatchUpGeneration++
+                    }
+
+                    // If this row has no items (skeleton), clear focusedCatalogSelection
+                    // so the autoplay debounce timer doesn't fire for the previously
+                    // focused real item while the user is parked on a loading row.
+                    val activeRow = currentCarouselRows.firstOrNull { it.key == rowKey }
+                    if (activeRow != null && activeRow.items.isEmpty()) {
+                        focusedCatalogSelection = null
+                        expandedCatalogFocusKey = null
+                    }
+                    val rowBecameActive = focusHolder.activeRowKey != rowKey
+                    val itemChanged = focusHolder.activeItemIndex != index
+                    if (rowBecameActive || itemChanged) {
+                        val now = System.currentTimeMillis()
+                        val previousNavAt =
+                            lastHeroNavigationAtMsRef.get()
+                        val timeSinceLastHeroNav =
+                            now - previousNavAt
+
+                        /*
+                         * Official beta timing:
+                         *   <130 ms between focus changes -> 400 ms settle
+                         *   otherwise                       -> 450 ms settle
+                         */
+                        heroFocusSettleDelayMsRef.set(
+                            if (
+                                previousNavAt != 0L &&
+                                timeSinceLastHeroNav in
+                                    1 until
+                                        MODERN_HERO_RAPID_NAV_THRESHOLD_MS
+                            ) {
+                                MODERN_HERO_RAPID_NAV_SETTLE_MS
+                            } else {
+                                MODERN_HERO_NORMAL_SETTLE_MS
+                            }
+                        )
+
+                        /*
+                         * Official beta only treats repeated movement
+                         * inside the SAME row as rapid horizontal nav.
+                         * Row changes must not activate this freeze.
+                         */
+                        val rapidSameRowMove =
+                            !rowBecameActive &&
+                                itemChanged &&
+                                previousNavAt != 0L &&
+                                timeSinceLastHeroNav in 1..300L
+
+                        if (rapidSameRowMove) {
+                            if (
+                                !heroFrozenForRapidNav &&
+                                !isFastScrolling &&
+                                !heroFrozenForSlide
+                            ) {
+                                val outgoingRow =
+                                    currentCarouselRows.firstOrNull {
+                                        it.key ==
+                                            focusHolder.activeRowKey
+                                    }
+                                val outgoingHero =
+                                    outgoingRow?.items
+                                        ?.getOrNull(
+                                            focusHolder
+                                                .activeItemIndex
+                                        )
+                                        ?.heroPreview
+
+                                frozenHeroItem =
+                                    outgoingHero ?: heroItem
+                                frozenHeroItemRowKey =
+                                    focusHolder.activeRowKey
+                                        ?: heroItemRowKey
+                            }
+
+                            heroFrozenForRapidNav = true
+                        }
+
+                        lastHeroNavigationAtMsRef.set(now)
+                        lastHeroFocusChangeAtMsRef.set(now)
+
+                        focusHolder.activeRowKey = rowKey
+                        focusHolder.activeItemIndex = index
+                        activeRowKey = rowKey
+                        activeItemIndex = index
+                    }
+                    if (uiCaches.focusedItemByRow[rowKey] != index) {
+                        uiCaches.focusedItemByRow[rowKey] = index
+                        uiCaches.userInteractedRows.add(rowKey)
+                    }
+                    if (isContinueWatchingRow) {
+                        if (lastFocusedContinueWatchingIndexRef.get() != index) {
+                            lastFocusedContinueWatchingIndexRef.set(index)
+                        }
+                        /*
+                         * Continue Watching does not publish a
+                         * FocusedCatalogSelection. The settled Hero
+                         * pipeline owns the destination backdrop, so
+                         * only clear catalog trailer ownership here.
+                         */
+                        if (focusedCatalogSelection != null) {
+                            focusedCatalogSelection = null
+                        }
+                    }
+                }
+            }
+            val stableOnCatalogSelectionFocused = remember(Unit) {
+                { selection: FocusedCatalogSelection ->
+                    if (focusedCatalogSelection != selection) {
+                        focusedCatalogSelection = selection
+                    }
+                }
+            }
+            val stableOnPendingRowFocusCleared = remember(Unit) {
+                {
+                    pendingRowFocus.key = null
+                    pendingRowFocus.index = null
+                    pendingRowFocus.suppressBringIntoView = false
+                    Unit
+                }
+            }
+            val stableOnBackdropInteraction = remember(Unit) {
+                { expansionInteractionNonce++; Unit }
+            }
+            val stableOnExpandedCatalogFocusKeyChange = remember(Unit) {
+                { key: String? -> expandedCatalogFocusKey = key }
+            }
+            val rowExpandedFocusKey = expandedCatalogFocusKey
+            val rowHasExpanded by remember(row.key) {
+                derivedStateOf {
+                    val expandedKey = expandedCatalogFocusKey
+                    expandedKey != null && (
+                        row.items.any { (it.payload as? ModernPayload.Catalog)?.focusKey == expandedKey } ||
+                        expandedKey.startsWith(row.key + "::")
+                    )
+                }
+            }
+            ModernRowSection(
+                row = row,
+                myListSlotGeneration = myListSlotGeneration,
+                forceContinueWatchingRestoreToStart =
+                    forceContinueWatchingRestoreToStart,
+                showHeavyOverlays = true,
+                heavyOverlayAlpha =
+                    fullyVisibleOverlayAlphaState,
+                cardDepthAlpha =
+                    fullyVisibleOverlayAlphaState,
+                rowTitleBottom = rowTitleBottom,
+                hideNewSeasonBadge =
+                    hideNewSeasonBadge,
+                numberStyle = row.numberStyle,
+                isFirstRow = carouselRows.firstOrNull()?.key == row.key,
+                isSecondRow = carouselRows.getOrNull(1)?.key == row.key,
+                catalogSlideAnimatable = catalogSlideAlpha,
+                onRequestCarouselFocus = stableOnRequestCarouselFocus,
+                defaultBringIntoViewSpec = defaultBringIntoViewSpec,
+                focusStateCatalogRowScrollStates = focusStateCatalogRowScrollStates,
+                uiCaches = uiCaches,
+                pendingRowFocus = pendingRowFocus,
+                onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
+                onRowItemFocused = stableOnRowItemFocused,
+                useLandscapePosters = useLandscapePosters || row.key in landscapeCatalogKeys,
+                heroMetadataLarge =
+                    if (effectiveFullWidthIconRowEnabled) {
+                        heroMetadataLarge
+                    } else {
+                        true
+                    },
+                perCatalogLandscape = !useLandscapePosters && row.key in landscapeCatalogKeys,
+                showLabels = posterLabelsEnabled,
+                posterCardCornerRadius = posterCardCornerRadius,
+                focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
+                effectiveExpandEnabled = effectiveExpandEnabled,
+                effectiveAutoplayEnabled = effectiveAutoplayEnabled && row.items.isNotEmpty(),
+                expandLandscapePostersEnabled = expandLandscapePostersEnabled,
+                trailerPlaybackTarget = trailerPlaybackTarget,
+                expandedCatalogFocusKey = rowExpandedFocusKey,
+                expandedTrailerPreviewUrl = if (rowHasExpanded) expandedCatalogTrailerUrl else null,
+                expandedTrailerPreviewAudioUrl = if (rowHasExpanded) expandedCatalogTrailerAudioUrl else null,
+                modernCatalogCardWidth = if (useLandscapePosters || row.key in landscapeCatalogKeys) portraitBaseWidth * 1.24f * 1.34f else modernCatalogCardWidth,
+                modernCatalogCardHeight = if (useLandscapePosters || row.key in landscapeCatalogKeys) (portraitBaseWidth * 1.24f * 1.34f) / 1.77f else modernCatalogCardHeight,
+                landscapeTrailerExpandedHeight = portraitBaseHeight * 0.84f * 1.08f,
+                continueWatchingCardWidth = continueWatchingCardWidth,
+                continueWatchingCardHeight = continueWatchingCardHeight,
+                continueWatchingCardStyle = continueWatchingCardStyle,
+                onContinueWatchingClick = onContinueWatchingClick,
+                onContinueWatchingOptions = stableOnContinueWatchingOptions,
+                isCatalogItemWatched = isCatalogItemWatched,
+                onCatalogItemLongPress = onCatalogItemLongPress,
+                onItemFocus = gatedOnItemFocus,
+                onPreloadAdjacentItem = gatedOnPreloadAdjacentItem,
+                onCatalogSelectionFocused = gatedOnCatalogSelectionFocused,
+                onNavigateToDetail = wrappedOnNavigateToDetail,
+                onLoadMoreCatalog = onLoadMoreCatalog,
+                onBackdropInteraction = stableOnBackdropInteraction,
+                onExpandedCatalogFocusKeyChange = stableOnExpandedCatalogFocusKeyChange,
+                useThemeColorForNumbers = useThemeColorForNumbers
+            )
+        }
+    }
+}
+}
