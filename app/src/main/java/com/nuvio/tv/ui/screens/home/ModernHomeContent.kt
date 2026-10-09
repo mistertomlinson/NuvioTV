@@ -544,20 +544,9 @@ fun ModernHomeContent(
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
     val orderedItemKeysByRow = carouselLookups.orderedItemKeysByRow
     val activeCatalogItemIds = carouselLookups.activeCatalogItemIds
-    /*
-     * Keep a modest composition cushion around the visible vertical rows.
-     *
-     * Held-DPAD scrolling uses the full row renderer, so a small cache helps
-     * the next row finish composition before it physically enters the viewport
-     * without restoring Enhanced's former large 1.0 / 0.5 retention window.
-     */
-    @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+    // Use the standard adjacent-row prefetch strategy, matching the official
+    // Home list, while keeping Enhanced's saved scroll position and renderer.
     val verticalRowListState = rememberLazyListState(
-        cacheWindow =
-            androidx.compose.foundation.lazy.layout.LazyLayoutCacheWindow(
-                aheadFraction = 0.5f,
-                behindFraction = 0.25f
-            ),
         initialFirstVisibleItemIndex = focusState.verticalScrollIndex,
         initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
     )
