@@ -103,6 +103,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.tv.material3.Card
 
+private val CatalogRowControlDiameter = 40.dp
+
 @Composable
 fun CatalogOrderScreen(
     viewModel: CatalogOrderViewModel = hiltViewModel(),
@@ -794,7 +796,9 @@ private fun CatalogOrderCard(
         ) {
             Button(
                         onClick = onTogglePickup,
-                        modifier = Modifier.onPreviewKeyEvent { event ->
+                        modifier = Modifier
+                            .size(CatalogRowControlDiameter)
+                            .onPreviewKeyEvent { event ->
                             if (!isPickedUp) {
                                 return@onPreviewKeyEvent false
                             }
@@ -854,21 +858,8 @@ private fun CatalogOrderCard(
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
-                        border = ButtonDefaults.border(
-                            focusedBorder = Border(
-                                border = BorderStroke(
-                                    if (isPickedUp) 0.dp else 2.dp,
-                                    if (isPickedUp) Color.Transparent
-                                    else NuvioColors.FocusRing
-                                ),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                        ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                        contentPadding = PaddingValues(
-                            horizontal = 4.dp,
-                            vertical = 4.dp
-                        )
+                        shape = ButtonDefaults.shape(CircleShape),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
                         Canvas(modifier = Modifier.size(22.dp)) {
                             val stroke = 2.dp.toPx()
@@ -996,10 +987,25 @@ private fun CatalogOrderCard(
             ) {
                 Button(
                     onClick = onMoveToTop,
-                    modifier = Modifier.focusRequester(
-                        moveToTopFocusRequester
-                    ),
+                    modifier = Modifier
+                        .size(CatalogRowControlDiameter)
+                        .focusRequester(
+                            moveToTopFocusRequester
+                        ),
                     enabled = item.canMoveUp,
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(
+                                if (item.canMoveUp) 0.dp else 2.dp,
+                                if (item.canMoveUp) {
+                                    Color.Transparent
+                                } else {
+                                    NuvioColors.FocusRing
+                                }
+                            ),
+                            shape = CircleShape
+                        )
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
                         disabledContainerColor = SettingsGlassControlIdleColor,
@@ -1007,14 +1013,8 @@ private fun CatalogOrderCard(
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    shape = ButtonDefaults.shape(CircleShape),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = NuvioR.drawable.ic_move_to_top),
@@ -1025,7 +1025,23 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onMoveUp,
+                    modifier = Modifier.size(
+                        CatalogRowControlDiameter
+                    ),
                     enabled = item.canMoveUp,
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(
+                                if (item.canMoveUp) 0.dp else 2.dp,
+                                if (item.canMoveUp) {
+                                    Color.Transparent
+                                } else {
+                                    NuvioColors.FocusRing
+                                }
+                            ),
+                            shape = CircleShape
+                        )
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
                         disabledContainerColor = SettingsGlassControlIdleColor,
@@ -1033,14 +1049,8 @@ private fun CatalogOrderCard(
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    shape = ButtonDefaults.shape(CircleShape),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowUpward,
@@ -1051,7 +1061,23 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onMoveDown,
+                    modifier = Modifier.size(
+                        CatalogRowControlDiameter
+                    ),
                     enabled = item.canMoveDown,
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(
+                            border = BorderStroke(
+                                if (item.canMoveDown) 0.dp else 2.dp,
+                                if (item.canMoveDown) {
+                                    Color.Transparent
+                                } else {
+                                    NuvioColors.FocusRing
+                                }
+                            ),
+                            shape = CircleShape
+                        )
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor = SettingsGlassControlIdleColor,
                         disabledContainerColor = SettingsGlassControlIdleColor,
@@ -1059,14 +1085,8 @@ private fun CatalogOrderCard(
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    shape = ButtonDefaults.shape(CircleShape),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.ArrowDownward,
@@ -1077,6 +1097,9 @@ private fun CatalogOrderCard(
 
                 Button(
                     onClick = onToggleNumbered,
+                    modifier = Modifier.size(
+                        CatalogRowControlDiameter
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (
@@ -1091,14 +1114,8 @@ private fun CatalogOrderCard(
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
                     ),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    shape = ButtonDefaults.shape(CircleShape),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     val hashFont = when (item.numberStyle) {
                         com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE -> FontFamily(Font(R.font.sf_distant_galaxy_outline))
@@ -1122,6 +1139,9 @@ private fun CatalogOrderCard(
 
                 if (!globalLandscapeEnabled) Button(
                     onClick = onToggleLandscape,
+                    modifier = Modifier.size(
+                        CatalogRowControlDiameter
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (item.isLandscape) {
@@ -1133,14 +1153,8 @@ private fun CatalogOrderCard(
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
                     ),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    shape = ButtonDefaults.shape(CircleShape),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_landscape_poster),
@@ -1151,6 +1165,9 @@ private fun CatalogOrderCard(
 
                 if (!item.isGroup) Button(
                     onClick = onToggleShuffle,
+                    modifier = Modifier.size(
+                        CatalogRowControlDiameter
+                    ),
                     colors = ButtonDefaults.colors(
                         containerColor =
                             if (item.isShuffled) {
@@ -1162,14 +1179,8 @@ private fun CatalogOrderCard(
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.isShuffled) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
                     ),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                    ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp)
+                    shape = ButtonDefaults.shape(CircleShape),
+                    contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_shuffle_catalog),
@@ -1185,12 +1196,6 @@ private fun CatalogOrderCard(
                         contentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.TextSecondary,
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = if (item.isDisabled) NuvioColors.Success else NuvioColors.Error
-                    ),
-                    border = ButtonDefaults.border(
-                        focusedBorder = Border(
-                            border = BorderStroke(2.dp, NuvioColors.FocusRing),
-                            shape = RoundedCornerShape(12.dp)
-                        )
                     ),
                     shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
                 ) {
