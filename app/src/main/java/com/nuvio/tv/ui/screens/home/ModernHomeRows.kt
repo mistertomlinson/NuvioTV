@@ -136,6 +136,9 @@ import com.nuvio.tv.ui.components.nuvioCardDepth
 // frame; the card consumes it in place of its own width spring so width and
 // scroll position land in the same measure pass. Null = card animates itself
 // (mid-row expansion, or feature idle).
+internal val LocalExpandedCardTrailerPlayer =
+    androidx.compose.runtime.staticCompositionLocalOf<(() -> androidx.media3.exoplayer.ExoPlayer)?> { null }
+
 private val LocalAnchoredExpandSink =
     androidx.compose.runtime.compositionLocalOf<androidx.compose.runtime.State<((Float) -> Unit)?>> {
         androidx.compose.runtime.mutableStateOf(null)
@@ -2221,6 +2224,9 @@ private fun ModernCarouselCard(
 
                 // Layer 3: Trailer video — fill the 16:9 expanded media surface.
                 if (shouldPlayTrailerInCard) {
+                    // Resolve only when autoplay actually starts; ordinary
+                    // scrolling must not initialize another player.
+                    val expandedCardPlayer = LocalExpandedCardTrailerPlayer.current?.invoke()
                     TrailerPlayer(
                         trailerUrl = trailerPreviewUrl,
                         trailerAudioUrl = trailerPreviewAudioUrl,
@@ -2239,6 +2245,8 @@ private fun ModernCarouselCard(
                             homeTrailerPlayingState.value = true
                         },
                         cropToFill = true,
+                        externalPlayer = expandedCardPlayer,
+                        detachPlayerOnViewRelease = expandedCardPlayer != null,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -2573,7 +2581,6 @@ private fun isSelectKey(keyCode: Int): Boolean {
         keyCode == AndroidKeyEvent.KEYCODE_ENTER ||
         keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER
 }
-
 
 
 

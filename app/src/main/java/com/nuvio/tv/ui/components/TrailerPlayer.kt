@@ -56,6 +56,7 @@ fun TrailerPlayer(
     cropToFill: Boolean = false,
     overscanZoom: Float = 1f,
     externalPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
+    detachPlayerOnViewRelease: Boolean = false,
     modifier: Modifier = Modifier,
     enter: EnterTransition = fadeIn(animationSpec = tween(800)),
     exit: ExitTransition = fadeOut(animationSpec = tween(500))
@@ -268,6 +269,18 @@ fun TrailerPlayer(
             exit = exit
         ) {
             AndroidView(
+                onReset = null,
+                onRelease = { view ->
+                    if (detachPlayerOnViewRelease) {
+                        // A retained Home player must not retain the removed
+                        // view, listener, key callback, or TextureView surface.
+                        // Media3 only clears the surface if it still belongs
+                        // to this view, so a later card's surface stays intact.
+                        view.player = null
+                        view.setOnKeyListener(null)
+                        view.keepScreenOn = false
+                    }
+                },
                 factory = { ctx ->
                     (LayoutInflater.from(ctx).inflate(R.layout.trailer_player_view, null) as PlayerView).apply {
                         player = trailerPlayer

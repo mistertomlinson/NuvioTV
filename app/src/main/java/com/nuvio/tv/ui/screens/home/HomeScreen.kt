@@ -344,15 +344,11 @@ fun HomeScreen(
         }
 
     /*
-     * One authoritative visibility clock for the Coming Soon glass effect.
-     *
-     * The shell still uses AnimatedVisibility for its visual alpha, while this
-     * progress drives the actual Haze strength on the SAME timing:
-     *
-     *   enter: 0 -> 1 over 240ms
-     *   exit : 1 -> 0 over 300ms
-     *
-     * Therefore the blur cannot remain behind after the badge has disappeared.
+     * Strength follows the badge's entrance; the native blur is detached as
+     * soon as its label becomes inactive. Haze 0.7 draws the blurred region on
+     * the source, so AnimatedVisibility's child alpha cannot fade that region.
+     * Keeping hazeChild registered during exit leaves a blur-only ghost after
+     * the glass/text fade. The shell still keeps its existing 300ms exit.
      */
     val comingSoonGlassVisibilityProgress =
         remember(uiState.homeLoadSessionId) {
@@ -382,8 +378,9 @@ fun HomeScreen(
             )
         } else {
             /*
-             * Blur strength falls with the badge's 300ms exit fade.
-             * Remove the Haze source only after blur has reached zero.
+             * Keep entrance progress continuous if focus returns during exit.
+             * The child blur has already been detached at the label boundary;
+             * after the shell fades, remove the now-empty Haze source too.
              */
             comingSoonGlassVisibilityProgress.animateTo(
                 targetValue = 0f,
@@ -1077,7 +1074,8 @@ fun HomeScreen(
     }
 
     /*
-     * Fade the complete glass object as a unit.
+     * Fade the glass shell and text together. The source blur is detached at
+     * the label boundary because Haze 0.7 does not share this child's alpha.
      *
      * Width stretching remains the existing spring.
      * Title-to-title text changes remain the existing 160ms Crossfade.
@@ -1110,8 +1108,12 @@ fun HomeScreen(
                 text = displayText,
                 hazeState =
                     comingSoonGlassHazeState,
+                // Haze paints on the source independently of this shell's
+                // fade. Detach its child immediately when the label leaves.
                 blurEnabled =
-                    homePopupBlurEnabled,
+                    homePopupBlurEnabled &&
+                        comingSoonGlassText != null &&
+                        uiState.homeLayout == HomeLayout.MODERN,
                 glassVisibilityProgress =
                     comingSoonGlassVisibilityProgress.value,
                 useLandscapePosters =
@@ -1627,9 +1629,14 @@ private fun ModernHomeRoute(
         java.util.concurrent.atomic.AtomicBoolean(false)
     }
 
+    val expandedCardTrailerPlayer = remember(viewModel) {
+        { viewModel.homeTrailerPlayerHolder.expandedCardPlayer }
+    }
+
     CompositionLocalProvider(
         LocalNoBackdropImage provides uiState.focusedPosterNoBackdropImage,
-        LocalCarouselFocusRequester provides carouselFocusRequester
+        LocalCarouselFocusRequester provides carouselFocusRequester,
+        LocalExpandedCardTrailerPlayer provides expandedCardTrailerPlayer
     ) {
     ModernHomeContent(
         uiState = uiState,
@@ -1920,8 +1927,8 @@ private fun ComingSoonHomeGlassPill(
                  * keep the native blur strictly positive while the hazeChild
                  * exists, from 1dp at zero visibility to 30dp at full glass.
                  *
-                 * AnimatedVisibility reaches alpha 0 before the Haze source is
-                 * removed, so this 1dp floor is not visually left behind.
+                 * This node exists only while the label is active. Exit
+                 * detaches it before the glass/text fade can leave a ghost.
                  */
                 blurRadius =
                     (

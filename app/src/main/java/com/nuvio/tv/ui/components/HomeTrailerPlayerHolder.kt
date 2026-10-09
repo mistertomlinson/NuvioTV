@@ -14,7 +14,14 @@ import javax.inject.Singleton
 class HomeTrailerPlayerHolder @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    val player: ExoPlayer by lazy {
+    val player: ExoPlayer by lazy { createPlayer() }
+
+    // Expanded cards have a separate lifetime from the hero and popup players.
+    // Keep one lazy instance so leaving a card doesn't synchronously release
+    // ExoPlayer on the UI thread. TrailerPlayer still stops/clears each media item.
+    val expandedCardPlayer: ExoPlayer by lazy { createPlayer() }
+
+    private fun createPlayer(): ExoPlayer {
         val loadControl = DefaultLoadControl.Builder()
             .setBufferDurationsMs(
                 /* minBufferMs = */ 30_000,
@@ -23,7 +30,7 @@ class HomeTrailerPlayerHolder @Inject constructor(
                 /* bufferForPlaybackAfterRebufferMs = */ 10_000
             )
             .build()
-        ExoPlayer.Builder(context)
+        return ExoPlayer.Builder(context)
             .setLoadControl(loadControl)
             .setVideoChangeFrameRateStrategy(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF)
             .build()
