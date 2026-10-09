@@ -10,6 +10,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -110,6 +113,19 @@ import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassIdleColor
 import com.nuvio.tv.ui.components.glassDialogFocusTransform
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPillShape
 
+private val AddonRowControlDiameter = 40.dp
+
+private enum class AddonReorderFocus {
+    UP,
+    DOWN
+}
+
+private data class PendingAddonReorderFocus(
+    val baseUrl: String,
+    val targetIndex: Int,
+    val preferred: AddonReorderFocus
+)
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun AddonManagerScreen(
@@ -141,6 +157,41 @@ private fun AddonManagerScreenContent(
     val surfaceFocusRequester = remember { FocusRequester() }
     val manageFromPhoneFocusRequester = remember { FocusRequester() }
     val catalogOrderFocusRequester = remember { FocusRequester() }
+
+    /*
+     * Reorder controls need stable focus identities that follow the addon,
+     * not the row slot. The addon repository itself uses baseUrl as the
+     * reorder identity, so use the same identity here.
+     */
+    val addonMoveUpFocusRequesters = remember {
+        mutableMapOf<String, FocusRequester>()
+    }
+    val addonMoveDownFocusRequesters = remember {
+        mutableMapOf<String, FocusRequester>()
+    }
+    val addonBringIntoViewRequesters = remember {
+        mutableMapOf<String, BringIntoViewRequester>()
+    }
+    var pendingAddonReorderFocus by remember {
+        mutableStateOf<PendingAddonReorderFocus?>(null)
+    }
+
+    fun moveUpFocusRequester(baseUrl: String): FocusRequester =
+        addonMoveUpFocusRequesters.getOrPut(baseUrl) {
+            FocusRequester()
+        }
+
+    fun moveDownFocusRequester(baseUrl: String): FocusRequester =
+        addonMoveDownFocusRequesters.getOrPut(baseUrl) {
+            FocusRequester()
+        }
+
+    fun addonBringIntoViewRequester(
+        baseUrl: String
+    ): BringIntoViewRequester =
+        addonBringIntoViewRequesters.getOrPut(baseUrl) {
+            BringIntoViewRequester()
+        }
 
     /*
      * The Addons destination is removed from composition while one of its child
@@ -176,6 +227,100 @@ private fun AddonManagerScreenContent(
             textFieldFocusRequester.requestFocus()
             keyboardController?.show()
         }
+    }
+
+    LaunchedEffect(
+        uiState.installedAddons,
+        pendingAddonReorderFocus
+    ) {
+        val pending =
+            pendingAddonReorderFocus ?: return@LaunchedEffect
+
+        val currentIndex =
+            uiState.installedAddons.indexOfFirst { addon ->
+                addon.baseUrl == pending.baseUrl
+            }
+
+        /*
+         * Setting addon order is persisted asynchronously. Ignore the
+         * intermediate old list and restore focus only once the repository
+         * has emitted the requested order.
+         */
+        if (currentIndex != pending.targetIndex) {
+            return@LaunchedEffect
+        }
+
+        val requester =
+            when (pending.preferred) {
+                AddonReorderFocus.UP -> {
+                    if (currentIndex > 0) {
+                        moveUpFocusRequester(pending.baseUrl)
+                    } else {
+                        moveDownFocusRequester(pending.baseUrl)
+                    }
+                }
+
+                AddonReorderFocus.DOWN -> {
+                    if (
+                        currentIndex <
+                            uiState.installedAddons.lastIndex
+                    ) {
+                        moveDownFocusRequester(pending.baseUrl)
+                    } else {
+                        moveUpFocusRequester(pending.baseUrl)
+                    }
+                }
+            }
+
+        val bringIntoViewRequester =
+            addonBringIntoViewRequester(pending.baseUrl)
+
+        /*
+         * Give the keyed LazyColumn a few frames to move/reattach the row
+         * before requesting focus. Usually the first attempt succeeds.
+         */
+        var focusRestored = false
+
+        for (attempt in 0 until 4) {
+            withFrameNanos { }
+
+            focusRestored =
+                runCatching {
+                    requester.requestFocus()
+                }.getOrDefault(false)
+
+            if (focusRestored) {
+                break
+            }
+        }
+
+        /*
+         * Focus follows the stable addon identity, but LazyColumn does not
+         * necessarily move its viewport when that keyed item is reordered.
+         *
+         * Bring only the moved row back into the viewport. Unlike
+         * scrollToItem(), this preserves the current screen position as much
+         * as possible instead of snapping the addon to the top of the list.
+         */
+        if (focusRestored) {
+            for (attempt in 0 until 4) {
+                withFrameNanos { }
+
+                val broughtIntoView =
+                    try {
+                        bringIntoViewRequester.bringIntoView()
+                        true
+                    } catch (_: IllegalStateException) {
+                        false
+                    }
+
+                if (broughtIntoView) {
+                    break
+                }
+            }
+        }
+
+        pendingAddonReorderFocus = null
     }
 
     val requestRememberedFocus = {
@@ -476,8 +621,15 @@ private fun AddonManagerScreenContent(
             } else {
                 itemsIndexed(
                     items = uiState.installedAddons,
-                    key = { index, addon -> "${addon.id}:${addon.baseUrl}:$index" }
+                    key = { _, addon -> addon.baseUrl }
                 ) { index, addon ->
+                    val moveUpRequester =
+                        moveUpFocusRequester(addon.baseUrl)
+                    val moveDownRequester =
+                        moveDownFocusRequester(addon.baseUrl)
+                    val rowBringIntoViewRequester =
+                        addonBringIntoViewRequester(addon.baseUrl)
+
                     AddonCard(
                         addon = addon,
                         groupPosition =
@@ -492,10 +644,33 @@ private fun AddonManagerScreenContent(
                                     SettingsGroupPosition.MIDDLE
                             },
                         canMoveUp = index > 0,
-                        canMoveDown = index < uiState.installedAddons.lastIndex,
-                        onMoveUp = { viewModel.moveAddonUp(addon.baseUrl) },
-                        onMoveDown = { viewModel.moveAddonDown(addon.baseUrl) },
-                        onRemove = { viewModel.removeAddon(addon.baseUrl) },
+                        canMoveDown =
+                            index < uiState.installedAddons.lastIndex,
+                        moveUpFocusRequester = moveUpRequester,
+                        moveDownFocusRequester = moveDownRequester,
+                        bringIntoViewRequester =
+                            rowBringIntoViewRequester,
+                        onMoveUp = {
+                            pendingAddonReorderFocus =
+                                PendingAddonReorderFocus(
+                                    baseUrl = addon.baseUrl,
+                                    targetIndex = index - 1,
+                                    preferred = AddonReorderFocus.UP
+                                )
+                            viewModel.moveAddonUp(addon.baseUrl)
+                        },
+                        onMoveDown = {
+                            pendingAddonReorderFocus =
+                                PendingAddonReorderFocus(
+                                    baseUrl = addon.baseUrl,
+                                    targetIndex = index + 1,
+                                    preferred = AddonReorderFocus.DOWN
+                                )
+                            viewModel.moveAddonDown(addon.baseUrl)
+                        },
+                        onRemove = {
+                            viewModel.removeAddon(addon.baseUrl)
+                        },
                         isReadOnly = viewModel.isReadOnly
                     )
                 }
@@ -547,16 +722,15 @@ private fun AddonMessageOverlay(
             exit = fadeOut()
         ) {
             val visibleMessage = message ?: return@AnimatedVisibility
-            Surface(
-                onClick = { },
-                colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (isError) {
+            Box(
+                modifier = Modifier.background(
+                    color = if (isError) {
                         Color(0xFFC62828).copy(alpha = 0.92f)
                     } else {
                         Color(0xFF2E7D32).copy(alpha = 0.92f)
-                    }
-                ),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp))
+                    },
+                    shape = RoundedCornerShape(12.dp)
+                )
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -1103,6 +1277,9 @@ private fun AddonCard(
     groupPosition: SettingsGroupPosition,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
+    moveUpFocusRequester: FocusRequester,
+    moveDownFocusRequester: FocusRequester,
+    bringIntoViewRequester: BringIntoViewRequester,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
     onRemove: () -> Unit,
@@ -1127,12 +1304,18 @@ private fun AddonCard(
             ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f)
         ) {
-            AddonCardContent(addon = addon, isReadOnly = true)
+            AddonCardContent(
+                addon = addon,
+                isReadOnly = true,
+                moveUpFocusRequester = moveUpFocusRequester,
+                moveDownFocusRequester = moveDownFocusRequester
+            )
         }
     } else {
         Card(
             modifier = Modifier
                 .fillMaxWidth()
+                .bringIntoViewRequester(bringIntoViewRequester)
                 .animateContentSize(),
             colors = CardDefaults.cardColors(
                 containerColor = SettingsRightSurfaceColor
@@ -1144,6 +1327,8 @@ private fun AddonCard(
                 isReadOnly = false,
                 canMoveUp = canMoveUp,
                 canMoveDown = canMoveDown,
+                moveUpFocusRequester = moveUpFocusRequester,
+                moveDownFocusRequester = moveDownFocusRequester,
                 onMoveUp = onMoveUp,
                 onMoveDown = onMoveDown,
                 onRemove = onRemove
@@ -1157,6 +1342,8 @@ private fun AddonCard(
 private fun AddonCardContent(
     addon: Addon,
     isReadOnly: Boolean,
+    moveUpFocusRequester: FocusRequester,
+    moveDownFocusRequester: FocusRequester,
     canMoveUp: Boolean = false,
     canMoveDown: Boolean = false,
     onMoveUp: () -> Unit = {},
@@ -1188,7 +1375,25 @@ private fun AddonCardContent(
                 ) {
                     Button(
                         onClick = onMoveUp,
+                        modifier = Modifier
+                            .size(AddonRowControlDiameter)
+                            .focusRequester(
+                                moveUpFocusRequester
+                            ),
                         enabled = canMoveUp,
+                        border = ButtonDefaults.border(
+                            focusedBorder = Border(
+                                border = BorderStroke(
+                                    if (canMoveUp) 0.dp else 2.dp,
+                                    if (canMoveUp) {
+                                        Color.Transparent
+                                    } else {
+                                        NuvioColors.FocusRing
+                                    }
+                                ),
+                                shape = CircleShape
+                            )
+                        ),
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsGlassControlIdleColor,
                             disabledContainerColor = SettingsGlassControlIdleColor,
@@ -1196,11 +1401,8 @@ private fun AddonCardContent(
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                        contentPadding = PaddingValues(
-                            horizontal = 10.dp,
-                            vertical = 5.dp
-                        )
+                        shape = ButtonDefaults.shape(CircleShape),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowUpward,
@@ -1210,7 +1412,25 @@ private fun AddonCardContent(
                     }
                     Button(
                         onClick = onMoveDown,
+                        modifier = Modifier
+                            .size(AddonRowControlDiameter)
+                            .focusRequester(
+                                moveDownFocusRequester
+                            ),
                         enabled = canMoveDown,
+                        border = ButtonDefaults.border(
+                            focusedBorder = Border(
+                                border = BorderStroke(
+                                    if (canMoveDown) 0.dp else 2.dp,
+                                    if (canMoveDown) {
+                                        Color.Transparent
+                                    } else {
+                                        NuvioColors.FocusRing
+                                    }
+                                ),
+                                shape = CircleShape
+                            )
+                        ),
                         colors = ButtonDefaults.colors(
                             containerColor = SettingsGlassControlIdleColor,
                             disabledContainerColor = SettingsGlassControlIdleColor,
@@ -1218,11 +1438,8 @@ private fun AddonCardContent(
                             focusedContainerColor = SettingsGlassRowFocusedColor,
                             focusedContentColor = NuvioColors.Primary
                         ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(12.dp)),
-                        contentPadding = PaddingValues(
-                            horizontal = 10.dp,
-                            vertical = 5.dp
-                        )
+                        shape = ButtonDefaults.shape(CircleShape),
+                        contentPadding = PaddingValues(0.dp)
                     ) {
                         Icon(
                             imageVector = Icons.Default.ArrowDownward,
