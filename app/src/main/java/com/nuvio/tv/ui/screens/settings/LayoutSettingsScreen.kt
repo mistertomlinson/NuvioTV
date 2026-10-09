@@ -1139,7 +1139,11 @@ private fun CollapsibleSectionCard(
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(
-            if (expanded) SettingsRowGap else 0.dp
+            if (expanded || deferBottomCorner) {
+                SettingsRowGap
+            } else {
+                0.dp
+            }
         )
     ) {
         SettingsActionRow(
