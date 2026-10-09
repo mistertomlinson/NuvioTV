@@ -20,7 +20,7 @@ This removes repeated player construction and synchronous full release. It does 
 
 Three owned-player baseline traces used the same two vertical moves between Dystopian Worlds Colliding (V for Vendetta) and Suspenseful Cosmic Encounters (The Answer). Screenshots immediately before each key confirmed video had rendered in the expanded card. Each measurement window begins at the first key dispatch and lasts one second. No sidebar, blurred Coming Soon row, or adjacent row occurs in these windows. Screen recordings were used separately for the badge and did not run during the traces.
 
-Baseline longest Compose disposal slices (ms): Down 50.23 / 48.88 / 42.21; Up 23.42 / 22.39 / 21.55. These are whole Compose:onForgotten slices and include disposal work beyond the ExoPlayer release itself. 
+Baseline longest Compose disposal slices (ms): Down 50.23 / 48.88 / 42.21; Up 23.42 / 22.39 / 21.55. These are whole Compose:onForgotten slices and include disposal work beyond the ExoPlayer release itself.
 
 ## Release results and interpretation
 
@@ -48,6 +48,8 @@ Player logs confirmed one hero instance and one reusable expanded-card instance 
 - Only Home expanded-card player ownership and removal cleanup changed. Hero, popup, full playback, credits, login, watch-state, and focus/preservation policies were not rewritten.
 
 ## Tested APK
+
+App source commit: `0eecca04714d0d57dddc0d4bce60609c00aaea89`.
 
 `Nuvio-Enhanced-home-trailer-badge-20261009-universal.apk`
 
