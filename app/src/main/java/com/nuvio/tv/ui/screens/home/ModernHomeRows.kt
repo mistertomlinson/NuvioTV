@@ -1123,7 +1123,9 @@ internal fun ModernRowSection(
                             } else false
                         } else false
                     }
-                    .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L),
+                    // Match the official Home gate. At a 50 ms native repeat
+                    // cadence, a 100 ms cutoff can alternate 100/150 ms steps.
+                    .dpadRepeatThrottle(horizontalGateMs = 80L, verticalGateMs = 100L),
                 contentPadding = PaddingValues(start = numberedRowStartPadding, end = animatedEndPadding),
                 horizontalArrangement = Arrangement.spacedBy(numberedRowSpacing)
             ) {
@@ -1418,7 +1420,7 @@ private fun ModernSkeletonRow(
                     }
                 } else false
             }
-            .dpadRepeatThrottle(horizontalGateMs = 100L, verticalGateMs = 100L)
+            .dpadRepeatThrottle(horizontalGateMs = 80L, verticalGateMs = 100L)
             .focusRestorer { skeletonFallbackRequester },
         contentPadding = PaddingValues(start = rowStartPadding, end = rowStartPadding),
         horizontalArrangement = Arrangement.spacedBy(spacing)
