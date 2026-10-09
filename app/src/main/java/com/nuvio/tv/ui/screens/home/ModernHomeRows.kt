@@ -456,6 +456,7 @@ internal fun ModernRowSection(
     row: HeroCarouselRow,
     myListSlotGeneration: Int = 0,
     forceContinueWatchingRestoreToStart: Boolean = false,
+    continueWatchingRestoreTargetIndex: Int = 0,
     showHeavyOverlays: Boolean = true,
     heavyOverlayAlpha: State<Float>,
     cardDepthAlpha: State<Float>,
@@ -535,7 +536,11 @@ internal fun ModernRowSection(
                 row.key == "continue_watching" &&
                 forceContinueWatchingRestoreToStart
             ) {
-                0
+                continueWatchingRestoreTargetIndex
+                    .coerceIn(
+                        0,
+                        row.items.lastIndex
+                    )
             } else {
                 (
                     uiCaches
@@ -1132,13 +1137,25 @@ internal fun ModernRowSection(
                 itemsIndexed(
                     items = row.items,
                     key = { index, item ->
-                        if (
+                        when {
                             row.key ==
-                                HomeViewModel.MY_LIST_CATALOG_KEY
-                        ) {
-                            "${row.key}::slot::$myListSlotGeneration::$index"
-                        } else {
-                            item.key
+                                HomeViewModel.MY_LIST_CATALOG_KEY -> {
+                                "${row.key}::slot::$myListSlotGeneration::$index"
+                            }
+
+                            row.key == "continue_watching" -> {
+                                /*
+                                 * Preserve title identity only while it remains
+                                 * in the same physical slot. A structural CW
+                                 * move must recreate the focus node so the row
+                                 * focusRestorer cannot resurrect the old slot.
+                                 */
+                                "${item.key}::slot::$index"
+                            }
+
+                            else -> {
+                                item.key
+                            }
                         }
                     },
                     contentType = { _, item ->

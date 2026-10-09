@@ -1130,6 +1130,11 @@ fun NuvioNavHost(
                     ?.getString("returnToHomeOnBack")
                     ?.toBooleanStrictOrNull() == true
 
+            val playerReturnToDetailOnBack =
+                backStackEntry.arguments
+                    ?.getString("returnToDetailOnBack")
+                    ?.toBooleanStrictOrNull() == true
+
             val homeEntryForPlayerReturn =
                 runCatching {
                     navController.getBackStackEntry(Screen.Home.route)
@@ -1141,6 +1146,53 @@ fun NuvioNavHost(
                 }
 
             PlayerScreen(
+                onBeforeNormalHomeExit = { expectFreshSave ->
+                    /*
+                     * Only CW-origin playback gets the CW pre-reveal settle
+                     * transaction.
+                     *
+                     * A normal Home catalog item can also eventually return
+                     * directly to Home. Navigation shape alone therefore is
+                     * not enough to identify a CW return.
+                     *
+                     * Home's saved focus state is the existing authority for
+                     * which row actually launched playback.
+                     */
+                    val previousRoute =
+                        navController
+                            .previousBackStackEntry
+                            ?.destination
+                            ?.route
+
+                    val savedHomeFocus =
+                        homeViewModelForPlayerReturn
+                            ?.focusState
+                            ?.value
+
+                    val originatedFromContinueWatching =
+                        savedHomeFocus?.hasSavedFocus == true &&
+                            (
+                                savedHomeFocus.focusedRowKey ==
+                                    "continue_watching" ||
+                                    (
+                                        savedHomeFocus.focusedRowKey == null &&
+                                            savedHomeFocus.focusedRowIndex == -1
+                                    )
+                            )
+
+                    if (
+                        originatedFromContinueWatching &&
+                        playerReturnToHomeOnBack &&
+                        !playerReturnToDetailOnBack &&
+                        previousRoute == Screen.Home.route
+                    ) {
+                        homeViewModelForPlayerReturn
+                            ?.armPlayerReturnCwTransaction(
+                                expectFreshSave =
+                                    expectFreshSave
+                            )
+                    }
+                },
                 onBeforePostPlayHomeExit = { expectFreshSave ->
                     // Post-play Back always returns directly to Home.
                     homeViewModelForPlayerReturn

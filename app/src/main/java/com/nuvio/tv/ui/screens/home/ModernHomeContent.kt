@@ -171,6 +171,48 @@ private fun cinematicBackdropIdentity(url: String?): String? {
     }
 }
 
+/*
+ * Continue Watching has two different structural-change semantics:
+ *
+ * 1. Reorder/update:
+ *    The focused title still exists, so focus follows that title.
+ *
+ * 2. Removal:
+ *    The focused title no longer exists, so preserve its numeric slot.
+ *    That keeps focus on the card that replaced the removed card.
+ *
+ * This runs only when CW's stable title sequence changes. It is not on the
+ * normal D-pad/scroll path.
+ */
+private fun resolveContinueWatchingStructuralFocusIndex(
+    previousKeys: List<String>,
+    currentKeys: List<String>,
+    previousFocusedIndex: Int
+): Int {
+    if (currentKeys.isEmpty()) {
+        return 0
+    }
+
+    val previousFocusedKey =
+        previousKeys.getOrNull(previousFocusedIndex)
+
+    val followedIndex =
+        if (previousFocusedKey != null) {
+            currentKeys.indexOf(previousFocusedKey)
+        } else {
+            -1
+        }
+
+    return if (followedIndex >= 0) {
+        followedIndex
+    } else {
+        previousFocusedIndex.coerceIn(
+            0,
+            currentKeys.lastIndex
+        )
+    }
+}
+
 @Composable
 fun ModernHomeContent(
     uiState: HomeUiState,
@@ -802,14 +844,30 @@ fun ModernHomeContent(
                     uiState.continueWatchingItems.isNotEmpty()
             )
 
-    val forceContinueWatchingRestoreToStart =
-        !restoredFromSavedState &&
+    val continueWatchingRestoreTargetIndex =
+        if (
+            !restoredFromSavedState &&
             focusState.hasSavedFocus &&
             savedFocusTargetsContinueWatching &&
             focusState.continueWatchingOrderKeys.isNotEmpty() &&
             currentContinueWatchingOrderKeys.isNotEmpty() &&
             focusState.continueWatchingOrderKeys !=
                 currentContinueWatchingOrderKeys
+        ) {
+            resolveContinueWatchingStructuralFocusIndex(
+                previousKeys =
+                    focusState.continueWatchingOrderKeys,
+                currentKeys =
+                    currentContinueWatchingOrderKeys,
+                previousFocusedIndex =
+                    focusState.focusedItemIndex
+            )
+        } else {
+            null
+        }
+
+    val forceContinueWatchingRestoreToStart =
+        continueWatchingRestoreTargetIndex != null
 
     /*
      * PATCH_DETAILS_RETURN_EXACT_FOCUS_PRIORITY
@@ -1423,7 +1481,14 @@ fun ModernHomeContent(
 
             val resolvedIndex =
                 if (continueWatchingChangedSinceSave) {
-                    0
+                    resolveContinueWatchingStructuralFocusIndex(
+                        previousKeys =
+                            focusState.continueWatchingOrderKeys,
+                        currentKeys =
+                            currentContinueWatchingOrderKeys,
+                        previousFocusedIndex =
+                            focusState.focusedItemIndex
+                    )
                 } else {
                     focusState.focusedItemIndex
                         .coerceAtLeast(0)
@@ -1445,7 +1510,7 @@ fun ModernHomeContent(
                 )
 
                 rowListStates[resolvedRow.key]
-                    ?.scrollToItem(0, 0)
+                    ?.scrollToItem(resolvedIndex, 0)
                 lastHandledContinueWatchingOrderKeys =
                     currentContinueWatchingOrderKeys
             }
@@ -1549,7 +1614,54 @@ fun ModernHomeContent(
             return@LaunchedEffect
         }
 
-        val targetIndex = 0
+        val continueWatchingOwnsFocus =
+            focusHolder.activeRowKey ==
+                continueWatchingRow.key &&
+                !isCarouselFocused
+
+        val previousFocusedIndex =
+            (
+                if (continueWatchingOwnsFocus) {
+                    focusHolder.activeItemIndex
+                } else {
+                    uiCaches
+                        .lastActuallyFocusedIndexByRow[
+                            continueWatchingRow.key
+                        ]
+                        ?: focusedItemByRow[
+                            continueWatchingRow.key
+                        ]
+                        ?: 0
+                }
+            ).coerceAtLeast(0)
+
+        val targetIndex =
+            if (continueWatchingOwnsFocus) {
+                /*
+                 * CW owns focus:
+                 *
+                 * - a surviving title follows its identity through a reorder
+                 * - a removed title leaves focus on the same numeric slot
+                 */
+                resolveContinueWatchingStructuralFocusIndex(
+                    previousKeys = previousKeys,
+                    currentKeys =
+                        currentContinueWatchingOrderKeys,
+                    previousFocusedIndex =
+                        previousFocusedIndex
+                )
+            } else {
+                /*
+                 * CW is inactive.
+                 *
+                 * A fresh playback can insert a new title at the head while
+                 * the user actually belongs to another Home row. Do not carry
+                 * an old remembered CW title forward in that situation.
+                 *
+                 * Prepare CW at its newest item without requesting focus.
+                 */
+                0
+            }
 
         uiCaches.lastActuallyFocusedIndexByRow.remove(
             continueWatchingRow.key
@@ -1560,12 +1672,7 @@ fun ModernHomeContent(
 
         rowListStates[
             continueWatchingRow.key
-        ]?.scrollToItem(0, 0)
-
-        val continueWatchingOwnsFocus =
-            focusHolder.activeRowKey ==
-                continueWatchingRow.key &&
-                !isCarouselFocused
+        ]?.scrollToItem(targetIndex, 0)
 
         if (continueWatchingOwnsFocus) {
             focusHolder.activeItemIndex =
@@ -2144,6 +2251,22 @@ fun ModernHomeContent(
             val focusedItemIndex =
                 if (navigationSnapshotSaved) {
                     navigationSnapshotFocusedItemIndexRef.get()
+                } else if (
+                    row?.key == "continue_watching"
+                ) {
+                    /*
+                     * CW playback can leave Home directly rather than through
+                     * wrappedOnNavigateToDetail's synchronous navigation
+                     * snapshot.
+                     *
+                     * lastActuallyFocusedIndexByRow is updated synchronously
+                     * by the real focused card. Prefer it here so a Compose
+                     * active-index update that is still one frame behind
+                     * cannot save the previously focused CW slot.
+                     */
+                    uiCaches.lastActuallyFocusedIndexByRow[
+                        row.key
+                    ] ?: latestActiveItemIndex
                 } else {
                     latestActiveItemIndex
                 }
@@ -2600,7 +2723,8 @@ fun ModernHomeContent(
         val focusRestorerRequester by remember(
             carouselRows,
             uiCaches,
-            forceContinueWatchingRestoreToStart
+            forceContinueWatchingRestoreToStart,
+            continueWatchingRestoreTargetIndex
         ) {
             derivedStateOf {
                 val rowKey = activeRowKey
@@ -2611,7 +2735,8 @@ fun ModernHomeContent(
                             rowKey == "continue_watching" &&
                             forceContinueWatchingRestoreToStart
                         ) {
-                            0
+                            continueWatchingRestoreTargetIndex
+                                ?: 0
                         } else {
                             uiCaches.lastActuallyFocusedIndexByRow[rowKey]
                             ?: uiCaches.focusedItemByRow[rowKey]
@@ -4062,6 +4187,8 @@ fun ModernHomeContent(
                     myListSlotGeneration,
                 forceContinueWatchingRestoreToStart =
                     forceContinueWatchingRestoreToStart,
+                continueWatchingRestoreTargetIndex =
+                    continueWatchingRestoreTargetIndex ?: 0,
                 posterCardCornerRadius =
                     posterCardCornerRadius,
                 portraitBaseWidth =
@@ -4245,6 +4372,7 @@ private fun EnhancedModernHomeRowsListBoundary(
         androidx.compose.runtime.State<Float>,
     myListSlotGeneration: Int,
     forceContinueWatchingRestoreToStart: Boolean,
+    continueWatchingRestoreTargetIndex: Int,
     posterCardCornerRadius: androidx.compose.ui.unit.Dp,
     portraitBaseWidth: androidx.compose.ui.unit.Dp,
     portraitBaseHeight: androidx.compose.ui.unit.Dp,
@@ -5419,6 +5547,8 @@ private fun EnhancedModernHomeRowsListBoundary(
                 myListSlotGeneration = myListSlotGeneration,
                 forceContinueWatchingRestoreToStart =
                     forceContinueWatchingRestoreToStart,
+                continueWatchingRestoreTargetIndex =
+                    continueWatchingRestoreTargetIndex,
                 showHeavyOverlays = true,
                 heavyOverlayAlpha =
                     fullyVisibleOverlayAlphaState,

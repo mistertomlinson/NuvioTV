@@ -124,6 +124,7 @@ fun PlayerScreen(
     onPlaybackEnded: ((nextVideoId: String?, nextSeason: Int?, nextEpisode: Int?) -> Unit)? = null,
     onPostPlayBackPress: (() -> Unit)? = null,
     onPostPlayRecommendationSelected: ((PostPlayRecommendation, Boolean) -> Unit)? = null,
+    onBeforeNormalHomeExit: (Boolean) -> Unit = {},
     onBeforePostPlayHomeExit: (Boolean) -> Unit = {},
     onBeforeRatingHomeExit: (Boolean) -> Unit = {}
 ) {
@@ -145,8 +146,21 @@ fun PlayerScreen(
     val postPlayFocusRequester = remember { FocusRequester() }
     val postPlayPlayerFocusRequester = remember { FocusRequester() }
     val exitPlayer: () -> Unit = {
+        /*
+         * Arm a Home-bound CW settle transaction BEFORE release can publish
+         * the fresh playback event. NavHost makes this a no-op unless this
+         * exact Player Back will return directly to Home.
+         */
+        onBeforeNormalHomeExit(
+            viewModel.willPublishCwProgressOnRelease()
+        )
         viewModel.stopAndReleaseForUserExit()
-        onBackPress(uiState.currentSeason, uiState.currentEpisode, uiState.streamAutoPlayMode != StreamAutoPlayMode.MANUAL)
+        onBackPress(
+            uiState.currentSeason,
+            uiState.currentEpisode,
+            uiState.streamAutoPlayMode !=
+                StreamAutoPlayMode.MANUAL
+        )
     }
     val exitPlayerFromError: () -> Unit = {
         viewModel.stopAndRelease()
