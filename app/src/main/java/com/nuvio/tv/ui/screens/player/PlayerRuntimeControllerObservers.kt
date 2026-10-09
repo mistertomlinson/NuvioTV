@@ -259,26 +259,75 @@ internal fun PlayerRuntimeController.observeSubtitleSettings() {
     }
 }
 
-internal fun PlayerRuntimeController.loadSavedProgressFor(season: Int?, episode: Int?) {
-    if (contentId == null) return
-    
-    scope.launch {
+internal suspend fun PlayerRuntimeController.loadSavedProgressSnapshotFor(
+    season: Int?,
+    episode: Int?
+) {
+    if (contentId == null) {
         pendingResumeProgress = null
-        val progress = if (season != null && episode != null) {
-            watchProgressRepository.getEpisodeProgress(contentId, season, episode).firstOrNull()
+        return
+    }
+
+    pendingResumeProgress = null
+
+    val progress =
+        if (season != null && episode != null) {
+            watchProgressRepository
+                .getEpisodeProgress(
+                    contentId,
+                    season,
+                    episode
+                )
+                .firstOrNull()
         } else {
-            watchProgressRepository.getProgress(contentId).firstOrNull()
+            watchProgressRepository
+                .getProgress(contentId)
+                .firstOrNull()
         }
-        
-        progress?.let { saved ->
-            
-            if (saved.isInProgress()) {
-                pendingResumeProgress = saved
-                _exoPlayer?.let { player ->
-                    if (player.playbackState == Player.STATE_READY) {
-                        tryApplyPendingResumeProgress(player)
-                    }
-                }
+
+    progress?.let { saved ->
+        /*
+         * Resume eligibility is intentionally different from
+         * Continue Watching eligibility.
+         *
+         * A real saved playback position remains resumable even
+         * below WatchProgress.isInProgress()'s percentage threshold.
+         */
+        val hasResumePoint =
+            saved.position > 0L ||
+                (saved.progressPercent ?: 0f) > 0f
+
+        if (
+            hasResumePoint &&
+            !saved.isCompleted()
+        ) {
+            pendingResumeProgress = saved
+        }
+    }
+}
+
+internal fun PlayerRuntimeController.loadSavedProgressFor(
+    season: Int?,
+    episode: Int?
+) {
+    scope.launch {
+        loadSavedProgressSnapshotFor(
+            season = season,
+            episode = episode
+        )
+
+        /*
+         * Preserve the existing behavior for non-initial callers:
+         * if a live player is already READY, apply the newly loaded
+         * resume snapshot immediately.
+         */
+        _exoPlayer?.let { player ->
+            if (
+                pendingResumeProgress != null &&
+                player.playbackState ==
+                    androidx.media3.common.Player.STATE_READY
+            ) {
+                tryApplyPendingResumeProgress(player)
             }
         }
     }
@@ -332,27 +381,46 @@ internal fun PlayerRuntimeController.fetchSkipIntervals(id: String?, season: Int
     }
 }
 
-internal fun PlayerRuntimeController.tryApplyPendingResumeProgress(player: Player) {
+internal fun PlayerRuntimeController.tryApplyPendingResumeProgress(
+    player: Player
+) {
     val saved = pendingResumeProgress ?: return
+
     if (!player.isCurrentMediaItemSeekable) {
         pendingResumeProgress = null
-        _uiState.update { it.copy(pendingSeekPosition = null) }
+        _uiState.update {
+            it.copy(
+                pendingSeekPosition = null
+            )
+        }
         return
     }
+
     val duration = player.duration
+
     val target = when {
-        duration > 0L -> saved.resolveResumePosition(duration)
-        saved.position > 0L -> saved.position
-        else -> 0L
+        duration > 0L ->
+            saved.resolveResumePosition(duration)
+
+        saved.position > 0L ->
+            saved.position
+
+        else ->
+            0L
     }
 
     if (target > 0L) {
         player.seekTo(target)
-        _uiState.update { it.copy(pendingSeekPosition = null) }
+
+        _uiState.update {
+            it.copy(
+                pendingSeekPosition = null
+            )
+        }
+
         pendingResumeProgress = null
     }
 }
-
 @androidx.annotation.OptIn(UnstableApi::class)
 @OptIn(UnstableApi::class)
 internal fun PlayerRuntimeController.retryCurrentStreamFromStartAfter416() {

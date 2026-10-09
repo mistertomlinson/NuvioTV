@@ -316,10 +316,17 @@ class PlayerRuntimeController(
     }
 
     init {
-        if (!navigationArgs.startFromBeginning) {
-            loadSavedProgressFor(currentSeason, currentEpisode)
-        }
-        fetchParentalGuide(contentId, contentType, currentSeason, currentEpisode)
+        /*
+         * Initial saved progress is loaded by
+         * startInitialPlaybackIfNeeded() before ExoPlayer is
+         * initialized. Do not race an independent lookup here.
+         */
+        fetchParentalGuide(
+            contentId,
+            contentType,
+            currentSeason,
+            currentEpisode
+        )
         observeSubtitleSettings()
         fetchMetaDetails(contentId, contentType)
         observeBlurUnwatchedEpisodes()

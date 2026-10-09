@@ -256,11 +256,58 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     mediaSourceFactory.createMediaSource(
                         url = url,
                         headers = headers,
-                        subtitleConfigurations = startupSubtitleConfigurations,
+                        subtitleConfigurations =
+                            startupSubtitleConfigurations,
                         mimeTypeOverride = currentStreamMimeType
                     )
                 )
-                _uiState.update { it.copy(loadingMessage = if (isDebridStream) null else context.getString(R.string.player_loading_starting)) }
+
+                /*
+                 * Apply absolute startup seeks before prepare().
+                 *
+                 * This prevents the initial player from beginning at
+                 * zero and then flushing its decoder after READY when
+                 * saved progress arrives.
+                 *
+                 * A live-session pending seek (pipeline rebuild/error
+                 * recovery) is more authoritative than durable saved
+                 * progress.
+                 */
+                val startupSeekPosition =
+                    _uiState.value.pendingSeekPosition
+                        ?: pendingResumeProgress
+                            ?.position
+                            ?.takeIf { it > 0L }
+
+                if (startupSeekPosition != null) {
+                    seekTo(startupSeekPosition)
+
+                    _uiState.update {
+                        it.copy(
+                            pendingSeekPosition = null
+                        )
+                    }
+
+                    /*
+                     * The durable resume point has now been consumed.
+                     * Do not apply it again in STATE_READY.
+                     */
+                    pendingResumeProgress = null
+                }
+
+                _uiState.update {
+                    it.copy(
+                        loadingMessage =
+                            if (isDebridStream) {
+                                null
+                            } else {
+                                context.getString(
+                                    R.string.player_loading_starting
+                                )
+                            }
+                    )
+                }
+
                 playWhenReady = true
                 prepare()
 

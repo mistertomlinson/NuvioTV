@@ -6,19 +6,41 @@ import kotlinx.coroutines.flow.update
 internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
     url: String,
     headers: Map<String, String>,
-    loadSavedProgress: Boolean
+    loadSavedProgress: Boolean,
+    preloadSavedProgressBeforeInitialize: Boolean = false
 ) {
     playbackPreparationJob?.cancel()
     playbackPreparationJob = scope.launch {
         warmTraktEpisodeMappingForCurrentPlayback()
         refreshScrobbleItem()
-        val isRatingProviderConnected = trackingRatingCoordinator.isAvailable()
+
+        val isRatingProviderConnected =
+            trackingRatingCoordinator.isAvailable()
+
         _uiState.update {
-            it.copy(isRatingProviderConnected = isRatingProviderConnected)
+            it.copy(
+                isRatingProviderConnected =
+                    isRatingProviderConnected
+            )
         }
+
+        if (preloadSavedProgressBeforeInitialize) {
+            loadSavedProgressSnapshotFor(
+                currentSeason,
+                currentEpisode
+            )
+        }
+
         initializePlayer(url, headers)
-        if (loadSavedProgress) {
-            loadSavedProgressFor(currentSeason, currentEpisode)
+
+        if (
+            loadSavedProgress &&
+            !preloadSavedProgressBeforeInitialize
+        ) {
+            loadSavedProgressFor(
+                currentSeason,
+                currentEpisode
+            )
         }
     }
 }
