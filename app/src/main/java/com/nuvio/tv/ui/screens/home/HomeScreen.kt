@@ -1932,10 +1932,7 @@ private fun ComingSoonHomeGlassPill(
                                         .coerceIn(0f, 1f)
                             )
                     ).dp,
-                noiseFactor =
-                    0.025f *
-                        glassVisibilityProgress
-                            .coerceIn(0f, 1f)
+                noiseFactor = homeGlassNoiseFactor(glassVisibilityProgress)
             )
         } else {
             Modifier
