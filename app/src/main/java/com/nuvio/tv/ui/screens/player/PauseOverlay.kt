@@ -289,7 +289,12 @@ private fun PauseMetadataView(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 CastChipRow(
-                    cast = cast.take(8),
+                    cast = cast
+                        .distinctBy { member ->
+                            member.tmdbId?.let { "tmdb:$it" }
+                                ?: "name:${member.name.trim().lowercase(Locale.ROOT)}"
+                        }
+                        .take(8),
                     onCastSelected = onCastSelected
                 )
             }
@@ -311,7 +316,7 @@ private fun CastChipRow(
      * presentation row instead of exposing clipped, unreachable content.
      *
      * Preserve cast order and the existing 8-member cap, but render only
-     * the largest complete prefix that fits. Center the complete pills.
+     * the largest complete prefix that fits. Left-align the complete pills.
      */
     Layout(
         content = {
@@ -361,9 +366,7 @@ private fun CastChipRow(
             width = constraints.maxWidth,
             height = rowHeight
         ) {
-            var x =
-                ((constraints.maxWidth - usedWidth) / 2)
-                    .coerceAtLeast(0)
+            var x = 0
 
             visible.forEachIndexed { index, placeable ->
                 placeable.placeRelative(
