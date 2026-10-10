@@ -104,7 +104,8 @@ data class MetaBehaviorHints(
     val newSeasonNumber: Int? = null,
     val newSeasonReleaseDate: String? = null,
     val platformId: String? = null,
-    val theatricalReleaseDate: String? = null
+    val theatricalReleaseDate: String? = null,
+    val releaseReminderState: String? = null
 )
 
 @Immutable

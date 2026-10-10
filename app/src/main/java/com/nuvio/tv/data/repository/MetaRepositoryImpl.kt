@@ -84,6 +84,62 @@ class MetaRepositoryImpl @Inject constructor(
         }
     }
 
+    override fun getMetaFresh(
+        addonBaseUrl: String,
+        type: String,
+        id: String
+    ): Flow<NetworkResult<Meta>> = flow {
+        emit(NetworkResult.Loading)
+
+        val url = buildMetaUrl(
+            baseUrl = addonBaseUrl,
+            type = type,
+            id = id
+        )
+
+        /*
+         * Deliberately bypass every metadata cache here.
+         *
+         * A reminder may have been created from metadata that was correct
+         * yesterday but whose source release date has since been retracted.
+         * Returning cached metadata would make revalidation meaningless.
+         */
+        when (val result = safeApiCall { api.getMeta(url) }) {
+            is NetworkResult.Success -> {
+                val metaDto = result.data.meta
+
+                if (metaDto != null) {
+                    val episodeLabel =
+                        context.getString(
+                            R.string.episodes_episode
+                        )
+
+                    emit(
+                        NetworkResult.Success(
+                            metaDto.toDomain(
+                                episodeLabel
+                            )
+                        )
+                    )
+                } else {
+                    emit(
+                        NetworkResult.Error(
+                            context.getString(
+                                R.string.error_meta_not_found
+                            )
+                        )
+                    )
+                }
+            }
+
+            is NetworkResult.Error ->
+                emit(result)
+
+            NetworkResult.Loading ->
+                Unit
+        }
+    }
+
     override fun getMetaFromAllAddons(
         type: String,
         id: String

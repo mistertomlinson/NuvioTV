@@ -11,6 +11,19 @@ interface MetaRepository {
         type: String,
         id: String
     ): Flow<NetworkResult<Meta>>
+
+    /**
+     * Fetch metadata directly from the specified addon without consulting or
+     * populating the normal metadata caches.
+     *
+     * Release reminders use this when they need current source authority rather
+     * than metadata that may have been cached while the title was still upcoming.
+     */
+    fun getMetaFresh(
+        addonBaseUrl: String,
+        type: String,
+        id: String
+    ): Flow<NetworkResult<Meta>>
     
     fun getMetaFromAllAddons(
         type: String,

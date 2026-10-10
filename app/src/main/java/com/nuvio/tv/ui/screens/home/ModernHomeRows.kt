@@ -53,6 +53,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.CompositionLocalProvider
@@ -69,7 +70,9 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
@@ -93,7 +96,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
 import androidx.tv.material3.Border
 import androidx.tv.material3.Icon
@@ -132,6 +135,14 @@ import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.nuvioCardDepth
+
+private val PosterStatusMarkerBrush =
+    Brush.linearGradient(
+        colors = listOf(
+            Color(0xFF6366F1),
+            Color(0xFFEC4899)
+        )
+    )
 
 // Single-clock anchored expansion channel: for end-of-row (right-edge
 // anchored) expansion the row drives the expanded card's width per animation
@@ -2443,35 +2454,23 @@ private fun ModernCarouselCard(
                             )
                             .zIndex(3f)
                             .graphicsLayer {
-                                alpha = heavyOverlayAlpha.value * 0.80f
+                                alpha =
+                                    heavyOverlayAlpha.value
                                 compositingStrategy =
                                     CompositingStrategy.ModulateAlpha
                             }
+                            .shadow(
+                                elevation = 10.dp,
+                                shape = CircleShape,
+                                clip = false
+                            )
                             .size(21.dp)
-                            .drawBehind {
-                                drawCircle(
-                                    color = Color.Black,
-                                    radius =
-                                        size.minDimension /
-                                            2f + 1.5f
-                                )
-                                /*
-                                 * Match the white circular face of Material
-                                 * CheckCircle. CheckCircle's circle occupies
-                                 * 20 of its 24 vector units, rather than the
-                                 * entire 21dp icon box.
-                                 *
-                                 * Keeping the existing larger black backing
-                                 * therefore produces the same visible black
-                                 * border thickness as the watched marker.
-                                 */
-                                drawCircle(
-                                    color = Color.White,
-                                    radius =
-                                        size.minDimension *
-                                            (10f / 24f)
-                                )
-                            },
+                            .background(
+                                brush =
+                                    PosterStatusMarkerBrush,
+                                shape =
+                                    CircleShape
+                            ),
                         contentAlignment =
                             Alignment.Center
                     ) {
@@ -2482,9 +2481,9 @@ private fun ModernCarouselCard(
                                 stringResource(
                                     R.string.hero_reminder_set
                                 ),
-                            tint = Color.Black,
+                            tint = Color.White,
                             modifier =
-                                Modifier.size(13.dp)
+                                Modifier.size(20.dp)
                         )
                     }
                 }
@@ -2499,29 +2498,47 @@ private fun ModernCarouselCard(
                     isWatched &&
                     showHeavyOverlays
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription =
-                            stringResource(R.string.episodes_cd_watched),
-                        tint = Color.White,
+                    Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
-                            .padding(end = 8.dp, top = 8.dp)
+                            .padding(
+                                end = 8.dp,
+                                top = 8.dp
+                            )
                             .zIndex(3f)
                             .graphicsLayer {
-                                alpha = heavyOverlayAlpha.value * 0.80f
+                                alpha =
+                                    heavyOverlayAlpha.value
                                 compositingStrategy =
                                     CompositingStrategy.ModulateAlpha
                             }
+                            .shadow(
+                                elevation = 10.dp,
+                                shape = CircleShape,
+                                clip = false
+                            )
                             .size(21.dp)
-                            .drawBehind {
-                                drawCircle(
-                                    color = Color.Black,
-                                    radius =
-                                        size.minDimension / 2f + 1.5f
-                                )
-                            }
-                    )
+                            .background(
+                                brush =
+                                    PosterStatusMarkerBrush,
+                                shape =
+                                    CircleShape
+                            ),
+                        contentAlignment =
+                            Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Default.Check,
+                            contentDescription =
+                                stringResource(
+                                    R.string.episodes_cd_watched
+                                ),
+                            tint = Color.White,
+                            modifier =
+                                Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }

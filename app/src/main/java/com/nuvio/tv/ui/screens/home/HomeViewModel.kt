@@ -135,6 +135,13 @@ class HomeViewModel @Inject constructor(
     internal val _fullCatalogRows = MutableStateFlow<List<CatalogRow>>(emptyList())
     val fullCatalogRows: StateFlow<List<CatalogRow>> = _fullCatalogRows.asStateFlow()
 
+    /*
+     * Background-only throttle for release reminder source revalidation.
+     * Never read from Compose/card/focus code.
+     */
+    internal val releaseReminderAuthorityLastCheckedAtMillis =
+        mutableMapOf<String, Long>()
+
     private val _focusState = MutableStateFlow(HomeScreenFocusState())
     val focusState: StateFlow<HomeScreenFocusState> = _focusState.asStateFlow()
 

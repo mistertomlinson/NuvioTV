@@ -63,7 +63,12 @@ internal fun mapBehaviorHints(dto: MetaBehaviorHintsDto?): MetaBehaviorHints? {
         newSeasonReleaseDate = dto.newSeasonReleaseDate?.trim()?.takeIf { it.isNotBlank() },
         platformId = dto.platformId?.trim()?.takeIf { it.isNotBlank() },
         theatricalReleaseDate =
-            dto.theatricalReleaseDate?.trim()?.takeIf { it.isNotBlank() }
+            dto.theatricalReleaseDate?.trim()?.takeIf { it.isNotBlank() },
+        releaseReminderState =
+            dto.releaseReminderState
+                ?.trim()
+                ?.lowercase()
+                ?.takeIf { it.isNotBlank() }
     )
 }
 

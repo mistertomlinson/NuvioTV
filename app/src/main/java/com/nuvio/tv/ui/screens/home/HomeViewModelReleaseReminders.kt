@@ -9,6 +9,7 @@ import com.nuvio.tv.data.local.ReleaseReminderStatus
 import com.nuvio.tv.data.local.releaseReminderKey
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.LibraryEntryInput
+import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import java.time.Instant
@@ -28,7 +29,8 @@ import kotlinx.coroutines.launch
 
 private const val RELEASE_BADGE_LIFETIME_MS = 30L * 24 * 60 * 60 * 1000
 private const val RELEASE_REMINDER_RECHECK_INTERVAL_MS = 60_000L
-private const val RELEASE_FALLBACK_HOUR_LOCAL = 4
+private const val RELEASE_REMINDER_AUTHORITY_INTERVAL_MS =
+    60L * 60 * 1000
 
 private data class ReleaseReminderHomeSnapshot(
     val continueWatchingItems: List<ContinueWatchingItem>,
@@ -479,9 +481,25 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                     continue
                 }
 
-                val catalogMatch = snapshot.catalogItems.firstOrNull { item ->
-                    reminder.matches(item.id, item.apiType, item.imdbId)
-                }
+                val catalogComingSoonMatch =
+                    snapshot.catalogItems.firstOrNull { item ->
+                        reminder.matches(
+                            item.id,
+                            item.apiType,
+                            item.imdbId
+                        ) &&
+                            item.behaviorHints?.comingSoon == true
+                    }
+
+                val catalogMatch =
+                    catalogComingSoonMatch
+                        ?: snapshot.catalogItems.firstOrNull { item ->
+                            reminder.matches(
+                                item.id,
+                                item.apiType,
+                                item.imdbId
+                            )
+                        }
 
                 if (reminder.title.isBlank() && catalogMatch != null) {
                     val inferredTmdbId =
@@ -609,30 +627,271 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 }
 
                 val releaseDate =
-                    parseExactReleaseDate(reminder.releaseDate)
+                    parseExactReleaseDate(
+                        reminder.releaseDate
+                    )
 
-                val globalReleaseDateConfirmed =
-                    reminder.platformId.equals(
-                        "global",
-                        ignoreCase = true
-                    ) &&
-                        releaseDate != null &&
+                val today =
+                    localReleaseDateAt(
+                        nowMillis
+                    )
+
+                /*
+                 * A stored date is a scheduling hint, never release authority.
+                 *
+                 * Revalidate when:
+                 *  - the Coming Soon entry disappeared,
+                 *  - its remembered date has arrived, or
+                 *  - Home already contains positive Latest/released evidence.
+                 *
+                 * None of this executes from the active Compose/card path.
+                 */
+                val homeAvailabilityConfirmed =
+                    snapshot.hasAvailabilityConfirmation(
+                        reminder
+                    )
+
+                val rememberedDateReached =
+                    releaseDate != null &&
                         !releaseDate.isAfter(
-                            localReleaseDateAt(nowMillis)
+                            today
                         )
 
+                val needsAuthorityCheck =
+                    catalogComingSoonMatch == null ||
+                        rememberedDateReached ||
+                        homeAvailabilityConfirmed
+
+                if (!needsAuthorityCheck) {
+                    continue
+                }
+
+                val lastAuthorityCheck =
+                    releaseReminderAuthorityLastCheckedAtMillis[
+                        reminder.key
+                    ]
+
+                val authorityCheckDue =
+                    lastAuthorityCheck == null ||
+                        nowMillis - lastAuthorityCheck >=
+                            RELEASE_REMINDER_AUTHORITY_INTERVAL_MS
+
+                if (!authorityCheckDue) {
+                    continue
+                }
+
+                /*
+                 * Throttle before the network request. A failed/unreachable
+                 * source therefore cannot create a one-minute retry storm.
+                 */
+                releaseReminderAuthorityLastCheckedAtMillis[
+                    reminder.key
+                ] = nowMillis
+
+                val freshMeta =
+                    resolveFreshReleaseReminderMeta(
+                        reminder
+                    )
+
+                val authorityHints =
+                    freshMeta?.behaviorHints
+
+                val authorityState =
+                    authorityHints
+                        ?.releaseReminderState
+                        ?.trim()
+                        ?.lowercase()
+
+                /*
+                 * Source still says Coming Soon.
+                 *
+                 * Preserve the user's reminder and migrate any corrected
+                 * date/season/platform back into durable storage.
+                 */
+                if (
+                    authorityState ==
+                    "coming_soon"
+                ) {
+                    val freshReleaseDate =
+                        authorityHints
+                            .releaseDate
+                            ?.takeIf(
+                                ::isExactReleaseDate
+                            )
+
+                    val freshSeason =
+                        authorityHints
+                            .upcomingSeason
+
+                    val freshPlatformId =
+                        authorityHints
+                            .platformId
+                            ?.takeIf {
+                                it.isNotBlank()
+                            }
+
+                    val freshBadge =
+                        if (
+                            (
+                                freshSeason
+                                    ?: reminder.seasonNumber
+                                    ?: 0
+                            ) >= 2
+                        ) {
+                            ReleaseReminderBadge.NEW_SEASON
+                        } else {
+                            ReleaseReminderBadge.AVAILABLE_NOW
+                        }
+
+                    if (
+                        (
+                            freshReleaseDate != null &&
+                                freshReleaseDate !=
+                                reminder.releaseDate
+                        ) ||
+                        (
+                            freshSeason != null &&
+                                freshSeason !=
+                                reminder.seasonNumber
+                        ) ||
+                        (
+                            freshPlatformId != null &&
+                                !freshPlatformId.equals(
+                                    reminder.platformId,
+                                    ignoreCase = true
+                                )
+                        ) ||
+                        freshBadge !=
+                            reminder.badge
+                    ) {
+                        releaseReminderDataStore.upsert(
+                            reminder.copy(
+                                releaseDate =
+                                    freshReleaseDate
+                                        ?: reminder.releaseDate,
+
+                                seasonNumber =
+                                    freshSeason
+                                        ?: reminder.seasonNumber,
+
+                                platformId =
+                                    freshPlatformId
+                                        ?: reminder.platformId,
+
+                                badge =
+                                    freshBadge
+                            )
+                        )
+                    }
+
+                    continue
+                }
+
+                /*
+                 * UNKNOWN is deliberately sticky:
+                 *
+                 * the title disappeared, but the source cannot currently prove
+                 * release. Keep the reminder armed indefinitely and retry later.
+                 *
+                 * This is the Resident Evil retracted-date case.
+                 */
+                if (
+                    authorityState ==
+                    "unknown"
+                ) {
+                    continue
+                }
+
+                /*
+                 * Explicit source RELEASED is authoritative, with two guards:
+                 *
+                 * 1. Platform-specific reminders cannot be satisfied merely by
+                 *    source-neutral TMDB evidence. They need matching platform
+                 *    authority or a matching Latest row.
+                 *
+                 * 2. S2+ reminders require explicit evidence for the reminded
+                 *    season number. Parent-series availability is insufficient.
+                 */
+                var sourceReleasedConfirmed =
+                    authorityState ==
+                        "released"
+
+                if (sourceReleasedConfirmed) {
+                    val reminderPlatform =
+                        reminder.platformId
+                            ?.trim()
+                            ?.takeIf {
+                                it.isNotBlank()
+                            }
+
+                    val authorityPlatform =
+                        authorityHints
+                            ?.platformId
+                            ?.trim()
+                            ?.takeIf {
+                                it.isNotBlank()
+                            }
+
+                    val platformSpecificReminder =
+                        reminderPlatform != null &&
+                            !reminderPlatform.equals(
+                                "global",
+                                ignoreCase = true
+                            )
+
+                    if (
+                        platformSpecificReminder &&
+                        (
+                            authorityPlatform == null ||
+                            !authorityPlatform.equals(
+                                reminderPlatform,
+                                ignoreCase = true
+                            )
+                        )
+                    ) {
+                        sourceReleasedConfirmed =
+                            false
+                    }
+
+                    val remindedSeason =
+                        reminder.seasonNumber
+                            ?: 0
+
+                    if (
+                        sourceReleasedConfirmed &&
+                        remindedSeason >= 2
+                    ) {
+                        val releasedSeason =
+                            authorityHints
+                                ?.newSeasonNumber
+                                ?: 0
+
+                        if (
+                            releasedSeason <
+                            remindedSeason
+                        ) {
+                            sourceReleasedConfirmed =
+                                false
+                        }
+                    }
+                }
+
+                /*
+                 * Backward compatibility for any Coming Soon addon that has not
+                 * adopted releaseReminderState yet:
+                 *
+                 * a genuinely matching Latest/released Home row remains valid
+                 * positive evidence. There is intentionally NO date fallback.
+                 */
                 val availabilityConfirmed =
-                    globalReleaseDateConfirmed ||
-                        snapshot.hasAvailabilityConfirmation(reminder)
+                    sourceReleasedConfirmed ||
+                        (
+                            authorityState == null &&
+                                homeAvailabilityConfirmed
+                        )
 
                 if (!availabilityConfirmed) {
-                    if (releaseDate == null) {
-                        continue
-                    }
-
-                    if (!releaseFallbackWindowReached(releaseDate, nowMillis)) {
-                        continue
-                    }
+                    continue
                 }
 
                 /* Continue Watching is authoritative and must never be duplicated in My List. */
@@ -685,6 +944,70 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                 }
             }
         }
+    }
+}
+
+private suspend fun HomeViewModel.resolveFreshReleaseReminderMeta(
+    reminder: ReleaseReminderRecord
+): Meta? {
+    val addonBaseUrl =
+        reminder.addonBaseUrl
+            ?.trim()
+            ?.takeIf {
+                it.isNotBlank()
+            }
+            ?: return null
+
+    /*
+     * Current Coming Soon reminders preserve tmdb: identity. Prefer the stored
+     * TMDB alias for older records that may have normalized itemId to IMDb.
+     */
+    val lookupId =
+        reminder.tmdbId
+            ?.let {
+                "tmdb:$it"
+            }
+            ?: reminder.itemId
+
+    return try {
+        when (
+            val result =
+                metaRepository.getMetaFresh(
+                    addonBaseUrl =
+                        addonBaseUrl,
+
+                    type =
+                        reminder.itemType,
+
+                    id =
+                        lookupId
+                ).first {
+                    it !is
+                        NetworkResult.Loading
+                }
+        ) {
+            is NetworkResult.Success ->
+                result.data
+
+            else ->
+                null
+        }
+    } catch (
+        cancellation:
+            CancellationException
+    ) {
+        throw cancellation
+    } catch (
+        error:
+            Throwable
+    ) {
+        Log.w(
+            HomeViewModel.TAG,
+            "Failed fresh release reminder authority check " +
+                "${reminder.key}: ${error.message}"
+        )
+
+        null
     }
 }
 
@@ -747,26 +1070,55 @@ private fun ReleaseReminderHomeSnapshot.hasAvailabilityConfirmation(
 
     return catalogRows
         .asSequence()
-        .filter { row -> row.catalogId.startsWith("latest_", ignoreCase = true) }
+        .filter { row ->
+            row.catalogId.startsWith(
+                "latest_",
+                ignoreCase = true
+            )
+        }
         .filter { row ->
             reminderBaseUrl == null ||
-                row.addonBaseUrl.trim().trimEnd('/').lowercase() == reminderBaseUrl
+                row.addonBaseUrl
+                    .trim()
+                    .trimEnd('/')
+                    .lowercase() ==
+                reminderBaseUrl
         }
-        .flatMap { row -> row.items.asSequence() }
-        .any { item -> reminder.matches(item.id, item.apiType, item.imdbId) }
-}
+        .flatMap { row ->
+            row.items.asSequence()
+        }
+        .any { item ->
+            if (
+                !reminder.matches(
+                    item.id,
+                    item.apiType,
+                    item.imdbId
+                )
+            ) {
+                return@any false
+            }
 
-private fun releaseFallbackWindowReached(
-    releaseDate: LocalDate,
-    nowMillis: Long
-): Boolean {
-    val fallbackMillis = releaseDate
-        .plusDays(1)
-        .atTime(RELEASE_FALLBACK_HOUR_LOCAL, 0)
-        .atZone(ZoneId.systemDefault())
-        .toInstant()
-        .toEpochMilli()
-    return nowMillis >= fallbackMillis
+            val remindedSeason =
+                reminder.seasonNumber
+                    ?: 0
+
+            if (remindedSeason < 2) {
+                return@any true
+            }
+
+            /*
+             * A parent series can already be in Latest because an older season
+             * exists. For S2+, only an explicit released-season promotion may
+             * satisfy the reminder.
+             */
+            val releasedSeason =
+                item.behaviorHints
+                    ?.newSeasonNumber
+                    ?: return@any false
+
+            releasedSeason >=
+                remindedSeason
+        }
 }
 
 private fun isExactReleaseDate(raw: String): Boolean =

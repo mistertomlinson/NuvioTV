@@ -120,7 +120,8 @@ data class MetaBehaviorHintsDto(
     @Json(name = "newSeasonNumber") val newSeasonNumber: Int? = null,
     @Json(name = "newSeasonReleaseDate") val newSeasonReleaseDate: String? = null,
     @Json(name = "platformId") val platformId: String? = null,
-    @Json(name = "theatricalReleaseDate") val theatricalReleaseDate: String? = null
+    @Json(name = "theatricalReleaseDate") val theatricalReleaseDate: String? = null,
+    @Json(name = "releaseReminderState") val releaseReminderState: String? = null
 )
 
 @JsonClass(generateAdapter = true)
