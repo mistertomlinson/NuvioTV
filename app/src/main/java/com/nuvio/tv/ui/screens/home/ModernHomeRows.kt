@@ -12,6 +12,8 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.Canvas
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.ui.draw.drawWithCache
@@ -73,6 +75,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
@@ -88,6 +91,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -96,7 +100,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Notifications
 import androidx.tv.material3.Border
 import androidx.tv.material3.Icon
@@ -135,14 +138,6 @@ import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.ui.components.LocalCardDepthStyle
 import com.nuvio.tv.ui.components.nuvioCardDepth
-
-private val PosterStatusMarkerBrush =
-    Brush.linearGradient(
-        colors = listOf(
-            Color(0xFF6366F1),
-            Color(0xFFEC4899)
-        )
-    )
 
 // Single-clock anchored expansion channel: for end-of-row (right-edge
 // anchored) expansion the row drives the expanded card's width per animation
@@ -2445,47 +2440,23 @@ private fun ModernCarouselCard(
                     showReleaseReminderMarker &&
                     showHeavyOverlays
                 ) {
-                    Box(
+                    Image(
+                        painter = painterResource(
+                            R.drawable.poster_status_reminder
+                        ),
+                        contentDescription = stringResource(
+                            R.string.hero_reminder_set
+                        ),
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(
-                                end = 8.dp,
-                                bottom = 8.dp
+                                end = 4.dp,
+                                bottom = 4.dp
                             )
                             .zIndex(3f)
-                            .graphicsLayer {
-                                alpha =
-                                    heavyOverlayAlpha.value
-                                compositingStrategy =
-                                    CompositingStrategy.ModulateAlpha
-                            }
-                            .shadow(
-                                elevation = 10.dp,
-                                shape = CircleShape,
-                                clip = false
-                            )
-                            .size(21.dp)
-                            .background(
-                                brush =
-                                    PosterStatusMarkerBrush,
-                                shape =
-                                    CircleShape
-                            ),
-                        contentAlignment =
-                            Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector =
-                                Icons.Default.Notifications,
-                            contentDescription =
-                                stringResource(
-                                    R.string.hero_reminder_set
-                                ),
-                            tint = Color.White,
-                            modifier =
-                                Modifier.size(20.dp)
-                        )
-                    }
+                            .size(29.dp)
+                    )
                 }
 
                 /*
@@ -2498,47 +2469,23 @@ private fun ModernCarouselCard(
                     isWatched &&
                     showHeavyOverlays
                 ) {
-                    Box(
+                    Image(
+                        painter = painterResource(
+                            R.drawable.poster_status_watched
+                        ),
+                        contentDescription = stringResource(
+                            R.string.episodes_cd_watched
+                        ),
+                        contentScale = ContentScale.Fit,
                         modifier = Modifier
                             .align(Alignment.TopEnd)
                             .padding(
-                                end = 8.dp,
-                                top = 8.dp
+                                end = 4.dp,
+                                top = 4.dp
                             )
                             .zIndex(3f)
-                            .graphicsLayer {
-                                alpha =
-                                    heavyOverlayAlpha.value
-                                compositingStrategy =
-                                    CompositingStrategy.ModulateAlpha
-                            }
-                            .shadow(
-                                elevation = 10.dp,
-                                shape = CircleShape,
-                                clip = false
-                            )
-                            .size(21.dp)
-                            .background(
-                                brush =
-                                    PosterStatusMarkerBrush,
-                                shape =
-                                    CircleShape
-                            ),
-                        contentAlignment =
-                            Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector =
-                                Icons.Default.Check,
-                            contentDescription =
-                                stringResource(
-                                    R.string.episodes_cd_watched
-                                ),
-                            tint = Color.White,
-                            modifier =
-                                Modifier.size(20.dp)
-                        )
-                    }
+                            .size(29.dp)
+                    )
                 }
             }
         }
