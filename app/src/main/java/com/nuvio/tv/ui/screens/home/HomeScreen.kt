@@ -1164,6 +1164,18 @@ fun HomeScreen(
             item.apiType.equals("series", ignoreCase = true) ||
                 item.apiType.equals("tv", ignoreCase = true)
 
+        val isComingSoon =
+            item.behaviorHints?.comingSoon == true
+
+        val isReleaseReminderSet =
+            isComingSoon &&
+                releaseReminderIdentityKeys(item)
+                    .any { key ->
+                        key in
+                            uiState
+                                .armedReleaseReminderKeys
+                    }
+
         LaunchedEffect(
             item.id,
             item.apiType,
@@ -1204,6 +1216,9 @@ fun HomeScreen(
             isSeries = isSeries,
             isWatched = watchedActionState,
             isWatchedPending = watchedActionPending,
+            isComingSoon = isComingSoon,
+            isReleaseReminderSet =
+                isReleaseReminderSet,
             onDismiss = { posterOptionsTarget = null },
             onDetails = {
                 onNavigateToDetail(item.id, item.apiType, selectedPoster.addonBaseUrl)
@@ -1211,6 +1226,14 @@ fun HomeScreen(
             },
             onToggleLibrary = {
                 viewModel.togglePosterLibrary(item, selectedPoster.addonBaseUrl)
+                posterOptionsTarget = null
+            },
+            onToggleReleaseReminder = {
+                viewModel.togglePosterReleaseReminder(
+                    item = item,
+                    addonBaseUrl =
+                        selectedPoster.addonBaseUrl
+                )
                 posterOptionsTarget = null
             },
             onToggleWatched = {
@@ -2106,9 +2129,12 @@ private fun HomePosterOptionsDialog(
     isSeries: Boolean,
     isWatched: Boolean,
     isWatchedPending: Boolean,
+    isComingSoon: Boolean,
+    isReleaseReminderSet: Boolean,
     onDismiss: () -> Unit,
     onDetails: () -> Unit,
     onToggleLibrary: () -> Unit,
+    onToggleReleaseReminder: () -> Unit,
     onToggleWatched: () -> Unit
 ) {
     val primaryFocusRequester = remember { FocusRequester() }
@@ -2253,6 +2279,56 @@ private fun HomePosterOptionsDialog(
             Text(stringResource(R.string.cw_action_go_to_details))
         }
 
+        if (isComingSoon) {
+            Button(
+                onClick =
+                    onToggleReleaseReminder,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .glassDialogFocusTransform(),
+                colors =
+                    ButtonDefaults.colors(
+                        containerColor =
+                            HomeDialogGlassRowColor,
+                        focusedContainerColor =
+                            HomeDialogGlassRowFocusedColor,
+                        contentColor =
+                            NuvioColors.TextSecondary,
+                        focusedContentColor =
+                            NuvioColors.TextPrimary
+                    ),
+                border =
+                    ButtonDefaults.border(
+                        border =
+                            androidx.tv.material3
+                                .Border.None,
+                        focusedBorder =
+                            androidx.tv.material3
+                                .Border.None
+                    ),
+                shape =
+                    ButtonDefaults.shape(
+                        RoundedCornerShape(32.dp)
+                    ),
+                scale =
+                    ButtonDefaults.scale(
+                        focusedScale = 1f,
+                        pressedScale = 1f
+                    )
+            ) {
+                Text(
+                    if (isReleaseReminderSet) {
+                        stringResource(
+                            R.string.hero_cancel_reminder
+                        )
+                    } else {
+                        stringResource(
+                            R.string.hero_remind_me
+                        )
+                    }
+                )
+            }
+        } else {
         Button(
             onClick = onToggleLibrary,
             enabled = !isLibraryPending,
@@ -2331,6 +2407,7 @@ private fun HomePosterOptionsDialog(
                     }
                 }
             }
+        }
         }
             }
         }

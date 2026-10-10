@@ -86,6 +86,7 @@
     <string name="hero_writer">Writer: %1$s</string>
     <string name="hero_play">Play</string>
     <string name="hero_remind_me">Remind Me</string>
+    <string name="hero_cancel_reminder">Cancel Reminder</string>
     <string name="hero_reminder_set">Reminder Set</string>
     <string name="detail_reminder_added">Reminder set</string>
     <string name="detail_reminder_removed">Reminder removed</string>

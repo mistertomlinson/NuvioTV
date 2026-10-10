@@ -17,6 +17,7 @@ data class HomeUiState(
     val catalogRows: List<CatalogRow> = emptyList(),
     val continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     val releaseReminderBadges: Map<String, ReleaseReminderBadge> = emptyMap(),
+    val armedReleaseReminderKeys: Set<String> = emptySet(),
     val isLoading: Boolean = true,
     /*
      * Changes whenever Home begins loading another profile. Compose keys its

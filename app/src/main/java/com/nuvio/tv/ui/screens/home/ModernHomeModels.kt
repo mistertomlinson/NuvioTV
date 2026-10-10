@@ -121,7 +121,8 @@ internal data class ModernCarouselItem(
     val payload: ModernPayload,
     val metaPreview: MetaPreview? = null,
     val isNewSeason: Boolean = false,
-    val releaseReminderBadge: ReleaseReminderBadge? = null
+    val releaseReminderBadge: ReleaseReminderBadge? = null,
+    val isReleaseReminderSet: Boolean = false
 )
 
 @Immutable
@@ -489,8 +490,34 @@ internal fun buildCatalogItem(
     occurrence: Int,
     strTypeMovie: String = "",
     strTypeSeries: String = "",
+    armedReleaseReminderKeys: Set<String> = emptySet(),
     releaseReminderBadge: ReleaseReminderBadge? = null
 ): ModernCarouselItem {
+    val primaryReminderKey =
+        com.nuvio.tv.data.local.releaseReminderKey(
+            item.id,
+            item.apiType
+        )
+
+    val imdbReminderKey =
+        item.imdbId?.let { imdbId ->
+            com.nuvio.tv.data.local.releaseReminderKey(
+                imdbId,
+                item.apiType
+            )
+        }
+
+    val isReleaseReminderSet =
+        item.behaviorHints?.comingSoon == true &&
+            (
+                primaryReminderKey?.let(
+                    armedReleaseReminderKeys::contains
+                ) == true ||
+                    imdbReminderKey?.let(
+                        armedReleaseReminderKeys::contains
+                    ) == true
+            )
+
     val heroPreview = HeroPreview(
         title = item.name,
         logo = item.logo,
@@ -563,7 +590,8 @@ internal fun buildCatalogItem(
         ),
         metaPreview = item,
         isNewSeason = isReturningSeasonCatalogItem(item),
-        releaseReminderBadge = releaseReminderBadge
+        releaseReminderBadge = releaseReminderBadge,
+        isReleaseReminderSet = isReleaseReminderSet
     )
 }
 

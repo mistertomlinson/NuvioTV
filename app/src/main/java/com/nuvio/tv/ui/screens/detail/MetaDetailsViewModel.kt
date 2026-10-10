@@ -34,6 +34,9 @@ import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
 import com.nuvio.tv.data.local.ReleaseReminderDataStore
+import com.nuvio.tv.data.local.ReleaseReminderRecord
+import com.nuvio.tv.data.local.ReleaseReminderStatus
+import com.nuvio.tv.data.local.releaseReminderKey
 import com.nuvio.tv.data.repository.TraktCommentsService
 import com.nuvio.tv.data.repository.TrackingRatingCoordinator
 import com.nuvio.tv.domain.model.MetaBehaviorHints
@@ -1883,6 +1886,130 @@ class MetaDetailsViewModel @Inject constructor(
         )
     }
 
+    /*
+     * A Coming Soon title may enter Details with one provider ID
+     * and resolve its full metadata through another provider.
+     *
+     * Reminder lookup already understands those aliases. Cancellation
+     * must use the same identity set rather than assuming meta.id is
+     * the key that originally created the reminder.
+     */
+    private fun releaseReminderIdentityKeys(
+        meta: Meta
+    ): Set<String> =
+        buildSet {
+            fun addIdentity(
+                rawId: String?,
+                type: String
+            ) {
+                rawId
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { id ->
+                        releaseReminderKey(
+                            id,
+                            type
+                        )?.let(::add)
+                    }
+            }
+
+            // Original catalog/navigation identity.
+            addIdentity(
+                itemId,
+                itemType
+            )
+
+            // Resolved Details metadata identity.
+            addIdentity(
+                meta.id,
+                meta.apiType
+            )
+
+            // Explicit IMDb alias carried by the metadata.
+            addIdentity(
+                meta.imdbId,
+                meta.apiType
+            )
+
+            // TMDB ID resolved during Details enrichment.
+            _uiState.value.resolvedTmdbId
+                ?.let { tmdbId ->
+                    addIdentity(
+                        "tmdb:$tmdbId",
+                        meta.apiType
+                    )
+                }
+
+            /*
+             * Extract every provider identity embedded in either
+             * route ID. This also covers composite IDs.
+             */
+            listOf(
+                itemId,
+                meta.id
+            ).forEach { rawId ->
+                val ids =
+                    parseContentIds(rawId)
+
+                ids.imdb?.let { id ->
+                    addIdentity(
+                        id,
+                        meta.apiType
+                    )
+                }
+
+                ids.tmdb?.let { id ->
+                    addIdentity(
+                        "tmdb:$id",
+                        meta.apiType
+                    )
+                }
+
+                ids.trakt?.let { id ->
+                    addIdentity(
+                        "trakt:$id",
+                        meta.apiType
+                    )
+                }
+
+            }
+        }
+
+    private fun releaseReminderIdentityKeys(
+        reminder: ReleaseReminderRecord
+    ): Set<String> =
+        buildSet {
+            add(reminder.key)
+
+            reminder.imdbId?.let { id ->
+                releaseReminderKey(
+                    id,
+                    reminder.itemType
+                )?.let(::add)
+            }
+
+            reminder.tmdbId?.let { id ->
+                releaseReminderKey(
+                    "tmdb:$id",
+                    reminder.itemType
+                )?.let(::add)
+            }
+
+            reminder.traktId?.let { id ->
+                releaseReminderKey(
+                    "trakt:$id",
+                    reminder.itemType
+                )?.let(::add)
+            }
+
+            reminder.simklId?.let { id ->
+                releaseReminderKey(
+                    "simkl:$id",
+                    reminder.itemType
+                )?.let(::add)
+            }
+        }
+
     private fun toggleReleaseReminder() {
         val meta = _uiState.value.meta ?: return
         if (meta.behaviorHints?.comingSoon != true) return
@@ -1897,7 +2024,57 @@ class MetaDetailsViewModel @Inject constructor(
                         enabled = true
                     )
                 } else {
-                    releaseReminderDataStore.remove(meta.id, meta.apiType)
+                    val targetKeys =
+                        releaseReminderIdentityKeys(
+                            meta
+                        )
+
+                    val matchingReminders =
+                        releaseReminderDataStore
+                            .reminders
+                            .first()
+                            .filter { reminder ->
+                                reminder.status ==
+                                    ReleaseReminderStatus.ARMED &&
+                                    releaseReminderIdentityKeys(
+                                        reminder
+                                    ).any(
+                                        targetKeys::contains
+                                    )
+                            }
+
+                    if (matchingReminders.isNotEmpty()) {
+                        /*
+                         * Remove the actual persisted reminder record(s),
+                         * regardless of which provider ID created them.
+                         */
+                        matchingReminders.forEach { reminder ->
+                            releaseReminderDataStore
+                                .remove(reminder.key)
+                        }
+                    } else {
+                        /*
+                         * Defensive fallback for legacy reminder storage or
+                         * an identity we could not enrich.
+                         */
+                        releaseReminderDataStore.remove(
+                            itemId,
+                            itemType
+                        )
+
+                        if (
+                            meta.id != itemId ||
+                            !meta.apiType.equals(
+                                itemType,
+                                ignoreCase = true
+                            )
+                        ) {
+                            releaseReminderDataStore.remove(
+                                meta.id,
+                                meta.apiType
+                            )
+                        }
+                    }
                 }
             }.onSuccess {
                 showMessage(

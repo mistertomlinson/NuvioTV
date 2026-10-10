@@ -70,6 +70,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -93,6 +94,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Notifications
 import androidx.tv.material3.Border
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Card
@@ -205,6 +207,7 @@ private fun ModernCatalogRowItem(
     payload: ModernPayload.Catalog,
     requester: FocusRequester,
     useLandscapePosters: Boolean,
+    perCatalogLandscape: Boolean,
     heroMetadataLarge: Boolean,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
@@ -375,6 +378,7 @@ private fun ModernCatalogRowItem(
     ModernCarouselCard(
         item = item,
         useLandscapePosters = useLandscapePosters,
+        perCatalogLandscape = perCatalogLandscape,
         heroMetadataLarge = heroMetadataLarge,
         showLabels = showLabels,
         cardCornerRadius = posterCardCornerRadius,
@@ -1250,6 +1254,7 @@ internal fun ModernRowSection(
                                         payload = payload,
                                         requester = requester,
                                         useLandscapePosters = useLandscapePosters || perCatalogLandscape,
+                                        perCatalogLandscape = perCatalogLandscape,
                                         heroMetadataLarge = heroMetadataLarge,
                                         showLabels = showLabels,
                                         posterCardCornerRadius = posterCardCornerRadius,
@@ -1291,6 +1296,7 @@ internal fun ModernRowSection(
                                     payload = payload,
                                     requester = requester,
                                     useLandscapePosters = useLandscapePosters || perCatalogLandscape,
+                                    perCatalogLandscape = perCatalogLandscape,
                                     heroMetadataLarge = heroMetadataLarge,
                                     showLabels = showLabels,
                                     posterCardCornerRadius = posterCardCornerRadius,
@@ -1537,6 +1543,7 @@ private fun ModernSkeletonRow(
 private fun ModernCarouselCard(
     item: ModernCarouselItem,
     useLandscapePosters: Boolean,
+    perCatalogLandscape: Boolean,
     heroMetadataLarge: Boolean,
     showLabels: Boolean,
     cardCornerRadius: Dp,
@@ -1869,6 +1876,22 @@ private fun ModernCarouselCard(
     val shouldPlayTrailerInCard =
         playTrailerInExpandedCard &&
             !trailerPreviewUrl.isNullOrBlank()
+
+    /*
+     * Catalog Management landscape rows use their poster logo/gradient as
+     * resting-card chrome. Once the expanded-card trailer actually paints,
+     * remove that chrome so it does not sit over the video.
+     *
+     * Universal landscape intentionally keeps its existing behavior.
+     * ModernHomeContent supplies perCatalogLandscape=false whenever the
+     * universal all-rows landscape setting is active, even if this catalog
+     * also exists in the per-row landscape set.
+     */
+    val hideCustomLandscapeChromeForTrailer =
+        perCatalogLandscape &&
+            shouldPlayTrailerInCard &&
+            trailerFirstFrameRendered
+
     val hasImage = !imageUrl.isNullOrBlank()
     // Freeze hasLandscapeLogo — once logo is available, never hide it to avoid flash
     val hasLandscapeLogoInstant = useLandscapePosters &&
@@ -2148,11 +2171,13 @@ private fun ModernCarouselCard(
             Box(modifier = Modifier.fillMaxSize()) {
                 val mediaLayerModifier = remember(
                     hasLandscapeLogo,
-                    showHeavyOverlays
+                    showHeavyOverlays,
+                    hideCustomLandscapeChromeForTrailer
                 ) {
                     if (
                         hasLandscapeLogo &&
-                        showHeavyOverlays
+                        showHeavyOverlays &&
+                        !hideCustomLandscapeChromeForTrailer
                     ) {
                         Modifier
                             .fillMaxSize()
@@ -2291,7 +2316,8 @@ private fun ModernCarouselCard(
 
                 if (
                     hasLandscapeLogo &&
-                    showHeavyOverlays
+                    showHeavyOverlays &&
+                    !hideCustomLandscapeChromeForTrailer
                 ) {
                     AsyncImage(
                         model = logoModel,
@@ -2317,7 +2343,8 @@ private fun ModernCarouselCard(
                     )
                 } else if (
                     useLandscapePosters &&
-                    showHeavyOverlays
+                    showHeavyOverlays &&
+                    !hideCustomLandscapeChromeForTrailer
                 ) {
                     com.nuvio.tv.ui.components.FallbackTitleLogo(
                         title = item.title,
@@ -2400,6 +2427,68 @@ private fun ModernCarouselCard(
                     )
                 }
 
+                val showReleaseReminderMarker =
+                    item.isReleaseReminderSet
+
+                if (
+                    showReleaseReminderMarker &&
+                    showHeavyOverlays
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(
+                                end = 8.dp,
+                                bottom = 8.dp
+                            )
+                            .zIndex(3f)
+                            .graphicsLayer {
+                                alpha = heavyOverlayAlpha.value * 0.80f
+                                compositingStrategy =
+                                    CompositingStrategy.ModulateAlpha
+                            }
+                            .size(21.dp)
+                            .drawBehind {
+                                drawCircle(
+                                    color = Color.Black,
+                                    radius =
+                                        size.minDimension /
+                                            2f + 1.5f
+                                )
+                                /*
+                                 * Match the white circular face of Material
+                                 * CheckCircle. CheckCircle's circle occupies
+                                 * 20 of its 24 vector units, rather than the
+                                 * entire 21dp icon box.
+                                 *
+                                 * Keeping the existing larger black backing
+                                 * therefore produces the same visible black
+                                 * border thickness as the watched marker.
+                                 */
+                                drawCircle(
+                                    color = Color.White,
+                                    radius =
+                                        size.minDimension *
+                                            (10f / 24f)
+                                )
+                            },
+                        contentAlignment =
+                            Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector =
+                                Icons.Default.Notifications,
+                            contentDescription =
+                                stringResource(
+                                    R.string.hero_reminder_set
+                                ),
+                            tint = Color.Black,
+                            modifier =
+                                Modifier.size(13.dp)
+                        )
+                    }
+                }
+
                 /*
                  * The watched marker is the final/topmost overlay inside this
                  * poster only. It can cover release-status badges such as
@@ -2420,7 +2509,9 @@ private fun ModernCarouselCard(
                             .padding(end = 8.dp, top = 8.dp)
                             .zIndex(3f)
                             .graphicsLayer {
-                                alpha = heavyOverlayAlpha.value
+                                alpha = heavyOverlayAlpha.value * 0.80f
+                                compositingStrategy =
+                                    CompositingStrategy.ModulateAlpha
                             }
                             .size(21.dp)
                             .drawBehind {

@@ -52,6 +52,264 @@ private fun releaseReminderClock() = flow {
     }
 }
 
+internal fun releaseReminderIdentityKeys(
+    item: MetaPreview
+): Set<String> =
+    buildSet {
+        releaseReminderKey(
+            item.id,
+            item.apiType
+        )?.let(::add)
+
+        item.imdbId
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { imdbId ->
+                releaseReminderKey(
+                    imdbId,
+                    item.apiType
+                )?.let(::add)
+            }
+    }
+
+private fun releaseReminderIdentityKeys(
+    record: ReleaseReminderRecord
+): Set<String> =
+    buildSet {
+        add(record.key)
+
+        record.imdbId?.let { id ->
+            releaseReminderKey(
+                id,
+                record.itemType
+            )?.let(::add)
+        }
+
+        record.tmdbId?.let { id ->
+            releaseReminderKey(
+                "tmdb:$id",
+                record.itemType
+            )?.let(::add)
+        }
+
+        record.traktId?.let { id ->
+            releaseReminderKey(
+                "trakt:$id",
+                record.itemType
+            )?.let(::add)
+        }
+
+        record.simklId?.let { id ->
+            releaseReminderKey(
+                "simkl:$id",
+                record.itemType
+            )?.let(::add)
+        }
+    }
+
+private fun MetaPreview.toHomeReleaseReminderRecord(
+    addonBaseUrl: String
+): ReleaseReminderRecord {
+    val normalizedId = id.trim()
+
+    fun prefixedLong(prefix: String): Long? =
+        normalizedId
+            .takeIf {
+                it.startsWith(
+                    "$prefix:",
+                    ignoreCase = true
+                )
+            }
+            ?.substringAfter(':')
+            ?.substringBefore(':')
+            ?.toLongOrNull()
+
+    val seasonNumber =
+        behaviorHints?.upcomingSeason
+
+    return ReleaseReminderRecord(
+        itemId = id,
+        itemType = apiType,
+        title = name,
+        year =
+            behaviorHints
+                ?.releaseYear
+                ?.trim()
+                ?.toIntOrNull(),
+        traktId =
+            prefixedLong("trakt")
+                ?.toInt(),
+        simklId =
+            prefixedLong("simkl"),
+        imdbId =
+            imdbId
+                ?.trim()
+                ?.takeIf { it.isNotBlank() },
+        tmdbId =
+            prefixedLong("tmdb")
+                ?.toInt(),
+        poster = poster,
+        background = backdropUrl,
+        logo = logo,
+        description = description,
+        releaseInfo = releaseInfo,
+        imdbRating = imdbRating,
+        genres = genres,
+        addonBaseUrl =
+            addonBaseUrl
+                .trim()
+                .takeIf { it.isNotBlank() },
+        releaseDate =
+            behaviorHints?.releaseDate,
+        seasonNumber = seasonNumber,
+        platformId =
+            behaviorHints?.platformId,
+        badge =
+            if ((seasonNumber ?: 0) >= 2) {
+                ReleaseReminderBadge.NEW_SEASON
+            } else {
+                ReleaseReminderBadge.AVAILABLE_NOW
+            }
+    )
+}
+
+internal fun HomeViewModel.togglePosterReleaseReminder(
+    item: MetaPreview,
+    addonBaseUrl: String
+) {
+    if (
+        item.behaviorHints?.comingSoon != true
+    ) {
+        return
+    }
+
+    val identityKeys =
+        releaseReminderIdentityKeys(item)
+
+    if (identityKeys.isEmpty()) {
+        return
+    }
+
+    val previousMembership =
+        identityKeys.associateWith { key ->
+            key in
+                _uiState.value
+                    .armedReleaseReminderKeys
+        }
+
+    val reminderWasSet =
+        previousMembership.values.any { it }
+
+    val enableReminder =
+        !reminderWasSet
+
+    /*
+     * Optimistic Home update.
+     *
+     * This is deliberately synchronous with the popup action so
+     * the poster bell changes before the DataStore write completes.
+     * The existing reminder pipeline will subsequently confirm the
+     * same state from durable storage.
+     */
+    _uiState.update { state ->
+        val updated =
+            state
+                .armedReleaseReminderKeys
+                .toMutableSet()
+
+        if (enableReminder) {
+            updated.addAll(identityKeys)
+        } else {
+            updated.removeAll(identityKeys)
+        }
+
+        state.copy(
+            armedReleaseReminderKeys =
+                updated
+        )
+    }
+
+    viewModelScope.launch {
+        runCatching {
+            if (enableReminder) {
+                releaseReminderDataStore
+                    .setReminder(
+                        item.toHomeReleaseReminderRecord(
+                            addonBaseUrl
+                        ),
+                        enabled = true
+                    )
+            } else {
+                /*
+                 * Details and Home can reach the same title through
+                 * different provider IDs. Find the actual ARMED
+                 * record through all persisted aliases before
+                 * removing it.
+                 */
+                val matchingRecords =
+                    releaseReminderDataStore
+                        .reminders
+                        .first()
+                        .filter { record ->
+                            record.status ==
+                                ReleaseReminderStatus.ARMED &&
+                                releaseReminderIdentityKeys(
+                                    record
+                                ).any(
+                                    identityKeys::contains
+                                )
+                        }
+
+                if (matchingRecords.isNotEmpty()) {
+                    matchingRecords.forEach { record ->
+                        releaseReminderDataStore
+                            .remove(record.key)
+                    }
+                } else {
+                    /*
+                     * Handles old boolean-only reminder records.
+                     */
+                    identityKeys.forEach { key ->
+                        releaseReminderDataStore
+                            .remove(key)
+                    }
+                }
+            }
+        }.onFailure { error ->
+            /*
+             * Roll back only this title's identities. Do not
+             * disturb reminder changes for any other poster.
+             */
+            _uiState.update { state ->
+                val restored =
+                    state
+                        .armedReleaseReminderKeys
+                        .toMutableSet()
+
+                previousMembership.forEach {
+                        (key, wasSet) ->
+                    if (wasSet) {
+                        restored.add(key)
+                    } else {
+                        restored.remove(key)
+                    }
+                }
+
+                state.copy(
+                    armedReleaseReminderKeys =
+                        restored
+                )
+            }
+
+            Log.w(
+                HomeViewModel.TAG,
+                "Failed to toggle poster release reminder " +
+                    "${item.id}: ${error.message}"
+            )
+        }
+    }
+}
+
 internal fun HomeViewModel.observeReleaseRemindersPipeline() {
     viewModelScope.launch {
         combine(
@@ -105,9 +363,60 @@ internal fun HomeViewModel.observeReleaseRemindersPipeline() {
                     }
             }
 
+            val armedReminderKeys = buildSet {
+                reminders
+                    .asSequence()
+                    .filter {
+                        it.status ==
+                            ReleaseReminderStatus.ARMED
+                    }
+                    .forEach { reminder ->
+                        add(reminder.key)
+
+                        reminder.imdbId?.let { id ->
+                            releaseReminderKey(
+                                id,
+                                reminder.itemType
+                            )?.let(::add)
+                        }
+
+                        reminder.tmdbId?.let { id ->
+                            releaseReminderKey(
+                                "tmdb:$id",
+                                reminder.itemType
+                            )?.let(::add)
+                        }
+
+                        reminder.traktId?.let { id ->
+                            releaseReminderKey(
+                                "trakt:$id",
+                                reminder.itemType
+                            )?.let(::add)
+                        }
+
+                        reminder.simklId?.let { id ->
+                            releaseReminderKey(
+                                "simkl:$id",
+                                reminder.itemType
+                            )?.let(::add)
+                        }
+                    }
+            }
+
             _uiState.update { state ->
-                if (state.releaseReminderBadges == liveBadges) state
-                else state.copy(releaseReminderBadges = liveBadges)
+                if (
+                    state.releaseReminderBadges == liveBadges &&
+                    state.armedReleaseReminderKeys ==
+                        armedReminderKeys
+                ) {
+                    state
+                } else {
+                    state.copy(
+                        releaseReminderBadges = liveBadges,
+                        armedReleaseReminderKeys =
+                            armedReminderKeys
+                    )
+                }
             }
 
             if (!cwResolved) {
