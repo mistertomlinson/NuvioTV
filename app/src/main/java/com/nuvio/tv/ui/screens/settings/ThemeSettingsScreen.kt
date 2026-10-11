@@ -73,6 +73,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.BadgeColorStyle
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.ThemeColors
 import com.nuvio.tv.ui.theme.getFontFamily
@@ -83,6 +84,7 @@ import java.util.Locale
 private enum class AppearanceSection {
     THEME,
     BADGE_COLORS,
+    POSTER_STATUS_ICONS,
     FONT,
     LANGUAGE
 }
@@ -117,9 +119,11 @@ fun ThemeSettingsContent(
     val appearanceListSettleOffsetY = remember { Animatable(0f) }
 
     var badgeColorsExpanded by remember { mutableStateOf(false) }
+    var posterStatusIconsExpanded by remember { mutableStateOf(false) }
     var fontExpanded by remember { mutableStateOf(false) }
     var languageExpanded by remember { mutableStateOf(false) }
     var pendingBadgeColorsFocusRestore by remember { mutableStateOf(false) }
+    var pendingPosterStatusIconsFocusRestore by remember { mutableStateOf(false) }
     var pendingFontFocusRestore by remember { mutableStateOf(false) }
     var pendingLanguageFocusRestore by remember { mutableStateOf(false) }
     var pendingLanguageRestart by remember { mutableStateOf(false) }
@@ -131,6 +135,7 @@ fun ThemeSettingsContent(
     }
 
     val badgeColorsHeaderFocus = remember { FocusRequester() }
+    val posterStatusIconsHeaderFocus = remember { FocusRequester() }
     val fontHeaderFocus = remember { FocusRequester() }
     val languageHeaderFocus = remember { FocusRequester() }
 
@@ -173,6 +178,20 @@ fun ThemeSettingsContent(
         }
     }
 
+    LaunchedEffect(
+        posterStatusIconsExpanded,
+        pendingPosterStatusIconsFocusRestore
+    ) {
+        if (
+            !posterStatusIconsExpanded &&
+            pendingPosterStatusIconsFocusRestore
+        ) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching { posterStatusIconsHeaderFocus.requestFocus() }
+            pendingPosterStatusIconsFocusRestore = false
+        }
+    }
+
     LaunchedEffect(fontExpanded, pendingFontFocusRestore) {
         if (!fontExpanded && pendingFontFocusRestore) {
             androidx.compose.runtime.withFrameNanos { }
@@ -209,11 +228,15 @@ fun ThemeSettingsContent(
     val visibleSections = listOf(
         AppearanceSection.THEME,
         AppearanceSection.BADGE_COLORS,
+        AppearanceSection.POSTER_STATUS_ICONS,
         AppearanceSection.FONT,
         AppearanceSection.LANGUAGE
     )
     val expandedSections = buildSet {
         if (badgeColorsExpanded) add(AppearanceSection.BADGE_COLORS)
+        if (posterStatusIconsExpanded) {
+            add(AppearanceSection.POSTER_STATUS_ICONS)
+        }
         if (fontExpanded) add(AppearanceSection.FONT)
         if (languageExpanded) add(AppearanceSection.LANGUAGE)
     }
@@ -270,6 +293,8 @@ fun ThemeSettingsContent(
         when (section) {
             AppearanceSection.THEME -> Unit
             AppearanceSection.BADGE_COLORS -> badgeColorsExpanded = expanded
+            AppearanceSection.POSTER_STATUS_ICONS ->
+                posterStatusIconsExpanded = expanded
             AppearanceSection.FONT -> fontExpanded = expanded
             AppearanceSection.LANGUAGE -> languageExpanded = expanded
         }
@@ -546,6 +571,65 @@ fun ThemeSettingsContent(
                                         collapseSection(
                                             AppearanceSection.BADGE_COLORS,
                                             "appearance_badge_colors"
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    item(key = "appearance_poster_status_icons") {
+                        AppearanceExpandableSection(
+                            title = stringResource(
+                                R.string.appearance_poster_status_icons
+                            ),
+                            subtitle = stringResource(
+                                R.string.appearance_poster_status_icons_subtitle
+                            ),
+                            value = posterStatusIconStyleLabel(
+                                uiState.selectedPosterStatusIconStyle
+                            ),
+                            expanded = posterStatusIconsExpanded,
+                            onToggle = {
+                                if (posterStatusIconsExpanded) {
+                                    collapseSection(
+                                        AppearanceSection.POSTER_STATUS_ICONS,
+                                        "appearance_poster_status_icons"
+                                    )
+                                } else {
+                                    expandSection(
+                                        AppearanceSection.POSTER_STATUS_ICONS
+                                    )
+                                }
+                            },
+                            focusRequester = posterStatusIconsHeaderFocus,
+                            groupPosition = groupPositionFor(
+                                AppearanceSection.POSTER_STATUS_ICONS
+                            ),
+                            animateTopFlatten = animateTopFlattenFor(
+                                AppearanceSection.POSTER_STATUS_ICONS
+                            ),
+                            animateBottomFlatten = animateBottomFlattenFor(
+                                AppearanceSection.POSTER_STATUS_ICONS
+                            ),
+                            deferBottomCorner =
+                                AppearanceSection.POSTER_STATUS_ICONS in
+                                    deferredBottomCornerSections
+                        ) {
+                            uiState.availablePosterStatusIconStyles.forEach { style ->
+                                PosterStatusIconChoiceRow(
+                                    style = style,
+                                    selected =
+                                        style == uiState.selectedPosterStatusIconStyle,
+                                    onClick = {
+                                        viewModel.onEvent(
+                                            ThemeSettingsEvent
+                                                .SelectPosterStatusIconStyle(style)
+                                        )
+                                        pendingPosterStatusIconsFocusRestore = true
+                                        collapseSection(
+                                            AppearanceSection.POSTER_STATUS_ICONS,
+                                            "appearance_poster_status_icons"
                                         )
                                     }
                                 )
@@ -882,6 +966,129 @@ private fun badgeColorStyleLabel(style: BadgeColorStyle): String =
     }
 
 @Composable
+private fun posterStatusIconStyleLabel(
+    style: PosterStatusIconStyle
+): String =
+    when (style) {
+        PosterStatusIconStyle.MODERN ->
+            stringResource(R.string.appearance_poster_status_icons_modern)
+        PosterStatusIconStyle.LEGACY ->
+            stringResource(R.string.appearance_poster_status_icons_legacy)
+    }
+
+@Composable
+private fun PosterStatusIconChoiceRow(
+    style: PosterStatusIconStyle,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    var isFocused by remember { mutableStateOf(false) }
+
+    Card(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(49.dp)
+            .onFocusChanged { state ->
+                isFocused = state.isFocused
+            },
+        colors = CardDefaults.colors(
+            containerColor = SettingsRightSurfaceColor,
+            focusedContainerColor = SettingsRightSurfaceFocusedColor
+        ),
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
+        shape = CardDefaults.shape(
+            RoundedCornerShape(SettingsInnerRowRadius)
+        ),
+        scale = CardDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = posterStatusIconStyleLabel(style),
+                style = MaterialTheme.typography.bodyMedium,
+                color =
+                    if (isFocused || selected) {
+                        NuvioColors.TextPrimary
+                    } else {
+                        NuvioColors.TextSecondary
+                    },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            /*
+             * Match Badge Colors' label -> 9dp sample spacing exactly.
+             * These are deliberately empty status-icon faces: no check/bell.
+             */
+            Spacer(modifier = Modifier.width(5.dp))
+            PosterStatusIconEmptyPreview(style = style)
+
+            if (selected) {
+                /* Match BadgeColorChoiceRow: selection check stays local. */
+                Spacer(modifier = Modifier.width(6.dp))
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = stringResource(R.string.cd_selected),
+                    tint = NuvioColors.Secondary,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun PosterStatusIconEmptyPreview(
+    style: PosterStatusIconStyle
+) {
+    when (style) {
+        PosterStatusIconStyle.MODERN -> {
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF6366F1),
+                                Color(0xFFEC4899)
+                            )
+                        )
+                    )
+            )
+        }
+
+        PosterStatusIconStyle.LEGACY -> {
+            Box(
+                modifier = Modifier
+                    .size(9.dp)
+                    .clip(CircleShape)
+                    .background(Color.Black),
+                contentAlignment = Alignment.Center
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                )
+            }
+        }
+    }
+}
+
+@Composable
 private fun AppearanceThemeSelector(
     themes: List<AppTheme>,
     selectedTheme: AppTheme,
@@ -1029,7 +1236,7 @@ private fun AppearanceExpandableSection(
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(
-            if (expanded) SettingsRowGap else 0.dp
+            if (expanded || deferBottomCorner) SettingsRowGap else 0.dp
         )
     ) {
         SettingsActionRow(

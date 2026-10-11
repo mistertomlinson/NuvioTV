@@ -6,6 +6,7 @@ import com.nuvio.tv.data.local.ReleaseReminderBadge
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import com.nuvio.tv.domain.model.FocusedPosterTrailerPlaybackTarget
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.domain.model.HomeLayout
 import com.nuvio.tv.domain.model.LibraryListTab
 import com.nuvio.tv.domain.model.LibrarySourceMode
@@ -78,6 +79,7 @@ data class HomeUiState(
     val gridItems: List<GridItem> = emptyList(),
     val hideUnreleasedContent: Boolean = false,
     val hideNewSeasonBadge: Boolean = false,
+    val posterStatusIconStyle: PosterStatusIconStyle = PosterStatusIconStyle.MODERN,
     val startupAuthNotice: StartupAuthNotice? = null,
     val aggregateStreamingPlatformsEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,

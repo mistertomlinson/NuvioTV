@@ -6,6 +6,7 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.BadgeColorStyle
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -27,6 +28,7 @@ class ThemeDataStore @Inject constructor(
     private val themeKey = stringPreferencesKey("selected_theme")
     private val fontKey = stringPreferencesKey("selected_font")
     private val badgeColorStyleKey = stringPreferencesKey("badge_color_style")
+    private val posterStatusIconStyleKey = stringPreferencesKey("poster_status_icon_style")
 
     val selectedTheme: Flow<AppTheme> = profileManager.activeProfileId.flatMapLatest { pid ->
         factory.get(pid, FEATURE).data.map { prefs ->
@@ -61,6 +63,20 @@ class ThemeDataStore @Inject constructor(
         }
     }
 
+    val selectedPosterStatusIconStyle: Flow<PosterStatusIconStyle> =
+        profileManager.activeProfileId.flatMapLatest { pid ->
+            factory.get(pid, FEATURE).data.map { prefs ->
+                val styleName =
+                    prefs[posterStatusIconStyleKey]
+                        ?: PosterStatusIconStyle.MODERN.name
+                try {
+                    PosterStatusIconStyle.valueOf(styleName)
+                } catch (_: IllegalArgumentException) {
+                    PosterStatusIconStyle.MODERN
+                }
+            }
+        }
+
     suspend fun setTheme(theme: AppTheme) {
         store().edit { prefs ->
             prefs[themeKey] = theme.name
@@ -76,6 +92,12 @@ class ThemeDataStore @Inject constructor(
     suspend fun setBadgeColorStyle(style: BadgeColorStyle) {
         store().edit { prefs ->
             prefs[badgeColorStyleKey] = style.name
+        }
+    }
+
+    suspend fun setPosterStatusIconStyle(style: PosterStatusIconStyle) {
+        store().edit { prefs ->
+            prefs[posterStatusIconStyleKey] = style.name
         }
     }
 }

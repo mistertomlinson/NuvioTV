@@ -180,7 +180,11 @@
     <string name="appearance_badge_colors_subtitle">Choose your badge color style</string>
     <string name="appearance_badge_colors_nuvio">Nuvio Colors</string>
     <string name="appearance_badge_colors_legacy">Legacy Colors</string>
-    <string name="appearance_subtitle">Choose your color theme, font and language</string>
+    <string name="appearance_poster_status_icons">Poster Status Icons</string>
+    <string name="appearance_poster_status_icons_subtitle">Choose the watched and reminder icon style</string>
+    <string name="appearance_poster_status_icons_modern">Modern</string>
+    <string name="appearance_poster_status_icons_legacy">Legacy</string>
+    <string name="appearance_subtitle">Choose your color theme, poster icons, font and language</string>
 
     <!-- AboutScreen -->
     <string name="about_title">About</string>

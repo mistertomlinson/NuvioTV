@@ -211,9 +211,13 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             .combine(layoutPreferenceDataStore.hidePlatformIconsOnRowExitEnabled) { outerPair5, hidePlatformIconsOnRowExit ->
                 Pair(outerPair5, hidePlatformIconsOnRowExit)
             }
+            .combine(themeDataStore.selectedPosterStatusIconStyle) { outerPair6, posterStatusIconStyle ->
+                Pair(outerPair6, posterStatusIconStyle)
+            }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (outerPairVal5, hidePlatformIconsOnRowExitEnabled) ->
+            .collectLatest { (outerPairVal6, posterStatusIconStyle) ->
+            val (outerPairVal5, hidePlatformIconsOnRowExitEnabled) = outerPairVal6
             val (outerPairVal4, heroMetadataLarge) = outerPairVal5
             val (outerPairVal3, landscapeCatalogKeys) = outerPairVal4
             val (outerPairVal2, dimIconsOnRowExitEnabled) = outerPairVal3
@@ -243,6 +247,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         catalogTypeSuffixEnabled = prefs.catalogTypeSuffixEnabled,
                         hideUnreleasedContent = prefs.hideUnreleasedContent,
                         hideNewSeasonBadge = prefs.hideNewSeasonBadge,
+                        posterStatusIconStyle = posterStatusIconStyle,
                         hidePlatformNameInCatalogTitleEnabled = prefs.hidePlatformNameInCatalogTitleEnabled,
                         modernLandscapePostersEnabled = prefs.modernLandscapePostersEnabled,
                         continueWatchingCardStyle = prefs.continueWatchingCardStyle,

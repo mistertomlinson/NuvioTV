@@ -6,6 +6,7 @@ import com.nuvio.tv.data.local.ThemeDataStore
 import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.BadgeColorStyle
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,13 +23,19 @@ data class ThemeSettingsUiState(
     val selectedFont: AppFont = AppFont.INTER,
     val availableFonts: List<AppFont> = AppFont.entries.toList(),
     val selectedBadgeColorStyle: BadgeColorStyle = BadgeColorStyle.NUVIO,
-    val availableBadgeColorStyles: List<BadgeColorStyle> = BadgeColorStyle.entries.toList()
+    val availableBadgeColorStyles: List<BadgeColorStyle> = BadgeColorStyle.entries.toList(),
+    val selectedPosterStatusIconStyle: PosterStatusIconStyle = PosterStatusIconStyle.MODERN,
+    val availablePosterStatusIconStyles: List<PosterStatusIconStyle> =
+        PosterStatusIconStyle.entries.toList()
 )
 
 sealed class ThemeSettingsEvent {
     data class SelectTheme(val theme: AppTheme) : ThemeSettingsEvent()
     data class SelectFont(val font: AppFont) : ThemeSettingsEvent()
     data class SelectBadgeColorStyle(val style: BadgeColorStyle) : ThemeSettingsEvent()
+    data class SelectPosterStatusIconStyle(
+        val style: PosterStatusIconStyle
+    ) : ThemeSettingsEvent()
 }
 
 @HiltViewModel
@@ -68,6 +75,16 @@ class ThemeSettingsViewModel @Inject constructor(
                     }
                 }
         }
+        viewModelScope.launch {
+            themeDataStore.selectedPosterStatusIconStyle
+                .distinctUntilChanged()
+                .collectLatest { style ->
+                    _uiState.update { state ->
+                        if (state.selectedPosterStatusIconStyle == style) state
+                        else state.copy(selectedPosterStatusIconStyle = style)
+                    }
+                }
+        }
     }
 
     private fun currentTheme(): AppTheme {
@@ -79,6 +96,8 @@ class ThemeSettingsViewModel @Inject constructor(
             is ThemeSettingsEvent.SelectTheme -> selectTheme(event.theme)
             is ThemeSettingsEvent.SelectFont -> selectFont(event.font)
             is ThemeSettingsEvent.SelectBadgeColorStyle -> selectBadgeColorStyle(event.style)
+            is ThemeSettingsEvent.SelectPosterStatusIconStyle ->
+                selectPosterStatusIconStyle(event.style)
         }
     }
 
@@ -100,6 +119,13 @@ class ThemeSettingsViewModel @Inject constructor(
         if (_uiState.value.selectedBadgeColorStyle == style) return
         viewModelScope.launch {
             themeDataStore.setBadgeColorStyle(style)
+        }
+    }
+
+    private fun selectPosterStatusIconStyle(style: PosterStatusIconStyle) {
+        if (_uiState.value.selectedPosterStatusIconStyle == style) return
+        viewModelScope.launch {
+            themeDataStore.setPosterStatusIconStyle(style)
         }
     }
 }
