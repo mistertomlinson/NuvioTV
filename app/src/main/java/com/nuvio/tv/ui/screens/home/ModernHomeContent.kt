@@ -356,8 +356,7 @@ fun ModernHomeContent(
     // Reminder fulfillment is rare; recreating this mapping cache guarantees
     // that a badge appears or clears atomically without touching scroll paths.
     val rowBuildCache = remember(
-        uiState.releaseReminderBadges,
-        uiState.armedReleaseReminderKeys
+        uiState.releaseReminderBadges
     ) {
         ModernCarouselRowBuildCache()
     }
@@ -384,7 +383,6 @@ fun ModernHomeContent(
         outlineNumberedCatalogKeys,
         uiState.landscapeCatalogKeys,
         uiState.releaseReminderBadges,
-        uiState.armedReleaseReminderKeys,
         enrichmentReadyRowKeys,
         continueWatchingEnrichmentReady
     ) {
@@ -500,7 +498,7 @@ fun ModernHomeContent(
                                     strTypeMovie = strTypeMovie,
                                     strTypeSeries = strTypeSeries,
                                     armedReleaseReminderKeys =
-                                        uiState.armedReleaseReminderKeys,
+                                        emptySet(),
                                     releaseReminderBadge =
                                 if (rowKey == HomeViewModel.MY_LIST_CATALOG_KEY) {
                                     val primaryKey =

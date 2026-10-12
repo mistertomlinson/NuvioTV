@@ -89,13 +89,6 @@ private data class HomePosterOptionsTarget(
     val isFromMyList: Boolean = false
 )
 
-private data class PendingPosterStatusIconAnimation(
-    val statusKey: String,
-    val reminderKeys: Set<String> = emptySet(),
-    val kind: PosterStatusIconAnimationKind,
-    val nonce: Long
-)
-
 private val HomeDialogGlassRowColor = Color.Transparent
 private val HomeDialogGlassRowFocusedColor = Color.White.copy(alpha = 0.16f)
 private val HomeDialogGlassBrush = Brush.verticalGradient(
@@ -180,6 +173,7 @@ fun HomeScreen(
         viewModel.setHomePresentationVisible(
             true
         )
+        viewModel.setReleaseReminderHomeVisible(true)
 
         onDispose {
             /*
@@ -189,6 +183,7 @@ fun HomeScreen(
             viewModel.setHomePresentationVisible(
                 false
             )
+            viewModel.setReleaseReminderHomeVisible(false)
         }
     }
 
@@ -329,18 +324,27 @@ fun HomeScreen(
         mutableStateOf<HomePosterOptionsTarget?>(null)
     }
 
-    var posterStatusIconAnimationNonce by
+    val posterStatusRegistry =
         remember(uiState.homeLoadSessionId) {
-            androidx.compose.runtime.mutableLongStateOf(0L)
+            HomePosterStatusRegistry()
         }
-    var pendingPosterStatusIconAnimation by
-        remember(uiState.homeLoadSessionId) {
-            mutableStateOf<PendingPosterStatusIconAnimation?>(null)
-        }
-    var activePosterStatusIconAnimation by
-        remember(uiState.homeLoadSessionId) {
-            mutableStateOf<PosterStatusIconAnimationTrigger?>(null)
-        }
+
+    LaunchedEffect(
+        uiState.movieWatchedStatus,
+        uiState.seriesWatchedStatus
+    ) {
+        posterStatusRegistry.syncWatched(
+            uiState.movieWatchedStatus,
+            uiState.seriesWatchedStatus
+        )
+    }
+
+    LaunchedEffect(uiState.armedReleaseReminderKeys) {
+        posterStatusRegistry.syncReminders(
+            uiState.armedReleaseReminderKeys
+        )
+    }
+
     val homePopupHazeState = remember { HazeState() }
 
     /*
@@ -568,86 +572,6 @@ fun HomeScreen(
         }
     }
 
-    LaunchedEffect(
-        homePopupVisible,
-        catalogOptionsFocusRestoreActive,
-        homePopupWasVisible,
-        pendingPosterStatusIconAnimation,
-        uiState.movieWatchedStatus,
-        uiState.seriesWatchedStatus,
-        uiState.armedReleaseReminderKeys
-    ) {
-        val pending =
-            pendingPosterStatusIconAnimation
-                ?: return@LaunchedEffect
-
-        if (
-            homePopupVisible ||
-            catalogOptionsFocusRestoreActive ||
-            homePopupWasVisible
-        ) {
-            return@LaunchedEffect
-        }
-
-        val posterStatusIconAnimationReady =
-            when (pending.kind) {
-                PosterStatusIconAnimationKind.WATCHED ->
-                    uiState.movieWatchedStatus[
-                        pending.statusKey
-                    ] == true ||
-                        uiState.seriesWatchedStatus[
-                            pending.statusKey
-                        ] == true
-
-                PosterStatusIconAnimationKind.REMINDER ->
-                    pending.reminderKeys.any { key ->
-                        key in uiState.armedReleaseReminderKeys
-                    }
-            }
-
-        if (!posterStatusIconAnimationReady) {
-            return@LaunchedEffect
-        }
-
-        /*
-         * Focus restoration above intentionally spans several frames. Give its
-         * final state one committed frame, then arm the icon entrance. The
-         * poster is now actually visible when frame zero of the animation is
-         * drawn.
-         */
-        androidx.compose.runtime.withFrameNanos { }
-
-        activePosterStatusIconAnimation =
-            PosterStatusIconAnimationTrigger(
-                statusKey = pending.statusKey,
-                kind = pending.kind,
-                nonce = pending.nonce
-            )
-        pendingPosterStatusIconAnimation = null
-    }
-
-    LaunchedEffect(
-        activePosterStatusIconAnimation?.nonce
-    ) {
-        val active =
-            activePosterStatusIconAnimation
-                ?: return@LaunchedEffect
-
-        /*
-         * Long enough for the 220 ms fade + overshoot/spring settlement, then
-         * remove the transient trigger so normal Home scrolling has no active
-         * animation state at all.
-         */
-        kotlinx.coroutines.delay(1_200L)
-
-        if (
-            activePosterStatusIconAnimation?.nonce ==
-            active.nonce
-        ) {
-            activePosterStatusIconAnimation = null
-        }
-    }
-
     val posterCardStyle = remember(
         uiState.posterCardWidthDp,
         uiState.posterCardCornerRadiusDp
@@ -701,21 +625,14 @@ fun HomeScreen(
                     watchedRatingHandoffActive,
             preserveCatalogTrailerPlayback = preserveCatalogTrailerPlayback,
             catalogOptionsFocusRestoreActive =
-                catalogOptionsFocusRestoreActive,
+                catalogOptionsFocusRestoreActive ||
+                    homePopupWasVisible,
             onCatalogOptionsOpening = { preservePlayback ->
                 preserveCatalogTrailerPlayback = preservePlayback
             }
         ),
-        LocalPosterStatusIconAnimationTrigger provides
-            activePosterStatusIconAnimation,
-        LocalPendingPosterStatusIconAnimationTrigger provides
-            pendingPosterStatusIconAnimation?.let { pending ->
-                PosterStatusIconAnimationTrigger(
-                    statusKey = pending.statusKey,
-                    kind = pending.kind,
-                    nonce = pending.nonce
-                )
-            }
+        LocalHomePosterStatusRegistry provides
+            posterStatusRegistry
     ) {
         Box(
             modifier = Modifier
@@ -1091,7 +1008,27 @@ fun HomeScreen(
 
                             HomeLayout.MODERN -> ModernHomeRoute(
                                 viewModel = viewModel,
-                                uiState = uiState,
+                                uiState = uiState.copy(
+                                    armedReleaseReminderKeys = emptySet(),
+                                    movieWatchedStatus = emptyMap(),
+                                    seriesWatchedStatus = emptyMap(),
+                                    seriesWatchedActionStatus = emptyMap(),
+                                    posterLibraryMembership = emptyMap(),
+                                    posterLibraryPending = emptySet(),
+                                    movieWatchedPending = emptySet(),
+                                    seriesWatchedActionPending = emptySet(),
+                                    showPosterListPicker = false,
+                                    posterListPickerTitle = null,
+                                    posterListPickerMembership = emptyMap(),
+                                    posterListPickerPending = false,
+                                    posterListPickerError = null,
+                                    showWatchedRatingOverlay = false,
+                                    watchedRatingItemId = null,
+                                    watchedRatingItemType = null,
+                                    watchedRatingTitle = null,
+                                    watchedRatingImdbId = null,
+                                    watchedRatingYear = null
+                                ),
                                 skipReturnCurtain = skipReturnCurtain,
                                 returnFrameSignalActive = returnFrameSignalActive,
                                 onReturnFrameDrawn = {
@@ -1109,18 +1046,10 @@ fun HomeScreen(
                                 onContinueWatchingStartFromBeginning = onContinueWatchingStartFromBeginning,
                                 onContinueWatchingPlayManually = onContinueWatchingPlayManually,
                                 showContinueWatchingManualPlayOption = effectiveAutoplayEnabled,
-                                isCatalogItemWatched = remember(
-                                    uiState.movieWatchedStatus,
-                                    uiState.seriesWatchedStatus
-                                ) {
-                                    val movieStatus = uiState.movieWatchedStatus
-                                    val seriesStatus = uiState.seriesWatchedStatus
-                                    { item ->
-                                        val key = homeItemStatusKey(item.id, item.apiType)
-                                        movieStatus[key] == true ||
-                                            seriesStatus[key] == true
-                                    }
-                                },
+                                isCatalogItemWatched =
+                                    remember {
+                                        { _: MetaPreview -> false }
+                                    },
                                 onCatalogItemLongPress = { item, addonBaseUrl ->
                                     val statusKey = homeItemStatusKey(item.id, item.apiType)
                                     posterOptionsTarget = HomePosterOptionsTarget(
@@ -1339,19 +1268,6 @@ fun HomeScreen(
                 posterOptionsTarget = null
             },
             onToggleReleaseReminder = {
-                if (!isReleaseReminderSet) {
-                    posterStatusIconAnimationNonce += 1L
-                    pendingPosterStatusIconAnimation =
-                        PendingPosterStatusIconAnimation(
-                            statusKey = statusKey,
-                            reminderKeys =
-                                releaseReminderIdentityKeys(item),
-                            kind =
-                                PosterStatusIconAnimationKind.REMINDER,
-                            nonce = posterStatusIconAnimationNonce
-                        )
-                }
-
                 viewModel.togglePosterReleaseReminder(
                     item = item,
                     addonBaseUrl =
@@ -1365,37 +1281,12 @@ fun HomeScreen(
                         uiState.movieWatchedStatus[statusKey] == true
 
                     if (!wasAlreadyWatched) {
-                        posterStatusIconAnimationNonce += 1L
-                        pendingPosterStatusIconAnimation =
-                            PendingPosterStatusIconAnimation(
-                                statusKey = statusKey,
-                                kind =
-                                    PosterStatusIconAnimationKind.WATCHED,
-                                nonce = posterStatusIconAnimationNonce
-                            )
-
-                        /*
-                         * Arm this synchronously before removing the options
-                         * Dialog. Series bulk watched actions intentionally do
-                         * not invoke the movie-rating handoff.
-                         */
                         watchedRatingHandoffStatusKey = statusKey
                         watchedRatingHandoffObservedPending = false
                     }
 
                     viewModel.togglePosterMovieWatched(item)
                 } else if (isSeries) {
-                    if (!watchedActionState) {
-                        posterStatusIconAnimationNonce += 1L
-                        pendingPosterStatusIconAnimation =
-                            PendingPosterStatusIconAnimation(
-                                statusKey = statusKey,
-                                kind =
-                                    PosterStatusIconAnimationKind.WATCHED,
-                                nonce = posterStatusIconAnimationNonce
-                            )
-                    }
-
                     viewModel.togglePosterSeriesWatched(
                         item = item,
                         addonBaseUrl = selectedPoster.addonBaseUrl

@@ -10,7 +10,9 @@ import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.nuvio.tv.core.homechannel.HomeScreenChannelWorker
+import com.nuvio.tv.core.reminders.ReleaseReminderWorker
 import com.nuvio.tv.core.sync.StartupSyncService
+import com.nuvio.tv.ui.screens.home.ReleaseReminderCoordinator
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
@@ -20,6 +22,7 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
 
     @Inject lateinit var startupSyncService: StartupSyncService
     @Inject lateinit var workerFactory: HiltWorkerFactory
+    @Inject lateinit var releaseReminderCoordinator: ReleaseReminderCoordinator
 
     override val workManagerConfiguration: Configuration
         get() = Configuration.Builder()
@@ -29,6 +32,8 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
     override fun onCreate() {
         super.onCreate()
         HomeScreenChannelWorker.schedule(this)
+        releaseReminderCoordinator.start()
+        ReleaseReminderWorker.schedulePeriodic(this)
     }
 
     override fun newImageLoader(): ImageLoader {

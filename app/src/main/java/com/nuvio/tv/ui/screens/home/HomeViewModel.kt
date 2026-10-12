@@ -102,6 +102,7 @@ class HomeViewModel @Inject constructor(
     internal val homeEnrichmentDiskCache: HomeEnrichmentDiskCache,
     internal val myListDiskCache: MyListDiskCache,
     internal val releaseReminderDataStore: com.nuvio.tv.data.local.ReleaseReminderDataStore,
+    internal val releaseReminderCoordinator: ReleaseReminderCoordinator,
     internal val trackingRatingCoordinator: TrackingRatingCoordinator,
     internal val homeTrailerPlayerHolder: com.nuvio.tv.ui.components.HomeTrailerPlayerHolder,
 ) : ViewModel() {
@@ -136,13 +137,6 @@ class HomeViewModel @Inject constructor(
         .distinctUntilChanged()
     internal val _fullCatalogRows = MutableStateFlow<List<CatalogRow>>(emptyList())
     val fullCatalogRows: StateFlow<List<CatalogRow>> = _fullCatalogRows.asStateFlow()
-
-    /*
-     * Background-only throttle for release reminder source revalidation.
-     * Never read from Compose/card/focus code.
-     */
-    internal val releaseReminderAuthorityLastCheckedAtMillis =
-        mutableMapOf<String, Long>()
 
     private val _focusState = MutableStateFlow(HomeScreenFocusState())
     val focusState: StateFlow<HomeScreenFocusState> = _focusState.asStateFlow()
@@ -966,7 +960,8 @@ class HomeViewModel @Inject constructor(
         get() = trailerPreviewAudioUrlsState
 
     init {
-        observeReleaseRemindersPipeline()
+        observeReleaseRemindersUiPipeline()
+        observeReleaseReminderRuntimeSnapshotPipeline()
         homeViewModelActiveInstanceId = instanceId
         observeStartupAuthNotice()
         viewModelScope.launch {

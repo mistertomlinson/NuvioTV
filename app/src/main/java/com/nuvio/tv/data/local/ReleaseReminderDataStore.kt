@@ -47,7 +47,8 @@ data class ReleaseReminderRecord(
     val badge: ReleaseReminderBadge = ReleaseReminderBadge.AVAILABLE_NOW,
     val status: ReleaseReminderStatus = ReleaseReminderStatus.ARMED,
     val fulfilledAtMillis: Long? = null,
-    val membershipConfirmed: Boolean = false
+    val membershipConfirmed: Boolean = false,
+    val lastAuthorityCheckAtMillis: Long? = null
 ) {
     val key: String
         get() = checkNotNull(releaseReminderKey(itemId, itemType))
@@ -276,6 +277,7 @@ class ReleaseReminderDataStore @Inject constructor(
             put("status", record.status.name)
             putNullable("fulfilledAtMillis", record.fulfilledAtMillis)
             put("membershipConfirmed", record.membershipConfirmed)
+            putNullable("lastAuthorityCheckAtMillis", record.lastAuthorityCheckAtMillis)
         }.toString()
 
     private fun decodeRecord(raw: String): ReleaseReminderRecord? = runCatching {
@@ -317,7 +319,8 @@ class ReleaseReminderDataStore @Inject constructor(
                 ReleaseReminderStatus.ARMED
             ),
             fulfilledAtMillis = json.longOrNull("fulfilledAtMillis"),
-            membershipConfirmed = json.optBoolean("membershipConfirmed", false)
+            membershipConfirmed = json.optBoolean("membershipConfirmed", false),
+            lastAuthorityCheckAtMillis = json.longOrNull("lastAuthorityCheckAtMillis")
         )
     }.getOrNull()
 

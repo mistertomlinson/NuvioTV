@@ -105,25 +105,42 @@ fun WatchedRatingOverlay(
     val likeFocusRequester = remember { FocusRequester() }
     val loveFocusRequester = remember { FocusRequester() }
     var consumed by remember { mutableStateOf(false) }
-    var ratingButtonsCanFocus by remember(visible) {
-        mutableStateOf(false)
+    var ratingButtonsCanFocus by remember { mutableStateOf(false) }
+    var dismissCanFocus by remember { mutableStateOf(false) }
+    var contentVisible by remember { mutableStateOf(false) }
+    val appearanceProgress = remember {
+        androidx.compose.animation.core.Animatable(0f)
     }
-    val appearanceProgress by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = if (visible) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (visible) 220 else 180,
-            easing = androidx.compose.animation.core.FastOutSlowInEasing
-        ),
-        label = "watchedRatingGlassAppearance"
-    )
 
     LaunchedEffect(visible) {
         if (visible) {
             consumed = false
+            ratingButtonsCanFocus = false
+            dismissCanFocus = false
+            appearanceProgress.stop()
+            appearanceProgress.snapTo(0f)
+            contentVisible = true
+
+            // Commit one real zero-progress frame before animation/focus.
             androidx.compose.runtime.withFrameNanos { }
+
+            dismissCanFocus = true
             runCatching { dismissFocusRequester.requestFocus() }
-            kotlinx.coroutines.delay(64)
             ratingButtonsCanFocus = true
+
+            appearanceProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 220,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing
+                )
+            )
+        } else {
+            contentVisible = false
+            ratingButtonsCanFocus = false
+            dismissCanFocus = false
+            appearanceProgress.stop()
+            appearanceProgress.snapTo(0f)
         }
     }
 
@@ -134,11 +151,7 @@ fun WatchedRatingOverlay(
         }
     }
 
-    AnimatedVisibility(
-        visible = visible,
-        enter = androidx.compose.animation.EnterTransition.None,
-        exit = fadeOut(tween(180)) + scaleOut(tween(180), targetScale = 0.95f)
-    ) {
+    if (contentVisible) {
         androidx.compose.foundation.layout.Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -149,8 +162,8 @@ fun WatchedRatingOverlay(
                     state = hazeState,
                     shape = panelShape,
                     tint = Color.Unspecified,
-                    blurRadius = (1f + (29f * appearanceProgress)).dp,
-                    noiseFactor = 0.025f * appearanceProgress
+                    blurRadius = (1f + (29f * appearanceProgress.value)).dp,
+                    noiseFactor = 0.025f * appearanceProgress.value
                 )
             } else {
                 Modifier
@@ -158,8 +171,8 @@ fun WatchedRatingOverlay(
             GlassDialogAnimatedPanel(
                 scale =
                     0.96f +
-                        (0.04f * appearanceProgress),
-                alpha = appearanceProgress,
+                        (0.04f * appearanceProgress.value),
+                alpha = appearanceProgress.value,
                 shape = panelShape,
                 hazeModifier = blurModifier,
                 surfaceModifier = Modifier
@@ -256,6 +269,7 @@ fun WatchedRatingOverlay(
                         .glassDialogFocusTransform()
                         .focusRequester(dismissFocusRequester)
                         .focusProperties {
+                            this.canFocus = dismissCanFocus
                             up = likeFocusRequester
                             down = likeFocusRequester
                         }

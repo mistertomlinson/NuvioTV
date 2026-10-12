@@ -154,26 +154,58 @@ internal val LocalPosterStatusIconStyle =
         PosterStatusIconStyle.MODERN
     }
 
-internal enum class PosterStatusIconAnimationKind {
-    WATCHED,
-    REMINDER
+@androidx.compose.runtime.Stable
+internal class HomePosterStatusRegistry {
+    private val watchedStates =
+        mutableMapOf<String, androidx.compose.runtime.MutableState<Boolean>>()
+    private val reminderStates =
+        mutableMapOf<String, androidx.compose.runtime.MutableState<Boolean>>()
+    private var watchedKeys: Set<String> = emptySet()
+    private var reminderKeys: Set<String> = emptySet()
+
+    private fun stateFor(
+        map: MutableMap<String, androidx.compose.runtime.MutableState<Boolean>>,
+        key: String
+    ): androidx.compose.runtime.MutableState<Boolean> =
+        map.getOrPut(key) { androidx.compose.runtime.mutableStateOf(false) }
+
+    fun syncWatched(
+        movieStatus: Map<String, Boolean>,
+        seriesStatus: Map<String, Boolean>
+    ) {
+        val next = buildSet {
+            movieStatus.forEach { (key, value) -> if (value) add(key) }
+            seriesStatus.forEach { (key, value) -> if (value) add(key) }
+        }
+        (watchedKeys + next).forEach { key ->
+            stateFor(watchedStates, key).value = key in next
+        }
+        watchedKeys = next
+    }
+
+    fun syncReminders(keys: Set<String>) {
+        (reminderKeys + keys).forEach { key ->
+            stateFor(reminderStates, key).value = key in keys
+        }
+        reminderKeys = keys
+    }
+
+    fun isWatched(item: MetaPreview): Boolean =
+        stateFor(
+            watchedStates,
+            homeItemStatusKey(item.id, item.apiType)
+        ).value
+
+    fun isReminderSet(item: MetaPreview): Boolean =
+        releaseReminderIdentityKeys(item).any { key ->
+            stateFor(reminderStates, key).value
+        }
 }
 
-internal data class PosterStatusIconAnimationTrigger(
-    val statusKey: String,
-    val kind: PosterStatusIconAnimationKind,
-    val nonce: Long
-)
-
-internal val LocalPosterStatusIconAnimationTrigger =
-    androidx.compose.runtime.staticCompositionLocalOf<
-        PosterStatusIconAnimationTrigger?
-    > { null }
-
-internal val LocalPendingPosterStatusIconAnimationTrigger =
-    androidx.compose.runtime.staticCompositionLocalOf<
-        PosterStatusIconAnimationTrigger?
-    > { null }
+internal val LocalHomePosterStatusRegistry =
+    androidx.compose.runtime.staticCompositionLocalOf {
+        HomePosterStatusRegistry()
+    }
 
 private val LocalAnchoredExpandSink =
     androidx.compose.runtime.compositionLocalOf<androidx.compose.runtime.State<((Float) -> Unit)?>> {
@@ -1248,8 +1280,7 @@ internal fun ModernRowSection(
                             val nextCatalogItem = row.items.getOrNull(index + 1)?.metaPreview
                             // The callback stays stable while its backing watched state changes.
                             // Re-evaluate on recomposition instead of caching the old result.
-                            val isWatched =
-                                item.metaPreview?.let(isCatalogItemWatched) == true
+                            val isWatched = false
                             val onLongPress: () -> Unit = remember(item.metaPreview, payload.addonBaseUrl) {
                                 {
                                     item.metaPreview?.let { preview ->
@@ -1612,10 +1643,6 @@ private fun ModernCarouselCard(
     val cardShape = remember(cardCornerRadius) { RoundedCornerShape(cardCornerRadius) }
     val cardDepthStyle = LocalCardDepthStyle.current
     val posterStatusIconStyle = LocalPosterStatusIconStyle.current
-    val posterStatusIconAnimationTrigger =
-        LocalPosterStatusIconAnimationTrigger.current
-    val pendingPosterStatusIconAnimationTrigger =
-        LocalPendingPosterStatusIconAnimationTrigger.current
 
     /*
      * Card Depth is deliberately cached and attached only to the
@@ -1661,6 +1688,14 @@ private fun ModernCarouselCard(
         (
             isSidebarExpanded ||
                 sidebarFocusRestoreActive
+        ) &&
+            rowFocusRestorer.value !== FocusRequester.Default &&
+            rowFocusRestorer.value === focusRequester
+
+    val retainPopupFocusOutline =
+        (
+            homePopupGlassEnvironment.catalogOptionsVisible ||
+                homePopupGlassEnvironment.catalogOptionsFocusRestoreActive
         ) &&
             rowFocusRestorer.value !== FocusRequester.Default &&
             rowFocusRestorer.value === focusRequester
@@ -2035,7 +2070,8 @@ private fun ModernCarouselCard(
                 .then(
                     if (
                         isFocused ||
-                            retainSidebarFocusOutline
+                            retainSidebarFocusOutline ||
+                            retainPopupFocusOutline
                     ) {
                         Modifier.border(
                             width = 2.dp,
@@ -2466,357 +2502,13 @@ private fun ModernCarouselCard(
                     )
                 }
 
-                val showReleaseReminderMarker =
-                    item.isReleaseReminderSet
+                PosterStatusMarkers(
+                    item = item,
+                    posterStatusIconStyle = posterStatusIconStyle,
+                    showHeavyOverlays = showHeavyOverlays,
+                    heavyOverlayAlpha = heavyOverlayAlpha
+                )
 
-                val posterStatusItemKey =
-                    (item.payload as? ModernPayload.Catalog)
-                        ?.let { payload ->
-                            homeItemStatusKey(
-                                payload.itemId,
-                                payload.itemType
-                            )
-                        }
-
-                val modernReminderEntrancePending =
-                    posterStatusIconStyle ==
-                        PosterStatusIconStyle.MODERN &&
-                        showReleaseReminderMarker &&
-                        pendingPosterStatusIconAnimationTrigger
-                            ?.kind ==
-                            PosterStatusIconAnimationKind.REMINDER &&
-                        pendingPosterStatusIconAnimationTrigger
-                            .statusKey ==
-                            posterStatusItemKey
-
-                val modernReminderEntranceActive =
-                    posterStatusIconStyle ==
-                        PosterStatusIconStyle.MODERN &&
-                        showReleaseReminderMarker &&
-                        posterStatusIconAnimationTrigger
-                            ?.kind ==
-                            PosterStatusIconAnimationKind.REMINDER &&
-                        posterStatusIconAnimationTrigger
-                            .statusKey ==
-                            posterStatusItemKey
-
-                val modernWatchedEntrancePending =
-                    posterStatusIconStyle ==
-                        PosterStatusIconStyle.MODERN &&
-                        isWatched &&
-                        pendingPosterStatusIconAnimationTrigger
-                            ?.kind ==
-                            PosterStatusIconAnimationKind.WATCHED &&
-                        pendingPosterStatusIconAnimationTrigger
-                            .statusKey ==
-                            posterStatusItemKey
-
-                val modernWatchedEntranceActive =
-                    posterStatusIconStyle ==
-                        PosterStatusIconStyle.MODERN &&
-                        isWatched &&
-                        posterStatusIconAnimationTrigger
-                            ?.kind ==
-                            PosterStatusIconAnimationKind.WATCHED &&
-                        posterStatusIconAnimationTrigger
-                            .statusKey ==
-                            posterStatusItemKey
-
-                val modernReminderEntranceReserved =
-                    modernReminderEntrancePending ||
-                        modernReminderEntranceActive
-
-                val modernWatchedEntranceReserved =
-                    modernWatchedEntrancePending ||
-                        modernWatchedEntranceActive
-
-                /*
-                 * IMPORTANT: these Animatables are keyed by a Home-level event
-                 * nonce, NOT by isWatched/isReleaseReminderSet.
-                 *
-                 * Home activates that nonce only after the popup/rating chain
-                 * has closed, exact poster focus is restored, and the target
-                 * status is confirmed. Therefore frame zero is guaranteed to be
-                 * visible instead of running behind a Dialog or being recreated
-                 * already at target=1.
-                 *
-                 * graphicsLayer scaling is draw-only: card measurement and
-                 * LazyRow geometry never change.
-                 */
-                val modernReminderAlpha = remember(
-                    item.key,
-                    pendingPosterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconStyle
-                ) {
-                    Animatable(
-                        if (modernReminderEntranceReserved) 0f else 1f
-                    )
-                }
-                val modernReminderScale = remember(
-                    item.key,
-                    pendingPosterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconStyle
-                ) {
-                    Animatable(
-                        if (modernReminderEntranceReserved) 0.78f else 1f
-                    )
-                }
-
-                LaunchedEffect(
-                    item.key,
-                    posterStatusIconAnimationTrigger?.nonce,
-                    modernReminderEntranceActive
-                ) {
-                    if (!modernReminderEntranceActive) {
-                        return@LaunchedEffect
-                    }
-
-                    modernReminderAlpha.snapTo(0f)
-                    modernReminderScale.snapTo(0.78f)
-
-                    launch {
-                        modernReminderAlpha.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(
-                                durationMillis = 220
-                            )
-                        )
-                    }
-
-                    modernReminderScale.animateTo(
-                        targetValue = 1.08f,
-                        animationSpec = tween(
-                            durationMillis = 190,
-                            easing =
-                                androidx.compose.animation.core
-                                    .FastOutSlowInEasing
-                        )
-                    )
-                    modernReminderScale.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            dampingRatio = 0.58f,
-                            stiffness = 520f
-                        )
-                    )
-                }
-
-                val modernWatchedAlpha = remember(
-                    item.key,
-                    pendingPosterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconStyle
-                ) {
-                    Animatable(
-                        if (modernWatchedEntranceReserved) 0f else 1f
-                    )
-                }
-                val modernWatchedScale = remember(
-                    item.key,
-                    pendingPosterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconAnimationTrigger?.nonce,
-                    posterStatusIconStyle
-                ) {
-                    Animatable(
-                        if (modernWatchedEntranceReserved) 0.78f else 1f
-                    )
-                }
-
-                LaunchedEffect(
-                    item.key,
-                    posterStatusIconAnimationTrigger?.nonce,
-                    modernWatchedEntranceActive
-                ) {
-                    if (!modernWatchedEntranceActive) {
-                        return@LaunchedEffect
-                    }
-
-                    modernWatchedAlpha.snapTo(0f)
-                    modernWatchedScale.snapTo(0.78f)
-
-                    launch {
-                        modernWatchedAlpha.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(
-                                durationMillis = 220
-                            )
-                        )
-                    }
-
-                    modernWatchedScale.animateTo(
-                        targetValue = 1.08f,
-                        animationSpec = tween(
-                            durationMillis = 190,
-                            easing =
-                                androidx.compose.animation.core
-                                    .FastOutSlowInEasing
-                        )
-                    )
-                    modernWatchedScale.animateTo(
-                        targetValue = 1f,
-                        animationSpec = spring(
-                            dampingRatio = 0.58f,
-                            stiffness = 520f
-                        )
-                    )
-                }
-
-                if (
-                    showReleaseReminderMarker &&
-                    showHeavyOverlays
-                ) {
-                    if (
-                        posterStatusIconStyle ==
-                        PosterStatusIconStyle.MODERN
-                    ) {
-                        Image(
-                            painter = painterResource(
-                                R.drawable.poster_status_reminder
-                            ),
-                            contentDescription = stringResource(
-                                R.string.hero_reminder_set
-                            ),
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(
-                                    end = 4.dp,
-                                    bottom = 4.dp
-                                )
-                                .zIndex(3f)
-                                .graphicsLayer {
-                                    alpha =
-                                        modernReminderAlpha.value
-                                    scaleX =
-                                        modernReminderScale.value
-                                    scaleY =
-                                        modernReminderScale.value
-                                    compositingStrategy =
-                                        CompositingStrategy.ModulateAlpha
-                                }
-                                .size(29.dp)
-                        )
-                    } else {
-                        /* Exact pre-modern reminder marker; intentionally static. */
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(
-                                    end = 8.dp,
-                                    bottom = 8.dp
-                                )
-                                .zIndex(3f)
-                                .graphicsLayer {
-                                    alpha =
-                                        heavyOverlayAlpha.value *
-                                            0.80f
-                                    compositingStrategy =
-                                        CompositingStrategy.ModulateAlpha
-                                }
-                                .size(21.dp)
-                                .drawBehind {
-                                    drawCircle(
-                                        color = Color.Black,
-                                        radius =
-                                            size.minDimension / 2f + 1.5f
-                                    )
-                                    drawCircle(
-                                        color = Color.White,
-                                        radius =
-                                            size.minDimension *
-                                                (10f / 24f)
-                                    )
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector =
-                                    Icons.Default.Notifications,
-                                contentDescription =
-                                    stringResource(
-                                        R.string.hero_reminder_set
-                                    ),
-                                tint = Color.Black,
-                                modifier = Modifier.size(13.dp)
-                            )
-                        }
-                    }
-                }
-
-                /*
-                 * The watched marker is the final/topmost overlay inside this
-                 * poster only. It can cover release-status badges such as
-                 * "New Season", but its z-order cannot escape this card and
-                 * therefore cannot rise above Home chrome, sidebar or dialogs.
-                 */
-                if (
-                    isWatched &&
-                    showHeavyOverlays
-                ) {
-                    if (
-                        posterStatusIconStyle ==
-                        PosterStatusIconStyle.MODERN
-                    ) {
-                        Image(
-                            painter = painterResource(
-                                R.drawable.poster_status_watched
-                            ),
-                            contentDescription = stringResource(
-                                R.string.episodes_cd_watched
-                            ),
-                            contentScale = ContentScale.Fit,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(
-                                    end = 4.dp,
-                                    top = 4.dp
-                                )
-                                .zIndex(3f)
-                                .graphicsLayer {
-                                    alpha =
-                                        modernWatchedAlpha.value
-                                    scaleX =
-                                        modernWatchedScale.value
-                                    scaleY =
-                                        modernWatchedScale.value
-                                    compositingStrategy =
-                                        CompositingStrategy.ModulateAlpha
-                                }
-                                .size(29.dp)
-                        )
-                    } else {
-                        /* Exact pre-modern watched marker; intentionally static. */
-                        Icon(
-                            imageVector = Icons.Default.CheckCircle,
-                            contentDescription =
-                                stringResource(
-                                    R.string.episodes_cd_watched
-                                ),
-                            tint = Color.White,
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(end = 8.dp, top = 8.dp)
-                                .zIndex(3f)
-                                .graphicsLayer {
-                                    alpha =
-                                        heavyOverlayAlpha.value *
-                                            0.80f
-                                    compositingStrategy =
-                                        CompositingStrategy.ModulateAlpha
-                                }
-                                .size(21.dp)
-                                .drawBehind {
-                                    drawCircle(
-                                        color = Color.Black,
-                                        radius =
-                                            size.minDimension / 2f + 1.5f
-                                    )
-                                }
-                        )
-                    }
-                }
             }
         }
 
@@ -2844,6 +2536,101 @@ private fun ModernCarouselCard(
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
+    item: ModernCarouselItem,
+    posterStatusIconStyle: PosterStatusIconStyle,
+    showHeavyOverlays: Boolean,
+    heavyOverlayAlpha: State<Float>
+) {
+    if (!showHeavyOverlays) return
+    val preview = item.metaPreview ?: return
+    val registry = LocalHomePosterStatusRegistry.current
+    val reminderSet = registry.isReminderSet(preview)
+    val watched = registry.isWatched(preview)
+
+    if (reminderSet) {
+        if (posterStatusIconStyle == PosterStatusIconStyle.MODERN) {
+            Image(
+                painter = painterResource(R.drawable.poster_status_reminder),
+                contentDescription = stringResource(R.string.hero_reminder_set),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 4.dp, bottom = 4.dp)
+                    .zIndex(3f)
+                    .size(29.dp)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 8.dp, bottom = 8.dp)
+                    .zIndex(3f)
+                    .graphicsLayer {
+                        alpha = heavyOverlayAlpha.value * 0.80f
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    }
+                    .size(21.dp)
+                    .drawBehind {
+                        drawCircle(
+                            color = Color.Black,
+                            radius = size.minDimension / 2f + 1.5f
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = size.minDimension * (10f / 24f)
+                        )
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Notifications,
+                    contentDescription = stringResource(R.string.hero_reminder_set),
+                    tint = Color.Black,
+                    modifier = Modifier.size(13.dp)
+                )
+            }
+        }
+    }
+
+    if (watched) {
+        if (posterStatusIconStyle == PosterStatusIconStyle.MODERN) {
+            Image(
+                painter = painterResource(R.drawable.poster_status_watched),
+                contentDescription = stringResource(R.string.episodes_cd_watched),
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 4.dp, top = 4.dp)
+                    .zIndex(3f)
+                    .size(29.dp)
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Default.CheckCircle,
+                contentDescription = stringResource(R.string.episodes_cd_watched),
+                tint = Color.White,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(end = 8.dp, top = 8.dp)
+                    .zIndex(3f)
+                    .graphicsLayer {
+                        alpha = heavyOverlayAlpha.value * 0.80f
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    }
+                    .size(21.dp)
+                    .drawBehind {
+                        drawCircle(
+                            color = Color.Black,
+                            radius = size.minDimension / 2f + 1.5f
+                        )
+                    }
+            )
         }
     }
 }
