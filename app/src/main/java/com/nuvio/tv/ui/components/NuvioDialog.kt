@@ -46,7 +46,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.theme.NuvioColors
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.roundToInt
 
 private val NuvioDialogGlassBrush = Brush.verticalGradient(
@@ -286,19 +286,19 @@ fun NuvioDialog(
                 glassEnvironment.blurEnabled &&
                 hazeState != null
             ) {
-                Modifier.hazeChild(
-                    state = hazeState,
-                    shape = dialogShape,
-                    tint = Color.Unspecified,
-                    blurRadius =
-                        if (glassEnvironment.backdropAlreadyBlurred) {
+                Modifier
+                    .clip(dialogShape)
+                    .hazeEffect(
+                        state = hazeState
+                    ) {
+                        this.blurEnabled = true
+                        this.blurRadius = if (glassEnvironment.backdropAlreadyBlurred) {
                             (1f + (7f * appearanceProgress.value)).dp
                         } else {
                             (1f + (29f * appearanceProgress.value)).dp
-                        },
-                    noiseFactor =
-                        0.025f * appearanceProgress.value
-                )
+                        }
+                        this.noiseFactor = 0.025f * appearanceProgress.value
+                    }
             } else {
                 Modifier
             }

@@ -82,7 +82,7 @@ import com.nuvio.tv.ui.util.computeAirDateBadgeText
 import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.domain.model.ContinueWatchingCardStyle
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 
 internal val brokenImageUrls = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
@@ -1137,13 +1137,15 @@ fun ContinueWatchingOptionsDialog(
             val hazeState = glassEnvironment.hazeState
             val blurModifier =
                 if (glassEnvironment.blurEnabled && hazeState != null) {
-                    Modifier.hazeChild(
-                        state = hazeState,
-                        shape = panelShape,
-                        tint = Color.Unspecified,
-                        blurRadius = (1f + (29f * appearanceProgress.value)).dp,
-                        noiseFactor = 0.025f * appearanceProgress.value
-                    )
+                    Modifier
+                        .clip(panelShape)
+                        .hazeEffect(
+                            state = hazeState
+                        ) {
+                            this.blurEnabled = true
+                            this.blurRadius = (1f + (29f * appearanceProgress.value)).dp
+                            this.noiseFactor = 0.025f * appearanceProgress.value
+                        }
                 } else {
                     Modifier
                 }

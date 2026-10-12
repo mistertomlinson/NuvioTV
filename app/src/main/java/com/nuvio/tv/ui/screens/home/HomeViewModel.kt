@@ -1230,6 +1230,138 @@ class HomeViewModel @Inject constructor(
     private var currentMyListEntries:
         List<com.nuvio.tv.domain.model.LibraryEntry> = emptyList()
 
+    /*
+     * Immutable membership index used by Home poster long-press.
+     *
+     * The previous implementation walked currentMyListEntries and reparsed
+     * content identities while the popup was opening. Keep all existing
+     * My List loading/sync/order behavior unchanged, but move identity parsing
+     * to the My List update path instead.
+     */
+    private data class MyListMembershipKey(
+        val normalizedType: String,
+        val namespace: String,
+        val value: String
+    )
+
+    @Volatile
+    private var currentMyListMembershipKeys:
+        Set<MyListMembershipKey> = emptySet()
+
+    private fun normalizeMyListMediaType(
+        value: String
+    ): String =
+        when (value.trim().lowercase()) {
+            "tv", "show", "anime" -> "series"
+            else -> value.trim().lowercase()
+        }
+
+    private fun buildMyListMembershipKeys(
+        entries:
+            List<com.nuvio.tv.domain.model.LibraryEntry>
+    ): Set<MyListMembershipKey> {
+        if (entries.isEmpty()) {
+            return emptySet()
+        }
+
+        val keys =
+            HashSet<MyListMembershipKey>(
+                entries.size * 8
+            )
+
+        fun add(
+            normalizedType: String,
+            namespace: String,
+            value: String?
+        ) {
+            if (value != null) {
+                keys.add(
+                    MyListMembershipKey(
+                        normalizedType =
+                            normalizedType,
+                        namespace = namespace,
+                        value = value
+                    )
+                )
+            }
+        }
+
+        entries.forEach { entry ->
+            val normalizedType =
+                normalizeMyListMediaType(
+                    entry.type
+                )
+
+            /*
+             * Preserve the original raw-ID comparison:
+             * entry.id equals itemId.trim(), ignoreCase=true.
+             *
+             * Do not trim entry.id here because the original matcher
+             * does not trim the stored side.
+             */
+            add(
+                normalizedType,
+                "raw",
+                entry.id.lowercase()
+            )
+
+            val parsedEntryIds =
+                parseContentIds(entry.id)
+
+            add(
+                normalizedType,
+                "imdb",
+                entry.imdbId?.lowercase()
+            )
+            add(
+                normalizedType,
+                "imdb",
+                parsedEntryIds.imdb?.lowercase()
+            )
+
+            add(
+                normalizedType,
+                "tmdb",
+                entry.tmdbId?.toString()
+            )
+            add(
+                normalizedType,
+                "tmdb",
+                parsedEntryIds.tmdb?.toString()
+            )
+
+            add(
+                normalizedType,
+                "trakt",
+                entry.traktId?.toString()
+            )
+            add(
+                normalizedType,
+                "trakt",
+                parsedEntryIds.trakt?.toString()
+            )
+
+            /*
+             * Preserve the existing Simkl fallback:
+             * itemId == "simkl:<id>" or itemId == "<id>".
+             */
+            entry.simklId?.let { simklId ->
+                add(
+                    normalizedType,
+                    "raw",
+                    "simkl:$simklId".lowercase()
+                )
+                add(
+                    normalizedType,
+                    "raw",
+                    simklId.toString()
+                )
+            }
+        }
+
+        return keys
+    }
+
     fun showHomeMessage(message: String, isError: Boolean = false) {
         _uiState.update {
             it.copy(userMessage = HomeUserMessage(message, isError))
@@ -1246,10 +1378,86 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    fun isInWatchlist(itemId: String, itemType: String): Boolean =
-        currentMyListEntries.any { entry ->
-            entry.matchesMyListIdentity(itemId, itemType)
+    fun isInWatchlist(
+        itemId: String,
+        itemType: String
+    ): Boolean {
+        val keys =
+            currentMyListMembershipKeys
+
+        if (keys.isEmpty()) {
+            return false
         }
+
+        val normalizedType =
+            normalizeMyListMediaType(
+                itemType
+            )
+
+        val normalizedRawId =
+            itemId.trim().lowercase()
+
+        if (
+            MyListMembershipKey(
+                normalizedType =
+                    normalizedType,
+                namespace = "raw",
+                value = normalizedRawId
+            ) in keys
+        ) {
+            return true
+        }
+
+        /*
+         * Parse the poster identity ONCE.
+         *
+         * Previously this happened inside matchesMyListIdentity() for
+         * every entry examined by currentMyListEntries.any { ... }.
+         */
+        val candidate =
+            parseContentIds(itemId)
+
+        candidate.imdb?.let { imdb ->
+            if (
+                MyListMembershipKey(
+                    normalizedType =
+                        normalizedType,
+                    namespace = "imdb",
+                    value = imdb.lowercase()
+                ) in keys
+            ) {
+                return true
+            }
+        }
+
+        candidate.tmdb?.let { tmdb ->
+            if (
+                MyListMembershipKey(
+                    normalizedType =
+                        normalizedType,
+                    namespace = "tmdb",
+                    value = tmdb.toString()
+                ) in keys
+            ) {
+                return true
+            }
+        }
+
+        candidate.trakt?.let { trakt ->
+            if (
+                MyListMembershipKey(
+                    normalizedType =
+                        normalizedType,
+                    namespace = "trakt",
+                    value = trakt.toString()
+                ) in keys
+            ) {
+                return true
+            }
+        }
+
+        return false
+    }
 
     fun consumeMyListHeadReset() {
         val currentFocusState = _focusState.value
@@ -1527,7 +1735,10 @@ class HomeViewModel @Inject constructor(
             }
                 .distinctUntilChanged()
                 .collectLatest source@{ (profileId, sourceMode) ->
-                    currentMyListEntries = emptyList()
+                    currentMyListMembershipKeys =
+                        emptySet()
+                    currentMyListEntries =
+                        emptyList()
 
                     val cached = myListDiskCache.load(
                         profileId = profileId,
@@ -1559,7 +1770,25 @@ class HomeViewModel @Inject constructor(
                                         }
                                     } == true
 
-                            currentMyListEntries = entries
+                            /*
+                             * Build the immutable lookup away from the UI
+                             * thread. Publishing it is then a single volatile
+                             * reference swap and adds no work to poster focus,
+                             * scrolling, or popup opening.
+                             */
+                            val myListMembershipKeys =
+                                kotlinx.coroutines.withContext(
+                                    kotlinx.coroutines.Dispatchers.Default
+                                ) {
+                                    buildMyListMembershipKeys(
+                                        entries
+                                    )
+                                }
+
+                            currentMyListMembershipKeys =
+                                myListMembershipKeys
+                            currentMyListEntries =
+                                entries
 
                             if (newHeadInserted) {
                                 _uiState.update { state ->
