@@ -50,7 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import com.nuvio.tv.ui.components.ProfileAvatarCircle
 import com.nuvio.tv.ui.theme.NuvioColors
 import coil.compose.rememberAsyncImagePainter
@@ -90,13 +90,15 @@ internal fun ModernSidebarBlurPanel(
         !sidebarCollapsePending &&
         delayedBlurProgress > 0f
     val expandedPanelBlurModifier = if (showPanelBlur) {
-        Modifier.hazeChild(
-            state = sidebarHazeState,
-            shape = panelShape,
-            tint = Color.Unspecified,
-            blurRadius = (26f * delayedBlurProgress).dp,
-            noiseFactor = 0.04f * delayedBlurProgress
-        )
+        Modifier
+            .clip(panelShape)
+            .hazeEffect(
+                state = sidebarHazeState
+            ) {
+                this.blurEnabled = true
+                this.blurRadius = (26f * delayedBlurProgress).dp
+                this.noiseFactor = 0.04f * delayedBlurProgress
+            }
     } else {
         Modifier
     }

@@ -143,7 +143,7 @@ import com.nuvio.tv.updater.ui.UpdatePromptDialog
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import javax.inject.Inject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
@@ -1010,13 +1010,15 @@ private fun LegacySidebarScaffold(
                             .coerceIn(0f, 1f)
                     )
                 val drawerBlurModifier = if (legacySidebarHazeCaptureActive && isExpanded) {
-                    Modifier.hazeChild(
-                        state = legacySidebarHazeState,
-                        shape = legacyDrawerShape,
-                        tint = Color.Unspecified,
-                        blurRadius = (1f + (29f * progress)).dp,
-                        noiseFactor = 0.025f * progress
-                    )
+                    Modifier
+                        .clip(legacyDrawerShape)
+                        .hazeEffect(
+                            state = legacySidebarHazeState
+                        ) {
+                            this.blurEnabled = true
+                            this.blurRadius = (1f + (29f * progress)).dp
+                            this.noiseFactor = 0.025f * progress
+                        }
                 } else {
                     Modifier
                 }

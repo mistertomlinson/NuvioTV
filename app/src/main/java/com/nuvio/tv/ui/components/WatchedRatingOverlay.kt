@@ -53,7 +53,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.player.rememberRawSvgPainter
 import com.nuvio.tv.ui.theme.NuvioColors
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import android.view.KeyEvent as AndroidKeyEvent
 
 private val WatchedRatingGlassBrush = androidx.compose.ui.graphics.Brush.verticalGradient(
@@ -158,13 +158,15 @@ fun WatchedRatingOverlay(
         ) {
             val panelShape = RoundedCornerShape(24.dp)
             val blurModifier = if (blurEnabled) {
-                Modifier.hazeChild(
-                    state = hazeState,
-                    shape = panelShape,
-                    tint = Color.Unspecified,
-                    blurRadius = (1f + (29f * appearanceProgress.value)).dp,
-                    noiseFactor = 0.025f * appearanceProgress.value
-                )
+                Modifier
+                    .clip(panelShape)
+                    .hazeEffect(
+                        state = hazeState
+                    ) {
+                        this.blurEnabled = true
+                        this.blurRadius = (1f + (29f * appearanceProgress.value)).dp
+                        this.noiseFactor = 0.025f * appearanceProgress.value
+                    }
             } else {
                 Modifier
             }

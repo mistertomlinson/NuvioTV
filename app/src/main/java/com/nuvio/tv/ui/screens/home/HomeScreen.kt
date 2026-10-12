@@ -81,7 +81,7 @@ import kotlin.math.roundToInt
 import androidx.compose.animation.fadeOut
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 
 private data class HomePosterOptionsTarget(
     val item: MetaPreview,
@@ -1008,7 +1008,7 @@ fun HomeScreen(
 
                             HomeLayout.MODERN -> ModernHomeRoute(
                                 viewModel = viewModel,
-                                uiState = uiState.copy(
+                                uiState = remember(uiState) { uiState.copy(
                                     armedReleaseReminderKeys = emptySet(),
                                     movieWatchedStatus = emptyMap(),
                                     seriesWatchedStatus = emptyMap(),
@@ -1028,7 +1028,7 @@ fun HomeScreen(
                                     watchedRatingTitle = null,
                                     watchedRatingImdbId = null,
                                     watchedRatingYear = null
-                                ),
+                                ) },
                                 skipReturnCurtain = skipReturnCurtain,
                                 returnFrameSignalActive = returnFrameSignalActive,
                                 onReturnFrameDrawn = {
@@ -1974,31 +1974,33 @@ private fun ComingSoonHomeGlassPill(
 
     val blurModifier =
         if (blurEnabled) {
-            Modifier.hazeChild(
-                state = hazeState,
-                shape = pillShape,
-                tint = Color.Unspecified,
-                /*
-                 * Android RenderEffect cannot create a blur at 0 radius.
-                 *
-                 * Follow the same proven pattern used by Nuvio's popup glass:
-                 * keep the native blur strictly positive while the hazeChild
-                 * exists, from 1dp at zero visibility to 30dp at full glass.
-                 *
-                 * This node exists only while the label is active. Exit
-                 * detaches it before the glass/text fade can leave a ghost.
-                 */
-                blurRadius =
-                    (
-                        1f +
-                            (
-                                29f *
-                                    glassVisibilityProgress
-                                        .coerceIn(0f, 1f)
-                            )
-                    ).dp,
-                noiseFactor = homeGlassNoiseFactor(glassVisibilityProgress)
-            )
+            Modifier
+                .clip(pillShape)
+                .hazeEffect(
+                    state = hazeState
+                ) {
+                    this.blurEnabled = true
+                    /*
+                                     * Android RenderEffect cannot create a blur at 0 radius.
+                                     *
+                                     * Follow the same proven pattern used by Nuvio's popup glass:
+                                     * keep the native blur strictly positive while the hazeChild
+                                     * exists, from 1dp at zero visibility to 30dp at full glass.
+                                     *
+                                     * This node exists only while the label is active. Exit
+                                     * detaches it before the glass/text fade can leave a ghost.
+                                     */
+                    this.blurRadius =
+                        (
+                                                1f +
+                                                    (
+                                                        29f *
+                                                            glassVisibilityProgress
+                                                                .coerceIn(0f, 1f)
+                                                    )
+                                            ).dp
+                    this.noiseFactor = homeGlassNoiseFactor(glassVisibilityProgress)
+                }
         } else {
             Modifier
         }
@@ -2150,7 +2152,7 @@ private fun ComingSoonHomeGlassPill(
     }
 }
 
-@OptIn(ExperimentalTvMaterial3Api::class)
+@OptIn(ExperimentalTvMaterial3Api::class, dev.chrisbanes.haze.ExperimentalHazeApi::class)
 @Composable
 private fun HomePosterOptionsDialog(
     title: String,
@@ -2179,7 +2181,18 @@ private fun HomePosterOptionsDialog(
     }
 
     LaunchedEffect(Unit) {
+        appearanceProgress.stop()
+        appearanceProgress.snapTo(0f)
+
+        /*
+         * Inline modal: commit one real zero-progress frame before taking
+         * focus or starting the glass entrance. This matches the proven
+         * watched-rating overlay timing.
+         */
+        androidx.compose.runtime.withFrameNanos { }
+
         runCatching { primaryFocusRequester.requestFocus() }
+
         appearanceProgress.animateTo(
             targetValue = 1f,
             animationSpec = tween(
@@ -2196,258 +2209,270 @@ private fun HomePosterOptionsDialog(
      * Keep Android's default DIM_BEHIND disabled because the existing
      * haze/glass presentation provides its own background treatment.
      */
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss
+    /*
+     * Inline Home modal.
+     *
+     * The previous implementation used a separate Android Dialog window.
+     * Device testing proved that creating that window causes the remaining
+     * trailer hitch even with Haze completely disabled.
+     *
+     * Keep this in Home's existing Compose window, matching the proven
+     * watched-rating overlay architecture.
+     */
+    BackHandler(enabled = true) {
+        onDismiss()
+    }
+
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
     ) {
-        val dialogView =
-            androidx.compose.ui.platform.LocalView.current
-
-        androidx.compose.runtime.DisposableEffect(dialogView) {
-            val window =
-                (
-                    dialogView.parent as?
-                        androidx.compose.ui.window.DialogWindowProvider
-                    )?.window
-
-            window?.clearFlags(
-                android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND
-            )
-
-            onDispose { }
-        }
-
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-        val panelShape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
-        val blurModifier = if (blurEnabled) {
-            Modifier.hazeChild(
-                state = hazeState,
-                shape = panelShape,
-                tint = Color.Unspecified,
-                blurRadius = (1f + (29f * appearanceProgress.value)).dp,
-                noiseFactor = 0.025f * appearanceProgress.value
-            )
-        } else {
-            Modifier
-        }
-
-        GlassDialogAnimatedPanel(
-            width = 520.dp,
-            scale =
-                0.96f +
-                    (0.04f * appearanceProgress.value),
-            alpha = appearanceProgress.value,
-            shape = panelShape,
-            hazeModifier = blurModifier,
-            surfaceModifier = Modifier
-                .background(HomeDialogGlassBrush, panelShape)
-                .border(
-                    1.dp,
-                    HomeDialogGlassBorderColor,
-                    panelShape
-                ),
-            contentModifier = Modifier
-                .padding(24.dp)
-                .onPreviewKeyEvent { event ->
-                    val native = event.nativeKeyEvent
-                    if (
-                        suppressNextKeyUp &&
-                        native.action == AndroidKeyEvent.ACTION_UP &&
-                        (
-                            native.keyCode ==
-                                AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
-                                native.keyCode ==
-                                    AndroidKeyEvent.KEYCODE_ENTER ||
-                                native.keyCode ==
-                                    AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
-                                native.keyCode ==
-                                    AndroidKeyEvent.KEYCODE_MENU
-                        )
-                    ) {
-                        suppressNextKeyUp = false
-                        true
-                    } else {
-                        false
-                    }
-                }
-        ) {
-            androidx.compose.foundation.layout.Column(
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+    val panelShape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp)
+    val blurModifier = if (blurEnabled) {
+        Modifier
+            .clip(panelShape)
+            .hazeEffect(
+                state = hazeState
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    color = NuvioColors.TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = stringResource(R.string.home_poster_dialog_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = NuvioColors.TextSecondary
-                )
+                this.blurEnabled = true
+            /*
+             * Haze 1.x draws the effect at the child itself.
+             * Keep the blur visually synchronized with the panel's
+             * existing 220ms entrance so the background cannot appear
+             * blurred one frame before the glass window.
+             */
+            this.alpha = appearanceProgress.value
 
-        Button(
-            onClick = onDetails,
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassDialogFocusTransform()
-                .focusRequester(primaryFocusRequester),
-            colors = ButtonDefaults.colors(
-                containerColor = HomeDialogGlassRowColor,
-                focusedContainerColor = HomeDialogGlassRowFocusedColor,
-                contentColor = NuvioColors.TextSecondary,
-                focusedContentColor = NuvioColors.TextPrimary
-            ),
-            border = ButtonDefaults.border(
-                border = androidx.tv.material3.Border.None,
-                focusedBorder = androidx.tv.material3.Border.None
-            ),
-            shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
-            scale = ButtonDefaults.scale(
-                focusedScale = 1f,
-                pressedScale = 1f
-            )
-        ) {
-            Text(stringResource(R.string.cw_action_go_to_details))
-        }
-
-        if (isComingSoon) {
-            Button(
-                onClick =
-                    onToggleReleaseReminder,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassDialogFocusTransform(),
-                colors =
-                    ButtonDefaults.colors(
-                        containerColor =
-                            HomeDialogGlassRowColor,
-                        focusedContainerColor =
-                            HomeDialogGlassRowFocusedColor,
-                        contentColor =
-                            NuvioColors.TextSecondary,
-                        focusedContentColor =
-                            NuvioColors.TextPrimary
-                    ),
-                border =
-                    ButtonDefaults.border(
-                        border =
-                            androidx.tv.material3
-                                .Border.None,
-                        focusedBorder =
-                            androidx.tv.material3
-                                .Border.None
-                    ),
-                shape =
-                    ButtonDefaults.shape(
-                        RoundedCornerShape(32.dp)
-                    ),
-                scale =
-                    ButtonDefaults.scale(
-                        focusedScale = 1f,
-                        pressedScale = 1f
-                    )
-            ) {
-                Text(
-                    if (isReleaseReminderSet) {
-                        stringResource(
-                            R.string.hero_cancel_reminder
-                        )
-                    } else {
-                        stringResource(
-                            R.string.hero_remind_me
-                        )
-                    }
-                )
+            /*
+             * Popup-only performance optimization.
+             *
+             * This has zero effect on ordinary Home scrolling because
+             * this Haze effect exists only while this Dialog is mounted.
+             * 0.80 linear scale = ~64% of the original blur pixels.
+             */
+            this.inputScale =
+                dev.chrisbanes.haze.HazeInputScale.Fixed(0.80f)
+                this.blurRadius = (1f + (29f * appearanceProgress.value)).dp
+                this.noiseFactor = 0.025f * appearanceProgress.value
             }
-        } else {
-        Button(
-            onClick = onToggleLibrary,
-            enabled = !isLibraryPending,
-            modifier = Modifier
-                .fillMaxWidth()
-                .glassDialogFocusTransform(),
-            colors = ButtonDefaults.colors(
-                containerColor = HomeDialogGlassRowColor,
-                focusedContainerColor = HomeDialogGlassRowFocusedColor,
-                contentColor = NuvioColors.TextSecondary,
-                focusedContentColor = NuvioColors.TextPrimary
+    } else {
+        Modifier
+    }
+
+    GlassDialogAnimatedPanel(
+        width = 520.dp,
+        scale =
+            0.96f +
+                (0.04f * appearanceProgress.value),
+        alpha = appearanceProgress.value,
+        shape = panelShape,
+        hazeModifier = blurModifier,
+        surfaceModifier = Modifier
+            .background(HomeDialogGlassBrush, panelShape)
+            .border(
+                1.dp,
+                HomeDialogGlassBorderColor,
+                panelShape
             ),
-            border = ButtonDefaults.border(
-                border = androidx.tv.material3.Border.None,
-                focusedBorder = androidx.tv.material3.Border.None
-            ),
-            shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
-            scale = ButtonDefaults.scale(
-                focusedScale = 1f,
-                pressedScale = 1f
-            )
+        contentModifier = Modifier
+            .padding(24.dp)
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (
+                    suppressNextKeyUp &&
+                    native.action == AndroidKeyEvent.ACTION_UP &&
+                    (
+                        native.keyCode ==
+                            AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                            native.keyCode ==
+                                AndroidKeyEvent.KEYCODE_ENTER ||
+                            native.keyCode ==
+                                AndroidKeyEvent.KEYCODE_NUMPAD_ENTER ||
+                            native.keyCode ==
+                                AndroidKeyEvent.KEYCODE_MENU
+                    )
+                ) {
+                    suppressNextKeyUp = false
+                    true
+                } else {
+                    false
+                }
+            }
+    ) {
+        androidx.compose.foundation.layout.Column(
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                if (isInLibrary) {
-                    stringResource(R.string.hero_remove_from_library)
-                } else {
-                    stringResource(R.string.hero_add_to_library)
-                }
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = NuvioColors.TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
-        }
+            Text(
+                text = stringResource(R.string.home_poster_dialog_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = NuvioColors.TextSecondary
+            )
 
-        if (isMovie || isSeries) {
-            Button(
-                onClick = onToggleWatched,
-                enabled = !isWatchedPending,
-                modifier = Modifier
+    Button(
+        onClick = onDetails,
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassDialogFocusTransform()
+            .focusRequester(primaryFocusRequester),
+        colors = ButtonDefaults.colors(
+            containerColor = HomeDialogGlassRowColor,
+            focusedContainerColor = HomeDialogGlassRowFocusedColor,
+            contentColor = NuvioColors.TextSecondary,
+            focusedContentColor = NuvioColors.TextPrimary
+        ),
+        border = ButtonDefaults.border(
+            border = androidx.tv.material3.Border.None,
+            focusedBorder = androidx.tv.material3.Border.None
+        ),
+        shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
+        scale = ButtonDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
+    ) {
+        Text(stringResource(R.string.cw_action_go_to_details))
+    }
+
+    if (isComingSoon) {
+        Button(
+            onClick =
+                onToggleReleaseReminder,
+            modifier = Modifier
                 .fillMaxWidth()
                 .glassDialogFocusTransform(),
-                colors = ButtonDefaults.colors(
-                    containerColor = HomeDialogGlassRowColor,
-                    focusedContainerColor = HomeDialogGlassRowFocusedColor,
-                    contentColor = NuvioColors.TextSecondary,
-                    focusedContentColor = NuvioColors.TextPrimary,
-                    disabledContainerColor = HomeDialogGlassRowColor,
-                    disabledContentColor =
-                        NuvioColors.TextSecondary.copy(alpha = 0.52f)
+            colors =
+                ButtonDefaults.colors(
+                    containerColor =
+                        HomeDialogGlassRowColor,
+                    focusedContainerColor =
+                        HomeDialogGlassRowFocusedColor,
+                    contentColor =
+                        NuvioColors.TextSecondary,
+                    focusedContentColor =
+                        NuvioColors.TextPrimary
                 ),
-                border = ButtonDefaults.border(
-                    border = androidx.tv.material3.Border.None,
-                    focusedBorder = androidx.tv.material3.Border.None
+            border =
+                ButtonDefaults.border(
+                    border =
+                        androidx.tv.material3
+                            .Border.None,
+                    focusedBorder =
+                        androidx.tv.material3
+                            .Border.None
                 ),
-                shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
-                scale = ButtonDefaults.scale(
+            shape =
+                ButtonDefaults.shape(
+                    RoundedCornerShape(32.dp)
+                ),
+            scale =
+                ButtonDefaults.scale(
                     focusedScale = 1f,
                     pressedScale = 1f
                 )
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        if (isWatched) {
-                            stringResource(R.string.hero_mark_unwatched)
-                        } else {
-                            stringResource(R.string.hero_mark_watched)
-                        }
+        ) {
+            Text(
+                if (isReleaseReminderSet) {
+                    stringResource(
+                        R.string.hero_cancel_reminder
                     )
-                    if (isSeries && isWatchedPending) {
-                        Spacer(modifier = Modifier.width(10.dp))
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp),
-                            color =
-                                NuvioColors.TextSecondary.copy(alpha = 0.52f),
-                            strokeWidth = 2.dp
-                        )
+                } else {
+                    stringResource(
+                        R.string.hero_remind_me
+                    )
+                }
+            )
+        }
+    } else {
+    Button(
+        onClick = onToggleLibrary,
+        enabled = !isLibraryPending,
+        modifier = Modifier
+            .fillMaxWidth()
+            .glassDialogFocusTransform(),
+        colors = ButtonDefaults.colors(
+            containerColor = HomeDialogGlassRowColor,
+            focusedContainerColor = HomeDialogGlassRowFocusedColor,
+            contentColor = NuvioColors.TextSecondary,
+            focusedContentColor = NuvioColors.TextPrimary
+        ),
+        border = ButtonDefaults.border(
+            border = androidx.tv.material3.Border.None,
+            focusedBorder = androidx.tv.material3.Border.None
+        ),
+        shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
+        scale = ButtonDefaults.scale(
+            focusedScale = 1f,
+            pressedScale = 1f
+        )
+    ) {
+        Text(
+            if (isInLibrary) {
+                stringResource(R.string.hero_remove_from_library)
+            } else {
+                stringResource(R.string.hero_add_to_library)
+            }
+        )
+    }
+
+    if (isMovie || isSeries) {
+        Button(
+            onClick = onToggleWatched,
+            enabled = !isWatchedPending,
+            modifier = Modifier
+            .fillMaxWidth()
+            .glassDialogFocusTransform(),
+            colors = ButtonDefaults.colors(
+                containerColor = HomeDialogGlassRowColor,
+                focusedContainerColor = HomeDialogGlassRowFocusedColor,
+                contentColor = NuvioColors.TextSecondary,
+                focusedContentColor = NuvioColors.TextPrimary,
+                disabledContainerColor = HomeDialogGlassRowColor,
+                disabledContentColor =
+                    NuvioColors.TextSecondary.copy(alpha = 0.52f)
+            ),
+            border = ButtonDefaults.border(
+                border = androidx.tv.material3.Border.None,
+                focusedBorder = androidx.tv.material3.Border.None
+            ),
+            shape = ButtonDefaults.shape(RoundedCornerShape(32.dp)),
+            scale = ButtonDefaults.scale(
+                focusedScale = 1f,
+                pressedScale = 1f
+            )
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    if (isWatched) {
+                        stringResource(R.string.hero_mark_unwatched)
+                    } else {
+                        stringResource(R.string.hero_mark_watched)
                     }
+                )
+                if (isSeries && isWatchedPending) {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        color =
+                            NuvioColors.TextSecondary.copy(alpha = 0.52f),
+                        strokeWidth = 2.dp
+                    )
                 }
             }
         }
-        }
-            }
-        }
     }
     }
+        }
+    }
+}
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
