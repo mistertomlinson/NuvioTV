@@ -1105,7 +1105,19 @@ fun ContinueWatchingOptionsDialog(
     }
 
     LaunchedEffect(Unit) {
+        appearanceProgress.stop()
+        appearanceProgress.snapTo(0f)
+
+        /*
+         * Match the Home poster popup and rating prompt: commit one real
+         * zero-progress frame before focus or entrance animation begins.
+         * This prevents the first visible frame from entering partway through
+         * the 220ms transition.
+         */
+        withFrameNanos { }
+
         runCatching { detailsFocusRequester.requestFocus() }
+
         appearanceProgress.animateTo(
             targetValue = 1f,
             animationSpec = tween(
@@ -1143,6 +1155,13 @@ fun ContinueWatchingOptionsDialog(
                             state = hazeState
                         ) {
                             this.blurEnabled = true
+
+                            /*
+                             * Haze 1.x draws the effect at the child itself.
+                             * Fade it with the glass panel so backdrop color/
+                             * blur cannot appear one frame before the window.
+                             */
+                            this.alpha = appearanceProgress.value
                             this.blurRadius = (1f + (29f * appearanceProgress.value)).dp
                             this.noiseFactor = 0.025f * appearanceProgress.value
                         }
