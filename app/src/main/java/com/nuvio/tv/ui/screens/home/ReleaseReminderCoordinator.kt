@@ -169,6 +169,15 @@ class ReleaseReminderCoordinator @Inject constructor(
                     val resolved = runCatching {
                         tmdbService.tmdbToImdb(reminder.tmdbId, reminder.itemType)
                     }.getOrNull()
+
+                    /*
+                     * Identity resolution may suspend. Never continue processing
+                     * this profile's reminder after the user changes profiles.
+                     */
+                    if (profileManager.activeProfileId.value != profileId) {
+                        return@withLock
+                    }
+
                     if (!resolved.isNullOrBlank()) {
                         reminder = reminder.copy(imdbId = resolved)
                         dataStore.upsert(reminder)
@@ -220,6 +229,16 @@ class ReleaseReminderCoordinator @Inject constructor(
                 if (!shouldCheck) continue
 
                 val fresh = resolveFreshMeta(reminder)
+
+                /*
+                 * Fresh authority resolution is a network operation. The profile
+                 * that initiated it must still be active before any reminder or
+                 * library state is mutated.
+                 */
+                if (profileManager.activeProfileId.value != profileId) {
+                    return@withLock
+                }
+
                 val checked = reminder.copy(lastAuthorityCheckAtMillis = now)
 
                 if (fresh == null) {
@@ -275,9 +294,26 @@ class ReleaseReminderCoordinator @Inject constructor(
                     continue
                 }
 
+                /*
+                 * Fulfillment is profile-sensitive. Recheck at the mutation
+                 * boundary in case processing was suspended beforehand.
+                 */
+                if (profileManager.activeProfileId.value != profileId) {
+                    return@withLock
+                }
+
                 runCatching {
                     libraryRepository.ensureInDefault(reminder.toLibraryEntryInput())
                 }.onSuccess { confirmed ->
+                    /*
+                     * ensureInDefault() may itself suspend. Do not mark a
+                     * reminder fulfilled in a profile that became active while
+                     * that operation was in flight.
+                     */
+                    if (profileManager.activeProfileId.value != profileId) {
+                        return@onSuccess
+                    }
+
                     if (confirmed) {
                         dataStore.markFulfilled(
                             reminder.key,
@@ -292,8 +328,21 @@ class ReleaseReminderCoordinator @Inject constructor(
                         dataStore.upsert(checked)
                     }
                 }.onFailure { error ->
-                    dataStore.upsert(checked)
-                    Log.w(TAG, "Fulfillment failed for ${reminder.key}: ${error.message}")
+                    /*
+                     * Do not write failure bookkeeping into a newly active
+                     * profile either.
+                     */
+                    if (profileManager.activeProfileId.value == profileId) {
+                        dataStore.upsert(checked)
+                        Log.w(
+                            TAG,
+                            "Fulfillment failed for ${reminder.key}: ${error.message}"
+                        )
+                    }
+                }
+
+                if (profileManager.activeProfileId.value != profileId) {
+                    return@withLock
                 }
             }
 
