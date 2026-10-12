@@ -2189,8 +2189,17 @@ fun ModernHomeContent(
                 latestVerticalRowListState.firstVisibleItemIndex
             val navigationVerticalOffset =
                 latestVerticalRowListState.firstVisibleItemScrollOffset
+            /*
+             * The broader active-item state can trail actual Compose focus by
+             * one frame. Prefer the index confirmed synchronously by the real
+             * focused poster when taking the Details navigation snapshot.
+             */
             val navigationFocusedItemIndex =
-                latestActiveItemIndex
+                row?.key?.let { rowKey ->
+                    uiCaches.lastActuallyFocusedIndexByRow[
+                        rowKey
+                    ]
+                } ?: latestActiveItemIndex
 
             navigationSnapshotVerticalIndexRef.set(
                 navigationVerticalIndex

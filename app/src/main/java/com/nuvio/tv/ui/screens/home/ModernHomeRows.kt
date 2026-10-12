@@ -309,16 +309,52 @@ private fun ModernCatalogRowItem(
     val homePopupGlassEnvironment =
         LocalHomePopupGlassEnvironment.current
 
-    val preserveExpandedCardForPopupHandoff =
-        trailerPlaybackTarget ==
-            FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
-            expandedCatalogFocusKey == focusKey &&
-            homePopupGlassEnvironment
-                .preserveCatalogTrailerPlayback &&
+    var preserveExpandedCardThroughPopupSettle by remember(focusKey) {
+        mutableStateOf(false)
+    }
+
+    val popupTrailerHandoffActive =
+        homePopupGlassEnvironment
+            .preserveCatalogTrailerPlayback &&
             (
                 homePopupGlassEnvironment.catalogOptionsVisible ||
                     homePopupGlassEnvironment
                         .catalogOptionsFocusRestoreActive
+            )
+
+    LaunchedEffect(
+        popupTrailerHandoffActive,
+        effectiveAutoplayEnabled,
+        expandedCatalogFocusKey
+    ) {
+        if (expandedCatalogFocusKey != focusKey) {
+            preserveExpandedCardThroughPopupSettle = false
+            return@LaunchedEffect
+        }
+
+        if (popupTrailerHandoffActive) {
+            preserveExpandedCardThroughPopupSettle = true
+            return@LaunchedEffect
+        }
+
+        /*
+         * Focus can already be back on the poster while the LazyRow is still
+         * settling. effectiveAutoplayEnabled is row-gated by !isRowScrolling,
+         * so its recovery is the authoritative signal that normal ownership
+         * can resume without a collapse/re-expand gap.
+         */
+        if (effectiveAutoplayEnabled) {
+            preserveExpandedCardThroughPopupSettle = false
+        }
+    }
+
+    val preserveExpandedCardForPopupHandoff =
+        trailerPlaybackTarget ==
+            FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
+            expandedCatalogFocusKey == focusKey &&
+            (
+                popupTrailerHandoffActive ||
+                    preserveExpandedCardThroughPopupSettle
             )
 
     val suppressExpandedCardForPopup =
@@ -470,6 +506,8 @@ private fun ModernCatalogRowItem(
         playTrailerInExpandedCard = playTrailerInExpandedCard,
         preserveExpandedCardVisualForSidebarHandoff =
             preserveExpandedCardForSidebarHandoff,
+        preserveExpandedCardVisualForPopupHandoff =
+            preserveExpandedCardForPopupHandoff,
         trailerPlaybackTarget = trailerPlaybackTarget,
         focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
         trailerPreviewUrl = trailerPreviewUrl,
@@ -1620,6 +1658,7 @@ private fun ModernCarouselCard(
     isBackdropExpanded: Boolean,
     playTrailerInExpandedCard: Boolean,
     preserveExpandedCardVisualForSidebarHandoff: Boolean,
+    preserveExpandedCardVisualForPopupHandoff: Boolean,
     trailerPlaybackTarget: FocusedPosterTrailerPlaybackTarget,
     focusedPosterBackdropTrailerMuted: Boolean,
     trailerPreviewUrl: String?,
@@ -1738,15 +1777,18 @@ private fun ModernCarouselCard(
      * also controls the end-of-row anchored-scroll machinery, and re-enabling
      * it during focus restoration can reposition the LazyRow.
      */
-    val preserveExpandedWidthForSidebarHandoff =
-        preserveExpandedCardVisualForSidebarHandoff &&
+    val preserveExpandedWidthForFocusHandoff =
+        (
+            preserveExpandedCardVisualForSidebarHandoff ||
+                preserveExpandedCardVisualForPopupHandoff
+        ) &&
             isBackdropExpanded &&
             playTrailerInExpandedCard
 
     val targetCardWidth = if (
         (
             focusedPosterBackdropExpandEnabled ||
-                preserveExpandedWidthForSidebarHandoff
+                preserveExpandedWidthForFocusHandoff
         ) &&
         effectiveIsExpanded
     ) {
@@ -1761,7 +1803,7 @@ private fun ModernCarouselCard(
     val animatedCardWidthBase by if (
         (
             focusedPosterBackdropExpandEnabled ||
-                preserveExpandedWidthForSidebarHandoff
+                preserveExpandedWidthForFocusHandoff
         ) &&
         (isFocused || isBackdropExpanded || effectiveIsExpanded)
     ) {
@@ -2086,6 +2128,23 @@ private fun ModernCarouselCard(
                 .onFocusChanged {
                     isFocused = it.isFocused
                     if (it.isFocused) {
+                        /*
+                         * A long-press opens the Home options overlay before
+                         * this card is guaranteed to receive the originating
+                         * Select ACTION_UP. In that case longPressTriggered can
+                         * remain armed while focus belongs to the overlay.
+                         *
+                         * Once this exact poster regains real focus, that old
+                         * key sequence is over. Clear only the stale gesture
+                         * bookkeeping here so the NEXT fresh Select opens
+                         * Details normally.
+                         *
+                         * Do not clear this when options initially open: the
+                         * armed flag is still needed to suppress the original
+                         * long-press click/release while focus is handing off.
+                         */
+                        longPressTriggered = false
+                        trailerWasPlayingAtOptionsPressStart = false
                         onFocused()
                     }
                 }
@@ -2540,6 +2599,294 @@ private fun ModernCarouselCard(
     }
 }
 
+private const val POSTER_STATUS_ICON_TRANSITION_MS = 220
+
+/*
+ * Modern status icons deliberately animate entirely inside the tiny poster
+ * overlay scope.
+ *
+ * They do NOT publish animation state to Home, rebuild carousel rows, read the
+ * reminder coordinator, or participate in TrailerPlayer ownership.
+ *
+ * Changes made while a popup/rating dialog owns focus are held until the
+ * complete popup/focus-restoration handoff has finished. This ensures the
+ * animation is actually visible and cannot disturb poster focus restoration.
+ */
+@Composable
+private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStatusIcon(
+    animationKey: String,
+    visible: Boolean,
+    renderAllowed: Boolean,
+    popupTransitionBlocked: Boolean,
+    drawableRes: Int,
+    contentDescription: String,
+    alignment: Alignment,
+    topPadding: Dp = 0.dp,
+    bottomPadding: Dp = 0.dp
+) {
+    /*
+     * Initial state intentionally matches the already-persisted status.
+     *
+     * Existing icons therefore appear normally on Home startup/profile load;
+     * we do not replay entrance animations merely because a card was composed.
+     */
+    var renderedVisible by remember(animationKey) {
+        mutableStateOf(visible)
+    }
+
+    var pendingPopupChange by remember(animationKey) {
+        mutableStateOf(false)
+    }
+
+    val iconAlpha = remember(animationKey) {
+        Animatable(
+            if (visible) 1f else 0f
+        )
+    }
+
+    val iconScale = remember(animationKey) {
+        Animatable(
+            if (visible) 1f else 0.78f
+        )
+    }
+
+    val animationBlocked =
+        popupTransitionBlocked ||
+            !renderAllowed
+
+    LaunchedEffect(
+        animationKey,
+        visible,
+        animationBlocked
+    ) {
+        /*
+         * Status mutations caused by the options popup must not animate behind
+         * that popup. Remember the target and leave the currently-rendered icon
+         * untouched until Home has completely restored poster focus.
+         */
+        if (animationBlocked) {
+            if (visible != renderedVisible) {
+                pendingPopupChange = true
+            }
+            return@LaunchedEffect
+        }
+
+        if (pendingPopupChange) {
+            /*
+             * The state may have changed twice while blocked. In that case the
+             * final state already equals what is rendered, so there is nothing
+             * to animate.
+             */
+            if (visible == renderedVisible) {
+                pendingPopupChange = false
+
+                iconAlpha.stop()
+                iconScale.stop()
+
+                iconAlpha.snapTo(
+                    if (visible) 1f else 0f
+                )
+                iconScale.snapTo(
+                    if (visible) 1f else 0.78f
+                )
+
+                return@LaunchedEffect
+            }
+
+            if (visible) {
+                /*
+                 * ENTER
+                 *
+                 * Same visual treatment as the entrance the user preferred:
+                 *  - start at 78%
+                 *  - fade over 220 ms
+                 *  - grow to 108%
+                 *  - lightly spring back to 100%
+                 *
+                 * The icon is inserted at alpha zero and gets one committed
+                 * frame before motion begins, preventing a one-frame flash.
+                 */
+                iconAlpha.stop()
+                iconScale.stop()
+
+                iconAlpha.snapTo(0f)
+                iconScale.snapTo(0.78f)
+
+                renderedVisible = true
+
+                androidx.compose.runtime.withFrameNanos { }
+
+                launch {
+                    iconAlpha.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis =
+                                POSTER_STATUS_ICON_TRANSITION_MS
+                        )
+                    )
+                }
+
+                iconScale.animateTo(
+                    targetValue = 1.08f,
+                    animationSpec = tween(
+                        durationMillis = 190,
+                        easing =
+                            androidx.compose.animation.core
+                                .FastOutSlowInEasing
+                    )
+                )
+
+                iconScale.animateTo(
+                    targetValue = 1f,
+                    animationSpec = spring(
+                        dampingRatio = 0.58f,
+                        stiffness = 520f
+                    )
+                )
+
+                /*
+                 * Resting Modern icons are explicitly full-opacity.
+                 * No heavyOverlayAlpha/dimming multiplier is applied.
+                 */
+                iconAlpha.snapTo(1f)
+                iconScale.snapTo(1f)
+            } else {
+                /*
+                 * EXIT
+                 *
+                 * Keep the old icon composed for the complete 220 ms while it
+                 * simultaneously shrinks and fades. Only remove it after both
+                 * draw-only animations have finished.
+                 */
+                iconAlpha.stop()
+                iconScale.stop()
+
+                /*
+                 * A popup can interrupt an entrance. Since that intermediate
+                 * frame was hidden behind the popup, normalize to the proper
+                 * fully-visible starting state before the visible exit.
+                 */
+                iconAlpha.snapTo(1f)
+                iconScale.snapTo(1f)
+
+                launch {
+                    iconAlpha.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(
+                            durationMillis =
+                                POSTER_STATUS_ICON_TRANSITION_MS,
+                            easing =
+                                androidx.compose.animation.core
+                                    .FastOutSlowInEasing
+                        )
+                    )
+                }
+
+                iconScale.animateTo(
+                    targetValue = 0.78f,
+                    animationSpec = tween(
+                        durationMillis =
+                            POSTER_STATUS_ICON_TRANSITION_MS,
+                        easing =
+                            androidx.compose.animation.core
+                                .FastOutSlowInEasing
+                    )
+                )
+
+                /*
+                 * Do not remove an icon if the durable state reversed again
+                 * during the animation.
+                 */
+                if (!visible) {
+                    renderedVisible = false
+                    iconAlpha.snapTo(0f)
+                    iconScale.snapTo(0.78f)
+                }
+            }
+
+            pendingPopupChange = false
+            return@LaunchedEffect
+        }
+
+        /*
+         * Non-popup changes are background/startup synchronization. Snap them
+         * rather than introducing animation clocks while Home is loading.
+         *
+         * User-triggered watched/reminder mutations occur during the popup
+         * session and therefore take the animated path above.
+         */
+        if (visible != renderedVisible) {
+            renderedVisible = visible
+
+            iconAlpha.stop()
+            iconScale.stop()
+
+            iconAlpha.snapTo(
+                if (visible) 1f else 0f
+            )
+            iconScale.snapTo(
+                if (visible) 1f else 0.78f
+            )
+        } else {
+            /*
+             * If a popup interrupted an in-flight entrance, normalize behind
+             * the popup before the next visible frame. This also guarantees
+             * exactly 1.0 resting opacity.
+             */
+            iconAlpha.stop()
+            iconScale.stop()
+
+            iconAlpha.snapTo(
+                if (visible) 1f else 0f
+            )
+            iconScale.snapTo(
+                if (visible) 1f else 0.78f
+            )
+        }
+    }
+
+    if (
+        renderedVisible &&
+        renderAllowed
+    ) {
+        Image(
+            painter = painterResource(
+                drawableRes
+            ),
+            contentDescription =
+                contentDescription,
+            contentScale = ContentScale.Fit,
+            /*
+             * Image itself is not dimmed. Only the transient animation
+             * graphicsLayer changes alpha/scale.
+             */
+            alpha = 1f,
+            modifier = Modifier
+                .align(alignment)
+                .padding(
+                    end = 4.dp,
+                    top = topPadding,
+                    bottom = bottomPadding
+                )
+                .zIndex(3f)
+                .graphicsLayer {
+                    alpha =
+                        iconAlpha.value
+                            .coerceIn(0f, 1f)
+
+                    scaleX =
+                        iconScale.value
+                    scaleY =
+                        iconScale.value
+
+                    compositingStrategy =
+                        CompositingStrategy.ModulateAlpha
+                }
+                .size(29.dp)
+        )
+    }
+}
+
 @Composable
 private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
     item: ModernCarouselItem,
@@ -2547,91 +2894,183 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
     showHeavyOverlays: Boolean,
     heavyOverlayAlpha: State<Float>
 ) {
-    if (!showHeavyOverlays) return
-    val preview = item.metaPreview ?: return
-    val registry = LocalHomePosterStatusRegistry.current
-    val reminderSet = registry.isReminderSet(preview)
-    val watched = registry.isWatched(preview)
+    val preview =
+        item.metaPreview
+            ?: return
 
-    if (reminderSet) {
-        if (posterStatusIconStyle == PosterStatusIconStyle.MODERN) {
-            Image(
-                painter = painterResource(R.drawable.poster_status_reminder),
-                contentDescription = stringResource(R.string.hero_reminder_set),
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 4.dp, bottom = 4.dp)
-                    .zIndex(3f)
-                    .size(29.dp)
-            )
-        } else {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 8.dp, bottom = 8.dp)
-                    .zIndex(3f)
-                    .graphicsLayer {
-                        alpha = heavyOverlayAlpha.value * 0.80f
-                        compositingStrategy = CompositingStrategy.ModulateAlpha
-                    }
-                    .size(21.dp)
-                    .drawBehind {
-                        drawCircle(
-                            color = Color.Black,
-                            radius = size.minDimension / 2f + 1.5f
-                        )
-                        drawCircle(
-                            color = Color.White,
-                            radius = size.minDimension * (10f / 24f)
-                        )
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Notifications,
-                    contentDescription = stringResource(R.string.hero_reminder_set),
-                    tint = Color.Black,
-                    modifier = Modifier.size(13.dp)
+    val registry =
+        LocalHomePosterStatusRegistry.current
+
+    val reminderSet =
+        registry.isReminderSet(
+            preview
+        )
+
+    val watched =
+        registry.isWatched(
+            preview
+        )
+
+    val popupEnvironment =
+        LocalHomePopupGlassEnvironment.current
+
+    /*
+     * catalogOptionsFocusRestoreActive remains true through the exact poster
+     * focus handoff. Waiting for BOTH flags to clear guarantees that the icon
+     * transition cannot coincide with or perturb focus restoration.
+     */
+    val popupTransitionBlocked =
+        popupEnvironment.catalogOptionsVisible ||
+            popupEnvironment
+                .catalogOptionsFocusRestoreActive
+
+    if (
+        posterStatusIconStyle ==
+        PosterStatusIconStyle.MODERN
+    ) {
+        AnimatedModernPosterStatusIcon(
+            animationKey =
+                "${preview.apiType}|${preview.id}|reminder",
+            visible =
+                reminderSet,
+            renderAllowed =
+                showHeavyOverlays,
+            popupTransitionBlocked =
+                popupTransitionBlocked,
+            drawableRes =
+                R.drawable.poster_status_reminder,
+            contentDescription =
+                stringResource(
+                    R.string.hero_reminder_set
+                ),
+            alignment =
+                Alignment.BottomEnd,
+            bottomPadding =
+                4.dp
+        )
+
+        AnimatedModernPosterStatusIcon(
+            animationKey =
+                "${preview.apiType}|${preview.id}|watched",
+            visible =
+                watched,
+            renderAllowed =
+                showHeavyOverlays,
+            popupTransitionBlocked =
+                popupTransitionBlocked,
+            drawableRes =
+                R.drawable.poster_status_watched,
+            contentDescription =
+                stringResource(
+                    R.string.episodes_cd_watched
+                ),
+            alignment =
+                Alignment.TopEnd,
+            topPadding =
+                4.dp
+        )
+
+        return
+    }
+
+    /*
+     * Legacy style remains byte-for-byte behaviorally equivalent to the
+     * current proven build. The animation experiment is Modern-only.
+     */
+    if (
+        reminderSet &&
+        showHeavyOverlays
+    ) {
+        Box(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(
+                    end = 8.dp,
+                    bottom = 8.dp
                 )
-            }
+                .zIndex(3f)
+                .graphicsLayer {
+                    alpha =
+                        heavyOverlayAlpha.value *
+                            0.80f
+
+                    compositingStrategy =
+                        CompositingStrategy.ModulateAlpha
+                }
+                .size(21.dp)
+                .drawBehind {
+                    drawCircle(
+                        color = Color.Black,
+                        radius =
+                            size.minDimension /
+                                2f +
+                                1.5f
+                    )
+
+                    drawCircle(
+                        color = Color.White,
+                        radius =
+                            size.minDimension *
+                                (10f / 24f)
+                    )
+                },
+            contentAlignment =
+                Alignment.Center
+        ) {
+            Icon(
+                imageVector =
+                    Icons.Default.Notifications,
+                contentDescription =
+                    stringResource(
+                        R.string.hero_reminder_set
+                    ),
+                tint =
+                    Color.Black,
+                modifier =
+                    Modifier.size(13.dp)
+            )
         }
     }
 
-    if (watched) {
-        if (posterStatusIconStyle == PosterStatusIconStyle.MODERN) {
-            Image(
-                painter = painterResource(R.drawable.poster_status_watched),
-                contentDescription = stringResource(R.string.episodes_cd_watched),
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 4.dp, top = 4.dp)
-                    .zIndex(3f)
-                    .size(29.dp)
-            )
-        } else {
-            Icon(
-                imageVector = Icons.Default.CheckCircle,
-                contentDescription = stringResource(R.string.episodes_cd_watched),
-                tint = Color.White,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 8.dp, top = 8.dp)
-                    .zIndex(3f)
-                    .graphicsLayer {
-                        alpha = heavyOverlayAlpha.value * 0.80f
-                        compositingStrategy = CompositingStrategy.ModulateAlpha
-                    }
-                    .size(21.dp)
-                    .drawBehind {
-                        drawCircle(
-                            color = Color.Black,
-                            radius = size.minDimension / 2f + 1.5f
-                        )
-                    }
-            )
-        }
+    if (
+        watched &&
+        showHeavyOverlays
+    ) {
+        Icon(
+            imageVector =
+                Icons.Default.CheckCircle,
+            contentDescription =
+                stringResource(
+                    R.string.episodes_cd_watched
+                ),
+            tint =
+                Color.White,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(
+                    end = 8.dp,
+                    top = 8.dp
+                )
+                .zIndex(3f)
+                .graphicsLayer {
+                    alpha =
+                        heavyOverlayAlpha.value *
+                            0.80f
+
+                    compositingStrategy =
+                        CompositingStrategy.ModulateAlpha
+                }
+                .size(21.dp)
+                .drawBehind {
+                    drawCircle(
+                        color = Color.Black,
+                        radius =
+                            size.minDimension /
+                                2f +
+                                1.5f
+                    )
+                }
+        )
     }
 }
 
