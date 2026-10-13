@@ -25,6 +25,9 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.PosterCardStyle
+import com.nuvio.tv.data.local.ReleaseReminderStatus
+import com.nuvio.tv.data.local.matchesContentIdentity
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import kotlin.math.roundToInt
 
 @Composable
@@ -35,11 +38,41 @@ fun DiscoverScreen(
     val uiState by viewModel.uiState.collectAsState()
     val watchedMovieIds by viewModel.watchedMovieIds.collectAsState()
     val watchedSeriesIds by viewModel.watchedSeriesIds.collectAsState()
+    val releaseReminders by
+        viewModel.releaseReminders.collectAsState(
+            initial = emptyList()
+        )
+    val posterStatusIconStyle by
+        viewModel.posterStatusIconStyle.collectAsState(
+            initial = PosterStatusIconStyle.MODERN
+        )
     val lifecycleOwner = LocalLifecycleOwner.current
     val discoverFirstItemFocusRequester = remember { FocusRequester() }
     var discoverFocusedItemIndex by rememberSaveable { mutableStateOf(0) }
     var restoreDiscoverFocus by rememberSaveable { mutableStateOf(false) }
     var pendingDiscoverRestoreOnResume by rememberSaveable { mutableStateOf(false) }
+
+    val armedReleaseReminders =
+        remember(releaseReminders) {
+            releaseReminders.filter {
+                it.status ==
+                    ReleaseReminderStatus.ARMED
+            }
+        }
+
+    val isItemReminderSet:
+        (com.nuvio.tv.domain.model.MetaPreview) -> Boolean =
+        remember(armedReleaseReminders) {
+            { item ->
+                armedReleaseReminders.any { reminder ->
+                    reminder.matchesContentIdentity(
+                        candidateId = item.id,
+                        candidateType = item.apiType,
+                        candidateImdbId = item.imdbId
+                    )
+                }
+            }
+        }
 
     val posterCardStyle = remember(uiState.posterCardWidthDp, uiState.posterCardCornerRadiusDp) {
         val computedHeightDp = (uiState.posterCardWidthDp * 1.5f).roundToInt()
@@ -86,6 +119,9 @@ fun DiscoverScreen(
                 posterCardStyle = posterCardStyle,
                 watchedMovieIds = watchedMovieIds,
                 watchedSeriesIds = watchedSeriesIds,
+                isItemReminderSet = isItemReminderSet,
+                posterStatusIconStyle =
+                    posterStatusIconStyle,
                 focusResults = false,
                 firstItemFocusRequester = discoverFirstItemFocusRequester,
                 focusedItemIndex = discoverFocusedItemIndex,

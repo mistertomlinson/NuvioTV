@@ -50,6 +50,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.formatAddonTypeLabel
 
@@ -73,6 +74,9 @@ fun CatalogRowSection(
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
     onItemFocus: (MetaPreview) -> Unit = {},
     isItemWatched: (MetaPreview) -> Boolean = { false },
+    isItemReminderSet: (MetaPreview) -> Boolean = { false },
+    posterStatusIconStyle: PosterStatusIconStyle =
+        PosterStatusIconStyle.MODERN,
     onItemLongPress: (MetaPreview, String) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
     enableRowFocusRestorer: Boolean = true,
@@ -207,9 +211,11 @@ fun CatalogRowSection(
                 val trailerPreviewAudioUrl by remember(item.id) {
                     derivedStateOf { trailerPreviewAudioUrls[item.id] }
                 }
-                val isWatched by remember(item.id) {
-                    derivedStateOf { isItemWatched(item) }
-                }
+                val isWatched =
+                    isItemWatched(item)
+
+                val isReminderSet =
+                    isItemReminderSet(item)
                 val onFocusItem: (MetaPreview) -> Unit = remember(item.id) {
                     { focusedItem ->
                         currentOnItemFocus(focusedItem)
@@ -238,6 +244,9 @@ fun CatalogRowSection(
                     trailerPreviewAudioUrl = trailerPreviewAudioUrl,
                     onRequestTrailerPreview = onRequestTrailerPreview,
                     isWatched = isWatched,
+                    isReminderSet = isReminderSet,
+                    posterStatusIconStyle =
+                        posterStatusIconStyle,
                     onFocus = onFocusItem,
                     onClick = onClickItem,
                     onLongPress = onLongPressItem,

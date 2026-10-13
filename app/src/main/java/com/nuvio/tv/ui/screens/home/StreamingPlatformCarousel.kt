@@ -72,6 +72,11 @@ val streamingPlatforms = listOf(
     StreamingPlatform("criterion", R.drawable.platform_criterion,    Color(0xFF8A8A8A), null, iconHeight = 26.dp, iconMaxWidth = 90.dp),
 )
 
+private fun advanceHomeFocusSeed(
+    seed: Int
+): Int =
+    seed * 1_664_525 + 1_013_904_223
+
 @Composable
 fun StreamingPlatformCarousel(
     selectedPlatformId: String,
@@ -97,6 +102,86 @@ fun StreamingPlatformCarousel(
     val scope = rememberCoroutineScope()
 
     var focusedIndex by remember { mutableStateOf(activePlatforms.indexOfFirst { it.id == selectedPlatformId }.coerceAtLeast(0)) }
+
+    /*
+     * Only the Home selector owns an organic seed.
+     *
+     * The row itself is one Compose focus target, so changing from Home to
+     * Netflix does not fire the outer onFocusChanged callback. Track whether
+     * the currently active item is specifically Home instead.
+     */
+    val homeIsActivelyFocused =
+        isCarouselFocused &&
+            activePlatforms
+                .getOrNull(focusedIndex)
+                ?.id == "home"
+
+    var activeHomeFocusSeed by remember {
+        mutableIntStateOf(
+            System.nanoTime().toInt()
+        )
+    }
+
+    /*
+     * Prepare the next pattern when Home loses focus, but do not display it
+     * while the old Home selector is still retained/dimmed behind another
+     * focus surface such as the sidebar.
+     */
+    var queuedHomeFocusSeed by remember {
+        mutableIntStateOf(
+            activeHomeFocusSeed
+        )
+    }
+
+    var homeWasActivelyFocused by remember {
+        mutableStateOf(
+            homeIsActivelyFocused
+        )
+    }
+
+    LaunchedEffect(
+        homeIsActivelyFocused
+    ) {
+        when {
+            homeWasActivelyFocused &&
+                !homeIsActivelyFocused -> {
+                queuedHomeFocusSeed =
+                    advanceHomeFocusSeed(
+                        activeHomeFocusSeed
+                    )
+            }
+
+            !homeWasActivelyFocused &&
+                homeIsActivelyFocused -> {
+                activeHomeFocusSeed =
+                    queuedHomeFocusSeed
+            }
+        }
+
+        homeWasActivelyFocused =
+            homeIsActivelyFocused
+    }
+
+    /*
+     * On the first frame Home regains focus, use the queued seed immediately.
+     * The effect above then promotes it to active state. This avoids showing
+     * the previous pattern for one frame before the new one appears.
+     */
+    val homeFocusSeedForDraw =
+        if (homeIsActivelyFocused) {
+            queuedHomeFocusSeed
+        } else {
+            activeHomeFocusSeed
+        }
+
+    val homeFocusBrush =
+        remember(
+            homeFocusSeedForDraw
+        ) {
+            NuvioGradients.homeFocus(
+                homeFocusSeedForDraw
+            )
+        }
     var containerWidthPx by remember { mutableStateOf(0f) }
     val itemWidths = remember(activePlatforms) { HashMap<Int, Float>() }
     val itemOffsets = remember(activePlatforms) { HashMap<Int, Float>() }  // actual X in full width mode
@@ -364,7 +449,7 @@ fun StreamingPlatformCarousel(
                         .alpha(selectorBoxAlpha)
                         .clip(RoundedCornerShape(10.dp))
                         .background(
-                            if (focusedPlatform?.id == "home") NuvioGradients.HomeFocus else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
+                            if (focusedPlatform?.id == "home") homeFocusBrush else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
                         )
                 )
                 // Icons row — evenly spaced across full width
@@ -445,7 +530,7 @@ fun StreamingPlatformCarousel(
                             .alpha(selectorBoxAlpha)
                             .clip(RoundedCornerShape(10.dp))
                             .background(
-                                if (focusedPlatform?.id == "home") NuvioGradients.HomeFocus else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
+                                if (focusedPlatform?.id == "home") homeFocusBrush else Brush.linearGradient(listOf(animatedSelectorColor, animatedSelectorColor))
                             )
                     )
 

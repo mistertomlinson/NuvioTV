@@ -104,6 +104,9 @@ import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
+import com.nuvio.tv.data.local.ReleaseReminderStatus
+import com.nuvio.tv.data.local.matchesContentIdentity
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
@@ -122,6 +125,14 @@ fun SearchScreen(
     val uiState by viewModel.uiState.collectAsState()
     val watchedMovieIds by viewModel.watchedMovieIds.collectAsState()
     val watchedSeriesIds by viewModel.watchedSeriesIds.collectAsState()
+    val releaseReminders by
+        viewModel.releaseReminders.collectAsState(
+            initial = emptyList()
+        )
+    val posterStatusIconStyle by
+        viewModel.posterStatusIconStyle.collectAsState(
+            initial = PosterStatusIconStyle.MODERN
+        )
     val context = LocalContext.current
     val view = LocalView.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -286,6 +297,28 @@ fun SearchScreen(
             focusedScale = PosterCardDefaults.Style.focusedScale
         )
     }
+
+    val armedReleaseReminders =
+        remember(releaseReminders) {
+            releaseReminders.filter {
+                it.status ==
+                    ReleaseReminderStatus.ARMED
+            }
+        }
+
+    val isItemReminderSet:
+        (com.nuvio.tv.domain.model.MetaPreview) -> Boolean =
+        remember(armedReleaseReminders) {
+            { item ->
+                armedReleaseReminders.any { reminder ->
+                    reminder.matchesContentIdentity(
+                        candidateId = item.id,
+                        candidateType = item.apiType,
+                        candidateImdbId = item.imdbId
+                    )
+                }
+            }
+        }
 
     val trimmedQuery = remember(uiState.query) { uiState.query.trim() }
     val trimmedSubmittedQuery = remember(uiState.submittedQuery) { uiState.submittedQuery.trim() }
@@ -691,6 +724,10 @@ fun SearchScreen(
                                     val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
                                     if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
                                 },
+                                isItemReminderSet =
+                                    isItemReminderSet,
+                                posterStatusIconStyle =
+                                    posterStatusIconStyle,
                                 focusedItemIndex = when {
                                     restoringSearchFocus.value && catalogKey == viewModel.savedFocusRowKey ->
                                         viewModel.savedFocusItemIndex

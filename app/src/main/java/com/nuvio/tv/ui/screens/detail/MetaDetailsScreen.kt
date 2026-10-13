@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.detail
 
+import android.os.Build
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
@@ -107,6 +108,8 @@ import com.nuvio.tv.ui.util.isCaughtUpForWatchedAction
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 import androidx.compose.ui.window.Dialog
 import androidx.compose.runtime.rememberCoroutineScope
 
@@ -267,11 +270,12 @@ fun MetaDetailsScreen(
         }
     }
 
-    WatchedRatingOverlay(
-        visible = uiState.showWatchedRatingOverlay,
-        onRate = { rating -> viewModel.submitWatchedRating(rating) },
-        onDismiss = { viewModel.dismissWatchedRating() }
-    )
+    val watchedRatingHazeState =
+        remember { HazeState() }
+
+    val watchedRatingBlurEnabled =
+        Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.S
 
     LaunchedEffect(uiState.userMessage) {
         if (uiState.userMessage != null) {
@@ -283,6 +287,18 @@ fun MetaDetailsScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .then(
+                if (
+                    watchedRatingBlurEnabled &&
+                    uiState.showWatchedRatingOverlay
+                ) {
+                    Modifier.haze(
+                        watchedRatingHazeState
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .onPreviewKeyEvent { keyEvent ->
                 if (currentIsTrailerPlaying) {
                     if (currentShowTrailerControls) {
@@ -621,6 +637,21 @@ fun MetaDetailsScreen(
             modifier = Modifier.align(Alignment.BottomCenter)
         )
     }
+
+    WatchedRatingOverlay(
+        visible = uiState.showWatchedRatingOverlay,
+        hazeState = watchedRatingHazeState,
+        blurEnabled = watchedRatingBlurEnabled,
+        onRate = {
+            rating ->
+            viewModel.submitWatchedRating(
+                rating
+            )
+        },
+        onDismiss = {
+            viewModel.dismissWatchedRating()
+        }
+    )
 
     LaunchedEffect(trailerSeekOverlayVisible, uiState.isTrailerPlaying, uiState.showTrailerControls, trailerSeekToken) {
         if (trailerSeekOverlayVisible && uiState.isTrailerPlaying && uiState.showTrailerControls) {

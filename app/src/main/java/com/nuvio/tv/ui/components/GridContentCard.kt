@@ -41,6 +41,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.CardDepthSurface
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.platform.LocalContext
 import coil.compose.AsyncImage
@@ -56,6 +57,9 @@ fun GridContentCard(
     showLabel: Boolean = true,
     imageCrossfade: Boolean = false,
     isWatched: Boolean = false,
+    isReminderSet: Boolean = false,
+    posterStatusIconStyle: PosterStatusIconStyle =
+        PosterStatusIconStyle.MODERN,
     focusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
     depthSurface: CardDepthSurface = CardDepthSurface.POSTERS,
@@ -167,24 +171,15 @@ fun GridContentCard(
                     )
                 }
 
-                if (isWatched) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = stringResource(R.string.episodes_cd_watched),
-                        tint = Color.White,
-                        modifier = Modifier
-                            .align(androidx.compose.ui.Alignment.TopEnd)
-                            .padding(end = 8.dp, top = 8.dp)
-                            .zIndex(3f)
-                            .size(21.dp)
-                            .drawBehind {
-                                drawCircle(
-                                    color = androidx.compose.ui.graphics.Color.Black,
-                                    radius = size.minDimension / 2f + 1.5f
-                                )
-                            }
-                    )
-                }
+                PosterStatusMarker(
+                    isWatched = isWatched,
+                    isReminderSet =
+                        isReminderSet && !isWatched,
+                    style = posterStatusIconStyle,
+                    modifier = Modifier
+                        .align(androidx.compose.ui.Alignment.TopEnd)
+                        .zIndex(3f)
+                )
             }
         }
 

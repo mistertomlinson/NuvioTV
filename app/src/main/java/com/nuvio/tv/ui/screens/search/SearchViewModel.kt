@@ -51,6 +51,8 @@ class SearchViewModel @Inject constructor(
     private val searchHistoryDataStore: SearchHistoryDataStore,
     private val watchProgressRepository: com.nuvio.tv.domain.repository.WatchProgressRepository,
     private val watchedSeriesStateHolder: com.nuvio.tv.data.local.WatchedSeriesStateHolder,
+    private val themeDataStore: com.nuvio.tv.data.local.ThemeDataStore,
+    private val releaseReminderDataStore: com.nuvio.tv.data.local.ReleaseReminderDataStore,
     @ApplicationContext private val context: Context
 ) : ViewModel() {
 
@@ -66,6 +68,12 @@ class SearchViewModel @Inject constructor(
     private val _watchedMovieIds = MutableStateFlow<Set<String>>(emptySet())
     val watchedMovieIds: StateFlow<Set<String>> = _watchedMovieIds.asStateFlow()
     val watchedSeriesIds: StateFlow<Set<String>> = watchedSeriesStateHolder.fullyWatchedSeriesIds
+
+    val releaseReminders =
+        releaseReminderDataStore.reminders
+
+    val posterStatusIconStyle =
+        themeDataStore.selectedPosterStatusIconStyle
 
     private val catalogsMap = linkedMapOf<String, CatalogRow>()
     private val catalogOrder = mutableListOf<String>()
