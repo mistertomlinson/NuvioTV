@@ -64,6 +64,7 @@ import androidx.tv.material3.Text
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.domain.model.MetaPreview
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.components.EmptyScreenState
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.LoadingIndicator
@@ -82,6 +83,9 @@ internal fun DiscoverSection(
     posterCardStyle: PosterCardStyle,
     watchedMovieIds: Set<String> = emptySet(),
     watchedSeriesIds: Set<String> = emptySet(),
+    isItemReminderSet: (MetaPreview) -> Boolean = { false },
+    posterStatusIconStyle: PosterStatusIconStyle =
+        PosterStatusIconStyle.MODERN,
     focusResults: Boolean,
     firstItemFocusRequester: FocusRequester,
     focusedItemIndex: Int,
@@ -232,6 +236,9 @@ internal fun DiscoverSection(
                     posterCardStyle = posterCardStyle,
                     watchedMovieIds = watchedMovieIds,
                     watchedSeriesIds = watchedSeriesIds,
+                    isItemReminderSet = isItemReminderSet,
+                    posterStatusIconStyle =
+                        posterStatusIconStyle,
                     focusResults = focusResults,
                     firstItemFocusRequester = firstItemFocusRequester,
                     focusedItemIndex = focusedItemIndex,
@@ -467,6 +474,9 @@ private fun DiscoverGrid(
     posterCardStyle: PosterCardStyle,
     watchedMovieIds: Set<String> = emptySet(),
     watchedSeriesIds: Set<String> = emptySet(),
+    isItemReminderSet: (MetaPreview) -> Boolean = { false },
+    posterStatusIconStyle: PosterStatusIconStyle =
+        PosterStatusIconStyle.MODERN,
     focusResults: Boolean,
     firstItemFocusRequester: FocusRequester,
     focusedItemIndex: Int,
@@ -654,6 +664,10 @@ private fun DiscoverGrid(
                 isWatched =
                     if (isSeries) item.id in watchedSeriesIds
                     else item.id in watchedMovieIds,
+                isReminderSet =
+                    isItemReminderSet(item),
+                posterStatusIconStyle =
+                    posterStatusIconStyle,
                 modifier = Modifier
                     .padding(top = 3.dp)
                     .width(adaptiveStyle.width),

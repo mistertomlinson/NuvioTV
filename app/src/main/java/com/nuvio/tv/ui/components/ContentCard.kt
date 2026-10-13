@@ -54,6 +54,7 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
+import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
 import coil.compose.AsyncImage
@@ -83,6 +84,9 @@ fun ContentCard(
     trailerPreviewAudioUrl: String? = null,
     onRequestTrailerPreview: (MetaPreview) -> Unit = {},
     isWatched: Boolean = false,
+    isReminderSet: Boolean = false,
+    posterStatusIconStyle: PosterStatusIconStyle =
+        PosterStatusIconStyle.MODERN,
     onFocus: (MetaPreview) -> Unit = {},
     onLongPress: (() -> Unit)? = null,
     onClick: () -> Unit = {}
@@ -461,24 +465,15 @@ fun ContentCard(
                     }
                 }
 
-                if (isWatched) {
-                    Icon(
-                        imageVector = Icons.Default.CheckCircle,
-                        contentDescription = stringResource(R.string.episodes_cd_watched),
-                        tint = Color.White,
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(end = 8.dp, top = 8.dp)
-                            .zIndex(3f)
-                            .size(21.dp)
-                            .drawBehind {
-                                drawCircle(
-                                    color = androidx.compose.ui.graphics.Color.Black,
-                                    radius = size.minDimension / 2f + 1.5f
-                                )
-                            }
-                    )
-                }
+                PosterStatusMarker(
+                    isWatched = isWatched,
+                    isReminderSet =
+                        isReminderSet && !isWatched,
+                    style = posterStatusIconStyle,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .zIndex(3f)
+                )
             }
         }
 

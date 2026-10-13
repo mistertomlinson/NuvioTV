@@ -50,7 +50,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.Color
@@ -75,6 +74,7 @@ import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.BadgeColorStyle
 import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.theme.NuvioColors
+import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.theme.ThemeColors
 import com.nuvio.tv.ui.theme.getFontFamily
 import kotlinx.coroutines.delay
@@ -925,15 +925,7 @@ private fun badgePreviewBrush(
                 BadgePreviewSemantic.NEW_SEASON,
                 BadgePreviewSemantic.NEW_EPISODE,
                 BadgePreviewSemantic.AVAILABLE_NOW ->
-                    Brush.linearGradient(
-                        colors = listOf(
-                            Color(0xFF9B5FE0).copy(alpha = 0.8f),
-                            Color(0xFF6A3FD4).copy(alpha = 0.8f),
-                            Color(0xFF00C8C8).copy(alpha = 0.8f)
-                        ),
-                        start = Offset.Zero,
-                        end = Offset(10f, 10f)
-                    )
+                    NuvioGradients.ReleaseStatusBadge
 
                 BadgePreviewSemantic.STANDARD ->
                     standard
