@@ -9,6 +9,7 @@ import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.ReleaseReminderDataStore
 import com.nuvio.tv.data.local.ReleaseReminderRecord
 import com.nuvio.tv.data.local.ReleaseReminderStatus
+import com.nuvio.tv.data.local.WatchedSeriesStateHolder
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
@@ -17,6 +18,7 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.repository.LibraryRepository
 import com.nuvio.tv.domain.repository.MetaRepository
+import com.nuvio.tv.domain.repository.WatchProgressRepository
 import io.mockk.Runs
 import io.mockk.coEvery
 import io.mockk.every
@@ -29,6 +31,7 @@ import io.mockk.verify
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -49,9 +52,15 @@ class ReleaseReminderCoordinatorDateTest {
     private lateinit var metaRepository: MetaRepository
     private lateinit var tmdbService: TmdbService
     private lateinit var libraryRepository: LibraryRepository
+    private lateinit var watchProgressRepository: WatchProgressRepository
+    private lateinit var watchedSeriesStateHolder: WatchedSeriesStateHolder
     private lateinit var profileManager: ProfileManager
 
     private val activeProfileId = MutableStateFlow(1)
+    private val watchedMovieIds =
+        MutableStateFlow<Set<String>>(emptySet())
+    private val fullyWatchedSeriesIds =
+        MutableStateFlow<Set<String>>(emptySet())
 
     private var stored: ReleaseReminderRecord? = null
     private var freshMeta: Meta? = null
@@ -64,9 +73,13 @@ class ReleaseReminderCoordinatorDateTest {
         metaRepository = mockk()
         tmdbService = mockk(relaxed = true)
         libraryRepository = mockk(relaxed = true)
+        watchProgressRepository = mockk()
+        watchedSeriesStateHolder = mockk()
         profileManager = mockk()
 
         activeProfileId.value = 1
+        watchedMovieIds.value = emptySet()
+        fullyWatchedSeriesIds.value = emptySet()
         stored = null
         freshMeta = null
         libraryWrites = 0
@@ -74,6 +87,16 @@ class ReleaseReminderCoordinatorDateTest {
         every {
             profileManager.activeProfileId
         } returns activeProfileId
+
+        every {
+            watchProgressRepository
+                .observeWatchedMovieIds()
+        } returns watchedMovieIds
+
+        every {
+            watchedSeriesStateHolder
+                .observeFullyWatchedSeriesIds(any())
+        } returns fullyWatchedSeriesIds
 
         every {
             dataStore.reminders
@@ -618,6 +641,129 @@ class ReleaseReminderCoordinatorDateTest {
         )
     }
 
+
+    @Test
+    fun watchedMovie_removesArmedReminder() = runTest {
+        stored = reminder(
+            releaseDate =
+                today().plusDays(30).toString()
+        )
+
+        watchedMovieIds.value =
+            setOf(imdbId)
+
+        coordinator()
+            .runWatchedReminderMaintenance()
+
+        assertNull(stored)
+    }
+
+    @Test
+    fun fullyWatchedSeries_keepsNewSeasonReminder() = runTest {
+        stored = reminder(
+            releaseDate =
+                today().plusDays(30).toString(),
+            type = ContentType.SERIES,
+            seasonNumber = 2
+        )
+
+        fullyWatchedSeriesIds.value =
+            setOf(imdbId)
+
+        coordinator()
+            .runWatchedReminderMaintenance()
+
+        assertNotNull(stored)
+        assertEquals(
+            ReleaseReminderStatus.ARMED,
+            stored?.status
+        )
+    }
+
+    @Test
+    fun seriesWithoutFullyWatchedState_keepsReminder() = runTest {
+        stored = reminder(
+            releaseDate =
+                today().plusDays(30).toString(),
+            type = ContentType.SERIES,
+            seasonNumber = 2
+        )
+
+        /*
+         * Even an overlapping movie watched ID must not cancel a series
+         * reminder. Series invalidation comes only from the app's existing
+         * fully-watched-series projection, never from a watched episode.
+         */
+        watchedMovieIds.value =
+            setOf(imdbId)
+
+        fullyWatchedSeriesIds.value =
+            emptySet()
+
+        coordinator()
+            .runWatchedReminderMaintenance()
+
+        assertNotNull(stored)
+
+        assertEquals(
+            ReleaseReminderStatus.ARMED,
+            stored?.status
+        )
+    }
+
+    @Test
+    fun watchedTitle_removesFulfilledReminderRecordToo() = runTest {
+        stored = reminder(
+            releaseDate =
+                today().minusDays(1).toString()
+        ).copy(
+            status =
+                ReleaseReminderStatus.FULFILLED,
+            fulfilledAtMillis =
+                System.currentTimeMillis(),
+            membershipConfirmed = true
+        )
+
+        watchedMovieIds.value =
+            setOf(imdbId)
+
+        coordinator()
+            .runWatchedReminderMaintenance()
+
+        assertNull(stored)
+    }
+
+    @Test
+    fun profileSwitchDuringWatchedRead_doesNotRemoveReminder() = runTest {
+        stored = reminder(
+            releaseDate =
+                today().plusDays(30).toString()
+        )
+
+        every {
+            watchProgressRepository
+                .observeWatchedMovieIds()
+        } returns flow {
+            /*
+             * Simulate a profile handoff while the watched projection is
+             * resolving. The old reminder snapshot must never mutate the
+             * newly selected profile.
+             */
+            activeProfileId.value = 2
+            emit(setOf(imdbId))
+        }
+
+        coordinator()
+            .runWatchedReminderMaintenance()
+
+        assertNotNull(stored)
+
+        assertEquals(
+            ReleaseReminderStatus.ARMED,
+            stored?.status
+        )
+    }
+
     private fun coordinator(): ReleaseReminderCoordinator =
         ReleaseReminderCoordinator(
             appContext = context,
@@ -625,6 +771,10 @@ class ReleaseReminderCoordinatorDateTest {
             metaRepository = metaRepository,
             tmdbService = tmdbService,
             libraryRepository = libraryRepository,
+            watchProgressRepository =
+                watchProgressRepository,
+            watchedSeriesStateHolder =
+                watchedSeriesStateHolder,
             profileManager = profileManager
         )
 

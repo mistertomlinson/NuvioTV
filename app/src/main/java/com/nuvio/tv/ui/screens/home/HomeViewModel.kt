@@ -940,8 +940,10 @@ class HomeViewModel @Inject constructor(
     internal val movieWatchedObserverJobs = mutableMapOf<String, Job>()
     internal var movieWatchedBatchJob: Job? = null
     internal var seriesWatchedJob: Job? = null
-    internal var lastMovieWatchedItemKeys: Set<String> = emptySet()
-    internal var lastSeriesWatchedItemKeys: Set<String> = emptySet()
+    internal var lastMovieWatchedProjectionSignature:
+        Map<String, Set<String>> = emptyMap()
+    internal var lastSeriesWatchedProjectionSignature:
+        Map<String, Set<String>> = emptyMap()
     internal val seriesWatchedActionMetaCache =
         Collections.synchronizedMap(
             mutableMapOf<String, com.nuvio.tv.domain.model.Meta>()

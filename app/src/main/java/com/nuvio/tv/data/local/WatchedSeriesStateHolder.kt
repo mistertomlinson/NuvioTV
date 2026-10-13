@@ -6,10 +6,13 @@ import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -114,6 +117,23 @@ class WatchedSeriesStateHolder @Inject constructor(
         }
         loadedForProfileId = profileId
     }
+
+    /**
+     * Durable fully-watched projection for one explicit profile.
+     *
+     * Release-reminder invalidation uses this instead of the process-local
+     * StateFlow so a profile switch can never expose the previous profile's
+     * watched-series IDs to the newly selected profile.
+     */
+    fun observeFullyWatchedSeriesIds(
+        profileId: Int
+    ): Flow<Set<String>> =
+        factory.get(profileId, FEATURE)
+            .data
+            .map { preferences ->
+                preferences[KEY].orEmpty()
+            }
+            .distinctUntilChanged()
 
     fun update(ids: Set<String>) {
         _fullyWatchedSeriesIds.value = ids

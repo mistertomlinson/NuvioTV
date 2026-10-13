@@ -2056,7 +2056,9 @@ internal fun HomeViewModel.schedulePosterStatusReconcilePipeline(rows: List<Cata
     }
 }
 
-internal fun HomeViewModel.startMovieWatchedObserverIfNeeded(rows: List<CatalogRow>) {
+internal fun HomeViewModel.startMovieWatchedObserverIfNeeded(
+    rows: List<CatalogRow>
+) {
     val allMovieItemsByKey = linkedMapOf<String, Set<String>>()
     rows.asSequence()
         .flatMap { row -> row.items.asSequence() }
@@ -2071,8 +2073,26 @@ internal fun HomeViewModel.startMovieWatchedObserverIfNeeded(rows: List<CatalogR
             }
         }
     val desiredMovieKeys = allMovieItemsByKey.keys
-    if (desiredMovieKeys == lastMovieWatchedItemKeys && movieWatchedBatchJob?.isActive == true) return
-    lastMovieWatchedItemKeys = desiredMovieKeys
+    val movieProjectionSignature =
+        allMovieItemsByKey.mapValues { (_, lookupIds) ->
+            lookupIds.toSet()
+        }
+
+    if (
+        !shouldRestartHomeWatchedProjection(
+            previous =
+                lastMovieWatchedProjectionSignature,
+            current =
+                movieProjectionSignature,
+            observerActive =
+                movieWatchedBatchJob?.isActive == true
+        )
+    ) {
+        return
+    }
+
+    lastMovieWatchedProjectionSignature =
+        movieProjectionSignature
     movieWatchedObserverJobs.values.forEach { it.cancel() }
     movieWatchedObserverJobs.clear()
     movieWatchedBatchJob?.cancel()
@@ -2177,8 +2197,23 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
         }
     }
 
-    if (desiredMovieKeys != lastMovieWatchedItemKeys) {
-        lastMovieWatchedItemKeys = desiredMovieKeys
+    val movieProjectionSignature =
+        allMovieItemsByKey.mapValues { (_, lookupIds) ->
+            lookupIds.toSet()
+        }
+
+    if (
+        shouldRestartHomeWatchedProjection(
+            previous =
+                lastMovieWatchedProjectionSignature,
+            current =
+                movieProjectionSignature,
+            observerActive =
+                movieWatchedBatchJob?.isActive == true
+        )
+    ) {
+        lastMovieWatchedProjectionSignature =
+            movieProjectionSignature
         movieWatchedObserverJobs.values.forEach { it.cancel() }
         movieWatchedObserverJobs.clear()
         movieWatchedBatchJob?.cancel()
@@ -2211,11 +2246,23 @@ internal fun HomeViewModel.reconcilePosterStatusObserversPipeline(rows: List<Cat
      * so adding/removing a series row (for example My List) immediately
      * maps the already-computed completed-series holder into Home.
      */
+    val seriesProjectionSignature =
+        allSeriesItemsByKey.mapValues { (_, lookupIds) ->
+            lookupIds.toSet()
+        }
+
     if (
-        desiredSeriesKeys != lastSeriesWatchedItemKeys ||
-        desiredSeriesKeys.isNotEmpty() && seriesWatchedJob?.isActive != true
+        shouldRestartHomeWatchedProjection(
+            previous =
+                lastSeriesWatchedProjectionSignature,
+            current =
+                seriesProjectionSignature,
+            observerActive =
+                seriesWatchedJob?.isActive == true
+        )
     ) {
-        lastSeriesWatchedItemKeys = desiredSeriesKeys.toSet()
+        lastSeriesWatchedProjectionSignature =
+            seriesProjectionSignature
         seriesWatchedJob?.cancel()
         seriesWatchedJob = null
 
@@ -2289,6 +2336,17 @@ internal fun homeSeriesWatchedLookupIds(
 
 internal fun normalizeHomeSeriesWatchedIds(ids: Iterable<String>): Set<String> =
     normalizeHomeMovieWatchedIds(ids)
+
+internal fun shouldRestartHomeWatchedProjection(
+    previous: Map<String, Set<String>>,
+    current: Map<String, Set<String>>,
+    observerActive: Boolean
+): Boolean =
+    previous != current ||
+        (
+            current.isNotEmpty() &&
+                !observerActive
+        )
 
 internal fun homeMovieWatchedLookupIds(
     itemId: String,
