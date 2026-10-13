@@ -1177,6 +1177,18 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
                 candidateCount++
 
                 val normalizedResult = normalizeForMatch(rawTitle)
+                val tvEvaluation =
+                    if (isTv) {
+                        evaluateTvTrailerCandidate(
+                            requestedTitle = title,
+                            requestedYear = year,
+                            requestedNetwork = network,
+                            candidateTitle = rawTitle
+                        )
+                    } else {
+                        null
+                    }
+
                 val resultWords =
                     normalizedResult
                         .split(" ")
@@ -1184,21 +1196,19 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
 
                 // Gate 1: requested title must appear as complete normalized words.
                 val hasFullTitle =
-                    containsNormalizedPhrase(
-                        normalizedText = normalizedResult,
-                        normalizedPhrase = normalizedTitle
-                    )
+                    tvEvaluation?.hasFullTitle
+                        ?: containsNormalizedPhrase(
+                            normalizedText = normalizedResult,
+                            normalizedPhrase = normalizedTitle
+                        )
 
                 /*
                  * Movies retain the existing trailer requirement.
                  * TV may also use promo / preview / teaser terminology.
                  */
                 val hasPromoWord =
-                    if (isTv) {
-                        hasTvPromoWord(normalizedResult)
-                    } else {
-                        hasTrailerWord(normalizedResult)
-                    }
+                    tvEvaluation?.hasPromoWord
+                        ?: hasTrailerWord(normalizedResult)
 
                 /*
                  * Inspect identity words outside the requested movie title.
@@ -1246,32 +1256,33 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
                  * Do not cross media types merely because two works share a name.
                  */
                 val wrongMedium =
-                    when {
-                        isTv ->
-                            resultWords.any { word ->
-                                word == "movie" || word == "film"
-                            }
-                        isMovie -> hasExplicitTvIdentity
-                        else -> false
-                    }
-
-                val yearMatches =
-                    normalizedYear != null &&
-                        resultWords.any { word ->
-                            word == normalizedYear
+                    tvEvaluation?.wrongMedium
+                        ?: when {
+                            isMovie -> hasExplicitTvIdentity
+                            else -> false
                         }
 
+                val yearMatches =
+                    tvEvaluation?.yearMatches
+                        ?: (
+                            normalizedYear != null &&
+                                resultWords.any { word ->
+                                    word == normalizedYear
+                                }
+                            )
+
                 val networkMatches =
-                    normalizedNetwork.isNotBlank() &&
-                        containsNormalizedPhrase(
-                            normalizedText = normalizedResult,
-                            normalizedPhrase = normalizedNetwork
-                        )
+                    tvEvaluation?.networkMatches
+                        ?: (
+                            normalizedNetwork.isNotBlank() &&
+                                containsNormalizedPhrase(
+                                    normalizedText = normalizedResult,
+                                    normalizedPhrase = normalizedNetwork
+                                )
+                            )
 
                 val hasSeasonOne =
-                    isTv &&
-                        resultWords.any { word -> word == "season" } &&
-                        resultWords.any { word -> word == "1" }
+                    tvEvaluation?.hasSeasonOne ?: false
 
                 /*
                  * A leading title match is stronger than merely containing the
@@ -1281,29 +1292,22 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
                  * be printed in the YouTube title.
                  */
                 val titleLeading =
-                    normalizedResult == normalizedTitle ||
-                        normalizedResult.startsWith("$normalizedTitle ")
+                    tvEvaluation?.titleLeading
+                        ?: (
+                            normalizedResult == normalizedTitle ||
+                                normalizedResult.startsWith("$normalizedTitle ")
+                            )
 
                 /*
-                 * Ambiguous one-word TV titles still need a meaningful identity
-                 * signal. A title-leading Season 1 trailer or title-leading promo
-                 * is accepted, while unrelated containing-title results remain
-                 * rejected.
+                 * Ambiguous TV titles deliberately fail closed. Season/year
+                 * wording may rank a result, but only known network/platform
+                 * evidence can corroborate identity for those short titles.
                  */
-                val strongLeadingTvIdentity =
-                    isTv &&
-                        titleLeading &&
-                        (
-                            (hasSeasonOne && hasTrailerWord(normalizedResult)) ||
-                                normalizedResult
-                                    .split(" ")
-                                    .any { it in tvPromoVariants }
-                        )
-
                 val identityCorroborated =
-                    !ambiguousTvTitle ||
-                        networkMatches ||
-                        strongLeadingTvIdentity
+                    tvEvaluation?.identityCorroborated ?: true
+
+                val conflictingYear =
+                    tvEvaluation?.conflictingYear == true
 
                 /*
                  * A short movie title is too easy to collide with another work.
@@ -1319,6 +1323,7 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
                     hasFullTitle &&
                     hasPromoWord &&
                     !wrongMedium &&
+                    !conflictingYear &&
                     identityCorroborated &&
                     movieIdentityCorroborated
                 ) {
@@ -1331,33 +1336,12 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
                     }
 
                     /*
-                     * TV fallback uses semantic tiers while preserving YouTube
-                     * order inside each tier:
-                     *
-                     * 4 = title-leading Season 1 trailer
-                     * 3 = known-network match
-                     * 2 = title-leading promo / preview / teaser
-                     * 1 = requested-year match
-                     * 0 = otherwise-valid non-ambiguous TV result
-                     *
-                     * This favors actual launch material over poor archival uploads
-                     * without another HTTP request or video-quality probe.
+                     * Network/platform identity outranks generic Season 1 wording.
+                     * The pure matcher owns the TV ranking policy so it can be
+                     * regression-tested independently of live YouTube responses.
                      */
-                    val hasExplicitTvPromo =
-                        normalizedResult
-                            .split(" ")
-                            .any { it in tvPromoVariants }
-
                     val candidateTier =
-                        when {
-                            titleLeading &&
-                                hasSeasonOne &&
-                                hasTrailerWord(normalizedResult) -> 4
-                            networkMatches -> 3
-                            titleLeading && hasExplicitTvPromo -> 2
-                            yearMatches -> 1
-                            else -> 0
-                        }
+                        tvEvaluation?.tier ?: 0
 
                     // Iteration is already YouTube order, so only replace the
                     // selection when a strictly stronger tier appears.
@@ -1379,6 +1363,7 @@ val videoIdRegex = Regex("\"videoId\":\"([a-zA-Z0-9_-]{11})\"")
                         "Rejecting fallback candidate for '$title' " +
                             "(fullTitle=$hasFullTitle promo=$hasPromoWord " +
                             "wrongMedium=$wrongMedium year=$yearMatches " +
+                            "yearConflict=$conflictingYear " +
                             "network=$networkMatches season1=$hasSeasonOne " +
                             "ambiguous=$ambiguousTvTitle)"
                     )
