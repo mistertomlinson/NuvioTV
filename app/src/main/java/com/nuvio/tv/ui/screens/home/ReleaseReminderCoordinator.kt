@@ -9,6 +9,7 @@ import com.nuvio.tv.data.local.ReleaseReminderBadge
 import com.nuvio.tv.data.local.ReleaseReminderDataStore
 import com.nuvio.tv.data.local.ReleaseReminderRecord
 import com.nuvio.tv.data.local.ReleaseReminderStatus
+import com.nuvio.tv.data.local.WatchedSeriesStateHolder
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.Meta
@@ -16,6 +17,7 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.repository.LibraryRepository
 import com.nuvio.tv.domain.repository.MetaRepository
+import com.nuvio.tv.domain.repository.WatchProgressRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.time.Instant
 import java.time.LocalDate
@@ -32,7 +34,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -49,6 +53,13 @@ private data class RuntimeSnapshot(
     val catalogRows: List<CatalogRow> = emptyList()
 )
 
+private data class WatchedReminderSnapshot(
+    val profileId: Int,
+    val reminders: List<ReleaseReminderRecord>,
+    val watchedMovieIds: Set<String>,
+    val fullyWatchedSeriesIds: Set<String>
+)
+
 @Singleton
 class ReleaseReminderCoordinator @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -56,6 +67,8 @@ class ReleaseReminderCoordinator @Inject constructor(
     private val metaRepository: MetaRepository,
     private val tmdbService: TmdbService,
     private val libraryRepository: LibraryRepository,
+    private val watchProgressRepository: WatchProgressRepository,
+    private val watchedSeriesStateHolder: WatchedSeriesStateHolder,
     private val profileManager: ProfileManager
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -81,6 +94,44 @@ class ReleaseReminderCoordinator @Inject constructor(
             }
         }
 
+        /*
+         * Watched status supersedes every release-reminder state.
+         *
+         * Restart the entire reconciliation stream for each selected profile.
+         * That prevents a transient profile handoff from ever pairing one
+         * profile's watched projection with another profile's reminders.
+         *
+         * Movies use the active tracking provider's profile-gated watched
+         * projection. Series use only the durable fully-watched-series set:
+         * watching one episode must never cancel a new-season reminder.
+         */
+        scope.launch {
+            profileManager.activeProfileId.collectLatest { profileId ->
+                combine(
+                    dataStore.reminders,
+                    watchProgressRepository.observeWatchedMovieIds(),
+                    watchedSeriesStateHolder
+                        .observeFullyWatchedSeriesIds(profileId)
+                ) {
+                    reminders,
+                    watchedMovieIds,
+                    fullyWatchedSeriesIds ->
+
+                    WatchedReminderSnapshot(
+                        profileId = profileId,
+                        reminders = reminders,
+                        watchedMovieIds = watchedMovieIds,
+                        fullyWatchedSeriesIds =
+                            fullyWatchedSeriesIds
+                    )
+                }.collect { watchedSnapshot ->
+                    invalidateWatchedReminders(
+                        watchedSnapshot
+                    )
+                }
+            }
+        }
+
         scope.launch {
             snapshotRequests.collectLatest {
                 delay(350L)
@@ -93,6 +144,111 @@ class ReleaseReminderCoordinator @Inject constructor(
         }
 
         onReminderStoreChanged()
+    }
+
+    /**
+     * Deterministic entry point used by regression tests and by any future
+     * explicit maintenance caller.
+     */
+    internal suspend fun runWatchedReminderMaintenance() {
+        val profileId =
+            profileManager.activeProfileId.value
+
+        val reminders =
+            dataStore.reminders.first()
+
+        if (
+            profileManager.activeProfileId.value !=
+                profileId
+        ) {
+            return
+        }
+
+        val watchedMovieIds =
+            watchProgressRepository
+                .observeWatchedMovieIds()
+                .first()
+
+        if (
+            profileManager.activeProfileId.value !=
+                profileId
+        ) {
+            return
+        }
+
+        val fullyWatchedSeriesIds =
+            watchedSeriesStateHolder
+                .observeFullyWatchedSeriesIds(
+                    profileId
+                )
+                .first()
+
+        if (
+            profileManager.activeProfileId.value !=
+                profileId
+        ) {
+            return
+        }
+
+        invalidateWatchedReminders(
+            WatchedReminderSnapshot(
+                profileId = profileId,
+                reminders = reminders,
+                watchedMovieIds = watchedMovieIds,
+                fullyWatchedSeriesIds =
+                    fullyWatchedSeriesIds
+            )
+        )
+    }
+
+    private suspend fun invalidateWatchedReminders(
+        watchedSnapshot: WatchedReminderSnapshot
+    ) {
+        runMutex.withLock {
+            if (
+                profileManager.activeProfileId.value !=
+                    watchedSnapshot.profileId
+            ) {
+                return@withLock
+            }
+
+            val watchedReminders =
+                watchedSnapshot.reminders.filter {
+                    reminder ->
+                    reminder.matchesWatchedStateRespectingFutureSeason(
+                        watchedMovieIds =
+                            watchedSnapshot.watchedMovieIds,
+                        fullyWatchedSeriesIds =
+                            watchedSnapshot
+                                .fullyWatchedSeriesIds
+                    )
+                }
+
+            for (reminder in watchedReminders) {
+                if (
+                    profileManager.activeProfileId.value !=
+                        watchedSnapshot.profileId
+                ) {
+                    return@withLock
+                }
+
+                /*
+                 * Remove the record entirely, including a previously fulfilled
+                 * Available Now/New Season badge. Once the title is watched,
+                 * the watched checkmark is the only useful terminal status.
+                 *
+                 * ReleaseReminderDataStore then emits the smaller reminder
+                 * list and the existing WorkManager observer naturally
+                 * reschedules/cancels the due job.
+                 */
+                dataStore.remove(reminder.key)
+
+                Log.i(
+                    TAG,
+                    "Removed watched release reminder ${reminder.key}"
+                )
+            }
+        }
     }
 
     fun setHomeVisible(visible: Boolean) {
@@ -476,6 +632,71 @@ private fun ReleaseReminderRecord.matches(
         .intersect(identityTokens(candidateId, candidateImdbId, null, null, null))
         .isNotEmpty()
 }
+
+internal fun shouldProtectReleaseReminderFromWatchedInvalidation(
+    itemType: String,
+    seasonNumber: Int?,
+    badge: ReleaseReminderBadge
+): Boolean =
+    normalizeType(itemType) == "series" &&
+        (
+            (seasonNumber ?: 0) >= 2 ||
+                badge == ReleaseReminderBadge.NEW_SEASON
+        )
+
+private fun ReleaseReminderRecord.matchesWatchedStateRespectingFutureSeason(
+    watchedMovieIds: Set<String>,
+    fullyWatchedSeriesIds: Set<String>
+): Boolean {
+    /*
+     * A still-armed Season 2+ reminder represents future content.
+     *
+     * Fully-watched-series state describes the released episode set.
+     * It must therefore never invalidate an armed reminder for an
+     * unreleased future season, even if stale metadata temporarily
+     * describes the show as terminal.
+     */
+    if (
+        shouldProtectReleaseReminderFromWatchedInvalidation(
+            itemType = itemType,
+            seasonNumber = seasonNumber,
+            badge = badge
+        )
+    ) {
+        return false
+    }
+
+    return matchesWatchedState(
+        watchedMovieIds = watchedMovieIds,
+        fullyWatchedSeriesIds = fullyWatchedSeriesIds
+    )
+}
+
+private fun ReleaseReminderRecord.matchesWatchedState(
+    watchedMovieIds: Set<String>,
+    fullyWatchedSeriesIds: Set<String>
+): Boolean =
+    when (normalizeType(itemType)) {
+        "movie" ->
+            watchedMovieIds.any { watchedId ->
+                matches(
+                    candidateId = watchedId,
+                    candidateType = "movie",
+                    candidateImdbId = null
+                )
+            }
+
+        "series" ->
+            fullyWatchedSeriesIds.any { watchedId ->
+                matches(
+                    candidateId = watchedId,
+                    candidateType = "series",
+                    candidateImdbId = null
+                )
+            }
+
+        else -> false
+    }
 
 private fun identityTokens(
     rawId: String,

@@ -1075,13 +1075,18 @@ internal fun ModernRowSection(
             !LocalSidebarExpanded.current &&
                 LocalSidebarFocusRestoreActive.current
 
+        val suppressCatalogPopupRestoreBringIntoView =
+            LocalHomePopupGlassEnvironment.current
+                .catalogOptionsFocusRestoreActive
+
         val horizontalBringIntoViewSpec = remember(
             density,
             defaultBringIntoViewSpec,
             useCenteredScroll,
             screenWidthPx,
             numberedRowStartPadding,
-            suppressSidebarRestoreBringIntoView
+            suppressSidebarRestoreBringIntoView,
+            suppressCatalogPopupRestoreBringIntoView
         ) {
             // Numbered rows include leading space for the overlapping number.
             // Preserve that natural position instead of pulling the poster
@@ -1105,6 +1110,7 @@ internal fun ModernRowSection(
                 ): Float {
                     if (
                         suppressSidebarRestoreBringIntoView ||
+                        suppressCatalogPopupRestoreBringIntoView ||
                         (
                             pendingRowFocus.suppressBringIntoView &&
                             pendingRowFocus.key == row.key
@@ -1823,13 +1829,29 @@ private fun ModernCarouselCard(
     val isAnchored = anchoredSink != null && focusedPosterBackdropExpandEnabled
     val cardWidthPxForAnim = with(density) { cardWidth.toPx() }
     val anchoredWidth = remember { androidx.compose.animation.core.Animatable(cardWidthPxForAnim) }
-    androidx.compose.runtime.LaunchedEffect(isAnchored, effectiveIsExpanded, cardWidth, targetCardWidth) {
+    androidx.compose.runtime.LaunchedEffect(
+        isAnchored,
+        effectiveIsExpanded,
+        cardWidth,
+        targetCardWidth,
+        preserveExpandedWidthForFocusHandoff
+    ) {
         val collapsedPx = with(density) { cardWidth.toPx() }
+        val targetPx = with(density) { targetCardWidth.toPx() }
         // Once focus leaves the card, collapse immediately so D-pad navigation
         // never carries width animation work into scrolling. If the trailer ends
         // naturally while this card is still focused, animate the collapse.
         if (!isAnchored) {
-            anchoredWidth.snapTo(collapsedPx)
+            anchoredWidth.snapTo(
+                if (
+                    preserveExpandedWidthForFocusHandoff &&
+                    effectiveIsExpanded
+                ) {
+                    targetPx
+                } else {
+                    collapsedPx
+                }
+            )
             return@LaunchedEffect
         }
         if (!effectiveIsExpanded) {
@@ -1845,10 +1867,20 @@ private fun ModernCarouselCard(
             }
             return@LaunchedEffect
         }
-        // Guarantee we begin from collapsed even if a prior value lingered, then
-        // drive expansion; the card is anchored from the first driven frame.
-        if (anchoredWidth.value != collapsedPx) anchoredWidth.snapTo(collapsedPx)
-        val targetPx = with(density) { targetCardWidth.toPx() }
+        /*
+         * Genuine expansion already begins from collapsed. Popup/sidebar
+         * restoration instead resumes the visual width that was preserved
+         * during the focus handoff; never rewind that width to collapsed.
+         */
+        if (
+            abs(
+                anchoredWidth.value -
+                    targetPx
+            ) <= 0.5f
+        ) {
+            return@LaunchedEffect
+        }
+
         anchoredWidth.animateTo(targetPx) {
             val sink = anchoredSink ?: return@animateTo
             androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
@@ -2932,7 +2964,7 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
             animationKey =
                 "${preview.apiType}|${preview.id}|reminder",
             visible =
-                reminderSet,
+                reminderSet && !watched,
             renderAllowed =
                 showHeavyOverlays,
             popupTransitionBlocked =
@@ -2944,8 +2976,8 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
                     R.string.hero_reminder_set
                 ),
             alignment =
-                Alignment.BottomEnd,
-            bottomPadding =
+                Alignment.TopEnd,
+            topPadding =
                 4.dp
         )
 
@@ -2974,19 +3006,20 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
     }
 
     /*
-     * Legacy style remains byte-for-byte behaviorally equivalent to the
-     * current proven build. The animation experiment is Modern-only.
+     * Legacy styling remains unchanged, but status priority and geometry now
+     * match Modern: watched wins the single top-right status slot.
      */
     if (
         reminderSet &&
+        !watched &&
         showHeavyOverlays
     ) {
         Box(
             modifier = Modifier
-                .align(Alignment.BottomEnd)
+                .align(Alignment.TopEnd)
                 .padding(
                     end = 8.dp,
-                    bottom = 8.dp
+                    top = 8.dp
                 )
                 .zIndex(3f)
                 .graphicsLayer {
