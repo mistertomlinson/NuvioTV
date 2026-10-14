@@ -22,7 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
@@ -264,7 +264,7 @@ class AddonRepositoryImpl @Inject constructor(
                 manifestRefreshRevision
             ) { urls, revision ->
                 urls to revision
-            }.collectLatest { (urls, revision) ->
+            }.collect { (urls, revision) ->
                 val cacheStale = isCacheStale()
                 val runGlobalRefresh =
                     shouldRunGlobalManifestRefresh(
