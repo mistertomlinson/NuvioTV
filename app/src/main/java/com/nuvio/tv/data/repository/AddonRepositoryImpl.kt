@@ -22,9 +22,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.launch
@@ -33,6 +33,26 @@ import com.nuvio.tv.core.sync.AddonSyncService
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
+
+internal fun shouldRunGlobalManifestRefresh(
+    previousUrls: List<String>?,
+    previousRevision: Long?,
+    urls: List<String>,
+    revision: Long,
+    cacheStale: Boolean
+): Boolean {
+    if (!cacheStale || urls.isEmpty()) {
+        return false
+    }
+
+    val revisionOnlyEmission =
+        previousUrls != null &&
+            previousRevision != null &&
+            previousUrls == urls &&
+            previousRevision != revision
+
+    return !revisionOnlyEmission
+}
 
 @Singleton
 class AddonRepositoryImpl @Inject constructor(
@@ -235,13 +255,29 @@ class AddonRepositoryImpl @Inject constructor(
     }
 
     override fun getInstalledAddons(): Flow<List<Addon>> =
-        combine(
-            preferences.installedAddonUrls,
-            manifestRefreshRevision
-        ) { urls, _ ->
-            urls
-        }.flatMapLatest { urls ->
-            flow {
+        flow {
+            var previousUrls: List<String>? = null
+            var previousRevision: Long? = null
+
+            combine(
+                preferences.installedAddonUrls,
+                manifestRefreshRevision
+            ) { urls, revision ->
+                urls to revision
+            }.collectLatest { (urls, revision) ->
+                val cacheStale = isCacheStale()
+                val runGlobalRefresh =
+                    shouldRunGlobalManifestRefresh(
+                        previousUrls = previousUrls,
+                        previousRevision = previousRevision,
+                        urls = urls,
+                        revision = revision,
+                        cacheStale = cacheStale
+                    )
+
+                previousUrls = urls
+                previousRevision = revision
+
                 val cached = urls.mapNotNull { manifestCache[canonicalizeUrl(it)] }
                 if (cached.isNotEmpty()) {
                     emit(applyDisplayNames(cached))
@@ -269,8 +305,12 @@ class AddonRepositoryImpl @Inject constructor(
                     if (fresh != cached) {
                         emit(applyDisplayNames(fresh))
                     }
-                } else if (isCacheStale() && urls.isNotEmpty()) {
-                    // Wait for background refresh and emit fresh addons if anything changed
+                } else if (runGlobalRefresh) {
+                    // Wait for background refresh and emit fresh addons if anything changed.
+                    // A manifestRefreshRevision-only emission intentionally never reaches
+                    // this branch: Seasonal Spotlight already performed its own targeted
+                    // fetch, and cascading that signal into a global stale-manifest sweep
+                    // could fetch Watchly and promote a new generation under active Home.
                     val refreshed = coroutineScope {
                         urls.map { url ->
                             async {
@@ -287,9 +327,14 @@ class AddonRepositoryImpl @Inject constructor(
                             emit(applyDisplayNames(fresh))
                         }
                     }
+                } else if (cacheStale && urls.isNotEmpty()) {
+                    Log.d(
+                        TAG,
+                        "Manifest revision emission; skipped unrelated stale-manifest sweep"
+                    )
                 }
-            }.flowOn(Dispatchers.IO)
-        }
+            }
+        }.flowOn(Dispatchers.IO)
 
     override suspend fun fetchAddon(baseUrl: String): NetworkResult<Addon> {
         val cleanBaseUrl = canonicalizeUrl(baseUrl)
