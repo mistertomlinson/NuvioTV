@@ -2553,19 +2553,24 @@ fun ModernHomeContent(
                     latestActiveItemIndex
                 }
 
+            /*
+             * DETAILS_RETURN_FINAL_VERTICAL_VIEWPORT
+             *
+             * Focus identity was frozen synchronously at Select time, but the
+             * vertical LazyColumn may still be settling during the outgoing
+             * Details transition.
+             *
+             * Match the existing horizontal-row return behavior: preserve the
+             * authoritative selected row/card identity, while snapshotting the
+             * latest viewport here at disposal after scrolling has had time to
+             * settle. This prevents Home from recreating an earlier in-flight
+             * vertical position on return.
+             */
             val verticalScrollIndex =
-                if (navigationSnapshotSaved) {
-                    navigationSnapshotVerticalIndexRef.get()
-                } else {
-                    latestVerticalRowListState.firstVisibleItemIndex
-                }
+                latestVerticalRowListState.firstVisibleItemIndex
 
             val verticalScrollOffset =
-                if (navigationSnapshotSaved) {
-                    navigationSnapshotVerticalOffsetRef.get()
-                } else {
-                    latestVerticalRowListState.firstVisibleItemScrollOffset
-                }
+                latestVerticalRowListState.firstVisibleItemScrollOffset
 
             val savedPlatformId =
                 if (navigationSnapshotSaved) {
