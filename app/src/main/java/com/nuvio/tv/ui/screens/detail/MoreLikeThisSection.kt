@@ -8,9 +8,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -28,6 +30,7 @@ import com.nuvio.tv.ui.theme.NuvioColors
 @Composable
 fun MoreLikeThisSection(
     items: List<MetaPreview>,
+    modifier: Modifier = Modifier,
     upFocusRequester: FocusRequester? = null,
     restoreItemId: String? = null,
     restoreFocusToken: Int = 0,
@@ -38,18 +41,63 @@ fun MoreLikeThisSection(
     if (items.isEmpty()) return
 
     val firstItemFocusRequester = remember { FocusRequester() }
-    val restoreFocusRequester = remember { FocusRequester() }
     val itemFocusRequesters = remember { mutableMapOf<String, FocusRequester>() }
+    val lazyListState = rememberLazyListState()
 
     LaunchedEffect(items) {
         val validIds = items.mapTo(mutableSetOf()) { it.id }
         itemFocusRequesters.keys.retainAll(validIds)
     }
 
+    /*
+     * MORE_LIKE_THIS_RETURN_STABLE_FOCUS
+     *
+     * Keep one FocusRequester attached to each recommendation for its lifetime.
+     * The old restore path temporarily replaced the selected card's requester
+     * with one shared restore requester, then replaced it again after focus was
+     * handled. That focus-node swap could make Compose fall through to another
+     * Details target before the recommendation reclaimed focus.
+     */
     LaunchedEffect(restoreFocusToken, restoreItemId, items) {
-        if (restoreFocusToken <= 0 || restoreItemId.isNullOrBlank()) return@LaunchedEffect
-        if (items.none { it.id == restoreItemId }) return@LaunchedEffect
-        restoreFocusRequester.requestFocusAfterFrames()
+        val targetId = restoreItemId
+        if (restoreFocusToken <= 0 || targetId.isNullOrBlank()) {
+            return@LaunchedEffect
+        }
+
+        val targetIndex = items.indexOfFirst { it.id == targetId }
+        if (targetIndex < 0) return@LaunchedEffect
+
+        // ON_START arms this restore before the destination reaches RESUMED.
+        // Give the returning focus tree two frames to attach, matching the
+        // stable Cast return path.
+        repeat(2) {
+            withFrameNanos { }
+        }
+
+        repeat(8) { attempt ->
+            val requester =
+                if (targetIndex == 0) {
+                    firstItemFocusRequester
+                } else {
+                    itemFocusRequesters[targetId]
+                }
+
+            if (
+                requester != null &&
+                runCatching { requester.requestFocus() }
+                    .getOrDefault(false)
+            ) {
+                return@LaunchedEffect
+            }
+
+            // Normally the retained LazyRow is already at the selected item.
+            // This only handles a target that is no longer composed.
+            if (attempt == 0 && requester == null) {
+                lazyListState.scrollToItem(targetIndex)
+            }
+
+            withFrameNanos { }
+        }
     }
 
     val landscapeStyle = remember {
@@ -63,7 +111,7 @@ fun MoreLikeThisSection(
     }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(top = 8.dp, bottom = 8.dp)
     ) {
@@ -71,6 +119,7 @@ fun MoreLikeThisSection(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRestorer { firstItemFocusRequester },
+            state = lazyListState,
             contentPadding = PaddingValues(horizontal = 48.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -80,11 +129,16 @@ fun MoreLikeThisSection(
             ) { index, item ->
                 val isRestoreTarget = item.id == restoreItemId
                 val isFirstItem = index == 0
-                val focusRequester = when {
-                    isRestoreTarget -> restoreFocusRequester
-                    isFirstItem -> firstItemFocusRequester
-                    else -> remember(item.id) { itemFocusRequesters.getOrPut(item.id) { FocusRequester() } }
-                }
+                val focusRequester =
+                    if (isFirstItem) {
+                        firstItemFocusRequester
+                    } else {
+                        remember(item.id) {
+                            itemFocusRequesters.getOrPut(item.id) {
+                                FocusRequester()
+                            }
+                        }
+                    }
 
                 Column {
                     GridContentCard(

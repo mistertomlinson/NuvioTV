@@ -977,6 +977,14 @@ private fun MetaDetailsContent(
     }
 
     fun markMoreLikeThisRestore(itemId: String) {
+        /*
+         * MORE_LIKE_THIS_RETURN_REARM
+         *
+         * A completed restore leaves a non-zero token behind. Re-arm it
+         * before navigation so the current Detail screen cannot consume the
+         * next restore before the child Detail destination has opened.
+         */
+        restoreFocusToken = 0
         pendingRestoreType = RestoreTarget.MORE_LIKE_THIS
         pendingRestoreEpisodeId = null
         pendingRestoreCastFocusKey = null
@@ -1005,7 +1013,8 @@ private fun MetaDetailsContent(
                 event == Lifecycle.Event.ON_START &&
                 (
                     pendingRestoreType == RestoreTarget.EPISODE ||
-                        pendingRestoreType == RestoreTarget.CAST_MEMBER
+                        pendingRestoreType == RestoreTarget.CAST_MEMBER ||
+                        pendingRestoreType == RestoreTarget.MORE_LIKE_THIS
                 )
             ) {
                 restoreFocusToken += 1
@@ -1015,7 +1024,8 @@ private fun MetaDetailsContent(
                 event == Lifecycle.Event.ON_RESUME &&
                 pendingRestoreType != null &&
                 pendingRestoreType != RestoreTarget.EPISODE &&
-                pendingRestoreType != RestoreTarget.CAST_MEMBER
+                pendingRestoreType != RestoreTarget.CAST_MEMBER &&
+                pendingRestoreType != RestoreTarget.MORE_LIKE_THIS
             ) {
                 restoreFocusToken += 1
             }
@@ -1709,8 +1719,27 @@ private fun MetaDetailsContent(
                             }
 
                             PeopleSectionTab.MORE_LIKE_THIS -> {
+                                val moreLikeThisReturnFocusRestoreActive =
+                                    pendingRestoreType == RestoreTarget.MORE_LIKE_THIS &&
+                                        restoreFocusToken > 0
+
                                 MoreLikeThisSection(
                                     items = moreLikeThis,
+                                    modifier =
+                                        if (moreLikeThisReturnFocusRestoreActive) {
+                                            /*
+                                             * MORE_LIKE_THIS_RETURN_NO_VERTICAL_BOUNCE
+                                             *
+                                             * The selected recommendation is already visible
+                                             * at the saved Detail viewport. Restoring focus
+                                             * must not reposition the parent LazyColumn.
+                                             */
+                                            Modifier.bringIntoViewResponder(
+                                                heroNoScrollResponder
+                                            )
+                                        } else {
+                                            Modifier
+                                        },
                                     upFocusRequester = if (hasVisiblePeopleTabs) moreLikeTabFocusRequester else seasonDownFocusRequester,
                                     restoreItemId = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) pendingRestoreMoreLikeItemId else null,
                                     restoreFocusToken = if (pendingRestoreType == RestoreTarget.MORE_LIKE_THIS) restoreFocusToken else 0,
