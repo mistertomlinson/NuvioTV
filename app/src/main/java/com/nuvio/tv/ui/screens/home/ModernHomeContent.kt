@@ -1757,9 +1757,266 @@ fun ModernHomeContent(
     val latestEffectiveExpandEnabled by rememberUpdatedState(effectiveExpandEnabled)
 
     /*
+     * Exposure-risk poster prewarm.
+     *
+     * A short landscape row can reveal the portrait row beneath it before
+     * focus ever reaches that portrait row. Waiting for directional prefetch
+     * is too late in that geometry, so prepare the nearest exposed portrait
+     * window directly while Home is already idle.
+     *
+     * This does not expand LazyColumn's cache window or compose off-screen
+     * rows. It only warms up to four sized Coil requests, sequentially, and
+     * collectLatest cancels the sequence as soon as navigation resumes.
+     */
+    LaunchedEffect(Unit) {
+        var completedExposureSignature: String? = null
+
+        kotlinx.coroutines.flow.combine(
+            snapshotFlow {
+                Pair(
+                    activeRowKey,
+                    latestCarouselRows
+                )
+            },
+            isFastScrollingRef,
+            snapshotFlow {
+                verticalRowListState.isScrollInProgress ||
+                    rowListStates.values.any {
+                        it.isScrollInProgress
+                    }
+            }
+        ) { pair, fastScrolling, anyScrolling ->
+            Triple(
+                pair,
+                fastScrolling,
+                anyScrolling
+            )
+        }
+            .debounce(120L)
+            .collectLatest {
+                (pair, fastScrolling, anyScrolling) ->
+
+                if (
+                    fastScrolling ||
+                    anyScrolling
+                ) {
+                    return@collectLatest
+                }
+
+                val (rowKey, rows) = pair
+                if (rowKey == null || rows.size < 2) {
+                    return@collectLatest
+                }
+
+                val focusedRowIndex =
+                    rows.indexOfFirst {
+                        it.key == rowKey
+                    }
+
+                if (focusedRowIndex < 0) {
+                    return@collectLatest
+                }
+
+                val portraitWidth =
+                    latestPosterCardWidthDp.dp
+                val portraitHeight =
+                    latestPosterCardHeightDp.dp
+
+                if (
+                    portraitWidth <= 0.dp ||
+                    portraitHeight <= 0.dp ||
+                    latestUseLandscapePosters
+                ) {
+                    return@collectLatest
+                }
+
+                /*
+                 * Stay narrow: only inspect the next three potential bridge
+                 * rows and choose the first landscape -> portrait transition.
+                 */
+                val firstBridgeIndex =
+                    focusedRowIndex + 1
+                val lastBridgeIndex =
+                    minOf(
+                        focusedRowIndex + 3,
+                        rows.lastIndex - 1
+                    )
+
+                if (firstBridgeIndex > lastBridgeIndex) {
+                    return@collectLatest
+                }
+
+                var exposedRow: HeroCarouselRow? = null
+
+                for (
+                    bridgeIndex in
+                        firstBridgeIndex..lastBridgeIndex
+                ) {
+                    val bridgeRow =
+                        rows[bridgeIndex]
+                    val candidateExposedRow =
+                        rows.getOrNull(
+                            bridgeIndex + 1
+                        ) ?: continue
+
+                    val bridgeIsLandscape =
+                        bridgeRow.key in
+                            latestLandscapeCatalogKeys
+                    val exposedIsLandscape =
+                        candidateExposedRow.key in
+                            latestLandscapeCatalogKeys
+
+                    if (
+                        bridgeIsLandscape &&
+                        bridgeRow.items.isNotEmpty() &&
+                        !exposedIsLandscape &&
+                        candidateExposedRow.key !=
+                            "continue_watching" &&
+                        candidateExposedRow.items.isNotEmpty()
+                    ) {
+                        exposedRow =
+                            candidateExposedRow
+                        break
+                    }
+                }
+
+                val targetRow =
+                    exposedRow
+                        ?: return@collectLatest
+
+                val startIndex =
+                    (
+                        rowListStates[
+                            targetRow.key
+                        ]?.firstVisibleItemIndex
+                            ?: uiCaches
+                                .lastActuallyFocusedIndexByRow[
+                                    targetRow.key
+                                ]
+                            ?: uiCaches
+                                .focusedItemByRow[
+                                    targetRow.key
+                                ]
+                            ?: 0
+                    ).coerceIn(
+                        0,
+                        targetRow.items.lastIndex
+                    )
+
+                val endExclusive =
+                    minOf(
+                        startIndex + 4,
+                        targetRow.items.size
+                    )
+
+                val urls =
+                    LinkedHashSet<String>(4)
+
+                for (
+                    index in
+                        startIndex until endExclusive
+                ) {
+                    targetRow.items[index]
+                        .imageUrl
+                        ?.takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let(urls::add)
+                }
+
+                if (urls.isEmpty()) {
+                    return@collectLatest
+                }
+
+                val exposureSignature =
+                    buildString {
+                        append(targetRow.key)
+                        append('|')
+                        append(startIndex)
+                        urls.forEach {
+                            append('|')
+                            append(it)
+                        }
+                    }
+
+                if (
+                    exposureSignature ==
+                        completedExposureSignature
+                ) {
+                    return@collectLatest
+                }
+
+                val cardWidth =
+                    portraitWidth *
+                        0.84f *
+                        1.08f
+                val cardHeight =
+                    portraitHeight *
+                        0.84f *
+                        1.08f
+
+                val requestWidth =
+                    if (
+                        latestEffectiveExpandEnabled
+                    ) {
+                        maxOf(
+                            cardWidth,
+                            cardHeight *
+                                (16f / 9f)
+                        )
+                    } else {
+                        cardWidth
+                    }
+
+                val requestWidthPx =
+                    with(density) {
+                        requestWidth.roundToPx()
+                    }
+                val requestHeightPx =
+                    with(density) {
+                        cardHeight.roundToPx()
+                    }
+
+                val imageLoader =
+                    coil.Coil.imageLoader(context)
+
+                for (imageUrl in urls) {
+                    try {
+                        imageLoader.execute(
+                            coil.request.ImageRequest
+                                .Builder(context)
+                                .data(imageUrl)
+                                .crossfade(false)
+                                .size(
+                                    width = requestWidthPx,
+                                    height = requestHeightPx
+                                )
+                                .memoryCachePolicy(
+                                    coil.request
+                                        .CachePolicy
+                                        .ENABLED
+                                )
+                                .build()
+                        )
+                    } catch (
+                        cancelled:
+                            kotlinx.coroutines.CancellationException
+                    ) {
+                        throw cancelled
+                    } catch (_: Throwable) {
+                        // Best-effort prewarm must never affect Home.
+                    }
+                }
+
+                completedExposureSignature =
+                    exposureSignature
+            }
+    }
+
+    /*
      * Directional image prefetch.
      *
-     * Keep image work off the active vertical-scroll path.
+     * Keep image work off every active Home scroll path.
      *
      * Once navigation has been idle for 240 ms, warm only the remembered
      * destination card in the single row immediately ahead of the user's
@@ -1780,22 +2037,25 @@ fun ModernHomeContent(
             },
             isFastScrollingRef,
             snapshotFlow {
-                verticalRowListState.isScrollInProgress
+                verticalRowListState.isScrollInProgress ||
+                    rowListStates.values.any {
+                        it.isScrollInProgress
+                    }
             }
-        ) { pair, fastScrolling, verticalScrolling ->
+        ) { pair, fastScrolling, anyScrolling ->
             Triple(
                 pair,
                 fastScrolling,
-                verticalScrolling
+                anyScrolling
             )
         }
             .debounce(240L)
             .collectLatest {
-                (pair, fastScrolling, verticalScrolling) ->
+                (pair, fastScrolling, anyScrolling) ->
 
                 if (
                     fastScrolling ||
-                    verticalScrolling
+                    anyScrolling
                 ) {
                     return@collectLatest
                 }
@@ -1952,7 +2212,7 @@ fun ModernHomeContent(
                 val imageLoader =
                     coil.Coil.imageLoader(context)
 
-                runCatching {
+                try {
                     imageLoader.execute(
                         coil.request.ImageRequest
                             .Builder(context)
@@ -1971,6 +2231,13 @@ fun ModernHomeContent(
                             )
                             .build()
                     )
+                } catch (
+                    cancelled:
+                        kotlinx.coroutines.CancellationException
+                ) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // Best-effort speculation must never affect Home.
                 }
             }
     }
