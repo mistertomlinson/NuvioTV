@@ -1759,7 +1759,7 @@ fun ModernHomeContent(
     /*
      * Directional image prefetch.
      *
-     * Keep image work off the active vertical-scroll path.
+     * Keep image work off every active Home scroll path.
      *
      * Once navigation has been idle for 240 ms, warm only the remembered
      * destination card in the single row immediately ahead of the user's
@@ -1780,22 +1780,25 @@ fun ModernHomeContent(
             },
             isFastScrollingRef,
             snapshotFlow {
-                verticalRowListState.isScrollInProgress
+                verticalRowListState.isScrollInProgress ||
+                    rowListStates.values.any {
+                        it.isScrollInProgress
+                    }
             }
-        ) { pair, fastScrolling, verticalScrolling ->
+        ) { pair, fastScrolling, anyScrolling ->
             Triple(
                 pair,
                 fastScrolling,
-                verticalScrolling
+                anyScrolling
             )
         }
             .debounce(240L)
             .collectLatest {
-                (pair, fastScrolling, verticalScrolling) ->
+                (pair, fastScrolling, anyScrolling) ->
 
                 if (
                     fastScrolling ||
-                    verticalScrolling
+                    anyScrolling
                 ) {
                     return@collectLatest
                 }
@@ -1952,25 +1955,166 @@ fun ModernHomeContent(
                 val imageLoader =
                     coil.Coil.imageLoader(context)
 
-                runCatching {
-                    imageLoader.execute(
-                        coil.request.ImageRequest
-                            .Builder(context)
-                            .data(imageUrl)
-                            .crossfade(false)
-                            .size(
-                                width =
-                                    requestWidthPx,
-                                height =
-                                    requestHeightPx
-                            )
-                            .memoryCachePolicy(
-                                coil.request
-                                    .CachePolicy
-                                    .ENABLED
-                            )
-                            .build()
-                    )
+                suspend fun warmPoster(
+                    url: String,
+                    widthPx: Int,
+                    heightPx: Int
+                ) {
+                    try {
+                        imageLoader.execute(
+                            coil.request.ImageRequest
+                                .Builder(context)
+                                .data(url)
+                                .crossfade(false)
+                                .size(
+                                    width = widthPx,
+                                    height = heightPx
+                                )
+                                .memoryCachePolicy(
+                                    coil.request
+                                        .CachePolicy
+                                        .ENABLED
+                                )
+                                .build()
+                        )
+                    } catch (
+                        cancelled:
+                            kotlinx.coroutines.CancellationException
+                    ) {
+                        throw cancelled
+                    } catch (_: Throwable) {
+                        // Best-effort speculation must never affect Home.
+                    }
+                }
+
+                /*
+                 * Preserve the existing immediate-next-row warmup first.
+                 * execute() is sequential, and collectLatest cancellation is
+                 * rethrown so any new DPAD/scroll event stops image work.
+                 */
+                warmPoster(
+                    url = imageUrl,
+                    widthPx = requestWidthPx,
+                    heightPx = requestHeightPx
+                )
+
+                /*
+                 * A short landscape destination row exposes the beginning of
+                 * the following portrait row during the same downward landing.
+                 * Warm only that actually exposed portrait window, and only
+                 * while navigation is already idle. No extra LazyColumn cache,
+                 * off-screen composition, or per-frame layout inspection.
+                 *
+                 * Four posters is deliberately the ceiling: it matches the
+                 * small existing Home viewport-predecode batches and avoids the
+                 * former broad 4-row x 6-card burst.
+                 */
+                if (direction > 0 && rowLandscape) {
+                    val exposedRow =
+                        rows.getOrNull(
+                            focusedRowIndex + 2
+                        )
+
+                    if (
+                        exposedRow != null &&
+                        exposedRow.key !=
+                            "continue_watching" &&
+                        exposedRow.items.isNotEmpty()
+                    ) {
+                        val exposedRowLandscape =
+                            latestUseLandscapePosters ||
+                                exposedRow.key in
+                                    latestLandscapeCatalogKeys
+
+                        if (!exposedRowLandscape) {
+                            val exposedStartIndex =
+                                (
+                                    rowListStates[
+                                        exposedRow.key
+                                    ]?.firstVisibleItemIndex
+                                        ?: uiCaches
+                                            .lastActuallyFocusedIndexByRow[
+                                                exposedRow.key
+                                            ]
+                                        ?: uiCaches
+                                            .focusedItemByRow[
+                                                exposedRow.key
+                                            ]
+                                        ?: 0
+                                ).coerceIn(
+                                    0,
+                                    exposedRow.items.lastIndex
+                                )
+
+                            val exposedCardWidth =
+                                portraitWidth *
+                                    0.84f *
+                                    1.08f
+
+                            val exposedCardHeight =
+                                portraitHeight *
+                                    0.84f *
+                                    1.08f
+
+                            val exposedRequestWidth =
+                                if (
+                                    latestEffectiveExpandEnabled
+                                ) {
+                                    maxOf(
+                                        exposedCardWidth,
+                                        exposedCardHeight *
+                                            (16f / 9f)
+                                    )
+                                } else {
+                                    exposedCardWidth
+                                }
+
+                            val exposedRequestWidthPx =
+                                with(density) {
+                                    exposedRequestWidth
+                                        .roundToPx()
+                                }
+
+                            val exposedRequestHeightPx =
+                                with(density) {
+                                    exposedCardHeight
+                                        .roundToPx()
+                                }
+
+                            val exposedEndExclusive =
+                                minOf(
+                                    exposedStartIndex + 4,
+                                    exposedRow.items.size
+                                )
+
+                            val exposedUrls =
+                                LinkedHashSet<String>(4)
+
+                            for (
+                                index in
+                                    exposedStartIndex until
+                                        exposedEndExclusive
+                            ) {
+                                exposedRow.items[index]
+                                    .imageUrl
+                                    ?.takeIf {
+                                        it.isNotBlank() &&
+                                            it != imageUrl
+                                    }
+                                    ?.let(exposedUrls::add)
+                            }
+
+                            for (exposedUrl in exposedUrls) {
+                                warmPoster(
+                                    url = exposedUrl,
+                                    widthPx =
+                                        exposedRequestWidthPx,
+                                    heightPx =
+                                        exposedRequestHeightPx
+                                )
+                            }
+                        }
+                    }
                 }
             }
     }
