@@ -192,6 +192,7 @@ fun MetaDetailsScreen(
     returnFocusSeason: Int? = null,
     returnFocusEpisode: Int? = null,
     onBackPress: () -> Unit,
+    onReturnFocusRestored: () -> Unit = {},
     onRetryComments: () -> Unit = {},
     onLoadMoreComments: () -> Unit = {},
     onCommentClick: (TraktCommentReview) -> Unit = {},
@@ -587,7 +588,8 @@ fun MetaDetailsScreen(
                     onDismissCommentOverlay = { viewModel.onEvent(MetaDetailsEvent.OnDismissCommentOverlay) },
                     commentOverlayDirection = uiState.comments.indexOfFirst { it.id == uiState.selectedComment?.id },
                     onNavigateToCastDetail = onNavigateToCastDetail,
-                    onNavigateToDetail = onNavigateToDetail
+                    onNavigateToDetail = onNavigateToDetail,
+                    onReturnFocusRestored = onReturnFocusRestored
                 )
             }
         }
@@ -754,7 +756,8 @@ private fun MetaDetailsContent(
     onDismissCommentOverlay: () -> Unit = {},
     commentOverlayDirection: Int = 0,
     onNavigateToCastDetail: (personId: Int, personName: String, preferCrew: Boolean) -> Unit = { _, _, _ -> },
-    onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit = { _, _, _ -> }
+    onNavigateToDetail: (itemId: String, itemType: String, addonBaseUrl: String?) -> Unit = { _, _, _ -> },
+    onReturnFocusRestored: () -> Unit = {}
 ) {
     val canLoadMoreComments = commentsCurrentPage in 1 until commentsPageCount
     val selectedCommentIndex = remember(comments, selectedComment?.id) {
@@ -934,10 +937,17 @@ private fun MetaDetailsContent(
     val coroutineScope = rememberCoroutineScope()
 
     fun clearPendingRestore() {
+        val completedReturnRestore =
+            pendingRestoreType != null
+
         pendingRestoreType = null
         pendingRestoreEpisodeId = null
         pendingRestoreCastFocusKey = null
         pendingRestoreMoreLikeItemId = null
+
+        if (completedReturnRestore) {
+            onReturnFocusRestored()
+        }
     }
 
     fun markHeroRestore() {

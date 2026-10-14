@@ -68,12 +68,9 @@ fun MoreLikeThisSection(
         if (targetIndex < 0) return@LaunchedEffect
 
         // ON_START arms this restore before the destination reaches RESUMED.
-        // Give the returning focus tree two frames to attach, matching the
-        // stable Cast return path.
-        repeat(2) {
-            withFrameNanos { }
-        }
-
+        // Try immediately so Detail -> Detail Back can reveal the parent with
+        // the selected recommendation already focused. If the focus node is
+        // not attached yet, the retry loop yields one frame at a time.
         repeat(8) { attempt ->
             val requester =
                 if (targetIndex == 0) {

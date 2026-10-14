@@ -201,6 +201,55 @@ fun NuvioNavHost(
             androidx.compose.runtime.mutableStateOf(false)
         }
 
+    /*
+     * DETAIL_TO_DETAIL_RETURN_FROZEN_LAYER
+     *
+     * Normal Navigation Compose pop transitions fade the outgoing Detail down
+     * while simultaneously fading the returning Detail up. At the midpoint
+     * both are translucent and the black NavHost background leaks through.
+     *
+     * For Detail -> Detail Back, retain the outgoing Detail frame fully opaque
+     * while the parent Detail restores underneath it, then dissolve only the
+     * retained outgoing frame.
+     */
+    val freezeDetailReturnLayer =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    val detailReturnTargetDetailEntry =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf<
+                androidx.navigation.NavBackStackEntry?
+            >(null)
+        }
+
+    val detailReturnAwaitingDetailDraw =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    val detailReturnAwaitingDetailFocus =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    val detailReturnDetailDrawSignal =
+        androidx.compose.runtime.remember {
+            kotlinx.coroutines.channels.Channel<Unit>(
+                capacity =
+                    kotlinx.coroutines.channels.Channel.CONFLATED
+            )
+        }
+
+    val detailReturnDetailFocusSignal =
+        androidx.compose.runtime.remember {
+            kotlinx.coroutines.channels.Channel<Unit>(
+                capacity =
+                    kotlinx.coroutines.channels.Channel.CONFLATED
+            )
+        }
+
     fun runFrozenDetailReturn(
         navigateHome: () -> Unit
     ) {
@@ -249,6 +298,111 @@ fun NuvioNavHost(
                 )
             } finally {
                 detailReturnAwaitingHomeDraw.value = false
+                showDetailReturnOverlay.value = false
+                detailReturnOverlayAlpha.snapTo(1f)
+                detailReturnRunning.set(false)
+            }
+        }
+    }
+
+    fun runFrozenDetailToDetailReturn(
+        targetEntry: androidx.navigation.NavBackStackEntry,
+        navigateBack: () -> Unit
+    ) {
+        if (!detailReturnRunning.compareAndSet(false, true)) {
+            return
+        }
+
+        detailReturnScope.launch {
+            try {
+                detailReturnOverlayAlpha.snapTo(1f)
+                showDetailReturnOverlay.value = true
+
+                /*
+                 * Commit one final live child frame into detailReturnLayer and
+                 * make the identical overlay visible before freezing it.
+                 */
+                androidx.compose.runtime.withFrameNanos { }
+
+                freezeDetailReturnLayer.value = true
+
+                while (
+                    detailReturnDetailDrawSignal
+                        .tryReceive()
+                        .isSuccess
+                ) {
+                    // Drain stale signal.
+                }
+
+                while (
+                    detailReturnDetailFocusSignal
+                        .tryReceive()
+                        .isSuccess
+                ) {
+                    // Drain stale signal.
+                }
+
+                detailReturnTargetDetailEntry.value =
+                    targetEntry
+
+                detailReturnAwaitingDetailDraw.value = true
+                detailReturnAwaitingDetailFocus.value = true
+
+                /*
+                 * Navigation pop transitions are disabled for Detail -> Detail,
+                 * so the parent now renders normally underneath the fully
+                 * opaque frozen child frame.
+                 */
+                navigateBack()
+
+                kotlinx.coroutines.withTimeoutOrNull(250L) {
+                    detailReturnDetailDrawSignal.receive()
+                }
+
+                detailReturnAwaitingDetailDraw.value = false
+
+                /*
+                 * More Like This / Collection restores report when the saved
+                 * card has regained actual Compose focus. Bound the wait so
+                 * generic Detail -> Detail returns never hang.
+                 */
+                val focusRestored =
+                    kotlinx.coroutines.withTimeoutOrNull(120L) {
+                        detailReturnDetailFocusSignal.receive()
+                        true
+                    } == true
+
+                detailReturnAwaitingDetailFocus.value = false
+
+                if (focusRestored) {
+                    /*
+                     * Let the tiny TV-card focus-scale animation finish while
+                     * the parent remains completely hidden. The user should
+                     * therefore first see the card already at focused size.
+                     */
+                    kotlinx.coroutines.delay(100L)
+                } else {
+                    androidx.compose.runtime.withFrameNanos { }
+                }
+
+                /*
+                 * One-sided dissolve:
+                 *
+                 * Parent is already fully opaque underneath. Only the frozen
+                 * child fades away, so there is no alpha valley / black flash.
+                 */
+                detailReturnOverlayAlpha.animateTo(
+                    targetValue = 0f,
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = 350
+                        )
+                )
+            } finally {
+                detailReturnAwaitingDetailDraw.value = false
+                detailReturnAwaitingDetailFocus.value = false
+                detailReturnTargetDetailEntry.value = null
+                freezeDetailReturnLayer.value = false
                 showDetailReturnOverlay.value = false
                 detailReturnOverlayAlpha.snapTo(1f)
                 detailReturnRunning.set(false)
@@ -399,7 +553,13 @@ fun NuvioNavHost(
                 ?.toBooleanStrictOrNull() == true
             when {
                 (isPlayerToStream(from, to) && isAutoPlayNav) ||
-                    (from.startsWith("detail/") && to == Screen.Home.route) ->
+                    (
+                        from.startsWith("detail/") &&
+                            (
+                                to == Screen.Home.route ||
+                                    to.startsWith("detail/")
+                            )
+                    ) ->
                     EnterTransition.None
 
                 isSidebarRootTransition(from, to) ->
@@ -421,9 +581,12 @@ fun NuvioNavHost(
                 // Screen already black from rating animation — skip nav fade
                 from.startsWith("player/") && isRatingExit -> ExitTransition.None
 
-                // Frozen Details layer owns this visual transition.
+                // Frozen Details layer owns these visual return transitions.
                 from.startsWith("detail/") &&
-                    to == Screen.Home.route -> ExitTransition.None
+                    (
+                        to == Screen.Home.route ||
+                            to.startsWith("detail/")
+                    ) -> ExitTransition.None
 
                 isSidebarRootTransition(from, to) ->
                     if (to == Screen.Home.route) {
@@ -626,13 +789,40 @@ fun NuvioNavHost(
                 modifier = Modifier
                     .fillMaxSize()
                     .drawWithContent {
-                        detailReturnLayer.record {
+                        if (freezeDetailReturnLayer.value) {
+                            /*
+                             * During Detail -> Detail Back the shared recorded
+                             * layer must remain the outgoing child frame.
+                             * Render the returning parent directly underneath
+                             * instead of overwriting that frozen display list.
+                             */
                             this@drawWithContent.drawContent()
+                        } else {
+                            detailReturnLayer.record {
+                                this@drawWithContent.drawContent()
+                            }
+                            drawLayer(detailReturnLayer)
                         }
-                        drawLayer(detailReturnLayer)
+
+                        if (
+                            detailReturnAwaitingDetailDraw.value &&
+                            detailReturnTargetDetailEntry.value ===
+                                backStackEntry
+                        ) {
+                            detailReturnDetailDrawSignal.trySend(Unit)
+                        }
                     },
                 returnFocusSeason = returnFocusSeason,
                 returnFocusEpisode = returnFocusEpisode,
+                onReturnFocusRestored = {
+                    if (
+                        detailReturnAwaitingDetailFocus.value &&
+                        detailReturnTargetDetailEntry.value ===
+                            backStackEntry
+                    ) {
+                        detailReturnDetailFocusSignal.trySend(Unit)
+                    }
+                },
                 onBackPress = {
                     if (returnToHomeOnBack) {
                         markHomeReturnCurtainBypass()
@@ -650,19 +840,33 @@ fun NuvioNavHost(
                             }
                         }
                     } else {
-                        val returningDirectlyToHome =
+                        val previousEntry =
                             navController.previousBackStackEntry
-                                ?.destination
-                                ?.route == Screen.Home.route
+                        val previousRoute =
+                            previousEntry?.destination?.route
 
-                        if (returningDirectlyToHome) {
-                            markHomeReturnCurtainBypass()
+                        when {
+                            previousEntry != null &&
+                                previousRoute
+                                    ?.startsWith("detail/") == true -> {
+                                runFrozenDetailToDetailReturn(
+                                    targetEntry = previousEntry
+                                ) {
+                                    navController.popBackStack()
+                                }
+                            }
 
-                            runFrozenDetailReturn {
+                            previousRoute == Screen.Home.route -> {
+                                markHomeReturnCurtainBypass()
+
+                                runFrozenDetailReturn {
+                                    navController.popBackStack()
+                                }
+                            }
+
+                            else -> {
                                 navController.popBackStack()
                             }
-                        } else {
-                            navController.popBackStack()
                         }
                     }
                 },
