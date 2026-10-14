@@ -122,6 +122,7 @@ class TmdbMetadataService @Inject constructor(
 
                 // Fetch details, credits, and images in parallel
                 var digitalReleaseInfo: String? = null
+                var movieHomeAvailabilityVerified = false
                 val (details, credits, images, ageRating) = coroutineScope {
                     val detailsDeferred = async {
                         when (tmdbType) {
@@ -148,8 +149,33 @@ class TmdbMetadataService @Inject constructor(
                                 Pair(selectTvAgeRating(ratings, normalizedLanguage), null as String?)
                             }
                             else -> {
-                                val releases = tmdbApi.getMovieReleaseDates(numericId, TMDB_API_KEY).body()?.results.orEmpty()
-                                Pair(selectMovieAgeRating(releases, normalizedLanguage), selectMovieEarliestPlayableDate(releases))
+                                val releaseResponse =
+                                    tmdbApi.getMovieReleaseDates(
+                                        numericId,
+                                        TMDB_API_KEY
+                                    )
+
+                                val releaseBody =
+                                    releaseResponse.body()
+
+                                val releases =
+                                    releaseBody
+                                        ?.results
+                                        .orEmpty()
+
+                                movieHomeAvailabilityVerified =
+                                    releaseResponse.isSuccessful &&
+                                        releaseBody != null
+
+                                Pair(
+                                    selectMovieAgeRating(
+                                        releases,
+                                        normalizedLanguage
+                                    ),
+                                    selectMovieEarliestPlayableDate(
+                                        releases
+                                    )
+                                )
                             }
                         }
                     }
@@ -426,6 +452,8 @@ class TmdbMetadataService @Inject constructor(
                     castMembers = castMembers,
                     releaseInfo = releaseInfo,
                     digitalReleaseInfo = digitalReleaseInfo,
+                    homeAvailabilityVerified =
+                        movieHomeAvailabilityVerified,
                     rating = rating,
                     runtimeMinutes = runtime,
                     director = exposedDirector,
@@ -492,6 +520,56 @@ class TmdbMetadataService @Inject constructor(
             ?.trim()
             ?.takeIf { it.isNotBlank() }
     }
+
+    /*
+     * Lightweight repair for legacy movie availability.
+     *
+     * Old enrichment entries may contain a theatrical date in
+     * digitalReleaseInfo. Re-query only release_dates instead of throwing away
+     * warm artwork, ratings, logos, cast, status, and other TMDB metadata.
+     */
+    suspend fun fetchMovieHomeAvailability(
+        tmdbId: String
+    ): MovieHomeAvailabilityRefresh? =
+        withContext(Dispatchers.IO) {
+            val numericId =
+                tmdbId.toIntOrNull()
+                    ?: return@withContext null
+
+            try {
+                val response =
+                    tmdbApi.getMovieReleaseDates(
+                        numericId,
+                        TMDB_API_KEY
+                    )
+
+                if (!response.isSuccessful) {
+                    return@withContext null
+                }
+
+                val body =
+                    response.body()
+                        ?: return@withContext null
+
+                MovieHomeAvailabilityRefresh(
+                    digitalReleaseInfo =
+                        selectMovieEarliestPlayableDate(
+                            body.results.orEmpty()
+                        )
+                )
+            } catch (
+                cancellation: CancellationException
+            ) {
+                throw cancellation
+            } catch (error: Exception) {
+                Log.w(
+                    TAG,
+                    "Failed movie home-availability refresh " +
+                        "for $tmdbId: ${error.message}"
+                )
+                null
+            }
+        }
 
     private suspend fun fetchTmdbTrailers(
         tmdbId: Int,
@@ -1121,17 +1199,12 @@ private fun selectMovieEarliestPlayableDate(
         .filter { it.type == 4 || it.type == 5 }
         .mapNotNull { it.releaseDate?.substringBefore('T') }
 
-    if (homeAvailabilityDates.isNotEmpty()) {
-        return homeAvailabilityDates.minOrNull()
-    }
-
-    // No digital/physical entry found anywhere — fall back to theatrical date
-    // so library titles without explicit digital data still resolve correctly.
-    val theatricalDates = allEntries
-        .filter { it.type == 3 || it.type == 2 || it.type == 1 }
-        .mapNotNull { it.releaseDate?.substringBefore('T') }
-
-    return theatricalDates.minOrNull()
+    /*
+     * digitalReleaseInfo must mean actual Digital/Physical availability.
+     * Premiere and theatrical dates are not evidence that a movie is
+     * streamable. ReleaseInfoUtils owns the legacy one-year fallback.
+     */
+    return homeAvailabilityDates.minOrNull()
 }
 
 private fun selectTvAgeRating(
@@ -1149,6 +1222,10 @@ private fun selectTvAgeRating(
         .firstOrNull { it.isNotBlank() }
 }
 
+data class MovieHomeAvailabilityRefresh(
+    val digitalReleaseInfo: String?
+)
+
 data class TmdbEnrichment(
     val localizedTitle: String?,
     val description: String?,
@@ -1162,6 +1239,11 @@ data class TmdbEnrichment(
     val castMembers: List<MetaCastMember>,
     val releaseInfo: String?,
     val digitalReleaseInfo: String? = null,
+    /*
+     * Legacy cached entries deserialize as false, allowing Home to repair
+     * only recent movies instead of invalidating the entire enrichment cache.
+     */
+    val homeAvailabilityVerified: Boolean = false,
     val rating: Double?,
     val runtimeMinutes: Int?,
     val director: List<String>,

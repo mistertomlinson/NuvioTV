@@ -907,6 +907,15 @@ class HomeViewModel @Inject constructor(
             mutableSetOf<String>()
         )
 
+    /*
+     * Session-local guard for the lightweight legacy availability repair.
+     * Failures are not persisted, so a later Home session may retry.
+     */
+    internal val homeAvailabilityVerificationAttemptedIds =
+        Collections.synchronizedSet(
+            mutableSetOf<String>()
+        )
+
     internal val enrichmentCache: MutableMap<String, TmdbEnrichment> = Collections.synchronizedMap(LinkedHashMap())
     internal var tmdbEnrichFocusJob: Job? = null
     internal var trailerPreviewJob: Job? = null

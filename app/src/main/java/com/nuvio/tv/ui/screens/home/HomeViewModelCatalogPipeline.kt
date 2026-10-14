@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withPermit
 import com.nuvio.tv.core.util.filterReleasedItems
+import com.nuvio.tv.core.util.needsHomeAvailabilityVerification
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
 
@@ -409,6 +410,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     pendingExternalMetaPrefetchItemId = null
     prefetchedTmdbIds.clear()
     homeEnrichmentAttemptedIds.clear()
+    homeAvailabilityVerificationAttemptedIds.clear()
 
     /*
      * In-memory TMDB enrichment survives a catalog reload and remains a
@@ -452,9 +454,27 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                     .loadExternalMetaStates()
 
             if (restored.isNotEmpty()) {
-                enrichmentCache.putAll(
-                    restored
-                )
+                /*
+                 * Disk restoration is a fallback, not authority over newer
+                 * in-memory enrichment.
+                 *
+                 * loadAll() runs asynchronously. A targeted release-date
+                 * verification may finish while the disk snapshot is still
+                 * loading. The old putAll() could then overwrite that fresh
+                 * verified value with stale cached availability.
+                 */
+                synchronized(enrichmentCache) {
+                    restored.forEach {
+                            (id, diskEnrichment) ->
+                        if (
+                            !enrichmentCache
+                                .containsKey(id)
+                        ) {
+                            enrichmentCache[id] =
+                                diskEnrichment
+                        }
+                    }
+                }
 
                 /*
                  * Restored TMDB data remains reusable without another TMDB
@@ -987,7 +1007,37 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
     item: com.nuvio.tv.domain.model.MetaPreview,
     language: String
 ) {
-    if (item.id in homeEnrichmentAttemptedIds) {
+    val cachedReleaseInfo =
+        enrichmentCache[item.id]
+            ?.releaseInfo
+
+    val releaseProbeItem =
+        if (
+            cachedReleaseInfo.isNullOrBlank() ||
+            cachedReleaseInfo == item.releaseInfo
+        ) {
+            item
+        } else {
+            item.copy(
+                releaseInfo = cachedReleaseInfo
+            )
+        }
+
+    val needsReleaseVerification =
+        _uiState.value.hideUnreleasedContent &&
+            releaseProbeItem
+                .needsHomeAvailabilityVerification(
+                    LocalDate.now()
+                ) &&
+            enrichmentCache[item.id]
+                ?.homeAvailabilityVerified != true &&
+            item.id !in
+                homeAvailabilityVerificationAttemptedIds
+
+    if (
+        item.id in homeEnrichmentAttemptedIds &&
+        !needsReleaseVerification
+    ) {
         return
     }
 
@@ -1052,6 +1102,70 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
     }
 
     /*
+     * Revalidate only the release-date portion of legacy cached movie data.
+     * This stays inside the existing bounded proactive enrichment worker.
+     */
+    suspend fun completeMovieHomeAvailability(
+        enrichment:
+            com.nuvio.tv.core.tmdb.TmdbEnrichment
+    ): com.nuvio.tv.core.tmdb.TmdbEnrichment {
+        val releaseProbeItem =
+            if (
+                enrichment.releaseInfo.isNullOrBlank() ||
+                enrichment.releaseInfo == item.releaseInfo
+            ) {
+                item
+            } else {
+                item.copy(
+                    releaseInfo = enrichment.releaseInfo
+                )
+            }
+
+        if (
+            !_uiState.value.hideUnreleasedContent ||
+            enrichment.homeAvailabilityVerified ||
+            !releaseProbeItem
+                .needsHomeAvailabilityVerification(
+                    LocalDate.now()
+                ) ||
+            item.id in
+                homeAvailabilityVerificationAttemptedIds
+        ) {
+            return enrichment
+        }
+
+        val refreshed =
+            kotlinx.coroutines.withTimeoutOrNull(
+                4_000L
+            ) {
+                val tmdbId =
+                    tmdbService.ensureTmdbId(
+                        item.id,
+                        item.apiType
+                    )
+                        ?: return@withTimeoutOrNull null
+
+                tmdbMetadataService
+                    .fetchMovieHomeAvailability(
+                        tmdbId
+                    )
+            }
+
+        homeAvailabilityVerificationAttemptedIds
+            .add(item.id)
+
+        return if (refreshed == null) {
+            enrichment
+        } else {
+            enrichment.copy(
+                digitalReleaseInfo =
+                    refreshed.digitalReleaseInfo,
+                homeAvailabilityVerified = true
+            )
+        }
+    }
+
+    /*
      * Status is part of the settled Home metadata contract. The normal TMDB
      * enrichment occasionally returns without it, so perform the same direct
      * details repair that previously happened after focus, but do it here
@@ -1111,12 +1225,20 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
                 item.id
             )
 
-            val settledEnrichment =
-                completeMissingStatus(
+            val releaseCheckedEnrichment =
+                completeMovieHomeAvailability(
                     cachedEnrichment
                 )
 
+            val settledEnrichment =
+                completeMissingStatus(
+                    releaseCheckedEnrichment
+                )
+
             if (settledEnrichment != cachedEnrichment) {
+                enrichmentCache[item.id] =
+                    settledEnrichment
+
                 updateCatalogItemWithTmdb(
                     item.id,
                     settledEnrichment
@@ -1222,10 +1344,18 @@ private suspend fun HomeViewModel.enrichProactiveHomeItem(
 
         prefetchedTmdbIds.add(item.id)
 
-        val settledEnrichment =
-            completeMissingStatus(
+        val releaseCheckedEnrichment =
+            completeMovieHomeAvailability(
                 enrichment
             )
+
+        val settledEnrichment =
+            completeMissingStatus(
+                releaseCheckedEnrichment
+            )
+
+        enrichmentCache[item.id] =
+            settledEnrichment
 
         updateCatalogItemWithTmdb(
             item.id,
@@ -1316,16 +1446,86 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             }
         val filteredRows = if (hideUnreleased) {
             val today = LocalDate.now()
+
+            val releaseMetadata =
+                synchronized(enrichmentCache) {
+                    enrichmentCache.toMap()
+                }
+
+            val releaseVerificationAttempts =
+                synchronized(
+                    homeAvailabilityVerificationAttemptedIds
+                ) {
+                    homeAvailabilityVerificationAttemptedIds
+                        .toSet()
+                }
+
             rawRows.map { row ->
                 /*
-                 * Coming Soon catalogs intentionally contain future releases.
-                 * Keep them intact even when the global Home setting hides
-                 * unreleased content from ordinary catalogs.
+                 * Coming Soon intentionally contains future titles.
                  */
                 if (row.catalogId.startsWith("coming_soon_")) {
                     row
                 } else {
-                    row.filterReleasedItems(today)
+                    val releaseAwareRow =
+                        row.copy(
+                            items =
+                                row.items.map { item ->
+                                    val cached =
+                                        releaseMetadata[
+                                            item.id
+                                        ]
+
+                                    if (
+                                        cached == null ||
+                                        !item.apiType.equals(
+                                            "movie",
+                                            ignoreCase = true
+                                        )
+                                    ) {
+                                        item
+                                    } else {
+                                        item.copy(
+                                            releaseInfo =
+                                                cached.releaseInfo
+                                                    ?: item.releaseInfo,
+                                            digitalReleaseInfo =
+                                                if (
+                                                    cached
+                                                        .homeAvailabilityVerified
+                                                ) {
+                                                    cached
+                                                        .digitalReleaseInfo
+                                                } else {
+                                                    item
+                                                        .digitalReleaseInfo
+                                                }
+                                        )
+                                    }
+                                }
+                        )
+
+                    releaseAwareRow
+                        .filterReleasedItems(
+                            today
+                        ) { item ->
+                            val cached =
+                                releaseMetadata[
+                                    item.id
+                                ]
+
+                            cached
+                                ?.homeAvailabilityVerified ==
+                                true ||
+                                (
+                                    item
+                                        .needsHomeAvailabilityVerification(
+                                            today
+                                        ) &&
+                                        item.id in
+                                            releaseVerificationAttempts
+                                )
+                        }
                 }
             }
         } else {
@@ -1752,8 +1952,40 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
              * while any required external/IMDb channel is allowed to settle
              * before readiness is recorded.
              */
-            .filter {
-                it.id !in homeEnrichmentAttemptedIds
+            .filter { item ->
+                val cachedReleaseInfo =
+                    enrichmentCache[item.id]
+                        ?.releaseInfo
+
+                val releaseProbeItem =
+                    if (
+                        cachedReleaseInfo.isNullOrBlank() ||
+                        cachedReleaseInfo ==
+                            item.releaseInfo
+                    ) {
+                        item
+                    } else {
+                        item.copy(
+                            releaseInfo =
+                                cachedReleaseInfo
+                        )
+                    }
+
+                val releaseVerificationPending =
+                    _uiState.value
+                        .hideUnreleasedContent &&
+                        releaseProbeItem
+                            .needsHomeAvailabilityVerification(
+                                LocalDate.now()
+                            ) &&
+                        enrichmentCache[item.id]
+                            ?.homeAvailabilityVerified != true &&
+                        item.id !in
+                            homeAvailabilityVerificationAttemptedIds
+
+                item.id !in
+                    homeEnrichmentAttemptedIds ||
+                    releaseVerificationPending
             }
             .sortedBy { rowIndexById[it.id] ?: Int.MAX_VALUE }
         val myListItemIds = myListItems.map { it.id }.toSet()
@@ -1770,6 +2002,11 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
             append(currentTmdbSettings.useDetails)
             append('|')
             append(externalMetaPrefetchEnabled)
+            append('|')
+            append(
+                _uiState.value
+                    .hideUnreleasedContent
+            )
 
             /*
              * Viewport movement changes ordering preference, not the identity
