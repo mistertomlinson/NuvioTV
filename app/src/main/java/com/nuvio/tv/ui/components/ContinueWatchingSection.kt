@@ -120,7 +120,14 @@ internal data class HomePopupGlassEnvironment(
      */
     val catalogOptionsFocusRestoreActive: Boolean = false,
 
-    val onCatalogOptionsOpening: (preserveTrailerPlayback: Boolean) -> Unit = {}
+    val onCatalogOptionsOpening: (preserveTrailerPlayback: Boolean) -> Unit = {},
+
+    /*
+     * Destructive CW removal deletes the poster that opened the popup.
+     * Tell Home not to race CW's structural replacement-slot focus handoff
+     * by trying to restore that soon-to-be-stale requester.
+     */
+    val onSuppressNextReturnFocus: () -> Unit = {}
 )
 
 internal val LocalHomePopupGlassEnvironment =
@@ -258,6 +265,7 @@ fun ContinueWatchingSection(
                 optionsItem = null
             },
             showPlayManually = showManualPlayOption,
+            suppressReturnFocusOnRemove = items.size > 1,
             onPlayManually = {
                 onPlayManually(menuItem)
                 optionsItem = null
@@ -1085,6 +1093,7 @@ fun ContinueWatchingOptionsDialog(
     onDetails: () -> Unit,
     onStartFromBeginning: () -> Unit = {},
     showPlayManually: Boolean = false,
+    suppressReturnFocusOnRemove: Boolean = false,
     onPlayManually: () -> Unit = {}
 ) {
     val title = when (item) {
@@ -1315,7 +1324,17 @@ fun ContinueWatchingOptionsDialog(
                     }
 
                     Button(
-                        onClick = onRemove,
+                        onClick = {
+                            /*
+                             * The opener is about to leave the CW row.
+                             * CW's structural-change transaction is now the
+                             * sole authority for the replacement focus slot.
+                             */
+                            if (suppressReturnFocusOnRemove) {
+                                glassEnvironment.onSuppressNextReturnFocus()
+                            }
+                            onRemove()
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .glassDialogFocusTransform(),

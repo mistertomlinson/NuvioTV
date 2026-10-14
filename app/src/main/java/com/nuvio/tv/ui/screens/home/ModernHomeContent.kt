@@ -4557,6 +4557,8 @@ fun ModernHomeContent(
                 optionsItem = null
             },
             showPlayManually = showContinueWatchingManualPlayOption,
+            suppressReturnFocusOnRemove =
+                uiState.continueWatchingItems.size > 1,
             onPlayManually = {
                 onContinueWatchingPlayManually(selectedOptionsItem)
                 optionsItem = null

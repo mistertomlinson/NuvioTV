@@ -467,6 +467,15 @@ fun HomeScreen(
         mutableStateOf<androidx.compose.ui.focus.FocusRequester?>(null)
     }
 
+    /*
+     * One-shot flag used only by destructive Continue Watching removal.
+     * The poster that opened the popup is being deleted, so restoring its
+     * captured requester would race CW's replacement-slot focus transaction.
+     */
+    var suppressNextHomePopupReturnFocus by remember {
+        mutableStateOf(false)
+    }
+
     LaunchedEffect(
         watchedRatingHandoffStatusKey,
         uiState.showWatchedRatingOverlay,
@@ -532,24 +541,31 @@ fun HomeScreen(
             catalogOptionsFocusRestoreActive =
                 preserveCatalogTrailerPlayback
 
-            val returnRequester = homePopupReturnFocusRequester
+            val suppressReturnFocus =
+                suppressNextHomePopupReturnFocus
 
-            var restoredExactItem = false
+            suppressNextHomePopupReturnFocus = false
 
-            repeat(3) {
-                androidx.compose.runtime.withFrameNanos { }
+            if (!suppressReturnFocus) {
+                val returnRequester = homePopupReturnFocusRequester
 
-                if (!restoredExactItem && returnRequester != null) {
-                    restoredExactItem =
-                        runCatching {
-                            returnRequester.requestFocus()
-                        }.getOrDefault(false)
+                var restoredExactItem = false
+
+                repeat(3) {
+                    androidx.compose.runtime.withFrameNanos { }
+
+                    if (!restoredExactItem && returnRequester != null) {
+                        restoredExactItem =
+                            runCatching {
+                                returnRequester.requestFocus()
+                            }.getOrDefault(false)
+                    }
                 }
-            }
 
-            if (!restoredExactItem) {
-                runCatching {
-                    homeContentFocusRequester.requestFocus()
+                if (!restoredExactItem) {
+                    runCatching {
+                        homeContentFocusRequester.requestFocus()
+                    }
                 }
             }
 
@@ -629,6 +645,9 @@ fun HomeScreen(
                     homePopupWasVisible,
             onCatalogOptionsOpening = { preservePlayback ->
                 preserveCatalogTrailerPlayback = preservePlayback
+            },
+            onSuppressNextReturnFocus = {
+                suppressNextHomePopupReturnFocus = true
             }
         ),
         LocalHomePosterStatusRegistry provides
