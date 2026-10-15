@@ -106,6 +106,8 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val fastPlatformScrollKey = booleanPreferencesKey("fast_platform_scroll")
     private val doubleUpPlatformShortcutKey =
         booleanPreferencesKey("double_up_platform_shortcut")
+    private val doubleLeftRowShortcutKey =
+        booleanPreferencesKey("double_left_row_shortcut")
     private val fullWidthIconRowKey = booleanPreferencesKey("full_width_icon_row")
     private val dimIconsOnRowExitKey = booleanPreferencesKey("dim_icons_on_row_exit")
     private val hidePlatformIconsOnRowExitKey = booleanPreferencesKey("hide_platform_icons_on_row_exit")
@@ -339,6 +341,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val doubleUpPlatformShortcutEnabled: Flow<Boolean> = profileFlow { prefs ->
         prefs[doubleUpPlatformShortcutKey] ?: true
+    }
+
+    val doubleLeftRowShortcutEnabled: Flow<Boolean> = profileFlow { prefs ->
+        prefs[doubleLeftRowShortcutKey] ?: true
     }
 
     val fullWidthIconRowEnabled: Flow<Boolean> = profileFlow { prefs ->
@@ -728,6 +734,12 @@ class LayoutPreferenceDataStore @Inject constructor(
     suspend fun setDoubleUpPlatformShortcutEnabled(enabled: Boolean) {
         store().edit { prefs ->
             prefs[doubleUpPlatformShortcutKey] = enabled
+        }
+    }
+
+    suspend fun setDoubleLeftRowShortcutEnabled(enabled: Boolean) {
+        store().edit { prefs ->
+            prefs[doubleLeftRowShortcutKey] = enabled
         }
     }
 

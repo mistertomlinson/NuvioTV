@@ -199,28 +199,32 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             .combine(layoutPreferenceDataStore.doubleUpPlatformShortcutEnabled) { outerPair, doubleUpPlatformShortcut ->
                 Pair(outerPair, doubleUpPlatformShortcut)
             }
-            .combine(layoutPreferenceDataStore.dimIconsOnRowExitEnabled) { outerPair2, dimIconsOnRowExit ->
-                Pair(outerPair2, dimIconsOnRowExit)
+            .combine(layoutPreferenceDataStore.doubleLeftRowShortcutEnabled) { outerPair2, doubleLeftRowShortcut ->
+                Pair(outerPair2, doubleLeftRowShortcut)
             }
-            .combine(layoutPreferenceDataStore.landscapeHomeCatalogKeys) { outerPair3, landscapeKeys ->
-                Pair(outerPair3, landscapeKeys.toSet())
+            .combine(layoutPreferenceDataStore.dimIconsOnRowExitEnabled) { outerPair3, dimIconsOnRowExit ->
+                Pair(outerPair3, dimIconsOnRowExit)
             }
-            .combine(layoutPreferenceDataStore.heroMetadataLarge) { outerPair4, heroMetadataLarge ->
-                Pair(outerPair4, heroMetadataLarge)
+            .combine(layoutPreferenceDataStore.landscapeHomeCatalogKeys) { outerPair4, landscapeKeys ->
+                Pair(outerPair4, landscapeKeys.toSet())
             }
-            .combine(layoutPreferenceDataStore.hidePlatformIconsOnRowExitEnabled) { outerPair5, hidePlatformIconsOnRowExit ->
-                Pair(outerPair5, hidePlatformIconsOnRowExit)
+            .combine(layoutPreferenceDataStore.heroMetadataLarge) { outerPair5, heroMetadataLarge ->
+                Pair(outerPair5, heroMetadataLarge)
             }
-            .combine(themeDataStore.selectedPosterStatusIconStyle) { outerPair6, posterStatusIconStyle ->
-                Pair(outerPair6, posterStatusIconStyle)
+            .combine(layoutPreferenceDataStore.hidePlatformIconsOnRowExitEnabled) { outerPair6, hidePlatformIconsOnRowExit ->
+                Pair(outerPair6, hidePlatformIconsOnRowExit)
+            }
+            .combine(themeDataStore.selectedPosterStatusIconStyle) { outerPair7, posterStatusIconStyle ->
+                Pair(outerPair7, posterStatusIconStyle)
             }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (outerPairVal6, posterStatusIconStyle) ->
-            val (outerPairVal5, hidePlatformIconsOnRowExitEnabled) = outerPairVal6
-            val (outerPairVal4, heroMetadataLarge) = outerPairVal5
-            val (outerPairVal3, landscapeCatalogKeys) = outerPairVal4
-            val (outerPairVal2, dimIconsOnRowExitEnabled) = outerPairVal3
+            .collectLatest { (outerPairVal7, posterStatusIconStyle) ->
+            val (outerPairVal6, hidePlatformIconsOnRowExitEnabled) = outerPairVal7
+            val (outerPairVal5, heroMetadataLarge) = outerPairVal6
+            val (outerPairVal4, landscapeCatalogKeys) = outerPairVal5
+            val (outerPairVal3, dimIconsOnRowExitEnabled) = outerPairVal4
+            val (outerPairVal2, doubleLeftRowShortcutEnabled) = outerPairVal3
             val (outerPairVal, doubleUpPlatformShortcutEnabled) = outerPairVal2
             val (pairVal, fastPlatformScrollEnabled) = outerPairVal
             val (tripleVal, fullWidthIconRowEnabled) = pairVal
@@ -270,6 +274,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         hidePlatformIconsOnRowExitEnabled = hidePlatformIconsOnRowExitEnabled,
                         fastPlatformScrollEnabled = fastPlatformScrollEnabled,
                         doubleUpPlatformShortcutEnabled = doubleUpPlatformShortcutEnabled,
+                        doubleLeftRowShortcutEnabled = doubleLeftRowShortcutEnabled,
                         landscapeCatalogKeys = landscapeCatalogKeys + addonSignaledLandscapeKeys,
                         layoutPreferencesReady = true
                     )

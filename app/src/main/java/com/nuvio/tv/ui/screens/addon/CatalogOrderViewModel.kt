@@ -224,6 +224,15 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
+    fun toggleDoubleLeftRowShortcut() {
+        val current = _uiState.value.doubleLeftRowShortcutEnabled
+        viewModelScope.launch {
+            layoutPreferenceDataStore.setDoubleLeftRowShortcutEnabled(
+                !current
+            )
+        }
+    }
+
     fun toggleFullWidthIconRow() {
         val current = _uiState.value.fullWidthIconRowEnabled
         viewModelScope.launch {
@@ -307,6 +316,17 @@ class CatalogOrderViewModel @Inject constructor(
                     _uiState.update {
                         it.copy(
                             doubleUpPlatformShortcutEnabled = enabled
+                        )
+                    }
+                }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore
+                .doubleLeftRowShortcutEnabled
+                .collectLatest { enabled ->
+                    _uiState.update {
+                        it.copy(
+                            doubleLeftRowShortcutEnabled = enabled
                         )
                     }
                 }
@@ -736,6 +756,7 @@ data class CatalogOrderUiState(
     val fullWidthIconRowEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
     val doubleUpPlatformShortcutEnabled: Boolean = true,
+    val doubleLeftRowShortcutEnabled: Boolean = true,
     val dimIconsOnRowExitEnabled: Boolean = false,
     val hidePlatformIconsOnRowExitEnabled: Boolean = false,
     val hidePlatformNameInCatalogTitleEnabled: Boolean = false,

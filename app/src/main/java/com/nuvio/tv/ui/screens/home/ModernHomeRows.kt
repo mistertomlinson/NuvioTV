@@ -562,6 +562,7 @@ private fun ModernCatalogRowItem(
 @Composable
 internal fun ModernRowSection(
     row: HeroCarouselRow,
+    doubleLeftRowShortcutEnabled: Boolean = false,
     myListSlotGeneration: Int = 0,
     forceContinueWatchingRestoreToStart: Boolean = false,
     continueWatchingRestoreTargetIndex: Int = 0,
@@ -618,6 +619,67 @@ internal fun ModernRowSection(
     val sidebarOpenRequest = LocalSidebarOpenRequest.current
     val rowListStates = uiCaches.rowListStates
     val loadMoreRequestedTotals = uiCaches.loadMoreRequestedTotals
+
+    /*
+     * Double-Left is intentionally row-local.
+     *
+     * This keeps ordinary Left navigation, item-0 sidebar handoff and the
+     * actual LazyRow geometry in one place instead of teaching the vertical
+     * Home boundary how horizontal rows work.
+     */
+    val doubleLeftScope = rememberCoroutineScope()
+    val doubleLeftDensity = LocalDensity.current
+
+    val doubleLeftInProgress =
+        remember(row.key) {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val doubleLeftLastReleaseMs =
+        remember(row.key) {
+            java.util.concurrent.atomic.AtomicLong(0L)
+        }
+
+    val doubleLeftLastReleaseStartedAfterFirst =
+        remember(row.key) {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val doubleLeftCurrentPressEligible =
+        remember(row.key) {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val doubleLeftCurrentPressStartedAfterFirst =
+        remember(row.key) {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    /*
+     * Only the rendered item provider becomes sparse during a long return.
+     * row.items itself remains canonical.
+     *
+     * This is important because:
+     * - numbered rows need their ORIGINAL rank
+     * - Continue Watching keys include their ORIGINAL slot
+     * - My List keys include their ORIGINAL slot
+     */
+    var doubleLeftCompressedItems by
+        remember(row.key) {
+            mutableStateOf<List<ModernCarouselItem>?>(null)
+        }
+
+    val rowItemsForRendering =
+        doubleLeftCompressedItems ?: row.items
+
+    val originalIndexByItemKey =
+        remember(row.items) {
+            buildMap<String, Int>(row.items.size) {
+                row.items.forEachIndexed { index, item ->
+                    put(item.key, index)
+                }
+            }
+        }
 
     /*
      * A focused skeleton must remain the focus owner while its real card is
@@ -867,7 +929,9 @@ internal fun ModernRowSection(
         val loadMoreCatalogId = row.catalogId
         val loadMoreAddonId = row.addonId
         val loadMoreApiType = row.apiType
-        val canObserveLoadMore = row.hasMore &&
+        val canObserveLoadMore =
+            doubleLeftCompressedItems == null &&
+            row.hasMore &&
             !loadMoreCatalogId.isNullOrBlank() &&
             !loadMoreAddonId.isNullOrBlank() &&
             !loadMoreApiType.isNullOrBlank()
@@ -1224,23 +1288,616 @@ internal fun ModernRowSection(
                 state = rowListState,
                 modifier = Modifier
                     .onPreviewKeyEvent { event ->
-                        if (isFirstRow &&
-                            event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown &&
-                            event.key == androidx.compose.ui.input.key.Key.DirectionUp) {
+                        val native =
+                            event.nativeKeyEvent
+
+                        val isLeft =
+                            event.key ==
+                                androidx.compose.ui.input.key.Key.DirectionLeft
+
+                        val isDpad =
+                            event.key ==
+                                androidx.compose.ui.input.key.Key.DirectionUp ||
+                                event.key ==
+                                    androidx.compose.ui.input.key.Key.DirectionDown ||
+                                isLeft ||
+                                event.key ==
+                                    androidx.compose.ui.input.key.Key.DirectionRight
+
+                        /*
+                         * While the automated return owns this LazyRow, do not
+                         * let another D-pad event start a competing focus or
+                         * BringIntoView mutation.
+                         */
+                        if (
+                            doubleLeftInProgress.get() &&
+                            isDpad
+                        ) {
+                            true
+                        } else if (
+                            isFirstRow &&
+                            event.type ==
+                                androidx.compose.ui.input.key.KeyEventType.KeyDown &&
+                            event.key ==
+                                androidx.compose.ui.input.key.Key.DirectionUp
+                        ) {
+                            /*
+                             * Up cannot become the first half of a stale
+                             * Double-Left gesture.
+                             */
+                            doubleLeftLastReleaseMs.set(0L)
+                            doubleLeftLastReleaseStartedAfterFirst.set(false)
+                            doubleLeftCurrentPressEligible.set(false)
+                            doubleLeftCurrentPressStartedAfterFirst.set(false)
+
                             onRequestCarouselFocus()
                             true
-                        } else if (event.key == androidx.compose.ui.input.key.Key.DirectionLeft) {
-                            val focusedIndex = focusedItemByRow[row.key] ?: 0
-                            val isAtStart = focusedIndex == 0
-                            if (event.type == androidx.compose.ui.input.key.KeyEventType.KeyDown) {
-                                if (isAtStart && event.nativeKeyEvent.repeatCount == 0) {
-                                    sidebarOpenRequest()
-                                    true // single press at edge — open sidebar
+                        } else {
+                            /*
+                             * Any other D-pad DOWN cancels an armed Left tap.
+                             * Left repeats also cancel it: a held key must never
+                             * masquerade as a double tap.
+                             */
+                            if (
+                                isDpad &&
+                                !isLeft &&
+                                event.type ==
+                                    androidx.compose.ui.input.key.KeyEventType.KeyDown
+                            ) {
+                                doubleLeftLastReleaseMs.set(0L)
+                                doubleLeftLastReleaseStartedAfterFirst.set(false)
+                                doubleLeftCurrentPressEligible.set(false)
+                                doubleLeftCurrentPressStartedAfterFirst.set(false)
+                            }
+
+                            var consumedByDoubleLeft =
+                                false
+
+                            if (
+                                doubleLeftRowShortcutEnabled &&
+                                isLeft &&
+                                event.type ==
+                                    androidx.compose.ui.input.key.KeyEventType.KeyDown
+                            ) {
+                                val focusedIndex =
+                                    focusedItemByRow[row.key] ?: 0
+
+                                if (native.repeatCount > 0) {
+                                    /*
+                                     * Held Left remains ordinary held-Left.
+                                     */
+                                    doubleLeftLastReleaseMs.set(0L)
+                                    doubleLeftLastReleaseStartedAfterFirst.set(false)
+                                    doubleLeftCurrentPressEligible.set(false)
+                                    doubleLeftCurrentPressStartedAfterFirst.set(false)
                                 } else {
-                                    false // repeat press or not at edge — let LazyRow handle
+                                    val startedAfterFirst =
+                                        focusedIndex > 0
+
+                                    val now =
+                                        android.os.SystemClock.elapsedRealtime()
+
+                                    val previousRelease =
+                                        doubleLeftLastReleaseMs.getAndSet(0L)
+
+                                    val previousStartedAfterFirst =
+                                        doubleLeftLastReleaseStartedAfterFirst
+                                            .getAndSet(false)
+
+                                    val gapMs =
+                                        now - previousRelease
+
+                                    val isDoubleLeft =
+                                        previousRelease > 0L &&
+                                            previousStartedAfterFirst &&
+                                            startedAfterFirst &&
+                                            gapMs >= 0L &&
+                                            gapMs <=
+                                                HOME_DOUBLE_UP_GAP_MS
+
+                                    doubleLeftCurrentPressEligible
+                                        .set(!isDoubleLeft)
+
+                                    doubleLeftCurrentPressStartedAfterFirst
+                                        .set(startedAfterFirst)
+
+                                    if (
+                                        isDoubleLeft &&
+                                        row.items.isNotEmpty()
+                                    ) {
+                                        doubleLeftCurrentPressEligible
+                                            .set(false)
+
+                                        doubleLeftCurrentPressStartedAfterFirst
+                                            .set(false)
+
+                                        doubleLeftInProgress.set(true)
+
+                                        /*
+                                         * Collapse any expanded trailer card
+                                         * before measuring horizontal geometry.
+                                         */
+                                        onExpandedCatalogFocusKeyChange(null)
+
+                                        doubleLeftScope.launch {
+                                            var landingWasArmed =
+                                                false
+
+                                            try {
+                                                rowListState.scroll {
+                                                    /*
+                                                     * Let expansion collapse and
+                                                     * any first-Left settle finish.
+                                                     */
+                                                    withFrameNanos { }
+
+                                                    val layoutInfo =
+                                                        rowListState.layoutInfo
+
+                                                    val visibleItems =
+                                                        layoutInfo.visibleItemsInfo
+
+                                                    val fullItemCount =
+                                                        row.items.size
+
+                                                    val firstVisibleIndex =
+                                                        rowListState
+                                                            .firstVisibleItemIndex
+
+                                                    val lastVisibleIndex =
+                                                        visibleItems
+                                                            .lastOrNull()
+                                                            ?.index
+                                                            ?: firstVisibleIndex
+
+                                                    val focusedFullIndex =
+                                                        (
+                                                            focusedItemByRow[
+                                                                row.key
+                                                            ] ?: firstVisibleIndex
+                                                        ).coerceIn(
+                                                            0,
+                                                            fullItemCount - 1
+                                                        )
+
+                                                    /*
+                                                     * Calculate the destination
+                                                     * runway from the REAL row
+                                                     * viewport and REAL measured
+                                                     * card size.
+                                                     *
+                                                     * Ignoring spacing here is
+                                                     * deliberately conservative:
+                                                     * it keeps MORE starting cards,
+                                                     * not fewer. One additional
+                                                     * card is then retained beyond
+                                                     * the calculated capacity.
+                                                     */
+                                                    val viewportWidthPx =
+                                                        (
+                                                            layoutInfo
+                                                                .viewportEndOffset -
+                                                                layoutInfo
+                                                                    .viewportStartOffset
+                                                        ).coerceAtLeast(1)
+
+                                                    val minVisibleItemSizePx =
+                                                        visibleItems
+                                                            .asSequence()
+                                                            .map { it.size }
+                                                            .filter { it > 0 }
+                                                            .minOrNull()
+
+                                                    val measuredCapacity =
+                                                        if (
+                                                            minVisibleItemSizePx !=
+                                                                null
+                                                        ) {
+                                                            (
+                                                                (
+                                                                    viewportWidthPx +
+                                                                        minVisibleItemSizePx -
+                                                                        1
+                                                                ) /
+                                                                    minVisibleItemSizePx
+                                                            ).coerceAtLeast(1)
+                                                        } else {
+                                                            visibleItems
+                                                                .size
+                                                                .coerceAtLeast(1)
+                                                        }
+
+                                                    val startRunwayCount =
+                                                        (
+                                                            measuredCapacity + 1
+                                                        ).coerceIn(
+                                                            1,
+                                                            fullItemCount
+                                                        )
+
+                                                    val tailStart =
+                                                        (
+                                                            firstVisibleIndex - 3
+                                                        ).coerceAtLeast(
+                                                            startRunwayCount
+                                                        )
+
+                                                    val tailEnd =
+                                                        (
+                                                            maxOf(
+                                                                lastVisibleIndex,
+                                                                focusedFullIndex,
+                                                                firstVisibleIndex
+                                                            ) + 1
+                                                        ).coerceAtMost(
+                                                            fullItemCount - 1
+                                                        )
+
+                                                    val hasMiddleToCompress =
+                                                        tailStart >
+                                                            startRunwayCount &&
+                                                            firstVisibleIndex >
+                                                                startRunwayCount + 4
+
+                                                    if (
+                                                        hasMiddleToCompress
+                                                    ) {
+                                                        doubleLeftCompressedItems =
+                                                            buildList {
+                                                                addAll(
+                                                                    row.items.take(
+                                                                        startRunwayCount
+                                                                    )
+                                                                )
+
+                                                                addAll(
+                                                                    row.items.subList(
+                                                                        tailStart,
+                                                                        tailEnd + 1
+                                                                    )
+                                                                )
+                                                            }
+
+                                                        /*
+                                                         * Same two-frame settle
+                                                         * strategy as Double-Up.
+                                                         */
+                                                        withFrameNanos { }
+                                                        withFrameNanos { }
+                                                    }
+
+                                                    /*
+                                                     * Horizontal shortcut speed
+                                                     * is based on positions/sec,
+                                                     * not a fixed dp/sec.
+                                                     *
+                                                     * Held horizontal navigation
+                                                     * is gated at 80 ms:
+                                                     *
+                                                     *     1000 / 80 = 12.5
+                                                     *     positions/sec maximum.
+                                                     *
+                                                     * Double-Left targets 2x that
+                                                     * traversal rate:
+                                                     *
+                                                     *     25 positions/sec.
+                                                     *
+                                                     * Measure ACTUAL adjacent item
+                                                     * pitch, not just card width.
+                                                     * The offset delta includes the
+                                                     * row's real spacing, which is
+                                                     * especially important for:
+                                                     *
+                                                     * - numbered portrait rows
+                                                     * - numbered landscape rows
+                                                     * - landscape catalogs
+                                                     * - Continue Watching
+                                                     * - user-selected poster sizes
+                                                     *
+                                                     * Use the median visible pitch
+                                                     * so one unusual/transitioning
+                                                     * card cannot dominate speed.
+                                                     */
+                                                    val measuredPitchesPx =
+                                                        visibleItems
+                                                            .zipWithNext()
+                                                            .map {
+                                                                (first, second) ->
+                                                                (
+                                                                    second.offset -
+                                                                        first.offset
+                                                                ).toFloat()
+                                                            }
+                                                            .filter {
+                                                                it > 0f
+                                                            }
+                                                            .sorted()
+
+                                                    val fallbackPitchPx =
+                                                        (
+                                                            minVisibleItemSizePx
+                                                                ?.toFloat()
+                                                                ?: with(
+                                                                    doubleLeftDensity
+                                                                ) {
+                                                                    modernCatalogCardWidth
+                                                                        .toPx()
+                                                                }
+                                                        ) +
+                                                            with(
+                                                                doubleLeftDensity
+                                                            ) {
+                                                                numberedRowSpacing
+                                                                    .toPx()
+                                                            }
+
+                                                    val measuredPitchPx =
+                                                        if (
+                                                            measuredPitchesPx
+                                                                .isNotEmpty()
+                                                        ) {
+                                                            measuredPitchesPx[
+                                                                measuredPitchesPx
+                                                                    .size / 2
+                                                            ]
+                                                        } else {
+                                                            fallbackPitchPx
+                                                        }
+
+                                                    /*
+                                                     * Numbered and landscape
+                                                     * rows already have the
+                                                     * desired perceived speed at
+                                                     * 25 positions/sec because
+                                                     * their item pitch is much
+                                                     * wider.
+                                                     *
+                                                     * Ordinary portrait catalog
+                                                     * rows have a substantially
+                                                     * smaller pitch, so the same
+                                                     * positions/sec produces a
+                                                     * visibly slower physical
+                                                     * sweep. Boost only that row
+                                                     * geometry to 40 positions/sec.
+                                                     *
+                                                     * Continue Watching is left
+                                                     * untouched as well.
+                                                     *
+                                                     * This value is calculated
+                                                     * once before scrolling; no
+                                                     * additional per-frame work
+                                                     * is introduced.
+                                                     */
+                                                    val isRegularPortraitCatalogRow =
+                                                        !isNumbered &&
+                                                            !useLandscapePosters &&
+                                                            !perCatalogLandscape &&
+                                                            !isCwRow
+
+                                                    val targetPositionsPerSecond =
+                                                        if (
+                                                            isRegularPortraitCatalogRow
+                                                        ) {
+                                                            40f
+                                                        } else {
+                                                            25f
+                                                        }
+
+                                                    val velocityPxPerSecond =
+                                                        measuredPitchPx *
+                                                            targetPositionsPerSecond
+
+                                                    var previousFrame:
+                                                        Long? = null
+
+                                                    /*
+                                                     * Same velocity as Double-Up.
+                                                     * This is a real LazyRow scroll;
+                                                     * it is not an instant teleport.
+                                                     */
+                                                    while (
+                                                        rowListState
+                                                            .canScrollBackward
+                                                    ) {
+                                                        val frame =
+                                                            withFrameNanos {
+                                                                it
+                                                            }
+
+                                                        val previous =
+                                                            previousFrame
+
+                                                        val dtSeconds =
+                                                            if (
+                                                                previous == null
+                                                            ) {
+                                                                1f / 60f
+                                                            } else {
+                                                                (
+                                                                    (
+                                                                        frame -
+                                                                            previous
+                                                                    ) /
+                                                                        1_000_000_000f
+                                                                ).coerceIn(
+                                                                    0f,
+                                                                    0.048f
+                                                                )
+                                                            }
+
+                                                        previousFrame =
+                                                            frame
+
+                                                        val requested =
+                                                            -velocityPxPerSecond *
+                                                                dtSeconds
+
+                                                        val consumed =
+                                                            scrollBy(requested)
+
+                                                        if (
+                                                            kotlin.math.abs(
+                                                                consumed
+                                                            ) < 0.5f &&
+                                                            requested != 0f
+                                                        ) {
+                                                            break
+                                                        }
+                                                    }
+                                                }
+
+                                                /*
+                                                 * We are now inside the retained
+                                                 * start runway. Restore the full
+                                                 * provider before final focus.
+                                                 * Restored middle items are to the
+                                                 * right and therefore offscreen.
+                                                 */
+                                                doubleLeftCompressedItems =
+                                                    null
+
+                                                withFrameNanos { }
+
+                                                rowListState
+                                                    .requestScrollToItem(
+                                                        0,
+                                                        0
+                                                    )
+
+                                                /*
+                                                 * Do not let the row focusRestorer
+                                                 * prefer the old far-right card.
+                                                 */
+                                                uiCaches
+                                                    .lastActuallyFocusedIndexByRow
+                                                    .remove(row.key)
+
+                                                focusedItemByRow[
+                                                    row.key
+                                                ] = 0
+
+                                                /*
+                                                 * Reuse the existing, proven
+                                                 * pending-row-focus machinery.
+                                                 * It retries until item 0 is
+                                                 * composed and focusable.
+                                                 */
+                                                pendingRowFocus.key =
+                                                    row.key
+
+                                                pendingRowFocus.index =
+                                                    0
+
+                                                pendingRowFocus
+                                                    .suppressBringIntoView =
+                                                    true
+
+                                                pendingRowFocus.nonce++
+
+                                                landingWasArmed =
+                                                    true
+
+                                                withFrameNanos { }
+                                            } finally {
+                                                /*
+                                                 * Cancellation/failure must never
+                                                 * leave a sparse catalog provider.
+                                                 */
+                                                doubleLeftCompressedItems =
+                                                    null
+
+                                                doubleLeftInProgress.set(false)
+
+                                                if (!landingWasArmed) {
+                                                    doubleLeftLastReleaseMs
+                                                        .set(0L)
+
+                                                    doubleLeftLastReleaseStartedAfterFirst
+                                                        .set(false)
+                                                }
+                                            }
+                                        }
+
+                                        consumedByDoubleLeft =
+                                            true
+                                    }
                                 }
-                            } else false
-                        } else false
+                            }
+
+                            /*
+                             * ACTION_UP arms the first tap only if its DOWN
+                             * began somewhere after item 0.
+                             *
+                             * The first Left itself was never consumed, so it
+                             * remains ordinary one-card navigation.
+                             */
+                            if (
+                                doubleLeftRowShortcutEnabled &&
+                                isLeft &&
+                                event.type ==
+                                    androidx.compose.ui.input.key.KeyEventType.KeyUp
+                            ) {
+                                val eligible =
+                                    doubleLeftCurrentPressEligible
+                                        .getAndSet(false)
+
+                                val startedAfterFirst =
+                                    doubleLeftCurrentPressStartedAfterFirst
+                                        .getAndSet(false)
+
+                                if (
+                                    eligible &&
+                                    startedAfterFirst
+                                ) {
+                                    doubleLeftLastReleaseMs.set(
+                                        android.os.SystemClock
+                                            .elapsedRealtime()
+                                    )
+
+                                    doubleLeftLastReleaseStartedAfterFirst
+                                        .set(true)
+                                } else {
+                                    doubleLeftLastReleaseMs.set(0L)
+
+                                    doubleLeftLastReleaseStartedAfterFirst
+                                        .set(false)
+                                }
+                            }
+
+                            if (consumedByDoubleLeft) {
+                                true
+                            } else if (isLeft) {
+                                /*
+                                 * Preserve the existing item-0 behavior
+                                 * verbatim: a fresh single Left at the first
+                                 * item opens the sidebar.
+                                 */
+                                val focusedIndex =
+                                    focusedItemByRow[row.key] ?: 0
+
+                                val isAtStart =
+                                    focusedIndex == 0
+
+                                if (
+                                    event.type ==
+                                        androidx.compose.ui.input.key.KeyEventType.KeyDown
+                                ) {
+                                    if (
+                                        isAtStart &&
+                                        native.repeatCount == 0
+                                    ) {
+                                        sidebarOpenRequest()
+                                        true
+                                    } else {
+                                        false
+                                    }
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            }
+                        }
                     }
                     // Match the official Home gate. At a 50 ms native repeat
                     // cadence, a 100 ms cutoff can alternate 100/150 ms steps.
@@ -1249,12 +1906,22 @@ internal fun ModernRowSection(
                 horizontalArrangement = Arrangement.spacedBy(numberedRowSpacing)
             ) {
                 itemsIndexed(
-                    items = row.items,
-                    key = { index, item ->
+                    items = rowItemsForRendering,
+                    key = { renderedIndex, item ->
+                        val originalIndex =
+                            if (
+                                doubleLeftCompressedItems == null
+                            ) {
+                                renderedIndex
+                            } else {
+                                originalIndexByItemKey[item.key]
+                                    ?: renderedIndex
+                            }
+
                         when {
                             row.key ==
                                 HomeViewModel.MY_LIST_CATALOG_KEY -> {
-                                "${row.key}::slot::$myListSlotGeneration::$index"
+                                "${row.key}::slot::$myListSlotGeneration::$originalIndex"
                             }
 
                             row.key == "continue_watching" -> {
@@ -1264,7 +1931,7 @@ internal fun ModernRowSection(
                                  * move must recreate the focus node so the row
                                  * focusRestorer cannot resurrect the old slot.
                                  */
-                                "${item.key}::slot::$index"
+                                "${item.key}::slot::$originalIndex"
                             }
 
                             else -> {
@@ -1278,8 +1945,22 @@ internal fun ModernRowSection(
                             is ModernPayload.Catalog -> "modern_catalog_card"
                         }
                     }
-                ) { index, item ->
-                    val requester = uiCaches.requesterFor(row.key, item.key)
+                ) { renderedIndex, item ->
+                    val index =
+                        if (
+                            doubleLeftCompressedItems == null
+                        ) {
+                            renderedIndex
+                        } else {
+                            originalIndexByItemKey[item.key]
+                                ?: renderedIndex
+                        }
+
+                    val requester =
+                        uiCaches.requesterFor(
+                            row.key,
+                            item.key
+                        )
                     val isContinueWatchingRow = row.key == "continue_watching"
                     val onFocused =
                         remember(

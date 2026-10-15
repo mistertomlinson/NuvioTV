@@ -84,6 +84,7 @@ data class HomeUiState(
     val aggregateStreamingPlatformsEnabled: Boolean = false,
     val fastPlatformScrollEnabled: Boolean = false,
     val doubleUpPlatformShortcutEnabled: Boolean = true,
+    val doubleLeftRowShortcutEnabled: Boolean = true,
     val fullWidthIconRowEnabled: Boolean = false,
     val heroMetadataLarge: Boolean = false,
     val dimIconsOnRowExitEnabled: Boolean = false,

@@ -568,6 +568,17 @@ private fun CatalogOrderScreenContent(
                                                 .toggleDoubleUpPlatformShortcut()
                                         }
                                     )
+                                    DoubleLeftRowShortcutToggleRow(
+                                        checked =
+                                            uiState
+                                                .doubleLeftRowShortcutEnabled,
+                                        groupPosition =
+                                            SettingsGroupPosition.MIDDLE,
+                                        onToggle = {
+                                            viewModel
+                                                .toggleDoubleLeftRowShortcut()
+                                        }
+                                    )
                                     HidePlatformIconsOnRowExitToggleRow(
                                         checked =
                                             uiState
@@ -1362,6 +1373,28 @@ private fun DoubleUpPlatformShortcutToggleRow(
         ),
         subtitle = stringResource(
             R.string.catalog_double_up_platform_shortcut_desc
+        ),
+        checked = checked,
+        onToggle = onToggle,
+        showDivider = false,
+        groupPosition = groupPosition,
+        animateTopFlatten = true,
+        animateBottomFlatten = true
+    )
+}
+
+@Composable
+private fun DoubleLeftRowShortcutToggleRow(
+    checked: Boolean,
+    groupPosition: SettingsGroupPosition,
+    onToggle: () -> Unit
+) {
+    SettingsToggleRow(
+        title = stringResource(
+            R.string.catalog_double_left_row_shortcut_title
+        ),
+        subtitle = stringResource(
+            R.string.catalog_double_left_row_shortcut_desc
         ),
         checked = checked,
         onToggle = onToggle,

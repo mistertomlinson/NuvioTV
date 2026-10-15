@@ -145,10 +145,10 @@ private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 400L
 private const val MODERN_HERO_NORMAL_SETTLE_MS = 450L
 private const val KEY_REPEAT_THROTTLE_MS = 140L
 
-private const val HOME_DOUBLE_UP_GAP_MS = 80L
+internal const val HOME_DOUBLE_UP_GAP_MS = 80L
 private const val HOME_DOUBLE_UP_LEAD_ROWS = 3
 private const val HOME_DOUBLE_UP_TOP_RUNWAY_ROWS = 6
-private const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2400f
+internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2400f
 
 @androidx.compose.runtime.Stable
 private class EnhancedHomeRowsFocusHolder {
@@ -4448,6 +4448,8 @@ fun ModernHomeContent(
                     aggregatePlatformsEnabled,
                 doubleUpPlatformShortcutEnabled =
                     uiState.doubleUpPlatformShortcutEnabled,
+                doubleLeftRowShortcutEnabled =
+                    uiState.doubleLeftRowShortcutEnabled,
                 rowsViewportHeight =
                     rowsViewportHeight,
                 catalogBottomPadding =
@@ -4647,6 +4649,7 @@ private fun EnhancedModernHomeRowsListBoundary(
     focusHolder: EnhancedHomeRowsFocusHolder,
     aggregatePlatformsEnabled: Boolean,
     doubleUpPlatformShortcutEnabled: Boolean,
+    doubleLeftRowShortcutEnabled: Boolean,
     rowsViewportHeight: androidx.compose.ui.unit.Dp,
     catalogBottomPadding: androidx.compose.ui.unit.Dp,
     rowTitleBottom: androidx.compose.ui.unit.Dp,
@@ -5833,6 +5836,8 @@ private fun EnhancedModernHomeRowsListBoundary(
             }
             ModernRowSection(
                 row = row,
+                doubleLeftRowShortcutEnabled =
+                    doubleLeftRowShortcutEnabled,
                 myListSlotGeneration = myListSlotGeneration,
                 forceContinueWatchingRestoreToStart =
                     forceContinueWatchingRestoreToStart,

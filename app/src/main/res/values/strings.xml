@@ -720,6 +720,8 @@
     <string name="catalog_fast_platform_scroll_desc">Removes debounce for faster scrolling</string>
     <string name="catalog_double_up_platform_shortcut_title">Double-Up Platform Shortcut</string>
     <string name="catalog_double_up_platform_shortcut_desc">Press Up twice quickly to jump to the streaming platform row</string>
+    <string name="catalog_double_left_row_shortcut_title">Double-Left Row Shortcut</string>
+    <string name="catalog_double_left_row_shortcut_desc">Press Left twice quickly to jump to the first item in the row</string>
     <string name="catalog_hide_platform_name_title">Hide Platform Name in Catalog Title</string>
     <string name="catalog_hide_platform_name_desc">Remove the streaming platform name from catalog titles (e.g. "Top 10 Netflix Movies" becomes "Top 10 Movies")</string>
     <string name="catalog_show_all_on_home_desc">Streaming platforms will be shown on Home as well as their respective screens</string>
