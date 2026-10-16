@@ -1072,6 +1072,36 @@ fun ModernHomeContent(
         }
     }
 
+    /*
+     * An already-playing expanded-card trailer that survives a Home popup
+     * must also survive the complete exact-focus return transaction.
+     *
+     * Row/card preservation is not sufficient here because this parent owns
+     * expandedCatalogFocusKey. Focus restoration can briefly settle the
+     * vertical Home list after the poster itself has regained focus.
+     *
+     * This mirrors the existing sidebar handoff policy: retain ownership until
+     * both popup focus restoration and vertical settlement have completed.
+     */
+    var preservePopupTrailerThroughFocusReturn by remember {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(
+        homePopupGlassEnvironment.catalogOptionsVisible,
+        homePopupGlassEnvironment.preserveCatalogTrailerPlayback
+    ) {
+        if (
+            homePopupGlassEnvironment.preserveCatalogTrailerPlayback
+        ) {
+            preservePopupTrailerThroughFocusReturn = true
+        } else if (
+            homePopupGlassEnvironment.catalogOptionsVisible
+        ) {
+            preservePopupTrailerThroughFocusReturn = false
+        }
+    }
+
     // Collapse expanded card and stop trailer when app goes to background.
     // Delay the state reset slightly so the app has already backgrounded before
     // any recomposition occurs — prevents visible collapse animation on home press.
@@ -1095,7 +1125,8 @@ fun ModernHomeContent(
         isSidebarExpanded,
         preserveSidebarTrailerPlayback,
         sidebarFocusRestoreActive,
-        suppressFocusedPosterAutoplayForOptions
+        suppressFocusedPosterAutoplayForOptions,
+        preserveFocusedPosterPlaybackForOptions
     ) {
         /*
          * Sidebar time must not count toward the trailer delay. If a trailer
@@ -1155,6 +1186,47 @@ fun ModernHomeContent(
                 player.volume = 0f
             }
 
+            return@LaunchedEffect
+        }
+
+        /*
+         * Popup preservation must protect the parent expansion owner, not
+         * merely the card visual.
+         *
+         * Ending exact focus restoration is now an effect key. The latch makes
+         * that final effect pass safe: instead of falling through to the normal
+         * expandedCatalogFocusKey = null path, ownership transfers directly
+         * back to normal autoplay.
+         */
+        val samePopupTrailerOwner =
+            expandedCatalogFocusKey != null &&
+                focusedCatalogSelection?.focusKey ==
+                    expandedCatalogFocusKey
+
+        if (
+            preservePopupTrailerThroughFocusReturn &&
+            !samePopupTrailerOwner
+        ) {
+            preservePopupTrailerThroughFocusReturn = false
+        }
+
+        if (
+            samePopupTrailerOwner &&
+            preservePopupTrailerThroughFocusReturn
+        ) {
+            if (
+                preserveFocusedPosterPlaybackForOptions ||
+                isVerticalRowsScrolling
+            ) {
+                return@LaunchedEffect
+            }
+
+            /*
+             * Popup is gone, exact poster focus is back, and the vertical Home
+             * list is settled. Disarm the bridge while preserving this final
+             * effect pass so the expanded trailer is never torn down.
+             */
+            preservePopupTrailerThroughFocusReturn = false
             return@LaunchedEffect
         }
 

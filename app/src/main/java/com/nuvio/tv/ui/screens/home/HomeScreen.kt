@@ -491,6 +491,12 @@ fun HomeScreen(
          * catalogOptionsVisible true itself, so the temporary bridge can drop.
          */
         if (uiState.showWatchedRatingOverlay) {
+            /*
+             * Keep the originating Options Dialog mounted until the Rating
+             * Dialog has actually entered composition. This prevents focus
+             * from falling through to Home between the two modal owners.
+             */
+            posterOptionsTarget = null
             watchedRatingHandoffStatusKey = null
             watchedRatingHandoffObservedPending = false
             return@LaunchedEffect
@@ -516,6 +522,11 @@ fun HomeScreen(
             watchedRatingHandoffObservedPending ||
             uiState.movieWatchedStatus[handoffKey] == true
         ) {
+            /*
+             * No Rating Dialog took ownership. End the held Options Dialog
+             * here so normal Home exact-focus restoration runs once.
+             */
+            posterOptionsTarget = null
             watchedRatingHandoffStatusKey = null
             watchedRatingHandoffObservedPending = false
         }
@@ -1265,6 +1276,7 @@ fun HomeScreen(
             title = item.name,
             hazeState = homePopupHazeState,
             blurEnabled = homePopupBlurEnabled,
+            hideVisuals = watchedRatingHandoffActive,
             isInLibrary = selectedPoster.isFromMyList || uiState.posterLibraryMembership[statusKey] == true,
             isLibraryPending = statusKey in uiState.posterLibraryPending,
             showManageLists = uiState.librarySourceMode == LibrarySourceMode.TRAKT &&
@@ -1305,13 +1317,27 @@ fun HomeScreen(
                     }
 
                     viewModel.togglePosterMovieWatched(item)
+
+                    /*
+                     * Marking an unwatched movie may asynchronously open the
+                     * Rating Dialog. Keep this Dialog as the real focus owner
+                     * until that handoff resolves.
+                     *
+                     * Unwatching does not launch Rating, so retain the normal
+                     * immediate dismissal in that case.
+                     */
+                    if (wasAlreadyWatched) {
+                        posterOptionsTarget = null
+                    }
                 } else if (isSeries) {
                     viewModel.togglePosterSeriesWatched(
                         item = item,
                         addonBaseUrl = selectedPoster.addonBaseUrl
                     )
+                    posterOptionsTarget = null
+                } else {
+                    posterOptionsTarget = null
                 }
-                posterOptionsTarget = null
             }
         )
     }
@@ -2177,6 +2203,7 @@ private fun HomePosterOptionsDialog(
     title: String,
     hazeState: HazeState,
     blurEnabled: Boolean,
+    hideVisuals: Boolean,
     isInLibrary: Boolean,
     isLibraryPending: Boolean,
     showManageLists: Boolean,
@@ -2198,6 +2225,18 @@ private fun HomePosterOptionsDialog(
     val appearanceProgress = remember {
         androidx.compose.animation.core.Animatable(0f)
     }
+
+    /*
+     * Keep this Dialog mounted as the real focus owner while Mark Watched
+     * asynchronously hands off to the rating overlay, but hide its glass
+     * immediately so the pending watched action never appears to hesitate.
+     */
+    val visualAppearanceProgress =
+        if (hideVisuals) {
+            0f
+        } else {
+            appearanceProgress.value
+        }
 
     LaunchedEffect(Unit) {
         appearanceProgress.stop()
@@ -2260,7 +2299,7 @@ private fun HomePosterOptionsDialog(
              * existing 220ms entrance so the background cannot appear
              * blurred one frame before the glass window.
              */
-            this.alpha = appearanceProgress.value
+            this.alpha = visualAppearanceProgress
 
             /*
              * Popup-only performance optimization.
@@ -2271,8 +2310,8 @@ private fun HomePosterOptionsDialog(
              */
             this.inputScale =
                 dev.chrisbanes.haze.HazeInputScale.Fixed(0.80f)
-                this.blurRadius = (1f + (29f * appearanceProgress.value)).dp
-                this.noiseFactor = 0.025f * appearanceProgress.value
+                this.blurRadius = (1f + (29f * visualAppearanceProgress)).dp
+                this.noiseFactor = 0.025f * visualAppearanceProgress
             }
     } else {
         Modifier
@@ -2282,8 +2321,8 @@ private fun HomePosterOptionsDialog(
         width = 520.dp,
         scale =
             0.96f +
-                (0.04f * appearanceProgress.value),
-        alpha = appearanceProgress.value,
+                (0.04f * visualAppearanceProgress),
+        alpha = visualAppearanceProgress,
         shape = panelShape,
         hazeModifier = blurModifier,
         surfaceModifier = Modifier
