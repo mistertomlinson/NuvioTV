@@ -368,6 +368,35 @@ fun HomeViewModel.togglePosterSeriesWatched(
                 )
             }
 
+            /*
+             * Whole-series Mark Watched should offer the same rating flow as
+             * movies. Mark Unwatched deliberately does not prompt.
+             */
+            if (
+                !allReleasedWatched &&
+                trackingRatingCoordinator.isAvailable()
+            ) {
+                val parsedIds = parseContentIds(item.id)
+                val year =
+                    Regex("(\\d{4})")
+                        .find(item.releaseInfo ?: "")
+                        ?.groupValues
+                        ?.getOrNull(1)
+                        ?.toIntOrNull()
+
+                _uiState.update { state ->
+                    state.copy(
+                        showWatchedRatingOverlay = true,
+                        watchedRatingItemId = item.id,
+                        watchedRatingItemType = item.apiType,
+                        watchedRatingTitle = item.name,
+                        watchedRatingImdbId =
+                            item.imdbId ?: parsedIds.imdb,
+                        watchedRatingYear = year
+                    )
+                }
+            }
+
             if (allReleasedWatched) {
                 watchProgressRepository.removeFromHistoryBatch(progress)
             } else {

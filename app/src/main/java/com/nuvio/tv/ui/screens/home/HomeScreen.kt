@@ -434,6 +434,9 @@ fun HomeScreen(
     var watchedRatingHandoffObservedPending by remember {
         mutableStateOf(false)
     }
+    var watchedRatingHandoffIsSeries by remember {
+        mutableStateOf(false)
+    }
 
     val watchedRatingHandoffActive =
         watchedRatingHandoffStatusKey != null
@@ -478,9 +481,12 @@ fun HomeScreen(
 
     LaunchedEffect(
         watchedRatingHandoffStatusKey,
+        watchedRatingHandoffIsSeries,
         uiState.showWatchedRatingOverlay,
         uiState.movieWatchedPending,
-        uiState.movieWatchedStatus
+        uiState.movieWatchedStatus,
+        uiState.seriesWatchedActionPending,
+        uiState.seriesWatchedActionStatus
     ) {
         val handoffKey =
             watchedRatingHandoffStatusKey
@@ -499,18 +505,32 @@ fun HomeScreen(
             posterOptionsTarget = null
             watchedRatingHandoffStatusKey = null
             watchedRatingHandoffObservedPending = false
+            watchedRatingHandoffIsSeries = false
             return@LaunchedEffect
         }
 
         /*
-         * Wait until Home has actually observed the ViewModel's watched job.
-         * This prevents the bridge from clearing in the tiny interval between
-         * arming it locally and StateFlow delivering movieWatchedPending.
+         * Movies and whole-series watched actions use different pending/status
+         * stores, but share one popup -> rating focus handoff.
          */
-        if (handoffKey in uiState.movieWatchedPending) {
+        val handoffPending =
+            if (watchedRatingHandoffIsSeries) {
+                handoffKey in uiState.seriesWatchedActionPending
+            } else {
+                handoffKey in uiState.movieWatchedPending
+            }
+
+        if (handoffPending) {
             watchedRatingHandoffObservedPending = true
             return@LaunchedEffect
         }
+
+        val handoffNowWatched =
+            if (watchedRatingHandoffIsSeries) {
+                uiState.seriesWatchedActionStatus[handoffKey] == true
+            } else {
+                uiState.movieWatchedStatus[handoffKey] == true
+            }
 
         /*
          * The watched job has finished.
@@ -520,7 +540,7 @@ fun HomeScreen(
          */
         if (
             watchedRatingHandoffObservedPending ||
-            uiState.movieWatchedStatus[handoffKey] == true
+            handoffNowWatched
         ) {
             /*
              * No Rating Dialog took ownership. End the held Options Dialog
@@ -529,6 +549,7 @@ fun HomeScreen(
             posterOptionsTarget = null
             watchedRatingHandoffStatusKey = null
             watchedRatingHandoffObservedPending = false
+            watchedRatingHandoffIsSeries = false
         }
     }
 
@@ -1314,6 +1335,7 @@ fun HomeScreen(
                     if (!wasAlreadyWatched) {
                         watchedRatingHandoffStatusKey = statusKey
                         watchedRatingHandoffObservedPending = false
+                        watchedRatingHandoffIsSeries = false
                     }
 
                     viewModel.togglePosterMovieWatched(item)
@@ -1330,11 +1352,27 @@ fun HomeScreen(
                         posterOptionsTarget = null
                     }
                 } else if (isSeries) {
+                    val wasAlreadyWatched =
+                        uiState.seriesWatchedActionStatus[statusKey] == true
+
+                    if (!wasAlreadyWatched) {
+                        watchedRatingHandoffStatusKey = statusKey
+                        watchedRatingHandoffObservedPending = false
+                        watchedRatingHandoffIsSeries = true
+                    }
+
                     viewModel.togglePosterSeriesWatched(
                         item = item,
                         addonBaseUrl = selectedPoster.addonBaseUrl
                     )
-                    posterOptionsTarget = null
+
+                    /*
+                     * Mark Watched may hand directly to the rating overlay.
+                     * Mark Unwatched has no rating step and closes immediately.
+                     */
+                    if (wasAlreadyWatched) {
+                        posterOptionsTarget = null
+                    }
                 } else {
                     posterOptionsTarget = null
                 }
