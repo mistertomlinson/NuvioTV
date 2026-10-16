@@ -1827,6 +1827,9 @@ fun ModernHomeContent(
     val latestPosterCardWidthDp by rememberUpdatedState(uiState.posterCardWidthDp)
     val latestPosterCardHeightDp by rememberUpdatedState(uiState.posterCardHeightDp)
     val latestEffectiveExpandEnabled by rememberUpdatedState(effectiveExpandEnabled)
+    val latestScreenWidthDp by rememberUpdatedState(
+        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
+    )
 
     /*
      * Exposure-risk poster prewarm.
@@ -1837,8 +1840,13 @@ fun ModernHomeContent(
      * window directly while Home is already idle.
      *
      * This does not expand LazyColumn's cache window or compose off-screen
-     * rows. It only warms up to four sized Coil requests, sequentially, and
-     * collectLatest cancels the sequence as soon as navigation resumes.
+     * rows. It warms the complete potentially-visible portrait window,
+     * sequentially, plus one safety card for clipping/rounding.
+     *
+     * Once that small exposure warm has started, let it finish. Cancelling it
+     * when Down navigation begins can leave only part of the soon-visible row
+     * in memory, producing the exact blank-poster flash this prewarm exists
+     * to prevent. New exposure work still starts only after the idle debounce.
      */
     LaunchedEffect(Unit) {
         var completedExposureSignature: String? = null
@@ -1864,6 +1872,18 @@ fun ModernHomeContent(
                 anyScrolling
             )
         }
+            /*
+             * Scroll activity prevents NEW exposure work from starting, but
+             * must not cancel a tiny batch that already started. Filtering
+             * scrolling snapshots before collectLatest gives us that behavior.
+             *
+             * A new idle content/platform snapshot still reaches
+             * collectLatest, so stale work from the previous platform is
+             * cancelled instead of blocking the new page behind it.
+             */
+            .filter { (_, fastScrolling, anyScrolling) ->
+                !fastScrolling && !anyScrolling
+            }
             .debounce(120L)
             .collectLatest {
                 (pair, fastScrolling, anyScrolling) ->
@@ -1975,14 +1995,63 @@ fun ModernHomeContent(
                         targetRow.items.lastIndex
                     )
 
+                /*
+                 * Warm the entire horizontal window that could become visible,
+                 * rather than assuming four posters always fill the screen.
+                 *
+                 * Use the minimum ordinary-row spacing here intentionally.
+                 * Numbered rows can have wider spacing, so this calculation
+                 * may warm an extra poster or two but can never under-warm
+                 * them because of their larger gaps.
+                 */
+                val prewarmCardWidth =
+                    portraitWidth *
+                        0.84f *
+                        1.08f
+
+                val availableWidthPx =
+                    with(density) {
+                        (
+                            latestScreenWidthDp.dp -
+                                52.dp
+                        )
+                            .roundToPx()
+                            .coerceAtLeast(1)
+                    }
+
+                val cardPitchPx =
+                    with(density) {
+                        (
+                            prewarmCardWidth +
+                                12.dp
+                        )
+                            .roundToPx()
+                            .coerceAtLeast(1)
+                    }
+
+                val visibleCapacity =
+                    (
+                        (
+                            availableWidthPx +
+                                cardPitchPx -
+                                1
+                        ) /
+                            cardPitchPx
+                    ).coerceAtLeast(1)
+
+                val prewarmCount =
+                    visibleCapacity + 1
+
                 val endExclusive =
                     minOf(
-                        startIndex + 4,
+                        startIndex + prewarmCount,
                         targetRow.items.size
                     )
 
                 val urls =
-                    LinkedHashSet<String>(4)
+                    LinkedHashSet<String>(
+                        prewarmCount
+                    )
 
                 for (
                     index in
