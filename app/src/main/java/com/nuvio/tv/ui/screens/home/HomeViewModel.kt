@@ -340,8 +340,46 @@ class HomeViewModel @Inject constructor(
     internal var seasonalSpotlightContentRefreshTickerJob:
         Job? = null
 
-    fun forceReloadCatalogs() {
-        scheduleCatalogPipeline(addonsCache, forceReload = true)
+    suspend fun forceReloadCatalogs(): Boolean {
+        /*
+         * If the user presses Refresh again while the same manual refresh is
+         * already running, wait for the existing refresh rather than starting
+         * another complete addon crawl.
+         */
+        manualCatalogRefreshCompletion
+            ?.takeIf { !it.isCompleted }
+            ?.let { existing ->
+                return existing.await()
+            }
+
+        val completion =
+            kotlinx.coroutines.CompletableDeferred<Boolean>()
+
+        manualCatalogRefreshCompletion = completion
+
+        scheduleCatalogPipeline(
+            addonsCache,
+            forceReload = true
+        )
+
+        return try {
+            completion.await()
+        } finally {
+            if (
+                manualCatalogRefreshCompletion ===
+                    completion
+            ) {
+                manualCatalogRefreshCompletion = null
+            }
+        }
+    }
+
+    internal fun completeManualCatalogRefresh(
+        success: Boolean
+    ) {
+        manualCatalogRefreshCompletion
+            ?.takeIf { !it.isCompleted }
+            ?.complete(success)
     }
 
     fun setHomeHeroTrailerPlaying(playing: Boolean) {
@@ -688,6 +726,25 @@ class HomeViewModel @Inject constructor(
     internal var hasRenderedFirstCatalog = false
     internal val catalogLoadSemaphore = Semaphore(MAX_CATALOG_LOAD_CONCURRENCY)
     internal var pendingCatalogLoads = 0
+    /*
+     * Failure count for the active catalog-load generation.
+     *
+     * Manual Refresh Catalogs uses this to avoid replacing the
+     * last-known-good disk cache with a partial refresh when one
+     * or more addon requests fail.
+     */
+    internal val catalogLoadFailures =
+        java.util.concurrent.atomic.AtomicInteger(0)
+
+    /*
+     * Completion signal for the explicit Addons > Refresh Catalogs action.
+     *
+     * Unlike normal catalog pipeline activity, the manual action needs to
+     * tell the settings UI when every requested catalog has actually settled.
+     */
+    internal var manualCatalogRefreshCompletion:
+        kotlinx.coroutines.CompletableDeferred<Boolean>? = null
+
     internal val activeCatalogLoadJobs = mutableSetOf<Job>()
     internal var activeCatalogLoadSignature: String? = null
     private val instanceId = System.identityHashCode(this)
@@ -2413,6 +2470,7 @@ class HomeViewModel @Inject constructor(
 
     override fun onCleared() {
         if (homeViewModelActiveInstanceId == System.identityHashCode(this)) homeViewModelActiveInstanceId = -1
+        manualCatalogRefreshCompletion?.cancel()
         startupAuthNoticeJob?.cancel()
         posterStatusReconcileJob?.cancel()
         movieWatchedBatchJob?.cancel()

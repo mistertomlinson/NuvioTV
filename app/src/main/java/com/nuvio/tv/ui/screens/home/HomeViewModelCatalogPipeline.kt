@@ -317,11 +317,17 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         !isActiveInstance ||
         profileId != profileManager.activeProfileId.value
     ) {
+        if (forceReload) {
+            completeManualCatalogRefresh(false)
+        }
         return
     }
 
     catalogPipelineMutex.withLock {
     if (profileId != profileManager.activeProfileId.value) {
+        if (forceReload) {
+            completeManualCatalogRefresh(false)
+        }
         return@withLock
     }
 
@@ -339,6 +345,7 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
 
     activeCatalogLoadSignature = signature
     catalogsLoadInProgress = true
+    catalogLoadFailures.set(0)
     catalogLoadGeneration += 1
     val generation = catalogLoadGeneration
     cancelInFlightCatalogLoads()
@@ -519,7 +526,15 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
     try {
         if (addons.isEmpty()) {
             catalogsLoadInProgress = false
-            _uiState.update { it.copy(isLoading = false, error = "No addons installed") }
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = "No addons installed"
+                )
+            }
+            if (forceReload) {
+                completeManualCatalogRefresh(false)
+            }
             return@withLock
         }
 
@@ -527,7 +542,15 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
 
         if (catalogOrder.isEmpty()) {
             catalogsLoadInProgress = false
-            _uiState.update { it.copy(isLoading = false, error = "No catalog addons installed") }
+            _uiState.update {
+                it.copy(
+                    isLoading = false,
+                    error = "No catalog addons installed"
+                )
+            }
+            if (forceReload) {
+                completeManualCatalogRefresh(false)
+            }
             return@withLock
         }
 
@@ -544,6 +567,18 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 }
                 .map { catalog -> addon to catalog }
         }
+
+        if (catalogsToLoad.isEmpty()) {
+            catalogsLoadInProgress = false
+            _uiState.update {
+                it.copy(isLoading = false)
+            }
+            if (forceReload) {
+                completeManualCatalogRefresh(true)
+            }
+            return@withLock
+        }
+
         // Track which catalogs are platform-categorized so we can trigger preload
         // as soon as just those finish — not waiting for every catalog.
         catalogsToLoad.forEach { (addon, catalog) ->
@@ -582,9 +617,26 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
          * network row writes catalogSourceRows first; the disk merge below
          * therefore fills only unresolved keys and can never overwrite it.
          */
-        val diskCacheDeferred = viewModelScope.async {
-            catalogRepository.loadCatalogsFromDisk(profileId)
-        }
+        /*
+         * An explicit user-requested Refresh Catalogs is authoritative:
+         * fetch directly from installed addons instead of immediately
+         * repopulating Home with the up-to-12-hour-old catalog disk cache.
+         *
+         * Do NOT delete the disk cache here. It remains our last-known-good
+         * fallback if any network catalog fails during this manual refresh.
+         */
+        val diskCacheDeferred =
+            if (forceReload) {
+                Log.d(
+                    HomeViewModel.TAG,
+                    "Manual catalog refresh: bypassing catalog disk cache"
+                )
+                null
+            } else {
+                viewModelScope.async {
+                    catalogRepository.loadCatalogsFromDisk(profileId)
+                }
+            }
         pendingCatalogLoads = catalogsToLoad.size
         catalogsToLoad.forEach { (addon, catalog) ->
             loadCatalogPipeline(
@@ -592,12 +644,22 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
                 catalog = catalog,
                 generation = generation,
                 profileId = profileId,
+                forceReload = forceReload,
                 diskRestoreJob = diskCacheDeferred
             )
         }
 
-        val diskCached = diskCacheDeferred.await()
-        if (diskCached.isNotEmpty()) {
+        val diskCached =
+            diskCacheDeferred?.await().orEmpty()
+
+        if (diskCacheDeferred == null) {
+            /*
+             * There is intentionally no catalog disk restore pending.
+             * Mark this phase complete so downstream readiness semantics
+             * are the same as a completed ordinary disk restore.
+             */
+            diskCacheRestored = true
+        } else if (diskCached.isNotEmpty()) {
             diskCached.forEach { (key, row) ->
                 if (!catalogSourceRows.containsKey(key)) {
                     catalogSourceRows[key] = row
@@ -623,7 +685,15 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         }
     } catch (e: Exception) {
         catalogsLoadInProgress = false
-        _uiState.update { it.copy(isLoading = false, error = e.message) }
+        _uiState.update {
+            it.copy(
+                isLoading = false,
+                error = e.message
+            )
+        }
+        if (forceReload) {
+            completeManualCatalogRefresh(false)
+        }
     }
     } // end withLock
 }
@@ -633,6 +703,7 @@ internal fun HomeViewModel.loadCatalogPipeline(
     catalog: CatalogDescriptor,
     generation: Long,
     profileId: Int,
+    forceReload: Boolean = false,
     diskRestoreJob: kotlinx.coroutines.Job? = null
 ) {
     val loadJob = viewModelScope.launch {
@@ -763,12 +834,42 @@ internal fun HomeViewModel.loadCatalogPipeline(
                                 diskRestoreJob?.join()
                                 if (
                                     generation == catalogLoadGeneration &&
-                                    saveProfileId == profileManager.activeProfileId.value &&
+                                    saveProfileId ==
+                                        profileManager.activeProfileId.value &&
                                     pendingCatalogLoads == 0
                                 ) {
-                                    catalogRepository.saveCatalogsToDisk(
-                                        saveProfileId
-                                    )
+                                    val failureCount =
+                                        catalogLoadFailures.get()
+
+                                    if (
+                                        forceReload &&
+                                        failureCount > 0
+                                    ) {
+                                        /*
+                                         * Leave the previous disk snapshot
+                                         * untouched. The successfully refreshed
+                                         * rows remain live for this process, but
+                                         * a later cold launch still has the full
+                                         * last-known-good fallback.
+                                         */
+                                        Log.w(
+                                            HomeViewModel.TAG,
+                                            "Manual catalog refresh had " +
+                                                "$failureCount failure(s); " +
+                                                "preserving previous disk cache"
+                                        )
+                                    } else {
+                                        catalogRepository
+                                            .saveCatalogsToDisk(
+                                                saveProfileId
+                                            )
+                                    }
+
+                                    if (forceReload) {
+                                        completeManualCatalogRefresh(
+                                            failureCount == 0
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -776,7 +877,10 @@ internal fun HomeViewModel.loadCatalogPipeline(
                     }
                     is NetworkResult.Error -> {
                         if (!hasCountedCompletion) {
-                            pendingCatalogLoads = (pendingCatalogLoads - 1).coerceAtLeast(0)
+                            pendingCatalogLoads =
+                                (pendingCatalogLoads - 1)
+                                    .coerceAtLeast(0)
+                            catalogLoadFailures.incrementAndGet()
                             hasCountedCompletion = true
                         }
                         val errorKey = catalogKey(addonId = addon.id, type = catalog.apiType, catalogId = catalog.id)
@@ -804,12 +908,42 @@ internal fun HomeViewModel.loadCatalogPipeline(
                                 diskRestoreJob?.join()
                                 if (
                                     generation == catalogLoadGeneration &&
-                                    saveProfileId == profileManager.activeProfileId.value &&
+                                    saveProfileId ==
+                                        profileManager.activeProfileId.value &&
                                     pendingCatalogLoads == 0
                                 ) {
-                                    catalogRepository.saveCatalogsToDisk(
-                                        saveProfileId
-                                    )
+                                    val failureCount =
+                                        catalogLoadFailures.get()
+
+                                    if (
+                                        forceReload &&
+                                        failureCount > 0
+                                    ) {
+                                        /*
+                                         * Leave the previous disk snapshot
+                                         * untouched. The successfully refreshed
+                                         * rows remain live for this process, but
+                                         * a later cold launch still has the full
+                                         * last-known-good fallback.
+                                         */
+                                        Log.w(
+                                            HomeViewModel.TAG,
+                                            "Manual catalog refresh had " +
+                                                "$failureCount failure(s); " +
+                                                "preserving previous disk cache"
+                                        )
+                                    } else {
+                                        catalogRepository
+                                            .saveCatalogsToDisk(
+                                                saveProfileId
+                                            )
+                                    }
+
+                                    if (forceReload) {
+                                        completeManualCatalogRefresh(
+                                            failureCount == 0
+                                        )
+                                    }
                                 }
                             }
                         }
