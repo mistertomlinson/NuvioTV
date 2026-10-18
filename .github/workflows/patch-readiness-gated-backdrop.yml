@@ -1,0 +1,291 @@
+name: Patch readiness-gated hero backdrop
+
+on:
+  push:
+    branches:
+      - fix/readiness-gated-hero-backdrop
+    paths:
+      - .github/workflows/patch-readiness-gated-backdrop.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/readiness-gated-hero-backdrop
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare local properties
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
+          LOCAL_DEV_PROPERTIES_BASE64: ${{ secrets.LOCAL_DEV_PROPERTIES_BASE64 }}
+        run: |
+          if [ -n "$LOCAL_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_PROPERTIES_BASE64" | base64 --decode > local.properties
+          fi
+          if [ -n "$LOCAL_DEV_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_DEV_PROPERTIES_BASE64" | base64 --decode > local.dev.properties
+          fi
+
+      - name: Apply focused backdrop patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeHero.kt")
+          text = path.read_text()
+          start = text.index("@Composable\ninternal fun ModernHeroMediaLayer(")
+          end = text.index("\n@Composable\ninternal fun ModernHeroGradientLayer(", start)
+
+          replacement = r'''@Composable
+          internal fun ModernHeroMediaLayer(
+              heroBackdrop: String?,
+              heroBackdropIsPosterFallback: Boolean = false,
+              heroBackdropAlpha: Float,
+              shouldPlayHeroTrailer: Boolean,
+              externalPlayer: androidx.media3.exoplayer.ExoPlayer? = null,
+              heroTrailerUrl: String?,
+              heroTrailerAudioUrl: String?,
+              heroTrailerAlpha: Float,
+              muted: Boolean,
+              isTrailerPlaying: Boolean = true,
+              onTrailerEnded: () -> Unit,
+              onFirstFrameRendered: () -> Unit,
+              modifier: Modifier,
+              requestWidthPx: Int,
+              requestHeightPx: Int,
+              parallaxOffsetX: Float = 0f,
+              cinematicMode: Boolean = false,
+              backdropCrossfadeDuration: Int = 400,
+              cinematicScale: Float = 1.1f
+          ) {
+              val localContext = LocalContext.current
+
+              data class BackdropFrame(
+                  val url: String?,
+                  val scale: Float,
+                  val isPosterFallback: Boolean
+              )
+
+              val targetBackdropFrame =
+                  remember(
+                      heroBackdrop,
+                      cinematicScale,
+                      heroBackdropIsPosterFallback
+                  ) {
+                      BackdropFrame(
+                          url = heroBackdrop,
+                          scale = cinematicScale,
+                          isPosterFallback = heroBackdropIsPosterFallback
+                      )
+                  }
+
+              /*
+               * Keep Backdrop A visible until the currently focused Backdrop B has
+               * actually decoded into Coil's memory cache. The card/metadata/trailer
+               * pipeline is intentionally NOT gated on this; only the backdrop target
+               * waits. That restores a true image-to-image Crossfade without bringing
+               * eager neighbor prewarming back onto the D-pad path.
+               *
+               * Zero-duration transitions are used by the platform/ghost and top-row
+               * trailer handoffs and remain atomic, exactly as before.
+               */
+              val backdropImageLoader =
+                  remember(localContext) {
+                      coil.Coil.imageLoader(localContext)
+                  }
+
+              var displayedBackdropFrame by remember {
+                  mutableStateOf(targetBackdropFrame)
+              }
+
+              val latestTargetBackdropFrame =
+                  androidx.compose.runtime.rememberUpdatedState(
+                      targetBackdropFrame
+                  )
+
+              LaunchedEffect(
+                  targetBackdropFrame,
+                  requestWidthPx,
+                  requestHeightPx,
+                  backdropCrossfadeDuration
+              ) {
+                  val requestedFrame = targetBackdropFrame
+
+                  if (requestedFrame == displayedBackdropFrame) {
+                      return@LaunchedEffect
+                  }
+
+                  if (
+                      backdropCrossfadeDuration <= 0 ||
+                      requestedFrame.url.isNullOrBlank() ||
+                      requestedFrame.url == displayedBackdropFrame.url
+                  ) {
+                      displayedBackdropFrame = requestedFrame
+                      return@LaunchedEffect
+                  }
+
+                  if (
+                      requestWidthPx <= 0 ||
+                      requestHeightPx <= 0
+                  ) {
+                      return@LaunchedEffect
+                  }
+
+                  val readinessRequest =
+                      ImageRequest.Builder(localContext)
+                          .data(requestedFrame.url)
+                          .crossfade(false)
+                          .size(
+                              width = requestWidthPx,
+                              height = requestHeightPx
+                          )
+                          .memoryCachePolicy(CachePolicy.ENABLED)
+                          .build()
+
+                  val readinessResult =
+                      try {
+                          backdropImageLoader.execute(
+                              readinessRequest
+                          )
+                      } catch (
+                          cancelled:
+                              kotlinx.coroutines.CancellationException
+                      ) {
+                          throw cancelled
+                      } catch (_: Throwable) {
+                          null
+                      }
+
+                  if (
+                      readinessResult is
+                          coil.request.SuccessResult &&
+                      latestTargetBackdropFrame.value ==
+                          requestedFrame
+                  ) {
+                      displayedBackdropFrame =
+                          requestedFrame
+                  }
+              }
+
+              Box(modifier = modifier.clipToBounds()) {
+                  Crossfade(
+                      targetState = displayedBackdropFrame,
+                      modifier = Modifier
+                          .fillMaxSize()
+                          .graphicsLayer { alpha = heroBackdropAlpha },
+                      animationSpec = tween(durationMillis = backdropCrossfadeDuration),
+                      label = "modernHeroBackground"
+                  ) { frame ->
+                      val imageModel = remember(
+                          localContext,
+                          frame.url,
+                          requestWidthPx,
+                          requestHeightPx
+                      ) {
+                          ImageRequest.Builder(localContext)
+                              .data(frame.url)
+                              .crossfade(false)
+                              .size(
+                                  width = requestWidthPx,
+                                  height = requestHeightPx
+                              )
+                              .build()
+                      }
+
+                      if (cinematicMode) {
+                          AsyncImage(
+                              model = imageModel,
+                              contentDescription = null,
+                              modifier = Modifier
+                                  .fillMaxSize()
+                                  .graphicsLayer {
+                                      translationX = parallaxOffsetX
+                                      scaleX = frame.scale
+                                      scaleY = frame.scale
+                                  },
+                              contentScale = ContentScale.Crop,
+                              alignment =
+                                  if (frame.isPosterFallback) {
+                                      Alignment.TopCenter
+                                  } else {
+                                      Alignment.Center
+                                  }
+                          )
+                      } else {
+                          AsyncImage(
+                              model = imageModel,
+                              contentDescription = null,
+                              modifier = Modifier.fillMaxSize(),
+                              contentScale = ContentScale.Crop,
+                              alignment =
+                                  if (frame.isPosterFallback) {
+                                      Alignment.TopCenter
+                                  } else {
+                                      Alignment.TopEnd
+                                  }
+                          )
+                      }
+                  }
+
+                  if (shouldPlayHeroTrailer) {
+                      TrailerPlayer(
+                          trailerUrl = heroTrailerUrl,
+                          trailerAudioUrl = heroTrailerAudioUrl,
+                          isPlaying = isTrailerPlaying,
+                          onEnded = onTrailerEnded,
+                          onFirstFrameRendered = onFirstFrameRendered,
+                          muted = muted,
+                          cropToFill = true,
+                          overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+                          externalPlayer = externalPlayer,
+                          modifier = Modifier
+                              .fillMaxSize()
+                              .graphicsLayer { alpha = heroTrailerAlpha }
+                      )
+                  }
+              }
+          }
+          '''
+
+          # Strip the workflow's indentation from the embedded Kotlin block.
+          replacement = "\n".join(
+              line[10:] if line.startswith("          ") else line
+              for line in replacement.splitlines()
+          ).rstrip()
+
+          updated = text[:start] + replacement + "\n" + text[end:]
+          if updated == text:
+              raise SystemExit("Patch produced no changes")
+          path.write_text(updated)
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeHero.kt
+
+      - name: Compile sideload Kotlin
+        env:
+          CI_USE_DEBUG_SIGNING: "true"
+        run: ./gradlew :app:compileSideloadKotlin --stacktrace
+
+      - name: Commit source change
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeHero.kt
+          git diff --cached --check
+          git commit -m "Gate hero backdrop crossfade on image readiness"
+          git push origin HEAD:fix/readiness-gated-hero-backdrop
