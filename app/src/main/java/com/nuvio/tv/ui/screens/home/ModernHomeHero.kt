@@ -113,17 +113,6 @@ internal fun ModernHeroMediaLayer(
 ) {
     val localContext = LocalContext.current
 
-    /*
-     * Match official beta semantics:
-     *
-     * changing focus changes Crossfade's TARGET immediately. Do not wait for
-     * Coil to preload Backdrop B before releasing Backdrop A.
-     *
-     * The outgoing frame may survive briefly inside Crossfade, but the whole
-     * backdrop layer is still near-zero opacity while Trailer A is exiting.
-     * That produces the characteristic black handoff with, at most, a tiny
-     * flash of A.
-     */
     data class BackdropFrame(
         val url: String?,
         val scale: Float,
@@ -132,81 +121,181 @@ internal fun ModernHeroMediaLayer(
 
     val targetBackdropFrame =
         remember(
-            heroBackdrop,
-            cinematicScale,
-            heroBackdropIsPosterFallback
+  heroBackdrop,
+  cinematicScale,
+  heroBackdropIsPosterFallback
         ) {
-            BackdropFrame(
-                url = heroBackdrop,
-                scale = cinematicScale,
-                isPosterFallback = heroBackdropIsPosterFallback
-            )
+  BackdropFrame(
+      url = heroBackdrop,
+      scale = cinematicScale,
+      isPosterFallback = heroBackdropIsPosterFallback
+  )
         }
+
+    /*
+     * Keep Backdrop A visible until the currently focused Backdrop B has
+     * actually decoded into Coil's memory cache. The card/metadata/trailer
+     * pipeline is intentionally NOT gated on this; only the backdrop target
+     * waits. That restores a true image-to-image Crossfade without bringing
+     * eager neighbor prewarming back onto the D-pad path.
+     *
+     * Zero-duration transitions are used by the platform/ghost and top-row
+     * trailer handoffs and remain atomic, exactly as before.
+     */
+    val backdropImageLoader =
+        remember(localContext) {
+  coil.Coil.imageLoader(localContext)
+        }
+
+    var displayedBackdropFrame by remember {
+        mutableStateOf(targetBackdropFrame)
+    }
+
+    val latestTargetBackdropFrame =
+        androidx.compose.runtime.rememberUpdatedState(
+  targetBackdropFrame
+        )
+
+    LaunchedEffect(
+        targetBackdropFrame,
+        requestWidthPx,
+        requestHeightPx,
+        backdropCrossfadeDuration
+    ) {
+        val requestedFrame = targetBackdropFrame
+
+        if (requestedFrame == displayedBackdropFrame) {
+  return@LaunchedEffect
+        }
+
+        if (
+  backdropCrossfadeDuration <= 0 ||
+  requestedFrame.url.isNullOrBlank() ||
+  requestedFrame.url == displayedBackdropFrame.url
+        ) {
+  displayedBackdropFrame = requestedFrame
+  return@LaunchedEffect
+        }
+
+        if (
+  requestWidthPx <= 0 ||
+  requestHeightPx <= 0
+        ) {
+  return@LaunchedEffect
+        }
+
+        val readinessRequest =
+  ImageRequest.Builder(localContext)
+      .data(requestedFrame.url)
+      .crossfade(false)
+      .size(
+          width = requestWidthPx,
+          height = requestHeightPx
+      )
+      .memoryCachePolicy(CachePolicy.ENABLED)
+      .build()
+
+        val readinessResult =
+  try {
+      backdropImageLoader.execute(
+          readinessRequest
+      )
+  } catch (
+      cancelled:
+          kotlinx.coroutines.CancellationException
+  ) {
+      throw cancelled
+  } catch (_: Throwable) {
+      null
+  }
+
+        if (
+  readinessResult is
+      coil.request.SuccessResult &&
+  latestTargetBackdropFrame.value ==
+      requestedFrame
+        ) {
+  displayedBackdropFrame =
+      requestedFrame
+        }
+    }
 
     Box(modifier = modifier.clipToBounds()) {
         Crossfade(
-            targetState = targetBackdropFrame,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = heroBackdropAlpha },
-            animationSpec = tween(durationMillis = backdropCrossfadeDuration),
-            label = "modernHeroBackground"
+  targetState = displayedBackdropFrame,
+  modifier = Modifier
+      .fillMaxSize()
+      .graphicsLayer { alpha = heroBackdropAlpha },
+  animationSpec = tween(durationMillis = backdropCrossfadeDuration),
+  label = "modernHeroBackground"
         ) { frame ->
-            val imageModel = remember(localContext, frame.url, requestWidthPx, requestHeightPx) {
-                ImageRequest.Builder(localContext)
-                    .data(frame.url)
-                    .crossfade(false)
-                    .size(width = requestWidthPx, height = requestHeightPx)
-                    .build()
-            }
-            if (cinematicMode) {
-                AsyncImage(
-                    model = imageModel,
-                    contentDescription = null,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
-                    contentScale = ContentScale.Crop,
-                    alignment =
-                        if (frame.isPosterFallback) {
-                            Alignment.TopCenter
-                        } else {
-                            Alignment.Center
-                        }
-                )
-            } else {
-                AsyncImage(
-                    model = imageModel,
-                    contentDescription = null,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop,
-                    alignment =
-                        if (frame.isPosterFallback) {
-                            Alignment.TopCenter
-                        } else {
-                            Alignment.TopEnd
-                        }
-                )
-            }
+  val imageModel = remember(
+      localContext,
+      frame.url,
+      requestWidthPx,
+      requestHeightPx
+  ) {
+      ImageRequest.Builder(localContext)
+          .data(frame.url)
+          .crossfade(false)
+          .size(
+              width = requestWidthPx,
+              height = requestHeightPx
+          )
+          .build()
+  }
+
+  if (cinematicMode) {
+      AsyncImage(
+          model = imageModel,
+          contentDescription = null,
+          modifier = Modifier
+              .fillMaxSize()
+              .graphicsLayer {
+                  translationX = parallaxOffsetX
+                  scaleX = frame.scale
+                  scaleY = frame.scale
+              },
+          contentScale = ContentScale.Crop,
+          alignment =
+              if (frame.isPosterFallback) {
+                  Alignment.TopCenter
+              } else {
+                  Alignment.Center
+              }
+      )
+  } else {
+      AsyncImage(
+          model = imageModel,
+          contentDescription = null,
+          modifier = Modifier.fillMaxSize(),
+          contentScale = ContentScale.Crop,
+          alignment =
+              if (frame.isPosterFallback) {
+                  Alignment.TopCenter
+              } else {
+                  Alignment.TopEnd
+              }
+      )
+  }
         }
 
         if (shouldPlayHeroTrailer) {
-            TrailerPlayer(
-                trailerUrl = heroTrailerUrl,
-                trailerAudioUrl = heroTrailerAudioUrl,
-                isPlaying = isTrailerPlaying,
-                onEnded = onTrailerEnded,
-                onFirstFrameRendered = onFirstFrameRendered,
-                muted = muted,
-                cropToFill = true,
-                overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
-                externalPlayer = externalPlayer,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .graphicsLayer { alpha = heroTrailerAlpha }
-            )
+  TrailerPlayer(
+      trailerUrl = heroTrailerUrl,
+      trailerAudioUrl = heroTrailerAudioUrl,
+      isPlaying = isTrailerPlaying,
+      onEnded = onTrailerEnded,
+      onFirstFrameRendered = onFirstFrameRendered,
+      muted = muted,
+      cropToFill = true,
+      overscanZoom = MODERN_TRAILER_OVERSCAN_ZOOM,
+      externalPlayer = externalPlayer,
+      modifier = Modifier
+          .fillMaxSize()
+          .graphicsLayer { alpha = heroTrailerAlpha }
+  )
         }
-
     }
 }
 
