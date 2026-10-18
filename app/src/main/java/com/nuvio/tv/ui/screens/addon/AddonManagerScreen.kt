@@ -132,7 +132,7 @@ fun AddonManagerScreen(
     viewModel: AddonManagerViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
     onNavigateToCatalogOrder: () -> Unit = {},
-    onRefreshCatalogs: () -> Unit = {}
+    onRefreshCatalogs: suspend () -> Boolean = { true }
 ) {
     AddonManagerScreenContent(
         viewModel = viewModel,
@@ -147,7 +147,7 @@ private fun AddonManagerScreenContent(
     viewModel: AddonManagerViewModel = hiltViewModel(),
     showBuiltInHeader: Boolean = true,
     onNavigateToCatalogOrder: () -> Unit = {},
-    onRefreshCatalogs: () -> Unit = {}
+    onRefreshCatalogs: suspend () -> Boolean = { true }
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -204,12 +204,41 @@ private fun AddonManagerScreenContent(
         mutableStateOf("input")
     }
 
-    val defaultRefreshCatalogsSubtitle = "Re-fetch content from all installed addons"
-    var refreshCatalogsSubtitle by remember { mutableStateOf(defaultRefreshCatalogsSubtitle) }
-    LaunchedEffect(refreshCatalogsSubtitle) {
-        if (refreshCatalogsSubtitle != defaultRefreshCatalogsSubtitle) {
-            delay(5_000)
-            refreshCatalogsSubtitle = defaultRefreshCatalogsSubtitle
+    val defaultRefreshCatalogsSubtitle =
+        "Re-fetch content from all installed addons"
+
+    var refreshCatalogsSubtitle by remember {
+        mutableStateOf(
+            defaultRefreshCatalogsSubtitle
+        )
+    }
+
+    var refreshCatalogsInFlight by remember {
+        mutableStateOf(false)
+    }
+
+    var refreshCatalogsDotCount by remember {
+        mutableStateOf(1)
+    }
+
+    /*
+     * Give the manual refresh visible activity without pretending that
+     * elapsed time means completion. Completion still comes exclusively
+     * from the real catalog refresh result.
+     */
+    LaunchedEffect(refreshCatalogsInFlight) {
+        if (refreshCatalogsInFlight) {
+            refreshCatalogsDotCount = 1
+
+            while (true) {
+                delay(450)
+                refreshCatalogsDotCount =
+                    if (refreshCatalogsDotCount >= 3) {
+                        1
+                    } else {
+                        refreshCatalogsDotCount + 1
+                    }
+            }
         }
     }
     val installButtonFocusRequester = remember { FocusRequester() }
@@ -580,12 +609,56 @@ private fun AddonManagerScreenContent(
                     }
                     item {
                         RefreshCatalogsEntryCard(
-                            subtitle = refreshCatalogsSubtitle,
+                            subtitle =
+                                if (refreshCatalogsInFlight) {
+                                    "Catalogs refreshing" +
+                                        ".".repeat(
+                                            refreshCatalogsDotCount
+                                        )
+                                } else {
+                                    refreshCatalogsSubtitle
+                                },
                             groupPosition =
                                 SettingsGroupPosition.BOTTOM,
                             onClick = {
-                                onRefreshCatalogs()
-                                refreshCatalogsSubtitle = "Catalogs refreshing…"
+                                if (!refreshCatalogsInFlight) {
+                                    refreshCatalogsInFlight = true
+
+                                    coroutineScope.launch {
+                                        val success =
+                                            runCatching {
+                                                onRefreshCatalogs()
+                                            }.getOrDefault(false)
+
+                                        val resultSubtitle =
+                                            if (success) {
+                                                "Catalogs refreshed"
+                                            } else {
+                                                "Refresh finished with errors"
+                                            }
+
+                                        refreshCatalogsSubtitle =
+                                            resultSubtitle
+
+                                        refreshCatalogsInFlight =
+                                            false
+
+                                        delay(5_000)
+
+                                        /*
+                                         * Do not let an older completion timer
+                                         * overwrite the status of a newer refresh.
+                                         */
+                                        if (
+                                            !refreshCatalogsInFlight &&
+                                            refreshCatalogsSubtitle ==
+                                                resultSubtitle
+                                        ) {
+                                            refreshCatalogsSubtitle =
+                                                defaultRefreshCatalogsSubtitle
+                                        }
+                                    }
+                                }
                             }
                         )
                     }
