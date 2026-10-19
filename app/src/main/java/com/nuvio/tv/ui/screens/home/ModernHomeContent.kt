@@ -3219,15 +3219,15 @@ fun ModernHomeContent(
         /*
          * Immediate likely-destination hero backdrop prewarm.
          *
-         * Keep four likely destinations warm: the item immediately left and
-         * right of the current focus, plus the remembered-focus item in the row
-         * immediately above and immediately below. Requests use the exact hero
-         * render size so Coil's memory-cache entry can be reused directly by
-         * ModernHeroMediaLayer.
+         * Keep only the two likely cold destinations warm: the item immediately
+         * right of the current focus and the remembered-focus item in the row
+         * immediately below (falling back to item 0). The left item and row above
+         * are intentionally omitted because those destinations were already
+         * visited and should normally already be warm in Coil's cache.
          *
-         * Vertical and held-DPAD scrolling cancel the work. Once navigation is
-         * settled, the four targeted requests start immediately; no wider row or
-         * multi-item speculation is performed.
+         * Requests use the exact hero render size so Coil's memory-cache entry can
+         * be reused directly by ModernHeroMediaLayer. Vertical and held-DPAD
+         * scrolling cancel the work; no wider speculation is performed.
          */
         LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
             if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
@@ -3249,22 +3249,15 @@ fun ModernHomeContent(
                 val row = latestCarouselRows[rowIndex]
 
                 val urls = buildList {
-                    row.items.getOrNull(index - 1)?.heroPreview?.let {
-                        firstNonBlank(it.backdrop, it.imageUrl)
-                    }?.takeIf { it.isNotBlank() }?.let(::add)
-
                     row.items.getOrNull(index + 1)?.heroPreview?.let {
                         firstNonBlank(it.backdrop, it.imageUrl)
                     }?.takeIf { it.isNotBlank() }?.let(::add)
 
-                    for (adjacentRowIndex in intArrayOf(rowIndex - 1, rowIndex + 1)) {
-                        val adjacentRow = latestCarouselRows.getOrNull(adjacentRowIndex)
-                            ?: continue
-                        if (adjacentRow.items.isEmpty()) continue
-
-                        val rememberedIndex = (focusedItemByRow[adjacentRow.key] ?: 0)
-                            .coerceIn(0, adjacentRow.items.lastIndex)
-                        adjacentRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
+                    val belowRow = latestCarouselRows.getOrNull(rowIndex + 1)
+                    if (belowRow != null && belowRow.items.isNotEmpty()) {
+                        val rememberedIndex = (focusedItemByRow[belowRow.key] ?: 0)
+                            .coerceIn(0, belowRow.items.lastIndex)
+                        belowRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
                             firstNonBlank(it.backdrop, it.imageUrl)
                         }?.takeIf { it.isNotBlank() }?.let(::add)
                     }
