@@ -1,0 +1,130 @@
+name: Adjust hero backdrop prewarm v3
+
+on:
+  push:
+    branches:
+      - fix/readiness-gated-hero-backdrop
+    paths:
+      - .github/workflows/adjust-hero-prewarm-v3.yml
+
+permissions:
+  contents: write
+
+jobs:
+  adjust:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          ref: fix/readiness-gated-hero-backdrop
+          fetch-depth: 0
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Prepare local properties
+        run: echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Keep only right and below hero prewarm targets
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt')
+          text = path.read_text()
+
+          old_comment = '''        /*
+         * Immediate likely-destination hero backdrop prewarm.
+         *
+         * Keep four likely destinations warm: the item immediately left and
+         * right of the current focus, plus the remembered-focus item in the row
+         * immediately above and immediately below. Requests use the exact hero
+         * render size so Coil's memory-cache entry can be reused directly by
+         * ModernHeroMediaLayer.
+         *
+         * Vertical and held-DPAD scrolling cancel the work. Once navigation is
+         * settled, the four targeted requests start immediately; no wider row or
+         * multi-item speculation is performed.
+         */
+'''
+          new_comment = '''        /*
+         * Immediate likely-destination hero backdrop prewarm.
+         *
+         * Keep only the two likely cold destinations warm: the item immediately
+         * right of the current focus and the remembered-focus item in the row
+         * immediately below (falling back to item 0). The left item and row above
+         * are intentionally omitted because those destinations were already
+         * visited and should normally already be warm in Coil's cache.
+         *
+         * Requests use the exact hero render size so Coil's memory-cache entry can
+         * be reused directly by ModernHeroMediaLayer. Vertical and held-DPAD
+         * scrolling cancel the work; no wider speculation is performed.
+         */
+'''
+          if old_comment not in text:
+              raise SystemExit('Expected four-target prewarm comment not found')
+          text = text.replace(old_comment, new_comment, 1)
+
+          old_targets = '''                val urls = buildList {
+                    row.items.getOrNull(index - 1)?.heroPreview?.let {
+                        firstNonBlank(it.backdrop, it.imageUrl)
+                    }?.takeIf { it.isNotBlank() }?.let(::add)
+
+                    row.items.getOrNull(index + 1)?.heroPreview?.let {
+                        firstNonBlank(it.backdrop, it.imageUrl)
+                    }?.takeIf { it.isNotBlank() }?.let(::add)
+
+                    for (adjacentRowIndex in intArrayOf(rowIndex - 1, rowIndex + 1)) {
+                        val adjacentRow = latestCarouselRows.getOrNull(adjacentRowIndex)
+                            ?: continue
+                        if (adjacentRow.items.isEmpty()) continue
+
+                        val rememberedIndex = (focusedItemByRow[adjacentRow.key] ?: 0)
+                            .coerceIn(0, adjacentRow.items.lastIndex)
+                        adjacentRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
+                            firstNonBlank(it.backdrop, it.imageUrl)
+                        }?.takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }.distinct()
+'''
+          new_targets = '''                val urls = buildList {
+                    row.items.getOrNull(index + 1)?.heroPreview?.let {
+                        firstNonBlank(it.backdrop, it.imageUrl)
+                    }?.takeIf { it.isNotBlank() }?.let(::add)
+
+                    val belowRow = latestCarouselRows.getOrNull(rowIndex + 1)
+                    if (belowRow != null && belowRow.items.isNotEmpty()) {
+                        val rememberedIndex = (focusedItemByRow[belowRow.key] ?: 0)
+                            .coerceIn(0, belowRow.items.lastIndex)
+                        belowRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
+                            firstNonBlank(it.backdrop, it.imageUrl)
+                        }?.takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }.distinct()
+'''
+          if old_targets not in text:
+              raise SystemExit('Expected four-target prewarm block not found')
+          text = text.replace(old_targets, new_targets, 1)
+          path.write_text(text)
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt
+
+      - name: Compile sideload Kotlin
+        run: ./gradlew :app:compileSideloadKotlin
+
+      - name: Commit source and remove temporary workflow
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/adjust-hero-prewarm-v3.yml
+          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt .github/workflows/adjust-hero-prewarm-v3.yml
+          git commit -m "Limit hero backdrop prewarm to right and below"
+          git push origin HEAD:fix/readiness-gated-hero-backdrop
