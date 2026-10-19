@@ -1,0 +1,64 @@
+name: Restore Home hero source
+
+on:
+  push:
+    branches:
+      - fix/readiness-gated-hero-backdrop
+    paths:
+      - .github/workflows/restore-home-hero-dev.yml
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/readiness-gated-hero-backdrop
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare local properties
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
+          LOCAL_DEV_PROPERTIES_BASE64: ${{ secrets.LOCAL_DEV_PROPERTIES_BASE64 }}
+        run: |
+          if [ -n "$LOCAL_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_PROPERTIES_BASE64" | base64 --decode > local.properties
+          fi
+          if [ -n "$LOCAL_DEV_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_DEV_PROPERTIES_BASE64" | base64 --decode > local.dev.properties
+          fi
+
+      - name: Restore ModernHomeHero from dev
+        run: |
+          git fetch origin dev
+          git checkout origin/dev -- app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeHero.kt
+          git diff --check
+          git diff -- app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeHero.kt
+
+      - name: Compile sideload Kotlin
+        env:
+          CI_USE_DEBUG_SIGNING: "true"
+        run: ./gradlew :app:compileSideloadKotlin --stacktrace
+
+      - name: Commit restore and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/restore-home-hero-dev.yml
+          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeHero.kt \
+            .github/workflows/restore-home-hero-dev.yml
+          git diff --cached --check
+          git commit -m "Restore standard Home hero crossfade source"
+          git push origin HEAD:fix/readiness-gated-hero-backdrop
