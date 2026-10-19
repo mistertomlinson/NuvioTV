@@ -3193,8 +3193,8 @@ fun ModernHomeContent(
             with(localDensity) { heroBackdropHeight.roundToPx() }
         }
 
-        // Speculative hero images are warmed only after navigation settles.
-        // The displayed hero and cold-start request retain their existing paths.
+        // Hero neighbors are warmed at the exact render size; cold-start and
+        // platform-transition prewarm keep their existing specialized paths.
         val prewarmImageLoader = remember(context) { coil.Coil.imageLoader(context) }
         // Cold-start hero prewarm: the CW pre-render paints cards from disk cache
         // ~1s before the enrichment restore + debounced hero flow produce a
@@ -3216,53 +3216,77 @@ fun ModernHomeContent(
                     .build()
             )
         }
+        /*
+         * Immediate likely-destination hero backdrop prewarm.
+         *
+         * Keep only the two likely cold destinations warm: the item immediately
+         * right of the current focus and the remembered-focus item in the row
+         * immediately below (falling back to item 0). The left item and row above
+         * are intentionally omitted because those destinations were already
+         * visited and should normally already be warm in Coil's cache.
+         *
+         * Requests use the exact hero render size so Coil's memory-cache entry can
+         * be reused directly by ModernHeroMediaLayer. Vertical and held-DPAD
+         * scrolling cancel the work; no wider speculation is performed.
+         */
         LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
             if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
+
             kotlinx.coroutines.flow.combine(
                 snapshotFlow { activeRowKey to activeItemIndex },
-                snapshotFlow {
-                    verticalRowListState.isScrollInProgress ||
-                        rowListStates.values.any { it.isScrollInProgress }
-                },
+                snapshotFlow { verticalRowListState.isScrollInProgress },
                 isFastScrollingRef
-            ) { selection, scrolling, fastScrolling ->
-                selection to (scrolling || fastScrolling)
-            }.collectLatest { (selection, scrolling) ->
-                // collectLatest cancels the delay AND pending image work as soon
-                // as focus moves or either axis starts scrolling again.
-                if (scrolling) return@collectLatest
-                delay(240L)
+            ) { selection, verticalScrolling, fastScrolling ->
+                selection to (verticalScrolling || fastScrolling)
+            }.collectLatest { (selection, blocked) ->
+                if (blocked) return@collectLatest
+
                 val (rowKey, index) = selection
                 if (rowKey == null) return@collectLatest
-                val rows = latestCarouselRows
-                val rowIdx = rows.indexOfFirst { it.key == rowKey }
-                val row = rows.getOrNull(rowIdx) ?: return@collectLatest
-                val targets = buildList {
-                    row.items.getOrNull(index - 1)?.let { add(it) }
-                    row.items.getOrNull(index + 1)?.let { add(it) }
-                    for (adj in intArrayOf(rowIdx - 1, rowIdx + 1)) {
-                        rows.getOrNull(adj)?.let { adjacent ->
-                            if (adjacent.items.isNotEmpty()) {
-                                val remembered = (focusedItemByRow[adjacent.key] ?: 0)
-                                    .coerceIn(0, adjacent.items.lastIndex)
-                                add(adjacent.items[remembered])
+
+                val rowIndex = latestCarouselRows.indexOfFirst { it.key == rowKey }
+                if (rowIndex < 0) return@collectLatest
+                val row = latestCarouselRows[rowIndex]
+
+                val urls = buildList {
+                    row.items.getOrNull(index + 1)?.heroPreview?.let {
+                        firstNonBlank(it.backdrop, it.imageUrl)
+                    }?.takeIf { it.isNotBlank() }?.let(::add)
+
+                    val belowRow = latestCarouselRows.getOrNull(rowIndex + 1)
+                    if (belowRow != null && belowRow.items.isNotEmpty()) {
+                        val rememberedIndex = (focusedItemByRow[belowRow.key] ?: 0)
+                            .coerceIn(0, belowRow.items.lastIndex)
+                        belowRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
+                            firstNonBlank(it.backdrop, it.imageUrl)
+                        }?.takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }.distinct()
+                kotlinx.coroutines.coroutineScope {
+                    urls.forEach { url ->
+                        launch {
+                            try {
+                                prewarmImageLoader.execute(
+                                    coil.request.ImageRequest.Builder(context)
+                                        .data(url)
+                                        .crossfade(false)
+                                        .size(
+                                            width = heroMediaWidthPx,
+                                            height = heroMediaHeightPx
+                                        )
+                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
+                                        .build()
+                                )
+                            } catch (
+                                cancelled: kotlinx.coroutines.CancellationException
+                            ) {
+                                throw cancelled
+                            } catch (_: Throwable) {
+                                // Best-effort prewarm must never affect Home.
                             }
                         }
                     }
                 }
-                targets.mapNotNull { it.heroPreview.backdrop?.takeIf(String::isNotBlank) }
-                    .distinct()
-                    .forEach { url ->
-                        // Sequential, cancellable speculation avoids launching
-                        // four large decodes alongside the next D-pad animation.
-                        prewarmImageLoader.execute(
-                            coil.request.ImageRequest.Builder(context)
-                                .data(url)
-                                .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
-                                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                .build()
-                        )
-                    }
             }
         }
         LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
