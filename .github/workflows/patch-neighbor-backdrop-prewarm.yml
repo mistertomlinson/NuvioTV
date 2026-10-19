@@ -41,13 +41,16 @@ jobs:
           fi
 
       - name: Replace readiness gate with immediate same-row neighbor prewarm
+        env:
+          PREWARM_BLOCK_B64: "ICAgICAgICAvKgogICAgICAgICAqIEltbWVkaWF0ZSBzYW1lLXJvdyBoZXJvIGJhY2tkcm9wIHByZXdhcm0uCiAgICAgICAgICoKICAgICAgICAgKiBLZWVwIG9ubHkgdGhlIHR3byBsaWtlbHkgaG9yaXpvbnRhbCBkZXN0aW5hdGlvbnMgd2FybTogdGhlIGl0ZW0KICAgICAgICAgKiBpbW1lZGlhdGVseSBsZWZ0IGFuZCBpbW1lZGlhdGVseSByaWdodCBvZiB0aGUgY3VycmVudCBmb2N1cy4gUmVxdWVzdHMKICAgICAgICAgKiB1c2UgdGhlIGV4YWN0IGhlcm8gcmVuZGVyIHNpemUgc28gQ29pbCdzIG1lbW9yeS1jYWNoZSBlbnRyeSBjYW4gYmUKICAgICAgICAgKiByZXVzZWQgZGlyZWN0bHkgYnkgTW9kZXJuSGVyb01lZGlhTGF5ZXIuCiAgICAgICAgICoKICAgICAgICAgKiBVbmxpa2UgdGhlIG9sZCBmb3VyLWRpcmVjdGlvbiB3YXJtdXAsIHRoaXMgZG9lcyBub3QgdG91Y2ggYWRqYWNlbnQKICAgICAgICAgKiByb3dzLiBWZXJ0aWNhbCBhbmQgaGVsZC1EUEFEIHNjcm9sbGluZyBjYW5jZWwgdGhlIHdvcmssIHdoaWxlIG9yZGluYXJ5CiAgICAgICAgICogaG9yaXpvbnRhbCBmb2N1cyBjaGFuZ2VzIHN0YXJ0IHRoZSB0d28gc21hbGwgc3BlY3VsYXRpdmUgcmVxdWVzdHMKICAgICAgICAgKiBpbW1lZGlhdGVseSBpbnN0ZWFkIG9mIHdhaXRpbmcgZm9yIGFuIGlkbGUgZGVib3VuY2UuCiAgICAgICAgICovCiAgICAgICAgTGF1bmNoZWRFZmZlY3QoaGVyb01lZGlhV2lkdGhQeCwgaGVyb01lZGlhSGVpZ2h0UHgpIHsKICAgICAgICAgICAgaWYgKGhlcm9NZWRpYVdpZHRoUHggPD0gMCB8fCBoZXJvTWVkaWFIZWlnaHRQeCA8PSAwKSByZXR1cm5ATGF1bmNoZWRFZmZlY3QKCiAgICAgICAgICAgIGtvdGxpbnguY29yb3V0aW5lcy5mbG93LmNvbWJpbmUoCiAgICAgICAgICAgICAgICBzbmFwc2hvdEZsb3cgeyBhY3RpdmVSb3dLZXkgdG8gYWN0aXZlSXRlbUluZGV4IH0sCiAgICAgICAgICAgICAgICBzbmFwc2hvdEZsb3cgeyB2ZXJ0aWNhbFJvd0xpc3RTdGF0ZS5pc1Njcm9sbEluUHJvZ3Jlc3MgfSwKICAgICAgICAgICAgICAgIGlzRmFzdFNjcm9sbGluZ1JlZgogICAgICAgICAgICApIHsgc2VsZWN0aW9uLCB2ZXJ0aWNhbFNjcm9sbGluZywgZmFzdFNjcm9sbGluZyAtPgogICAgICAgICAgICAgICAgc2VsZWN0aW9uIHRvICh2ZXJ0aWNhbFNjcm9sbGluZyB8fCBmYXN0U2Nyb2xsaW5nKQogICAgICAgICAgICB9LmNvbGxlY3RMYXRlc3QgeyAoc2VsZWN0aW9uLCBibG9ja2VkKSAtPgogICAgICAgICAgICAgICAgaWYgKGJsb2NrZWQpIHJldHVybkBjb2xsZWN0TGF0ZXN0CgogICAgICAgICAgICAgICAgdmFsIChyb3dLZXksIGluZGV4KSA9IHNlbGVjdGlvbgogICAgICAgICAgICAgICAgaWYgKHJvd0tleSA9PSBudWxsKSByZXR1cm5AY29sbGVjdExhdGVzdAoKICAgICAgICAgICAgICAgIHZhbCByb3cgPSBsYXRlc3RDYXJvdXNlbFJvd3MuZmlyc3RPck51bGwgeyBpdC5rZXkgPT0gcm93S2V5IH0KICAgICAgICAgICAgICAgICAgICA/OiByZXR1cm5AY29sbGVjdExhdGVzdAoKICAgICAgICAgICAgICAgIHZhbCB1cmxzID0gbGlzdE9mTm90TnVsbCgKICAgICAgICAgICAgICAgICAgICByb3cuaXRlbXMuZ2V0T3JOdWxsKGluZGV4IC0gMSk/Lmhlcm9QcmV2aWV3Py5sZXQgewogICAgICAgICAgICAgICAgICAgICAgICBmaXJzdE5vbkJsYW5rKGl0LmJhY2tkcm9wLCBpdC5pbWFnZVVybCkKICAgICAgICAgICAgICAgICAgICB9LAogICAgICAgICAgICAgICAgICAgIHJvdy5pdGVtcy5nZXRPck51bGwoaW5kZXggKyAxKT8uaGVyb1ByZXZpZXc/LmxldCB7CiAgICAgICAgICAgICAgICAgICAgICAgIGZpcnN0Tm9uQmxhbmsoaXQuYmFja2Ryb3AsIGl0LmltYWdlVXJsKQogICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAuZmlsdGVyIHsgaXQuaXNOb3RCbGFuaygpIH0KICAgICAgICAgICAgICAgICAgICAuZGlzdGluY3QoKQoKICAgICAgICAgICAgICAgIGtvdGxpbnguY29yb3V0aW5lcy5jb3JvdXRpbmVTY29wZSB7CiAgICAgICAgICAgICAgICAgICAgdXJscy5mb3JFYWNoIHsgdXJsIC0+CiAgICAgICAgICAgICAgICAgICAgICAgIGxhdW5jaCB7CiAgICAgICAgICAgICAgICAgICAgICAgICAgICB0cnkgewogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIHByZXdhcm1JbWFnZUxvYWRlci5leGVjdXRlKAogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICBjb2lsLnJlcXVlc3QuSW1hZ2VSZXF1ZXN0LkJ1aWxkZXIoY29udGV4dCkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC5kYXRhKHVybCkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC5jcm9zc2ZhZGUoZmFsc2UpCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAuc2l6ZSgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICB3aWR0aCA9IGhlcm9NZWRpYVdpZHRoUHgsCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgaGVpZ2h0ID0gaGVyb01lZGlhSGVpZ2h0UHgKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC5tZW1vcnlDYWNoZVBvbGljeShjb2lsLnJlcXVlc3QuQ2FjaGVQb2xpY3kuRU5BQkxFRCkKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC5idWlsZCgpCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgKQogICAgICAgICAgICAgICAgICAgICAgICAgICAgfSBjYXRjaCAoCiAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgY2FuY2VsbGVkOiBrb3RsaW54LmNvcm91dGluZXMuQ2FuY2VsbGF0aW9uRXhjZXB0aW9uCiAgICAgICAgICAgICAgICAgICAgICAgICAgICApIHsKICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICB0aHJvdyBjYW5jZWxsZWQKICAgICAgICAgICAgICAgICAgICAgICAgICAgIH0gY2F0Y2ggKF86IFRocm93YWJsZSkgewogICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgIC8vIEJlc3QtZWZmb3J0IHByZXdhcm0gbXVzdCBuZXZlciBhZmZlY3QgSG9tZS4KICAgICAgICAgICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgIH0K"
         run: |
           python3 - <<'PY'
+          import base64
+          import os
           from pathlib import Path
 
           hero_path = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeHero.kt")
           hero = hero_path.read_text()
-
           gate_start_marker = "    /*\n     * Keep Backdrop A visible until the currently focused Backdrop B has"
           gate_end_marker = "    Box(modifier = modifier.clipToBounds()) {"
           gate_start = hero.find(gate_start_marker)
@@ -56,7 +59,6 @@ jobs:
           gate_end = hero.find(gate_end_marker, gate_start)
           if gate_end < 0:
               raise SystemExit("Readiness gate end marker not found")
-
           hero = hero[:gate_start] + hero[gate_end:]
           old_target = "            targetState = displayedBackdropFrame,"
           new_target = "            targetState = targetBackdropFrame,"
@@ -67,101 +69,25 @@ jobs:
 
           content_path = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt")
           content = content_path.read_text()
-
           anchor = "        // Speculative hero images are warmed only after navigation settles."
           anchor_pos = content.find(anchor)
           if anchor_pos < 0:
               raise SystemExit("Hero prewarm anchor not found")
-
           effect_start_marker = "        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {\n            if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect"
           effect_start = content.find(effect_start_marker, anchor_pos)
           if effect_start < 0:
               raise SystemExit("Existing hero prewarm effect start not found")
-
           effect_end_marker = "        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {\n            if (heroMediaWidthPx > 0 && heroMediaHeightPx > 0) {"
           effect_end = content.find(effect_end_marker, effect_start)
           if effect_end < 0:
               raise SystemExit("Existing hero prewarm effect end not found")
-
-          replacement = r'''        /*
-         * Immediate same-row hero backdrop prewarm.
-         *
-         * Keep only the two likely horizontal destinations warm: the item
-         * immediately left and immediately right of the current focus. Requests
-         * use the exact hero render size so Coil's memory-cache entry can be
-         * reused directly by ModernHeroMediaLayer.
-         *
-         * Unlike the old four-direction warmup, this does not touch adjacent
-         * rows. Vertical and held-DPAD scrolling cancel the work, while ordinary
-         * horizontal focus changes start the two small speculative requests
-         * immediately instead of waiting for an idle debounce.
-         */
-        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
-            if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
-
-            kotlinx.coroutines.flow.combine(
-                snapshotFlow { activeRowKey to activeItemIndex },
-                snapshotFlow { verticalRowListState.isScrollInProgress },
-                isFastScrollingRef
-            ) { selection, verticalScrolling, fastScrolling ->
-                selection to (verticalScrolling || fastScrolling)
-            }.collectLatest { (selection, blocked) ->
-                if (blocked) return@collectLatest
-
-                val (rowKey, index) = selection
-                if (rowKey == null) return@collectLatest
-
-                val row = latestCarouselRows.firstOrNull { it.key == rowKey }
-                    ?: return@collectLatest
-
-                val urls = listOfNotNull(
-                    row.items.getOrNull(index - 1)?.heroPreview?.let {
-                        firstNonBlank(it.backdrop, it.imageUrl)
-                    },
-                    row.items.getOrNull(index + 1)?.heroPreview?.let {
-                        firstNonBlank(it.backdrop, it.imageUrl)
-                    }
-                )
-                    .filter { it.isNotBlank() }
-                    .distinct()
-
-                kotlinx.coroutines.coroutineScope {
-                    urls.forEach { url ->
-                        launch {
-                            try {
-                                prewarmImageLoader.execute(
-                                    coil.request.ImageRequest.Builder(context)
-                                        .data(url)
-                                        .crossfade(false)
-                                        .size(
-                                            width = heroMediaWidthPx,
-                                            height = heroMediaHeightPx
-                                        )
-                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                        .build()
-                                )
-                            } catch (
-                                cancelled: kotlinx.coroutines.CancellationException
-                            ) {
-                                throw cancelled
-                            } catch (_: Throwable) {
-                                // Best-effort prewarm must never affect Home.
-                            }
-                        }
-                    }
-                }
-            }
-        }
-'''
-
+          replacement = base64.b64decode(os.environ["PREWARM_BLOCK_B64"]).decode()
           content = content[:effect_start] + replacement + content[effect_end:]
-
           old_comment = "        // Speculative hero images are warmed only after navigation settles.\n        // The displayed hero and cold-start request retain their existing paths."
           new_comment = "        // Hero neighbors are warmed at the exact render size; cold-start and\n        // platform-transition prewarm keep their existing specialized paths."
           if old_comment not in content:
               raise SystemExit("Expected prewarm summary comment not found")
           content = content.replace(old_comment, new_comment, 1)
-
           content_path.write_text(content)
           PY
 
