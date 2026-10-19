@@ -113,6 +113,17 @@ internal fun ModernHeroMediaLayer(
 ) {
     val localContext = LocalContext.current
 
+    /*
+     * Match official beta semantics:
+     *
+     * changing focus changes Crossfade's TARGET immediately. Do not wait for
+     * Coil to preload Backdrop B before releasing Backdrop A.
+     *
+     * The outgoing frame may survive briefly inside Crossfade, but the whole
+     * backdrop layer is still near-zero opacity while Trailer A is exiting.
+     * That produces the characteristic black handoff with, at most, a tiny
+     * flash of A.
+     */
     data class BackdropFrame(
         val url: String?,
         val scale: Float,
@@ -141,33 +152,20 @@ internal fun ModernHeroMediaLayer(
             animationSpec = tween(durationMillis = backdropCrossfadeDuration),
             label = "modernHeroBackground"
         ) { frame ->
-            val imageModel = remember(
-                localContext,
-                frame.url,
-                requestWidthPx,
-                requestHeightPx
-            ) {
+            val imageModel = remember(localContext, frame.url, requestWidthPx, requestHeightPx) {
                 ImageRequest.Builder(localContext)
                     .data(frame.url)
                     .crossfade(false)
-                    .size(
-                        width = requestWidthPx,
-                        height = requestHeightPx
-                    )
+                    .size(width = requestWidthPx, height = requestHeightPx)
                     .build()
             }
-
             if (cinematicMode) {
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer {
-                            translationX = parallaxOffsetX
-                            scaleX = frame.scale
-                            scaleY = frame.scale
-                        },
+                        .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
                     contentScale = ContentScale.Crop,
                     alignment =
                         if (frame.isPosterFallback) {
@@ -208,6 +206,7 @@ internal fun ModernHeroMediaLayer(
                     .graphicsLayer { alpha = heroTrailerAlpha }
             )
         }
+
     }
 }
 
