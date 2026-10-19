@@ -1,0 +1,126 @@
+name: Adjust hero backdrop prewarm
+
+on:
+  push:
+    branches:
+      - fix/readiness-gated-hero-backdrop
+    paths:
+      - .github/workflows/adjust-hero-prewarm-v2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  adjust:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: fix/readiness-gated-hero-backdrop
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+
+      - name: Prepare local properties
+        env:
+          LOCAL_PROPERTIES_BASE64: ${{ secrets.LOCAL_PROPERTIES_BASE64 }}
+          LOCAL_DEV_PROPERTIES_BASE64: ${{ secrets.LOCAL_DEV_PROPERTIES_BASE64 }}
+        run: |
+          if [ -n "$LOCAL_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_PROPERTIES_BASE64" | base64 --decode > local.properties
+          fi
+          if [ -n "$LOCAL_DEV_PROPERTIES_BASE64" ]; then
+            printf '%s' "$LOCAL_DEV_PROPERTIES_BASE64" | base64 --decode > local.dev.properties
+          fi
+
+      - name: Add above and below hero prewarm targets
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt")
+          text = path.read_text()
+
+          comment_start = "        /*\n         * Immediate same-row hero backdrop prewarm.\n"
+          effect_marker = "        LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {\n"
+          start = text.index(comment_start)
+          effect = text.index(effect_marker, start)
+          comment = "\n".join([
+              "        /*",
+              "         * Immediate likely-destination hero backdrop prewarm.",
+              "         *",
+              "         * Keep four likely destinations warm: the item immediately left and",
+              "         * right of the current focus, plus the remembered-focus item in the row",
+              "         * immediately above and immediately below. Requests use the exact hero",
+              "         * render size so Coil's memory-cache entry can be reused directly by",
+              "         * ModernHeroMediaLayer.",
+              "         *",
+              "         * Vertical and held-DPAD scrolling cancel the work. Once navigation is",
+              "         * settled, the four targeted requests start immediately; no wider row or",
+              "         * multi-item speculation is performed.",
+              "         */",
+              "",
+          ])
+          text = text[:start] + comment + text[effect:]
+
+          old_start = "                val row = latestCarouselRows.firstOrNull { it.key == rowKey }\n"
+          coroutine_marker = "                kotlinx.coroutines.coroutineScope {\n"
+          start = text.index(old_start)
+          end = text.index(coroutine_marker, start)
+          replacement = "\n".join([
+              "                val rowIndex = latestCarouselRows.indexOfFirst { it.key == rowKey }",
+              "                if (rowIndex < 0) return@collectLatest",
+              "                val row = latestCarouselRows[rowIndex]",
+              "",
+              "                val urls = buildList {",
+              "                    row.items.getOrNull(index - 1)?.heroPreview?.let {",
+              "                        firstNonBlank(it.backdrop, it.imageUrl)",
+              "                    }?.takeIf { it.isNotBlank() }?.let(::add)",
+              "",
+              "                    row.items.getOrNull(index + 1)?.heroPreview?.let {",
+              "                        firstNonBlank(it.backdrop, it.imageUrl)",
+              "                    }?.takeIf { it.isNotBlank() }?.let(::add)",
+              "",
+              "                    for (adjacentRowIndex in intArrayOf(rowIndex - 1, rowIndex + 1)) {",
+              "                        val adjacentRow = latestCarouselRows.getOrNull(adjacentRowIndex)",
+              "                            ?: continue",
+              "                        if (adjacentRow.items.isEmpty()) continue",
+              "",
+              "                        val rememberedIndex = (focusedItemByRow[adjacentRow.key] ?: 0)",
+              "                            .coerceIn(0, adjacentRow.items.lastIndex)",
+              "                        adjacentRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {",
+              "                            firstNonBlank(it.backdrop, it.imageUrl)",
+              "                        }?.takeIf { it.isNotBlank() }?.let(::add)",
+              "                    }",
+              "                }.distinct()",
+              "",
+          ])
+          text = text[:start] + replacement + text[end:]
+          path.write_text(text)
+          PY
+
+          git diff --check
+          git diff -- app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt
+
+      - name: Compile sideload Kotlin
+        env:
+          CI_USE_DEBUG_SIGNING: "true"
+        run: ./gradlew :app:compileSideloadKotlin --stacktrace
+
+      - name: Commit source and remove temporary workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          rm .github/workflows/adjust-hero-prewarm-v2.yml
+          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt \
+            .github/workflows/adjust-hero-prewarm-v2.yml
+          git diff --cached --check
+          git commit -m "Prewarm adjacent row hero backdrops"
+          git push origin HEAD:fix/readiness-gated-hero-backdrop
