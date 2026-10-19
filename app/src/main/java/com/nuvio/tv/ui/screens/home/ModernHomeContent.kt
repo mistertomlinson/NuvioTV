@@ -3217,17 +3217,17 @@ fun ModernHomeContent(
             )
         }
         /*
-         * Immediate same-row hero backdrop prewarm.
+         * Immediate likely-destination hero backdrop prewarm.
          *
-         * Keep only the two likely horizontal destinations warm: the item
-         * immediately left and immediately right of the current focus. Requests
-         * use the exact hero render size so Coil's memory-cache entry can be
-         * reused directly by ModernHeroMediaLayer.
+         * Keep four likely destinations warm: the item immediately left and
+         * right of the current focus, plus the remembered-focus item in the row
+         * immediately above and immediately below. Requests use the exact hero
+         * render size so Coil's memory-cache entry can be reused directly by
+         * ModernHeroMediaLayer.
          *
-         * Unlike the old four-direction warmup, this does not touch adjacent
-         * rows. Vertical and held-DPAD scrolling cancel the work, while ordinary
-         * horizontal focus changes start the two small speculative requests
-         * immediately instead of waiting for an idle debounce.
+         * Vertical and held-DPAD scrolling cancel the work. Once navigation is
+         * settled, the four targeted requests start immediately; no wider row or
+         * multi-item speculation is performed.
          */
         LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
             if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
@@ -3244,20 +3244,31 @@ fun ModernHomeContent(
                 val (rowKey, index) = selection
                 if (rowKey == null) return@collectLatest
 
-                val row = latestCarouselRows.firstOrNull { it.key == rowKey }
-                    ?: return@collectLatest
+                val rowIndex = latestCarouselRows.indexOfFirst { it.key == rowKey }
+                if (rowIndex < 0) return@collectLatest
+                val row = latestCarouselRows[rowIndex]
 
-                val urls = listOfNotNull(
+                val urls = buildList {
                     row.items.getOrNull(index - 1)?.heroPreview?.let {
                         firstNonBlank(it.backdrop, it.imageUrl)
-                    },
+                    }?.takeIf { it.isNotBlank() }?.let(::add)
+
                     row.items.getOrNull(index + 1)?.heroPreview?.let {
                         firstNonBlank(it.backdrop, it.imageUrl)
-                    }
-                )
-                    .filter { it.isNotBlank() }
-                    .distinct()
+                    }?.takeIf { it.isNotBlank() }?.let(::add)
 
+                    for (adjacentRowIndex in intArrayOf(rowIndex - 1, rowIndex + 1)) {
+                        val adjacentRow = latestCarouselRows.getOrNull(adjacentRowIndex)
+                            ?: continue
+                        if (adjacentRow.items.isEmpty()) continue
+
+                        val rememberedIndex = (focusedItemByRow[adjacentRow.key] ?: 0)
+                            .coerceIn(0, adjacentRow.items.lastIndex)
+                        adjacentRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
+                            firstNonBlank(it.backdrop, it.imageUrl)
+                        }?.takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                }.distinct()
                 kotlinx.coroutines.coroutineScope {
                     urls.forEach { url ->
                         launch {
