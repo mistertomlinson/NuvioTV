@@ -132,97 +132,9 @@ internal fun ModernHeroMediaLayer(
             )
         }
 
-    /*
-     * Keep Backdrop A visible until the currently focused Backdrop B has
-     * actually decoded into Coil's memory cache. The card/metadata/trailer
-     * pipeline is intentionally NOT gated on this; only the backdrop target
-     * waits. That restores a true image-to-image Crossfade without bringing
-     * eager neighbor prewarming back onto the D-pad path.
-     *
-     * Zero-duration transitions are used by the platform/ghost and top-row
-     * trailer handoffs and remain atomic, exactly as before.
-     */
-    val backdropImageLoader =
-        remember(localContext) {
-            coil.Coil.imageLoader(localContext)
-        }
-
-    var displayedBackdropFrame by remember {
-        mutableStateOf(targetBackdropFrame)
-    }
-
-    val latestTargetBackdropFrame =
-        androidx.compose.runtime.rememberUpdatedState(
-            targetBackdropFrame
-        )
-
-    LaunchedEffect(
-        targetBackdropFrame,
-        requestWidthPx,
-        requestHeightPx,
-        backdropCrossfadeDuration
-    ) {
-        val requestedFrame = targetBackdropFrame
-
-        if (requestedFrame == displayedBackdropFrame) {
-            return@LaunchedEffect
-        }
-
-        if (
-            backdropCrossfadeDuration <= 0 ||
-            requestedFrame.url.isNullOrBlank() ||
-            requestedFrame.url == displayedBackdropFrame.url
-        ) {
-            displayedBackdropFrame = requestedFrame
-            return@LaunchedEffect
-        }
-
-        if (
-            requestWidthPx <= 0 ||
-            requestHeightPx <= 0
-        ) {
-            return@LaunchedEffect
-        }
-
-        val readinessRequest =
-            ImageRequest.Builder(localContext)
-                .data(requestedFrame.url)
-                .crossfade(false)
-                .size(
-                    width = requestWidthPx,
-                    height = requestHeightPx
-                )
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .build()
-
-        val readinessResult =
-            try {
-                backdropImageLoader.execute(
-                    readinessRequest
-                )
-            } catch (
-                cancelled:
-                    kotlinx.coroutines.CancellationException
-            ) {
-                throw cancelled
-            } catch (_: Throwable) {
-                null
-            }
-
-        if (
-            readinessResult is
-                coil.request.SuccessResult &&
-            latestTargetBackdropFrame.value ==
-                requestedFrame
-        ) {
-            displayedBackdropFrame =
-                requestedFrame
-        }
-    }
-
     Box(modifier = modifier.clipToBounds()) {
         Crossfade(
-            targetState = displayedBackdropFrame,
+            targetState = targetBackdropFrame,
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer { alpha = heroBackdropAlpha },
