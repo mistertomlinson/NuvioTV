@@ -13,33 +13,32 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 private val HOLIDAY_FOCUS_COLORS = arrayOf(
-    Color(0xFFE53935), // red
-    Color(0xFF43A047), // green
-    Color(0xFF1E88E5), // blue
-    Color(0xFFFDD835)  // yellow
+    Color(0xFFFF2B2B), // red
+    Color(0xFF22C55E), // green
+    Color(0xFF2F7DFF), // blue
+    Color(0xFFFFE12B)  // yellow
 )
 
 /**
  * Static holiday focus ring for Home catalog posters.
  *
- * This is deliberately draw-only: no animation clock, no state loop and no
- * layout change. Only the focused poster receives the modifier. Four cached
- * dashed strokes form repeating red/green/blue/yellow segments; a wider,
- * low-alpha copy underneath fakes a soft glow without RenderEffect/blur.
+ * Deliberately draw-only: no animation clock, no state loop and no layout
+ * change. The segments are intentionally large enough to stay visibly
+ * red/green/blue/yellow at normal TV viewing distance instead of blending into
+ * one pale line. A wider low-alpha copy underneath fakes a soft glow without
+ * RenderEffect/blur.
  */
 internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
-    segmentLength: Dp = 9.dp,
-    strokeWidth: Dp = 2.dp,
-    glowWidth: Dp = 5.dp
+    segmentLength: Dp = 22.dp,
+    strokeWidth: Dp = 3.dp,
+    glowWidth: Dp = 7.dp
 ): Modifier = drawWithCache {
     val segmentPx = segmentLength.toPx().coerceAtLeast(1f)
     val mainWidthPx = strokeWidth.toPx().coerceAtLeast(1f)
     val glowWidthPx = glowWidth.toPx().coerceAtLeast(mainWidthPx)
     val dashIntervals = floatArrayOf(segmentPx, segmentPx * 3f)
 
-    // Keep the wider glow inside the card's draw bounds so no offscreen layer
-    // or clipping workaround is needed.
     val inset = glowWidthPx * 0.5f
     val borderSize = Size(
         width = (size.width - inset * 2f).coerceAtLeast(0f),
@@ -50,8 +49,6 @@ internal fun Modifier.holidaySegmentedFocusBorder(
     val topLeft = Offset(inset, inset)
 
     val mainStyles = Array(HOLIDAY_FOCUS_COLORS.size) { index ->
-        // Android's dash phase advances into the pattern. These phases make
-        // consecutive path segments read red -> green -> blue -> yellow.
         val phase = when (index) {
             0 -> 0f
             1 -> segmentPx * 3f
@@ -64,6 +61,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             pathEffect = PathEffect.dashPathEffect(dashIntervals, phase)
         )
     }
+
     val glowStyles = Array(HOLIDAY_FOCUS_COLORS.size) { index ->
         val phase = when (index) {
             0 -> 0f
@@ -83,13 +81,14 @@ internal fun Modifier.holidaySegmentedFocusBorder(
 
         HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
             drawRoundRect(
-                color = color.copy(alpha = 0.18f),
+                color = color.copy(alpha = 0.16f),
                 topLeft = topLeft,
                 size = borderSize,
                 cornerRadius = roundedCorner,
                 style = glowStyles[index]
             )
         }
+
         HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
             drawRoundRect(
                 color = color,
