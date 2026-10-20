@@ -12,8 +12,8 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -24,7 +24,6 @@ import com.nuvio.tv.domain.model.SnowSizeProfile
 import com.nuvio.tv.domain.model.SnowStartupMode
 import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -58,8 +57,7 @@ private data class SnowParticle(
     val depthSeed: Float,
     val shapeSeed: Float,
     val aspectSeed: Float,
-    val softnessSeed: Float,
-    val rotationSeed: Float
+    val softnessSeed: Float
 )
 
 private const val MAX_SNOW_PARTICLES = 120
@@ -71,9 +69,8 @@ private const val TWO_PI = (2.0 * PI).toFloat()
 
 private val snowParticles: List<SnowParticle> = buildList(MAX_SNOW_PARTICLES) {
     // Deterministic LCG: no Random object and no particle allocation at runtime.
-    // Shape values are derived from the existing motion seeds rather than
-    // consuming more RNG values, so this visual upgrade keeps the original
-    // particle positions and motion distribution intact.
+    // Extra shape values are derived from the original motion seeds so this keeps
+    // the same overall motion distribution while improving appearance.
     var state = 0x51A7C0DEu
     fun nextFloat(): Float {
         state = state * 1664525u + 1013904223u
@@ -105,9 +102,7 @@ private val snowParticles: List<SnowParticle> = buildList(MAX_SNOW_PARTICLES) {
                 aspectSeed =
                     (ySeed * 0.67f + alphaSeed * 0.53f + speedSeed * 0.31f + depthSeed * 0.47f) % 1f,
                 softnessSeed =
-                    (xSeed * 0.37f + alphaSeed * 0.89f + sizeSeed * 0.43f + depthSeed * 0.61f) % 1f,
-                rotationSeed =
-                    (speedSeed * 0.79f + sizeSeed * 0.59f + alphaSeed * 0.23f + depthSeed * 0.71f) % 1f
+                    (xSeed * 0.37f + alphaSeed * 0.89f + sizeSeed * 0.43f + depthSeed * 0.61f) % 1f
             )
         )
     }
@@ -298,155 +293,84 @@ private fun HolidaySnowOverlay(
                     .coerceIn(0.10f, 0.96f)
             val alpha = steadyAlpha * startupOpacity
             val center = Offset(x, y)
-            val visualRadius1080 = radius1080 * depth
 
-            // Fake softness with shape-matched low-alpha primitives rather than
-            // a circular glow. This preserves the flake silhouette and avoids
-            // a RenderEffect/offscreen blur pass.
+            // Prefer the soft irregular look you liked. Most flakes can get the
+            // cheap fake-softness treatment without needing a real blur pass.
             val softHalo = when (depthBand) {
-                0 -> particle.softnessSeed > 0.88f
-                1 -> particle.softnessSeed > 0.74f
-                else -> particle.softnessSeed > 0.42f
+                0 -> particle.softnessSeed > 0.40f
+                1 -> particle.softnessSeed > 0.22f
+                else -> true
             }
 
-            // At TV distance a subtle oval still reads as a dot. Make small
-            // flakes visibly asymmetric shards, and use crystals much more
-            // often once there are enough pixels to resolve their arms.
-            val canShowCrystalDetail = visualRadius1080 >= 1.15f
-            when {
-                !canShowCrystalDetail || particle.shapeSeed < 0.28f -> {
-                    drawSnowShard(
-                        center = center,
-                        radius = radius,
-                        alpha = alpha,
-                        aspectSeed = particle.aspectSeed,
-                        rotationRadians = particle.phase,
-                        softHalo = softHalo
-                    )
-                }
-
-                particle.shapeSeed < 0.70f -> {
-                    val rotation = snowRotationRadians(particle, motionSeconds, slow = true)
-                    drawSnowCrystal(
-                        center = center,
-                        radius = radius,
-                        alpha = alpha,
-                        rotationRadians = rotation,
-                        armPairs = 2,
-                        softHalo = softHalo
-                    )
-                }
-
-                else -> {
-                    val rotation = snowRotationRadians(particle, motionSeconds, slow = false)
-                    drawSnowCrystal(
-                        center = center,
-                        radius = radius,
-                        alpha = alpha,
-                        rotationRadians = rotation,
-                        armPairs = 3,
-                        softHalo = softHalo
-                    )
-                }
-            }
+            drawSoftIrregularSnowFlake(
+                center = center,
+                radius = radius,
+                alpha = alpha,
+                aspectSeed = particle.aspectSeed,
+                shapeSeed = particle.shapeSeed,
+                softHalo = softHalo,
+                emphasizeSecondaryLobe = depthBand >= 1 || particle.shapeSeed > 0.52f
+            )
         }
     }
 }
 
-private fun snowRotationRadians(
-    particle: SnowParticle,
-    motionSeconds: Double,
-    slow: Boolean
-): Float {
-    val direction = if (particle.rotationSeed < 0.5f) -1f else 1f
-    val normalized = if (particle.rotationSeed < 0.5f) {
-        particle.rotationSeed * 2f
-    } else {
-        (particle.rotationSeed - 0.5f) * 2f
-    }
-    val radiansPerSecond = if (slow) {
-        0.035f + normalized * 0.045f
-    } else {
-        0.055f + normalized * 0.065f
-    }
-    return particle.phase + motionSeconds.toFloat() * radiansPerSecond * direction
-}
-
-private fun DrawScope.drawSnowShard(
+private fun DrawScope.drawSoftIrregularSnowFlake(
     center: Offset,
     radius: Float,
     alpha: Float,
     aspectSeed: Float,
-    rotationRadians: Float,
-    softHalo: Boolean
+    shapeSeed: Float,
+    softHalo: Boolean,
+    emphasizeSecondaryLobe: Boolean
 ) {
-    val halfLength = radius * (1.05f + aspectSeed * 0.55f)
-    val strokeWidth = (radius * (0.58f + (1f - aspectSeed) * 0.22f)).coerceAtLeast(0.62f)
-    val dx = cos(rotationRadians) * halfLength
-    val dy = sin(rotationRadians) * halfLength
-    val start = Offset(center.x - dx, center.y - dy)
-    val end = Offset(center.x + dx, center.y + dy)
+    val widthFactor = (0.58f + aspectSeed * 0.96f).coerceIn(0.58f, 1.54f)
+    val heightFactor = (1.28f - (widthFactor - 1f) * 0.46f).coerceIn(0.58f, 1.46f)
+    val halfWidth = radius * widthFactor
+    val halfHeight = radius * heightFactor
+
+    val lobeSeed = (shapeSeed * 1.73f) % 1f
+    val lobeOffsetX = (shapeSeed - 0.5f) * radius * 0.78f
+    val lobeOffsetY = (lobeSeed - 0.5f) * radius * 0.52f
+    val lobeScale = if (emphasizeSecondaryLobe) {
+        0.42f + lobeSeed * 0.28f
+    } else {
+        0.28f + lobeSeed * 0.18f
+    }
 
     if (softHalo) {
-        drawLine(
-            color = Color.White.copy(alpha = alpha * 0.10f),
-            start = start,
-            end = end,
-            strokeWidth = strokeWidth * 1.85f,
-            cap = StrokeCap.Round
+        val haloScale = 1.46f
+        drawOval(
+            color = Color.White.copy(alpha = alpha * 0.085f),
+            topLeft = Offset(
+                center.x - halfWidth * haloScale,
+                center.y - halfHeight * haloScale
+            ),
+            size = Size(
+                halfWidth * 2f * haloScale,
+                halfHeight * 2f * haloScale
+            )
         )
-    }
-
-    drawLine(
-        color = Color.White.copy(alpha = alpha),
-        start = start,
-        end = end,
-        strokeWidth = strokeWidth,
-        cap = StrokeCap.Round
-    )
-}
-
-private fun DrawScope.drawSnowCrystal(
-    center: Offset,
-    radius: Float,
-    alpha: Float,
-    rotationRadians: Float,
-    armPairs: Int,
-    softHalo: Boolean
-) {
-    val armLength = radius * 1.48f
-    val strokeWidth = (radius * 0.20f).coerceAtLeast(0.68f)
-    val angleStep = PI.toFloat() / armPairs
-
-    for (arm in 0 until armPairs) {
-        val angle = rotationRadians + angleStep * arm
-        val dx = cos(angle) * armLength
-        val dy = sin(angle) * armLength
-        val start = Offset(center.x - dx, center.y - dy)
-        val end = Offset(center.x + dx, center.y + dy)
-
-        if (softHalo) {
-            drawLine(
-                color = Color.White.copy(alpha = alpha * 0.075f),
-                start = start,
-                end = end,
-                strokeWidth = strokeWidth * 2.05f,
-                cap = StrokeCap.Round
+        if (emphasizeSecondaryLobe) {
+            val haloLobeRadius = radius * lobeScale * 1.65f
+            drawCircle(
+                color = Color.White.copy(alpha = alpha * 0.065f),
+                radius = haloLobeRadius,
+                center = Offset(center.x + lobeOffsetX * 1.10f, center.y + lobeOffsetY * 1.10f)
             )
         }
-
-        drawLine(
-            color = Color.White.copy(alpha = alpha),
-            start = start,
-            end = end,
-            strokeWidth = strokeWidth,
-            cap = StrokeCap.Round
-        )
     }
 
+    drawOval(
+        color = Color.White.copy(alpha = alpha * 0.96f),
+        topLeft = Offset(center.x - halfWidth, center.y - halfHeight),
+        size = Size(halfWidth * 2f, halfHeight * 2f)
+    )
+
+    val lobeRadius = radius * lobeScale
     drawCircle(
-        color = Color.White.copy(alpha = (alpha * 0.90f).coerceAtMost(1f)),
-        radius = (radius * 0.20f).coerceAtLeast(0.48f),
-        center = center
+        color = Color.White.copy(alpha = (alpha * 0.88f).coerceAtMost(1f)),
+        radius = lobeRadius,
+        center = Offset(center.x + lobeOffsetX, center.y + lobeOffsetY)
     )
 }
