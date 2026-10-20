@@ -2828,10 +2828,8 @@ private fun ModernCarouselCard(
                             retainSidebarFocusOutline ||
                             retainPopupFocusOutline
                     ) {
-                        Modifier.border(
-                            width = 2.dp,
-                            color = focusRingColor,
-                            shape = cardShape
+                        Modifier.holidaySegmentedFocusBorder(
+                            cornerRadius = cardCornerRadius
                         )
                     } else {
                         Modifier
