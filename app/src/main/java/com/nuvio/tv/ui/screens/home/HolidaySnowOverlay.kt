@@ -11,7 +11,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -21,6 +25,7 @@ import com.nuvio.tv.domain.model.SnowSizeProfile
 import com.nuvio.tv.domain.model.SnowStartupMode
 import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,7 +56,11 @@ private data class SnowParticle(
     val alphaSeed: Float,
     val phase: Float,
     val swayFrequency: Float,
-    val depthSeed: Float
+    val depthSeed: Float,
+    val shapeSeed: Float,
+    val aspectSeed: Float,
+    val softnessSeed: Float,
+    val rotationSeed: Float
 )
 
 private const val MAX_SNOW_PARTICLES = 120
@@ -59,9 +68,13 @@ private const val NANOS_PER_SECOND = 1_000_000_000.0
 private const val MAX_FRAME_DELTA_NANOS = 100_000_000L
 private const val SOFT_FADE_DURATION_SECONDS = 1.5
 private const val FALL_IN_SPAWN_WINDOW_SECONDS = 3.0
+private const val TWO_PI = (2.0 * PI).toFloat()
 
 private val snowParticles: List<SnowParticle> = buildList(MAX_SNOW_PARTICLES) {
     // Deterministic LCG: no Random object and no particle allocation at runtime.
+    // Shape values are derived from the existing motion seeds rather than
+    // consuming more RNG values, so this visual upgrade keeps the original
+    // particle positions and motion distribution intact.
     var state = 0x51A7C0DEu
     fun nextFloat(): Float {
         state = state * 1664525u + 1013904223u
@@ -69,16 +82,33 @@ private val snowParticles: List<SnowParticle> = buildList(MAX_SNOW_PARTICLES) {
     }
 
     repeat(MAX_SNOW_PARTICLES) {
+        val xSeed = nextFloat()
+        val ySeed = nextFloat()
+        val sizeSeed = nextFloat()
+        val speedSeed = nextFloat()
+        val alphaSeed = nextFloat()
+        val phase = nextFloat() * TWO_PI
+        val swayFrequency = 0.45f + nextFloat() * 0.85f
+        val depthSeed = nextFloat()
+
         add(
             SnowParticle(
-                xSeed = nextFloat(),
-                ySeed = nextFloat(),
-                sizeSeed = nextFloat(),
-                speedSeed = nextFloat(),
-                alphaSeed = nextFloat(),
-                phase = nextFloat() * (2f * PI.toFloat()),
-                swayFrequency = 0.45f + nextFloat() * 0.85f,
-                depthSeed = nextFloat()
+                xSeed = xSeed,
+                ySeed = ySeed,
+                sizeSeed = sizeSeed,
+                speedSeed = speedSeed,
+                alphaSeed = alphaSeed,
+                phase = phase,
+                swayFrequency = swayFrequency,
+                depthSeed = depthSeed,
+                shapeSeed =
+                    (xSeed * 0.73f + ySeed * 0.41f + sizeSeed * 0.87f + depthSeed * 0.29f) % 1f,
+                aspectSeed =
+                    (ySeed * 0.67f + alphaSeed * 0.53f + speedSeed * 0.31f + depthSeed * 0.47f) % 1f,
+                softnessSeed =
+                    (xSeed * 0.37f + alphaSeed * 0.89f + sizeSeed * 0.43f + depthSeed * 0.61f) % 1f,
+                rotationSeed =
+                    (speedSeed * 0.79f + sizeSeed * 0.59f + alphaSeed * 0.23f + depthSeed * 0.71f) % 1f
             )
         )
     }
@@ -236,7 +266,7 @@ private fun HolidaySnowOverlay(
 
             val yTravel =
                 motionSeconds * baseFallPxPerSecond * fallMultiplier * depth * scale1080
-            var y = if (config.startupMode == SnowStartupMode.FALL_IN_FROM_TOP) {
+            val y = if (config.startupMode == SnowStartupMode.FALL_IN_FROM_TOP) {
                 (yTravel.toFloat() % travelHeight) - margin
             } else {
                 (particle.ySeed * travelHeight + yTravel).toFloat() % travelHeight - margin
@@ -268,12 +298,147 @@ private fun HolidaySnowOverlay(
                 (baseAlpha * opacityMultiplier * (0.78f + depth * 0.20f))
                     .coerceIn(0.10f, 0.96f)
             val alpha = steadyAlpha * startupOpacity
+            val center = Offset(x, y)
+            val visualRadius1080 = radius1080 * depth
 
-            drawCircle(
-                color = Color.White.copy(alpha = alpha),
-                radius = radius,
-                center = androidx.compose.ui.geometry.Offset(x, y)
-            )
+            // Fake a very light depth-of-field softness with at most one extra
+            // primitive draw on selected particles. This deliberately avoids a
+            // RenderEffect/blur layer and keeps the 120-particle case cheap.
+            val softHalo = when (depthBand) {
+                0 -> particle.softnessSeed > 0.85f
+                1 -> particle.softnessSeed > 0.70f
+                else -> particle.softnessSeed > 0.35f
+            }
+
+            val canShowCrystalDetail = visualRadius1080 >= 1.65f
+            when {
+                !canShowCrystalDetail || particle.shapeSeed < 0.46f -> {
+                    drawIrregularSnowSpeck(
+                        center = center,
+                        radius = radius,
+                        alpha = alpha,
+                        aspectSeed = particle.aspectSeed,
+                        softHalo = softHalo
+                    )
+                }
+
+                particle.shapeSeed < 0.80f -> {
+                    val rotation = snowRotationRadians(particle, motionSeconds, slow = true)
+                    drawSnowCrystal(
+                        center = center,
+                        radius = radius,
+                        alpha = alpha,
+                        rotationRadians = rotation,
+                        armPairs = 2,
+                        softHalo = softHalo
+                    )
+                }
+
+                else -> {
+                    val rotation = snowRotationRadians(particle, motionSeconds, slow = false)
+                    drawSnowCrystal(
+                        center = center,
+                        radius = radius,
+                        alpha = alpha,
+                        rotationRadians = rotation,
+                        armPairs = 3,
+                        softHalo = softHalo
+                    )
+                }
+            }
         }
     }
+}
+
+private fun snowRotationRadians(
+    particle: SnowParticle,
+    motionSeconds: Double,
+    slow: Boolean
+): Float {
+    val direction = if (particle.rotationSeed < 0.5f) -1f else 1f
+    val normalized = if (particle.rotationSeed < 0.5f) {
+        particle.rotationSeed * 2f
+    } else {
+        (particle.rotationSeed - 0.5f) * 2f
+    }
+    val radiansPerSecond = if (slow) {
+        0.035f + normalized * 0.045f
+    } else {
+        0.055f + normalized * 0.065f
+    }
+    return particle.phase + motionSeconds.toFloat() * radiansPerSecond * direction
+}
+
+private fun DrawScope.drawIrregularSnowSpeck(
+    center: Offset,
+    radius: Float,
+    alpha: Float,
+    aspectSeed: Float,
+    softHalo: Boolean
+) {
+    val widthFactor = 0.78f + aspectSeed * 0.44f
+    val heightFactor = 1.10f - (widthFactor - 1f) * 0.35f
+    val halfWidth = radius * widthFactor
+    val halfHeight = radius * heightFactor
+
+    if (softHalo) {
+        val haloScale = 1.42f
+        drawOval(
+            color = Color.White.copy(alpha = alpha * 0.10f),
+            topLeft = Offset(
+                center.x - halfWidth * haloScale,
+                center.y - halfHeight * haloScale
+            ),
+            size = Size(
+                halfWidth * 2f * haloScale,
+                halfHeight * 2f * haloScale
+            )
+        )
+    }
+
+    drawOval(
+        color = Color.White.copy(alpha = alpha),
+        topLeft = Offset(center.x - halfWidth, center.y - halfHeight),
+        size = Size(halfWidth * 2f, halfHeight * 2f)
+    )
+}
+
+private fun DrawScope.drawSnowCrystal(
+    center: Offset,
+    radius: Float,
+    alpha: Float,
+    rotationRadians: Float,
+    armPairs: Int,
+    softHalo: Boolean
+) {
+    if (softHalo) {
+        drawCircle(
+            color = Color.White.copy(alpha = alpha * 0.085f),
+            radius = radius * 1.48f,
+            center = center
+        )
+    }
+
+    val armLength = radius * 1.18f
+    val strokeWidth = (radius * 0.22f).coerceAtLeast(0.72f)
+    val angleStep = PI.toFloat() / armPairs
+
+    for (arm in 0 until armPairs) {
+        val angle = rotationRadians + angleStep * arm
+        val dx = cos(angle) * armLength
+        val dy = sin(angle) * armLength
+        drawLine(
+            color = Color.White.copy(alpha = alpha),
+            start = Offset(center.x - dx, center.y - dy),
+            end = Offset(center.x + dx, center.y + dy),
+            strokeWidth = strokeWidth,
+            cap = StrokeCap.Round
+        )
+    }
+
+    drawCircle(
+        color = Color.White.copy(alpha = (alpha * 0.92f).coerceAtMost(1f)),
+        radius = (radius * 0.24f).coerceAtLeast(0.55f),
+        center = center
+    )
 }
