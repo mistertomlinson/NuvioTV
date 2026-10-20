@@ -366,20 +366,12 @@ class HomeViewModel @Inject constructor(
 
         manualCatalogRefreshCompletion = completion
 
-
-
         /*
-
          * Bind the entire manual refresh to the profile that started it.
-
          * Manifest requests suspend, so the active profile can change while
-
          * those requests are in flight.
-
          */
-
         val refreshProfileId =
-
             profileManager.activeProfileId.value
         /*
          * Catalog names and payloads can be generation-coupled. Watchly, in
