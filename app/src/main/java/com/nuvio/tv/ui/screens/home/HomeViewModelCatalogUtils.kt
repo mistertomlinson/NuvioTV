@@ -9,10 +9,13 @@ import com.nuvio.tv.ui.catalog.watchlyCatalogGroup
 import com.nuvio.tv.ui.catalog.watchlySavedGroup
 import kotlinx.coroutines.Job
 
+internal const val WATCHLY_ADDON_ID = "com.bimal.watchly"
+
 /**
- * Catalog names are presentation metadata. A renamed catalog with the same
- * descriptor structure must update in place instead of being treated as a
- * replacement catalog block.
+ * Catalog names are presentation metadata for ordinary addons. Watchly is the
+ * exception: its generated row title belongs to the same atomic recommendation
+ * generation as that row's payload. A newly observed Watchly manifest must not
+ * relabel already-loaded content from an older generation.
  */
 internal fun hasSameCatalogStructure(
     current: List<CatalogDescriptor>,
@@ -32,7 +35,11 @@ internal fun CatalogRow.withCatalogDisplayMetadata(
     copy(
         addonName = addonName,
         addonBaseUrl = addonBaseUrl,
-        catalogName = catalogName
+        catalogName = if (addonId == WATCHLY_ADDON_ID) {
+            this.catalogName
+        } else {
+            catalogName
+        }
     )
 
 internal fun HomeViewModel.catalogKey(addonId: String, type: String, catalogId: String): String {
@@ -53,7 +60,8 @@ internal fun HomeViewModel.buildHomeCatalogLoadSignature(
      * restarted Home, temporarily replacing loaded rows with skeletons.
      *
      * Display metadata is refreshed in place by
-     * refreshCatalogDisplayMetadataPipeline().
+     * refreshCatalogDisplayMetadataPipeline(). Watchly intentionally preserves
+     * its loaded title there until the matching catalog payload is replaced.
      */
     val addonCatalogSignature = addons
         .flatMap { addon ->

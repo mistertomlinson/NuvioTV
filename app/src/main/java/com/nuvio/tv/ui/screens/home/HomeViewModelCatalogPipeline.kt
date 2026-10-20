@@ -76,6 +76,13 @@ internal fun HomeViewModel.scheduleCatalogPipeline(
 internal fun HomeViewModel.refreshCatalogDisplayMetadataPipeline(
     addons: List<Addon>
 ) {
+    if (
+        catalogRuntimeProfileId !=
+            profileManager.activeProfileId.value
+    ) {
+        return
+    }
+
     var changed = false
 
     addons.forEach { addon ->
@@ -204,8 +211,16 @@ internal fun HomeViewModel.observeTmdbSettingsPipeline() {
 
 internal fun HomeViewModel.observeInstalledAddonsPipeline() {
     viewModelScope.launch {
-        addonRepository.getInstalledAddons()
-            .collectLatest { addons ->
+        profileManager.activeProfileId
+            .collectLatest profileCollector@ { profileId ->
+                addonRepository.getInstalledAddons()
+                    .collectLatest addonCollector@ { addons ->
+                        if (
+                            profileId !=
+                                profileManager.activeProfileId.value
+                        ) {
+                            return@addonCollector
+                        }
                 val currentSeasonal =
                     addonsCache.firstOrNull { addon ->
                         addon.id ==
@@ -282,7 +297,8 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
                         activeAddons
                     )
                     scheduleCatalogPipeline(
-                        activeAddons
+                        addons = activeAddons,
+                        profileId = profileId
                     )
 
                     android.util.Log.d(
@@ -291,7 +307,7 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
                             "for next Home return"
                     )
 
-                    return@collectLatest
+                    return@addonCollector
                 }
 
                 addonsCache = addons
@@ -303,8 +319,12 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
                  * unchanged structural signature.
                  */
                 refreshCatalogDisplayMetadataPipeline(addons)
-                scheduleCatalogPipeline(addons)
+                scheduleCatalogPipeline(
+                    addons = addons,
+                    profileId = profileId
+                )
             }
+        }
     }
 }
 
@@ -330,6 +350,8 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
         }
         return@withLock
     }
+
+    catalogRuntimeProfileId = profileId
 
     val signature =
         buildHomeCatalogLoadSignature(
@@ -651,6 +673,17 @@ internal suspend fun HomeViewModel.loadAllCatalogsPipeline(
 
         val diskCached =
             diskCacheDeferred?.await().orEmpty()
+
+        if (
+            generation != catalogLoadGeneration ||
+            profileId != profileManager.activeProfileId.value ||
+            catalogRuntimeProfileId != profileId
+        ) {
+            if (forceReload) {
+                completeManualCatalogRefresh(false)
+            }
+            return@withLock
+        }
 
         if (diskCacheDeferred == null) {
             /*
@@ -1551,6 +1584,13 @@ private fun com.nuvio.tv.domain.model.MetaPreview.hasDatedComingSoonSignal(): Bo
 }
 
 internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
+    if (
+        catalogRuntimeProfileId !=
+            profileManager.activeProfileId.value
+    ) {
+        return
+    }
+
     val orderedKeys = catalogOrder.toList()
     val catalogSnapshot = catalogsMap.toMap()
     val allCatalogsLoaded = pendingCatalogLoads == 0 && catalogSnapshot.isNotEmpty()

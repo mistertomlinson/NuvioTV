@@ -116,7 +116,7 @@ class HomeCatalogManifestReconciliationTest {
     }
 
     @Test
-    fun `refreshed manifest title replaces stale row title without changing content`() {
+    fun `refreshed manifest title replaces stale ordinary row title without changing content`() {
         val current = CatalogRow(
             addonId = "community.seasonalspotlight",
             addonName = "Seasonal Spotlight",
@@ -145,5 +145,30 @@ class HomeCatalogManifestReconciliationTest {
             current.items,
             updated.items
         )
+    }
+
+    @Test
+    fun `Watchly name-only manifest refresh cannot relabel old row content`() {
+        val current = CatalogRow(
+            addonId = WATCHLY_ADDON_ID,
+            addonName = "Watchly",
+            addonBaseUrl = "https://watchly.example",
+            catalogId = "watchly.theme.a:g16.a:k4565",
+            catalogName = "Animated Dystopian Worlds",
+            type = ContentType.MOVIE,
+            items = emptyList()
+        )
+
+        val updated = current.withCatalogDisplayMetadata(
+            addonName = "Watchly",
+            addonBaseUrl = "https://watchly.example",
+            catalogName = "Tomorrow After Dark"
+        )
+
+        assertEquals(
+            "Animated Dystopian Worlds",
+            updated.catalogName
+        )
+        assertEquals(current.items, updated.items)
     }
 }

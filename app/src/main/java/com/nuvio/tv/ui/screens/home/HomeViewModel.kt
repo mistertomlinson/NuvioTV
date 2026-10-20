@@ -276,6 +276,15 @@ class HomeViewModel @Inject constructor(
     internal var addonsCache: List<Addon> = emptyList()
 
     /*
+     * Profile that owns the live Home catalog runtime maps.
+     *
+     * Catalog IDs can be identical between profiles, so identity by catalog
+     * key alone is not sufficient isolation.
+     */
+    @Volatile
+    internal var catalogRuntimeProfileId: Int? = null
+
+    /*
      * Dynamic Seasonal Spotlight manifests are staged independently from the
      * currently rendered Home snapshot. Catalog Management may consume the
      * fresh repository emission immediately, while Home keeps its existing
@@ -357,10 +366,50 @@ class HomeViewModel @Inject constructor(
 
         manualCatalogRefreshCompletion = completion
 
-        scheduleCatalogPipeline(
-            addonsCache,
-            forceReload = true
-        )
+        /*
+         * Bind the entire manual refresh to the profile that started it.
+         * Manifest requests suspend, so the active profile can change while
+         * those requests are in flight.
+         */
+        val refreshProfileId =
+            profileManager.activeProfileId.value
+        /*
+         * Catalog names and payloads can be generation-coupled. Watchly, in
+         * particular, atomically promotes a prepared manifest together with
+         * the matching catalog payloads when its manifest is requested.
+         *
+         * Resolve one complete fresh manifest snapshot first, then force the
+         * catalog crawl from those exact descriptors. Never combine stale
+         * manifest names with newly fetched catalog contents.
+         */
+        val refreshedAddons =
+            refreshAddonsForManualCatalogReload(
+                currentAddons = addonsCache,
+                fetchAddon = addonRepository::fetchAddon
+            )
+
+        if (
+            refreshedAddons == null ||
+            !manualCatalogRefreshProfileStillActive(
+                startedProfileId = refreshProfileId,
+                activeProfileId =
+                    profileManager.activeProfileId.value
+            )
+        ) {
+            /*
+             * Do not destructively clear/reload Home from stale descriptors,
+             * or adopt manifests that completed after a profile switch.
+             */
+            completeManualCatalogRefresh(false)
+        } else {
+            addonsCache = refreshedAddons
+
+            scheduleCatalogPipeline(
+                addons = refreshedAddons,
+                forceReload = true,
+                profileId = refreshProfileId
+            )
+        }
 
         return try {
             completion.await()
@@ -1066,6 +1115,71 @@ class HomeViewModel @Inject constructor(
             profileManager.activeProfileId.collect { newId ->
                 if (newId != previousProfileId) {
                     previousProfileId = newId
+
+                    /*
+                     * HARD CATALOG PROFILE BOUNDARY.
+                     *
+                     * This must happen before cancelAndJoin() below because
+                     * that is a suspension point. The active profile has
+                     * already changed at this point, so no row, map, addon
+                     * snapshot, delayed update, or repository response owned
+                     * by the previous profile may remain publishable.
+                     */
+                    catalogLoadGeneration += 1L
+
+                    activeCatalogLoadJobs
+                        .toList()
+                        .forEach { it.cancel() }
+                    activeCatalogLoadJobs.clear()
+
+                    catalogUpdateJob?.cancel()
+                    catalogUpdateJob = null
+
+                    catalogPipelineDebounceJob?.cancel()
+                    catalogPipelineDebounceJob = null
+
+                    activeCatalogLoadSignature = null
+                    catalogsLoadInProgress = false
+                    pendingCatalogLoads = 0
+                    catalogLoadFailures.set(0)
+
+                    catalogRuntimeProfileId = null
+
+                    catalogOrder.clear()
+                    catalogsMap.clear()
+                    catalogSourceRows.clear()
+                    addonsCache = emptyList()
+
+                    _loadingCatalogs.value = emptySet()
+                    diskCacheRestored = false
+
+                    pendingPlatformCatalogKeys.clear()
+                    platformPreloadTriggered = false
+                    currentHeroCatalogKeys = emptyList()
+
+                    catalogRepository.clearInMemoryCache()
+
+                    _fullCatalogRows.value = emptyList()
+
+                    /*
+                     * Hide previous-profile presentation immediately. The
+                     * existing full profile reset below still performs the
+                     * complete reset and advances homeLoadSessionId.
+                     */
+                    _uiState.update {
+                        it.copy(
+                            catalogRows = emptyList(),
+                            heroItems = emptyList(),
+                            heroCatalogKeys = emptyList(),
+                            gridItems = emptyList(),
+                            stableVisiblePlatformIds = emptySet(),
+                            enrichmentReadyRowKeys = emptySet(),
+                            catalogsReady = false,
+                            skeletonReady = false,
+                            isLoading = true,
+                            error = null
+                        )
+                    }
 
                     /*
                      * Stop the previous profile's CW writer before doing
