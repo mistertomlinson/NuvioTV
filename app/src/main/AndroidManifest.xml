@@ -102,6 +102,15 @@
             </intent-filter>
         </activity>
 
+        <!-- Temporary read-only Watchly/Home diagnostic receiver -->
+        <receiver
+            android:name=".ui.screens.home.WatchlyHomeDiagnosticReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.nuvio.tv.watchlydiag.DUMP" />
+            </intent-filter>
+        </receiver>
+
         <service
             android:name=".core.capture.ScreenCaptureService"
             android:foregroundServiceType="mediaProjection"

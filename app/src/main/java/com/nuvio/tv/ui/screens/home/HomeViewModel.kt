@@ -1056,6 +1056,7 @@ class HomeViewModel @Inject constructor(
         observeReleaseRemindersUiPipeline()
         observeReleaseReminderRuntimeSnapshotPipeline()
         homeViewModelActiveInstanceId = instanceId
+        WatchlyHomeDiagnosticRegistry.attach(this)
         observeStartupAuthNotice()
         viewModelScope.launch {
             profileManager.activeProfileReady.first { it }
@@ -2494,6 +2495,7 @@ class HomeViewModel @Inject constructor(
     }
 
     override fun onCleared() {
+        WatchlyHomeDiagnosticRegistry.detach(this)
         if (homeViewModelActiveInstanceId == System.identityHashCode(this)) homeViewModelActiveInstanceId = -1
         manualCatalogRefreshCompletion?.cancel()
         startupAuthNoticeJob?.cancel()
