@@ -366,6 +366,21 @@ class HomeViewModel @Inject constructor(
 
         manualCatalogRefreshCompletion = completion
 
+
+
+        /*
+
+         * Bind the entire manual refresh to the profile that started it.
+
+         * Manifest requests suspend, so the active profile can change while
+
+         * those requests are in flight.
+
+         */
+
+        val refreshProfileId =
+
+            profileManager.activeProfileId.value
         /*
          * Catalog names and payloads can be generation-coupled. Watchly, in
          * particular, atomically promotes a prepared manifest together with
@@ -381,18 +396,26 @@ class HomeViewModel @Inject constructor(
                 fetchAddon = addonRepository::fetchAddon
             )
 
-        if (refreshedAddons == null) {
+        if (
+            refreshedAddons == null ||
+            !manualCatalogRefreshProfileStillActive(
+                startedProfileId = refreshProfileId,
+                activeProfileId =
+                    profileManager.activeProfileId.value
+            )
+        ) {
             /*
-             * Do not destructively clear/reload Home from stale descriptors if
-             * even one installed addon failed its manifest refresh.
+             * Do not destructively clear/reload Home from stale descriptors,
+             * or adopt manifests that completed after a profile switch.
              */
             completeManualCatalogRefresh(false)
         } else {
             addonsCache = refreshedAddons
 
             scheduleCatalogPipeline(
-                refreshedAddons,
-                forceReload = true
+                addons = refreshedAddons,
+                forceReload = true,
+                profileId = refreshProfileId
             )
         }
 

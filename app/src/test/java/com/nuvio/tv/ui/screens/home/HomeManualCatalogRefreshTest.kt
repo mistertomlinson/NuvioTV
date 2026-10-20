@@ -6,6 +6,8 @@ import com.nuvio.tv.domain.model.CatalogDescriptor
 import com.nuvio.tv.domain.model.ContentType
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -80,6 +82,23 @@ class HomeManualCatalogRefreshTest {
         assertEquals(
             "Watchly Custom",
             refreshed[0].displayName
+        )
+    }
+
+    @Test
+    fun `manual refresh cannot publish after profile switch`() {
+        assertTrue(
+            manualCatalogRefreshProfileStillActive(
+                startedProfileId = 1,
+                activeProfileId = 1
+            )
+        )
+
+        assertFalse(
+            manualCatalogRefreshProfileStillActive(
+                startedProfileId = 1,
+                activeProfileId = 2
+            )
         )
     }
 

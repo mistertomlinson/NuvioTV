@@ -40,3 +40,12 @@ internal suspend fun refreshAddonsForManualCatalogReload(
         refreshed.filterNotNull()
     }
 }
+
+/**
+ * A manual catalog refresh may only publish into the profile that started it.
+ */
+internal fun manualCatalogRefreshProfileStillActive(
+    startedProfileId: Int,
+    activeProfileId: Int
+): Boolean =
+    startedProfileId == activeProfileId
