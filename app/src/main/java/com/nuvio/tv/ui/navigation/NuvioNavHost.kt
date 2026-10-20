@@ -24,6 +24,7 @@ import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
 import com.nuvio.tv.ui.screens.home.HomeViewModel
+import com.nuvio.tv.ui.screens.home.SeasonalEffectsOverlayHost
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
@@ -736,6 +737,7 @@ fun NuvioNavHost(
                         navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
                     }
                 )
+                SeasonalEffectsOverlayHost()
             }
         }
 

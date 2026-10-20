@@ -81,6 +81,7 @@ internal enum class SettingsCategory {
     ACCOUNT,
     PROFILES,
     APPEARANCE,
+    SEASONAL,
     LAYOUT,
     PLUGINS,
     INTEGRATION,
@@ -130,6 +131,13 @@ private fun rememberSettingsSectionSpecs() = listOf(
         title = stringResource(R.string.appearance_title),
         icon = Icons.Default.Palette,
         subtitle = stringResource(R.string.appearance_subtitle),
+        destination = SettingsSectionDestination.Inline
+    ),
+    SettingsSectionSpec(
+        category = SettingsCategory.SEASONAL,
+        title = "Seasonal effects",
+        icon = Icons.Default.Palette,
+        subtitle = "Snowfall effects and performance tuning",
         destination = SettingsSectionDestination.Inline
     ),
     SettingsSectionSpec(
@@ -265,6 +273,7 @@ private fun SettingsScreenContent(
             mapOf(
                 SettingsCategory.APPEARANCE to FocusRequester(),
                 SettingsCategory.LAYOUT to FocusRequester(),
+                SettingsCategory.SEASONAL to FocusRequester(),
                 SettingsCategory.INTEGRATION to FocusRequester(),
                 SettingsCategory.TRACKING to FocusRequester(),
                 SettingsCategory.PLAYBACK to FocusRequester(),
@@ -510,6 +519,13 @@ private fun SettingsScreenContent(
                         SettingsCategory.APPEARANCE -> ThemeSettingsContent(
                             initialFocusRequester = if (allowDetailAutofocus) {
                                 contentFocusRequesters[SettingsCategory.APPEARANCE]
+                            } else {
+                                null
+                            }
+                        )
+                        SettingsCategory.SEASONAL -> SeasonalEffectsSettingsContent(
+                            initialFocusRequester = if (allowDetailAutofocus) {
+                                contentFocusRequesters[SettingsCategory.SEASONAL]
                             } else {
                                 null
                             }

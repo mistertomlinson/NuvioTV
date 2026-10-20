@@ -619,7 +619,13 @@ fun ModernHomeContent(
             "HomeScrolling",
             isVerticalRowsScrolling.toString()
         )
+        SeasonalSnowRuntime.setHomeScrolling(isVerticalRowsScrolling)
+    }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            SeasonalSnowRuntime.setHomeScrolling(false)
+        }
     }
 
     /*
