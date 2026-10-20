@@ -357,10 +357,35 @@ class HomeViewModel @Inject constructor(
 
         manualCatalogRefreshCompletion = completion
 
-        scheduleCatalogPipeline(
-            addonsCache,
-            forceReload = true
-        )
+        /*
+         * Catalog names and payloads can be generation-coupled. Watchly, in
+         * particular, atomically promotes a prepared manifest together with
+         * the matching catalog payloads when its manifest is requested.
+         *
+         * Resolve one complete fresh manifest snapshot first, then force the
+         * catalog crawl from those exact descriptors. Never combine stale
+         * manifest names with newly fetched catalog contents.
+         */
+        val refreshedAddons =
+            refreshAddonsForManualCatalogReload(
+                currentAddons = addonsCache,
+                fetchAddon = addonRepository::fetchAddon
+            )
+
+        if (refreshedAddons == null) {
+            /*
+             * Do not destructively clear/reload Home from stale descriptors if
+             * even one installed addon failed its manifest refresh.
+             */
+            completeManualCatalogRefresh(false)
+        } else {
+            addonsCache = refreshedAddons
+
+            scheduleCatalogPipeline(
+                refreshedAddons,
+                forceReload = true
+            )
+        }
 
         return try {
             completion.await()
