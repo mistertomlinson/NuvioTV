@@ -14,6 +14,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -24,6 +25,7 @@ import com.nuvio.tv.domain.model.SnowSizeProfile
 import com.nuvio.tv.domain.model.SnowStartupMode
 import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -294,13 +296,16 @@ private fun HolidaySnowOverlay(
             val alpha = steadyAlpha * startupOpacity
             val center = Offset(x, y)
 
-            // Prefer the soft irregular look you liked. Most flakes can get the
-            // cheap fake-softness treatment without needing a real blur pass.
+            // Keep the soft/fuzzy family across the whole field. Two tiny
+            // shape-matched halo passes fake blur without RenderEffect or an
+            // offscreen layer. The occasional tuft uses only short rounded
+            // protrusions OUTSIDE the visible body, so no brighter overlap seam
+            // can show through the low-alpha center.
             val softHalo = when (depthBand) {
-                0 -> particle.softnessSeed > 0.40f
-                1 -> particle.softnessSeed > 0.22f
+                0 -> particle.softnessSeed > 0.18f
                 else -> true
             }
+            val fuzzyTuft = particle.shapeSeed > 0.62f
 
             drawSoftIrregularSnowFlake(
                 center = center,
@@ -309,7 +314,7 @@ private fun HolidaySnowOverlay(
                 aspectSeed = particle.aspectSeed,
                 shapeSeed = particle.shapeSeed,
                 softHalo = softHalo,
-                emphasizeSecondaryLobe = depthBand >= 1 || particle.shapeSeed > 0.52f
+                fuzzyTuft = fuzzyTuft
             )
         }
     }
@@ -322,55 +327,92 @@ private fun DrawScope.drawSoftIrregularSnowFlake(
     aspectSeed: Float,
     shapeSeed: Float,
     softHalo: Boolean,
-    emphasizeSecondaryLobe: Boolean
+    fuzzyTuft: Boolean
 ) {
-    val widthFactor = (0.58f + aspectSeed * 0.96f).coerceIn(0.58f, 1.54f)
-    val heightFactor = (1.28f - (widthFactor - 1f) * 0.46f).coerceIn(0.58f, 1.46f)
+    // Tuft flakes stay close to round so their tiny protrusions read as soft
+    // snow crystals rather than geometric lines. Blob flakes keep stronger
+    // irregularity for variety across the field.
+    val widthFactor = if (fuzzyTuft) {
+        0.86f + aspectSeed * 0.30f
+    } else {
+        (0.62f + aspectSeed * 0.82f).coerceIn(0.62f, 1.44f)
+    }
+    val heightFactor = if (fuzzyTuft) {
+        1.12f - (widthFactor - 1f) * 0.45f
+    } else {
+        (1.24f - (widthFactor - 1f) * 0.42f).coerceIn(0.66f, 1.40f)
+    }
     val halfWidth = radius * widthFactor
     val halfHeight = radius * heightFactor
 
-    val lobeSeed = (shapeSeed * 1.73f) % 1f
-    val lobeOffsetX = (shapeSeed - 0.5f) * radius * 0.78f
-    val lobeOffsetY = (lobeSeed - 0.5f) * radius * 0.52f
-    val lobeScale = if (emphasizeSecondaryLobe) {
-        0.42f + lobeSeed * 0.28f
-    } else {
-        0.28f + lobeSeed * 0.18f
-    }
-
     if (softHalo) {
-        val haloScale = 1.46f
+        val innerScale = 1.34f + shapeSeed * 0.10f
+        val outerScale = 1.72f + shapeSeed * 0.16f
+
         drawOval(
-            color = Color.White.copy(alpha = alpha * 0.085f),
+            color = Color.White.copy(alpha = alpha * 0.026f),
             topLeft = Offset(
-                center.x - halfWidth * haloScale,
-                center.y - halfHeight * haloScale
+                center.x - halfWidth * outerScale,
+                center.y - halfHeight * outerScale
             ),
             size = Size(
-                halfWidth * 2f * haloScale,
-                halfHeight * 2f * haloScale
+                halfWidth * 2f * outerScale,
+                halfHeight * 2f * outerScale
             )
         )
-        if (emphasizeSecondaryLobe) {
-            val haloLobeRadius = radius * lobeScale * 1.65f
-            drawCircle(
-                color = Color.White.copy(alpha = alpha * 0.065f),
-                radius = haloLobeRadius,
-                center = Offset(center.x + lobeOffsetX * 1.10f, center.y + lobeOffsetY * 1.10f)
+        drawOval(
+            color = Color.White.copy(alpha = alpha * 0.072f),
+            topLeft = Offset(
+                center.x - halfWidth * innerScale,
+                center.y - halfHeight * innerScale
+            ),
+            size = Size(
+                halfWidth * 2f * innerScale,
+                halfHeight * 2f * innerScale
+            )
+        )
+    }
+
+    if (fuzzyTuft) {
+        // Barely-protruding rounded nubs recreate the small fuzzy flakes from
+        // the earlier mixed version without drawing hard crystal arms. Each nub
+        // begins near the body edge and extends only a fraction of the radius.
+        // Because the segments do not cross the center, their alpha cannot stack
+        // underneath the visible body and create bright overlap hotspots.
+        val rotation = shapeSeed * TWO_PI
+        val armPairs = if (shapeSeed > 0.88f) 3 else 2
+        val angleStep = PI.toFloat() / armPairs
+        val nubStart = radius * 0.88f
+        val nubEnd = radius * (1.18f + aspectSeed * 0.08f)
+        val nubWidth = (radius * 0.46f).coerceAtLeast(0.58f)
+        val nubAlpha = alpha * 0.13f
+
+        for (arm in 0 until armPairs) {
+            val angle = rotation + angleStep * arm
+            val dx = cos(angle)
+            val dy = sin(angle)
+            drawLine(
+                color = Color.White.copy(alpha = nubAlpha),
+                start = Offset(center.x + dx * nubStart, center.y + dy * nubStart),
+                end = Offset(center.x + dx * nubEnd, center.y + dy * nubEnd),
+                strokeWidth = nubWidth,
+                cap = StrokeCap.Round
+            )
+            drawLine(
+                color = Color.White.copy(alpha = nubAlpha),
+                start = Offset(center.x - dx * nubStart, center.y - dy * nubStart),
+                end = Offset(center.x - dx * nubEnd, center.y - dy * nubEnd),
+                strokeWidth = nubWidth,
+                cap = StrokeCap.Round
             )
         }
     }
 
+    // Exactly one visible body pass. No secondary solid lobes means there is no
+    // brighter alpha accumulation where shapes overlap.
     drawOval(
-        color = Color.White.copy(alpha = alpha * 0.96f),
+        color = Color.White.copy(alpha = alpha),
         topLeft = Offset(center.x - halfWidth, center.y - halfHeight),
         size = Size(halfWidth * 2f, halfHeight * 2f)
-    )
-
-    val lobeRadius = radius * lobeScale
-    drawCircle(
-        color = Color.White.copy(alpha = (alpha * 0.88f).coerceAtMost(1f)),
-        radius = lobeRadius,
-        center = Offset(center.x + lobeOffsetX, center.y + lobeOffsetY)
     )
 }
