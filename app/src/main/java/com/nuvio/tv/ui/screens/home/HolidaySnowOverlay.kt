@@ -12,7 +12,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -301,28 +300,32 @@ private fun HolidaySnowOverlay(
             val center = Offset(x, y)
             val visualRadius1080 = radius1080 * depth
 
-            // Fake a very light depth-of-field softness with at most one extra
-            // primitive draw on selected particles. This deliberately avoids a
-            // RenderEffect/blur layer and keeps the 120-particle case cheap.
+            // Fake softness with shape-matched low-alpha primitives rather than
+            // a circular glow. This preserves the flake silhouette and avoids
+            // a RenderEffect/offscreen blur pass.
             val softHalo = when (depthBand) {
-                0 -> particle.softnessSeed > 0.85f
-                1 -> particle.softnessSeed > 0.70f
-                else -> particle.softnessSeed > 0.35f
+                0 -> particle.softnessSeed > 0.88f
+                1 -> particle.softnessSeed > 0.74f
+                else -> particle.softnessSeed > 0.42f
             }
 
-            val canShowCrystalDetail = visualRadius1080 >= 1.65f
+            // At TV distance a subtle oval still reads as a dot. Make small
+            // flakes visibly asymmetric shards, and use crystals much more
+            // often once there are enough pixels to resolve their arms.
+            val canShowCrystalDetail = visualRadius1080 >= 1.15f
             when {
-                !canShowCrystalDetail || particle.shapeSeed < 0.46f -> {
-                    drawIrregularSnowSpeck(
+                !canShowCrystalDetail || particle.shapeSeed < 0.28f -> {
+                    drawSnowShard(
                         center = center,
                         radius = radius,
                         alpha = alpha,
                         aspectSeed = particle.aspectSeed,
+                        rotationRadians = particle.phase,
                         softHalo = softHalo
                     )
                 }
 
-                particle.shapeSeed < 0.80f -> {
+                particle.shapeSeed < 0.70f -> {
                     val rotation = snowRotationRadians(particle, motionSeconds, slow = true)
                     drawSnowCrystal(
                         center = center,
@@ -369,37 +372,37 @@ private fun snowRotationRadians(
     return particle.phase + motionSeconds.toFloat() * radiansPerSecond * direction
 }
 
-private fun DrawScope.drawIrregularSnowSpeck(
+private fun DrawScope.drawSnowShard(
     center: Offset,
     radius: Float,
     alpha: Float,
     aspectSeed: Float,
+    rotationRadians: Float,
     softHalo: Boolean
 ) {
-    val widthFactor = 0.78f + aspectSeed * 0.44f
-    val heightFactor = 1.10f - (widthFactor - 1f) * 0.35f
-    val halfWidth = radius * widthFactor
-    val halfHeight = radius * heightFactor
+    val halfLength = radius * (1.05f + aspectSeed * 0.55f)
+    val strokeWidth = (radius * (0.58f + (1f - aspectSeed) * 0.22f)).coerceAtLeast(0.62f)
+    val dx = cos(rotationRadians) * halfLength
+    val dy = sin(rotationRadians) * halfLength
+    val start = Offset(center.x - dx, center.y - dy)
+    val end = Offset(center.x + dx, center.y + dy)
 
     if (softHalo) {
-        val haloScale = 1.42f
-        drawOval(
+        drawLine(
             color = Color.White.copy(alpha = alpha * 0.10f),
-            topLeft = Offset(
-                center.x - halfWidth * haloScale,
-                center.y - halfHeight * haloScale
-            ),
-            size = Size(
-                halfWidth * 2f * haloScale,
-                halfHeight * 2f * haloScale
-            )
+            start = start,
+            end = end,
+            strokeWidth = strokeWidth * 1.85f,
+            cap = StrokeCap.Round
         )
     }
 
-    drawOval(
+    drawLine(
         color = Color.White.copy(alpha = alpha),
-        topLeft = Offset(center.x - halfWidth, center.y - halfHeight),
-        size = Size(halfWidth * 2f, halfHeight * 2f)
+        start = start,
+        end = end,
+        strokeWidth = strokeWidth,
+        cap = StrokeCap.Round
     )
 }
 
@@ -411,34 +414,39 @@ private fun DrawScope.drawSnowCrystal(
     armPairs: Int,
     softHalo: Boolean
 ) {
-    if (softHalo) {
-        drawCircle(
-            color = Color.White.copy(alpha = alpha * 0.085f),
-            radius = radius * 1.48f,
-            center = center
-        )
-    }
-
-    val armLength = radius * 1.18f
-    val strokeWidth = (radius * 0.22f).coerceAtLeast(0.72f)
+    val armLength = radius * 1.48f
+    val strokeWidth = (radius * 0.20f).coerceAtLeast(0.68f)
     val angleStep = PI.toFloat() / armPairs
 
     for (arm in 0 until armPairs) {
         val angle = rotationRadians + angleStep * arm
         val dx = cos(angle) * armLength
         val dy = sin(angle) * armLength
+        val start = Offset(center.x - dx, center.y - dy)
+        val end = Offset(center.x + dx, center.y + dy)
+
+        if (softHalo) {
+            drawLine(
+                color = Color.White.copy(alpha = alpha * 0.075f),
+                start = start,
+                end = end,
+                strokeWidth = strokeWidth * 2.05f,
+                cap = StrokeCap.Round
+            )
+        }
+
         drawLine(
             color = Color.White.copy(alpha = alpha),
-            start = Offset(center.x - dx, center.y - dy),
-            end = Offset(center.x + dx, center.y + dy),
+            start = start,
+            end = end,
             strokeWidth = strokeWidth,
             cap = StrokeCap.Round
         )
     }
 
     drawCircle(
-        color = Color.White.copy(alpha = (alpha * 0.92f).coerceAtMost(1f)),
-        radius = (radius * 0.24f).coerceAtLeast(0.55f),
+        color = Color.White.copy(alpha = (alpha * 0.90f).coerceAtMost(1f)),
+        radius = (radius * 0.20f).coerceAtLeast(0.48f),
         center = center
     )
 }
