@@ -302,10 +302,10 @@ private fun HolidaySnowOverlay(
             // protrusions OUTSIDE the visible body, so no brighter overlap seam
             // can show through the low-alpha center.
             val softHalo = when (depthBand) {
-                0 -> particle.softnessSeed > 0.18f
+                0 -> particle.softnessSeed > 0.08f
                 else -> true
             }
-            val fuzzyTuft = particle.shapeSeed > 0.62f
+            val fuzzyTuft = particle.shapeSeed > 0.45f
 
             drawSoftIrregularSnowFlake(
                 center = center,
@@ -346,11 +346,11 @@ private fun DrawScope.drawSoftIrregularSnowFlake(
     val halfHeight = radius * heightFactor
 
     if (softHalo) {
-        val innerScale = 1.34f + shapeSeed * 0.10f
-        val outerScale = 1.72f + shapeSeed * 0.16f
+        val innerScale = 1.48f + shapeSeed * 0.12f
+        val outerScale = 2.05f + shapeSeed * 0.18f
 
         drawOval(
-            color = Color.White.copy(alpha = alpha * 0.026f),
+            color = Color.White.copy(alpha = alpha * 0.045f),
             topLeft = Offset(
                 center.x - halfWidth * outerScale,
                 center.y - halfHeight * outerScale
@@ -361,7 +361,7 @@ private fun DrawScope.drawSoftIrregularSnowFlake(
             )
         )
         drawOval(
-            color = Color.White.copy(alpha = alpha * 0.072f),
+            color = Color.White.copy(alpha = alpha * 0.115f),
             topLeft = Offset(
                 center.x - halfWidth * innerScale,
                 center.y - halfHeight * innerScale
@@ -380,12 +380,12 @@ private fun DrawScope.drawSoftIrregularSnowFlake(
         // Because the segments do not cross the center, their alpha cannot stack
         // underneath the visible body and create bright overlap hotspots.
         val rotation = shapeSeed * TWO_PI
-        val armPairs = if (shapeSeed > 0.88f) 3 else 2
+        val armPairs = if (shapeSeed > 0.78f) 3 else 2
         val angleStep = PI.toFloat() / armPairs
-        val nubStart = radius * 0.88f
-        val nubEnd = radius * (1.18f + aspectSeed * 0.08f)
-        val nubWidth = (radius * 0.46f).coerceAtLeast(0.58f)
-        val nubAlpha = alpha * 0.13f
+        val nubStart = radius * 0.94f
+        val nubEnd = radius * (1.30f + aspectSeed * 0.10f)
+        val nubWidth = (radius * 0.62f).coerceAtLeast(0.70f)
+        val nubAlpha = alpha * 0.18f
 
         for (arm in 0 until armPairs) {
             val angle = rotation + angleStep * arm

@@ -66,6 +66,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.platform.LocalView
 import android.view.WindowManager
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
+import com.nuvio.tv.ui.screens.home.holidaySegmentedFocusBorder
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -708,12 +709,8 @@ fun ContinueWatchingCard(
                                     retainFocusOutline
                                 )
                         ) {
-                            Modifier.border(
-                                border = BorderStroke(
-                                    2.dp,
-                                    cwFocusRingColor
-                                ),
-                                shape = cwCardShape
+                            Modifier.holidaySegmentedFocusBorder(
+                                cornerRadius = cornerRadius
                             )
                         } else {
                             Modifier
