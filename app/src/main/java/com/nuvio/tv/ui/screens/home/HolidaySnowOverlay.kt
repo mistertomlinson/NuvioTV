@@ -81,13 +81,117 @@ private const val SNOW_SPRITE_COUNT =
  * the deliberately fast test build keeps roughly the same visual fill rate
  * without growing blocky local towers.
  */
-private const val SNOW_BANK_COLUMNS = 192
+private const val SNOW_BANK_COLUMNS = 768
 private const val SNOW_BANK_MAX_HEIGHT_DP = 7.5f
-private const val SNOW_BANK_CENTER_DEPOSIT_DP = 1.80f
-private const val SNOW_BANK_NEAR_DEPOSIT_DP = 1.55f
-private const val SNOW_BANK_MID_DEPOSIT_DP = 1.25f
-private const val SNOW_BANK_FAR_DEPOSIT_DP = 0.90f
-private const val SNOW_BANK_EDGE_DEPOSIT_DP = 0.65f
+
+/*
+ * Four times the previous bank resolution. The height map is still only a
+ * small primitive array, but samples now sit close enough together that the
+ * generated surface should no longer advertise individual columns on a
+ * 1080p/4K television.
+ */
+private const val SNOW_BANK_DEPOSIT_RADIUS = 16
+private const val SNOW_BANK_RENDER_SMOOTH_RADIUS = 8
+
+/*
+ * Preserve approximately the same deliberately-fast test accumulation volume
+ * as the previous nine-column kernel, but distribute it smoothly across a
+ * much denser 33-column footprint.
+ */
+private const val SNOW_BANK_DEPOSIT_TOTAL_DP = 10.5f
+private const val SNOW_BANK_SEARCH_DISTANCE_PENALTY = 0.003125f
+
+/*
+ * Generated once. No Gaussian math occurs during rendering.
+ */
+private val snowBankDepositKernelDp =
+    run {
+        val count =
+            SNOW_BANK_DEPOSIT_RADIUS * 2 + 1
+        val sigma = 6.4f
+        val weights = FloatArray(count)
+        var totalWeight = 0f
+
+        for (index in weights.indices) {
+            val offset =
+                (
+                    index -
+                        SNOW_BANK_DEPOSIT_RADIUS
+                    ).toFloat()
+
+            val normalized =
+                offset / sigma
+
+            val weight =
+                exp(
+                    (
+                        -0.5f *
+                            normalized *
+                            normalized
+                        ).toDouble()
+                ).toFloat()
+
+            weights[index] = weight
+            totalWeight += weight
+        }
+
+        val scale =
+            SNOW_BANK_DEPOSIT_TOTAL_DP /
+                totalWeight.coerceAtLeast(0.0001f)
+
+        for (index in weights.indices) {
+            weights[index] *= scale
+        }
+
+        weights
+    }
+
+/*
+ * The visible bank uses a separate normalized kernel. Because this blends
+ * FILL FRACTION rather than final height, a completely full bank still
+ * reproduces the existing approved 7.5dp wavy cap exactly.
+ */
+private val snowBankRenderKernel =
+    run {
+        val count =
+            SNOW_BANK_RENDER_SMOOTH_RADIUS * 2 + 1
+        val sigma = 4.0f
+        val weights = FloatArray(count)
+        var totalWeight = 0f
+
+        for (index in weights.indices) {
+            val offset =
+                (
+                    index -
+                        SNOW_BANK_RENDER_SMOOTH_RADIUS
+                    ).toFloat()
+
+            val normalized =
+                offset / sigma
+
+            val weight =
+                exp(
+                    (
+                        -0.5f *
+                            normalized *
+                            normalized
+                        ).toDouble()
+                ).toFloat()
+
+            weights[index] = weight
+            totalWeight += weight
+        }
+
+        val inverseTotal =
+            1f /
+                totalWeight.coerceAtLeast(0.0001f)
+
+        for (index in weights.indices) {
+            weights[index] *= inverseTotal
+        }
+
+        weights
+    }
 
 /*
  * Even after the bank is completely full, do not let all columns converge to
@@ -504,7 +608,7 @@ private fun depositSnowBankForInterval(
             var targetColumn = baseColumn
             var bestScore = Float.MAX_VALUE
 
-            for (offset in -4..4) {
+            for (offset in -SNOW_BANK_DEPOSIT_RADIUS..SNOW_BANK_DEPOSIT_RADIUS) {
                 val candidate =
                     wrapColumn(
                         baseColumn + offset
@@ -536,7 +640,7 @@ private fun depositSnowBankForInterval(
                 val score =
                     normalizedHeight +
                         abs(offset) *
-                            0.0125f
+                            SNOW_BANK_SEARCH_DISTANCE_PENALTY
 
                 if (score < bestScore) {
                     bestScore = score
@@ -546,19 +650,23 @@ private fun depositSnowBankForInterval(
             }
 
             /*
-             * Wider bell-shaped deposit kernel. The total deposited material
-             * stays intentionally high for this visual test, but it is spread
-             * across nine finer columns instead of five coarse ones.
+             * Smooth 33-column Gaussian deposit. The total material per
+             * landing remains approximately the same as the previous fast-test
+             * build, but no individual ring of the deposit has a hard edge.
              */
-            addDeposit(targetColumn, SNOW_BANK_CENTER_DEPOSIT_DP)
-            addDeposit(targetColumn - 1, SNOW_BANK_NEAR_DEPOSIT_DP)
-            addDeposit(targetColumn + 1, SNOW_BANK_NEAR_DEPOSIT_DP)
-            addDeposit(targetColumn - 2, SNOW_BANK_MID_DEPOSIT_DP)
-            addDeposit(targetColumn + 2, SNOW_BANK_MID_DEPOSIT_DP)
-            addDeposit(targetColumn - 3, SNOW_BANK_FAR_DEPOSIT_DP)
-            addDeposit(targetColumn + 3, SNOW_BANK_FAR_DEPOSIT_DP)
-            addDeposit(targetColumn - 4, SNOW_BANK_EDGE_DEPOSIT_DP)
-            addDeposit(targetColumn + 4, SNOW_BANK_EDGE_DEPOSIT_DP)
+            for (
+                offset in
+                -SNOW_BANK_DEPOSIT_RADIUS..
+                    SNOW_BANK_DEPOSIT_RADIUS
+            ) {
+                addDeposit(
+                    targetColumn + offset,
+                    snowBankDepositKernelDp[
+                        offset +
+                            SNOW_BANK_DEPOSIT_RADIUS
+                    ]
+                )
+            }
         }
     }
 
@@ -971,8 +1079,8 @@ private fun HolidaySnowOverlay(
         /*
          * Shallow accumulated bank.
          *
-         * The physical bank now has 192 samples. The visible height is derived
-         * from a five-tap blend of neighboring FILL FRACTIONS, not a blur of
+         * The physical bank now has 768 samples. The visible height is derived
+         * from a 17-sample Gaussian blend of neighboring FILL FRACTIONS, not a blur of
          * the final cap heights. That distinction is important: while building,
          * isolated landings blend into soft drifts; when every column is full,
          * every fraction is exactly 1 and the approved cap/wave is reproduced
@@ -1013,20 +1121,29 @@ private fun HolidaySnowOverlay(
         }
 
         fun bankSurfaceY(column: Int): Float {
-            val progress =
-                bankFillProgress(column) * 0.52f +
-                    (
-                        bankFillProgress(column - 1) +
-                            bankFillProgress(column + 1)
-                        ) * 0.18f +
-                    (
-                        bankFillProgress(column - 2) +
-                            bankFillProgress(column + 2)
-                        ) * 0.06f
+            var progress = 0f
+
+            for (
+                offset in
+                -SNOW_BANK_RENDER_SMOOTH_RADIUS..
+                    SNOW_BANK_RENDER_SMOOTH_RADIUS
+            ) {
+                progress +=
+                    bankFillProgress(
+                        column + offset
+                    ) *
+                        snowBankRenderKernel[
+                            offset +
+                                SNOW_BANK_RENDER_SMOOTH_RADIUS
+                        ]
+            }
 
             val heightDp =
                 snowBankColumnCapDp[column] *
-                    progress.coerceIn(0f, 1f)
+                    progress.coerceIn(
+                        0f,
+                        1f
+                    )
 
             return size.height -
                 heightDp * density

@@ -28,6 +28,7 @@ import kotlin.math.sqrt
 
 private const val HOLIDAY_BULB_SPRITE_SIZE = 48
 private const val HOLIDAY_BULB_COLOR_COUNT = 4
+private const val HOLIDAY_BULB_CORE_HUE_TINT = 0.12f
 
 /*
  * RGB values stay saturated outside the hot center so the bloom still reads
@@ -118,9 +119,28 @@ private fun buildHolidayBulbAtlas(): ImageBitmap {
                 val whiteMix =
                     sqrt(hotCore.coerceIn(0f, 1f))
 
-                val hotR = 1f
-                val hotG = 0.985f
-                val hotB = 0.93f
+                /*
+                 * Keep the incandescent / white-hot look, but let a small
+                 * amount of each bulb's own hue remain in the hottest center.
+                 * 12% is intentionally subtle.
+                 */
+                val hotR =
+                    1f *
+                        (1f - HOLIDAY_BULB_CORE_HUE_TINT) +
+                        baseR *
+                        HOLIDAY_BULB_CORE_HUE_TINT
+
+                val hotG =
+                    0.985f *
+                        (1f - HOLIDAY_BULB_CORE_HUE_TINT) +
+                        baseG *
+                        HOLIDAY_BULB_CORE_HUE_TINT
+
+                val hotB =
+                    0.93f *
+                        (1f - HOLIDAY_BULB_CORE_HUE_TINT) +
+                        baseB *
+                        HOLIDAY_BULB_CORE_HUE_TINT
 
                 val red =
                     (
