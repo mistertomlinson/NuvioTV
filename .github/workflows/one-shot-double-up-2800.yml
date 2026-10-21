@@ -1,0 +1,40 @@
+name: One-shot Double Up 2800
+
+on:
+  push:
+    branches:
+      - tune-double-up-2800
+
+permissions:
+  contents: write
+
+jobs:
+  tune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set Double-Up speed to 2800
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          p = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt')
+          s = p.read_text()
+          old = 'internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 3000f'
+          new = 'internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2800f'
+          count = s.count(old)
+          if count != 1:
+              raise SystemExit(f'Expected exactly one 3000f Double-Up constant, found {count}')
+          p.write_text(s.replace(old, new))
+          PY
+
+      - name: Commit tuning
+        run: |
+          git diff --check
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt
+          git commit -m "Reduce double-tap Up speed to 2800"
+          git push origin HEAD:tune-double-up-2800
