@@ -8,6 +8,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -18,6 +21,7 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 private val HOLIDAY_FOCUS_COLORS =
     arrayOf(
@@ -28,25 +32,26 @@ private val HOLIDAY_FOCUS_COLORS =
     )
 
 /*
- * Tiny static Christmas bulbs around the poster edge.
+ * Static Christmas-light focus treatment.
  *
- * No blur filter and no animation. Each bulb is three cached circle draws:
- * broad faint haze, tighter glow, soft colored core.
+ * The bulbs are tiny rounded line segments rather than circles or wide dashed
+ * stripes. Geometry is cached into four paths (one per color), so rendering
+ * costs only 12 path draws total: broad haze + inner glow + soft core for each
+ * color. The wide low-alpha passes deliberately overlap so adjacent colors
+ * blend instead of exposing hard red/green/blue/yellow boundaries.
  *
- * This avoids the clearly-defined boundaries of colored dash segments.
- *
- * The seasonal config is observed only while a poster owns the visible focus
- * outline. That keeps the normal Home rows free of per-card settings
- * collectors while allowing the original focus ring to return immediately
- * when Holiday Effects is disabled.
+ * Seasonal state is observed only while a visible focus outline owns this
+ * modifier. Holiday Effects OFF immediately restores the exact normal Nuvio
+ * focus ring instead of leaving seasonal colors behind.
  */
 @Composable
 internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
-    bulbSpacing: Dp = 6.dp,
-    coreRadius: Dp = 1.15.dp,
-    middleGlowRadius: Dp = 2.55.dp,
-    outerGlowRadius: Dp = 4.6.dp
+    bulbSpacing: Dp = 7.dp,
+    bulbLength: Dp = 3.2.dp,
+    coreWidth: Dp = 1.8.dp,
+    middleGlowWidth: Dp = 5.6.dp,
+    outerGlowWidth: Dp = 10.dp
 ): Modifier {
     val seasonalEffectsViewModel: SeasonalEffectsViewModel =
         hiltViewModel()
@@ -62,395 +67,193 @@ internal fun Modifier.holidaySegmentedFocusBorder(
     }
 
     return drawWithCache {
-        val core =
-            coreRadius.toPx()
-                .coerceAtLeast(0.5f)
-
-        val middle =
-            middleGlowRadius.toPx()
-                .coerceAtLeast(core)
-
-        val outer =
-            outerGlowRadius.toPx()
-                .coerceAtLeast(middle)
-
-        val spacing =
-            bulbSpacing.toPx()
-                .coerceAtLeast(
-                    core * 2f +
-                        1f
-                )
+        val coreStroke = coreWidth.toPx().coerceAtLeast(0.75f)
+        val middleStroke = middleGlowWidth.toPx().coerceAtLeast(coreStroke)
+        val outerStroke = outerGlowWidth.toPx().coerceAtLeast(middleStroke)
+        val halfBulbLength = bulbLength.toPx().coerceAtLeast(1f) * 0.5f
+        val spacing = bulbSpacing.toPx().coerceAtLeast(halfBulbLength * 2f + 1f)
 
         /*
-         * Core touches the actual component edge rather than being inset like
-         * the previous wide stroke. Glow extends around that edge naturally.
+         * Keep the colored core on the visible card edge. Glow is allowed to
+         * spread inward/outward naturally rather than recessing the ring.
          */
-        val left = core
-        val top = core
-        val right =
-            (size.width - core)
-                .coerceAtLeast(left)
-
-        val bottom =
-            (size.height - core)
-                .coerceAtLeast(top)
-
-        val width =
-            right - left
-
-        val height =
-            bottom - top
+        val edgeInset = coreStroke * 0.5f
+        val left = edgeInset
+        val top = edgeInset
+        val right = (size.width - edgeInset).coerceAtLeast(left)
+        val bottom = (size.height - edgeInset).coerceAtLeast(top)
+        val width = right - left
+        val height = bottom - top
 
         val requestedRadius =
-            (
-                cornerRadius.toPx() -
-                    core
-                ).coerceAtLeast(0f)
-
+            (cornerRadius.toPx() - edgeInset).coerceAtLeast(0f)
         val radius =
-            requestedRadius
-                .coerceAtMost(
-                    minOf(
-                        width / 2f,
-                        height / 2f
-                    )
-                )
+            requestedRadius.coerceAtMost(
+                minOf(width * 0.5f, height * 0.5f)
+            )
 
         val straightHorizontal =
-            (
-                width -
-                    radius * 2f
-                ).coerceAtLeast(0f)
-
+            (width - radius * 2f).coerceAtLeast(0f)
         val straightVertical =
-            (
-                height -
-                    radius * 2f
-                ).coerceAtLeast(0f)
-
-        val quarterArc =
-            radius *
-                PI.toFloat() /
-                2f
-
+            (height - radius * 2f).coerceAtLeast(0f)
+        val quarterArc = radius * PI.toFloat() * 0.5f
         val perimeter =
             straightHorizontal * 2f +
                 straightVertical * 2f +
                 quarterArc * 4f
 
-        fun rectangularPoint(
-            rawDistance: Float
-        ): Offset {
-            val rectanglePerimeter =
-                width * 2f +
-                    height * 2f
-
-            if (
-                rectanglePerimeter <=
-                0f
-            ) {
-                return Offset(
-                    left,
-                    top
-                )
-            }
+        fun rectangularPoint(rawDistance: Float): Offset {
+            val rectanglePerimeter = width * 2f + height * 2f
+            if (rectanglePerimeter <= 0f) return Offset(left, top)
 
             var d =
-                (
-                    rawDistance %
-                        rectanglePerimeter +
-                        rectanglePerimeter
-                    ) %
+                ((rawDistance % rectanglePerimeter) + rectanglePerimeter) %
                     rectanglePerimeter
 
-            if (d <= width) {
-                return Offset(
-                    left + d,
-                    top
-                )
-            }
-
+            if (d <= width) return Offset(left + d, top)
             d -= width
-
-            if (d <= height) {
-                return Offset(
-                    right,
-                    top + d
-                )
-            }
-
+            if (d <= height) return Offset(right, top + d)
             d -= height
-
-            if (d <= width) {
-                return Offset(
-                    right - d,
-                    bottom
-                )
-            }
-
+            if (d <= width) return Offset(right - d, bottom)
             d -= width
-
-            return Offset(
-                left,
-                bottom - d
-            )
+            return Offset(left, bottom - d)
         }
 
-        fun roundedPoint(
-            rawDistance: Float
-        ): Offset {
-            if (
-                radius <= 0.01f ||
-                perimeter <= 0f
-            ) {
-                return rectangularPoint(
-                    rawDistance
-                )
+        fun roundedPoint(rawDistance: Float): Offset {
+            if (radius <= 0.01f || perimeter <= 0f) {
+                return rectangularPoint(rawDistance)
             }
 
             var d =
-                (
-                    rawDistance %
-                        perimeter +
-                        perimeter
-                    ) %
-                    perimeter
+                ((rawDistance % perimeter) + perimeter) % perimeter
 
-            // Top
-            if (
-                d <=
-                straightHorizontal
-            ) {
-                return Offset(
-                    left +
-                        radius +
-                        d,
-                    top
-                )
+            if (d <= straightHorizontal) {
+                return Offset(left + radius + d, top)
             }
+            d -= straightHorizontal
 
-            d -=
-                straightHorizontal
-
-            // Top-right
             if (d <= quarterArc) {
-                val angle =
-                    -PI.toFloat() /
-                        2f +
-                        d /
-                        radius
-
+                val angle = -PI.toFloat() * 0.5f + d / radius
                 return Offset(
-                    right -
-                        radius +
-                        cos(angle) *
-                        radius,
-                    top +
-                        radius +
-                        sin(angle) *
-                        radius
+                    right - radius + cos(angle) * radius,
+                    top + radius + sin(angle) * radius
                 )
             }
-
             d -= quarterArc
 
-            // Right
-            if (
-                d <=
-                straightVertical
-            ) {
-                return Offset(
-                    right,
-                    top +
-                        radius +
-                        d
-                )
+            if (d <= straightVertical) {
+                return Offset(right, top + radius + d)
             }
+            d -= straightVertical
 
-            d -=
-                straightVertical
-
-            // Bottom-right
             if (d <= quarterArc) {
-                val angle =
-                    d /
-                        radius
-
+                val angle = d / radius
                 return Offset(
-                    right -
-                        radius +
-                        cos(angle) *
-                        radius,
-                    bottom -
-                        radius +
-                        sin(angle) *
-                        radius
+                    right - radius + cos(angle) * radius,
+                    bottom - radius + sin(angle) * radius
                 )
             }
-
             d -= quarterArc
 
-            // Bottom
-            if (
-                d <=
-                straightHorizontal
-            ) {
-                return Offset(
-                    right -
-                        radius -
-                        d,
-                    bottom
-                )
+            if (d <= straightHorizontal) {
+                return Offset(right - radius - d, bottom)
             }
+            d -= straightHorizontal
 
-            d -=
-                straightHorizontal
-
-            // Bottom-left
             if (d <= quarterArc) {
-                val angle =
-                    PI.toFloat() /
-                        2f +
-                        d /
-                        radius
-
+                val angle = PI.toFloat() * 0.5f + d / radius
                 return Offset(
-                    left +
-                        radius +
-                        cos(angle) *
-                        radius,
-                    bottom -
-                        radius +
-                        sin(angle) *
-                        radius
+                    left + radius + cos(angle) * radius,
+                    bottom - radius + sin(angle) * radius
                 )
             }
-
             d -= quarterArc
 
-            // Left
-            if (
-                d <=
-                straightVertical
-            ) {
-                return Offset(
-                    left,
-                    bottom -
-                        radius -
-                        d
-                )
+            if (d <= straightVertical) {
+                return Offset(left, bottom - radius - d)
             }
+            d -= straightVertical
 
-            d -=
-                straightVertical
-
-            // Top-left
-            val angle =
-                PI.toFloat() +
-                    d /
-                    radius
-
+            val angle = PI.toFloat() + d / radius
             return Offset(
-                left +
-                    radius +
-                    cos(angle) *
-                    radius,
-                top +
-                    radius +
-                    sin(angle) *
-                    radius
+                left + radius + cos(angle) * radius,
+                top + radius + sin(angle) * radius
             )
         }
 
         val bulbCount =
-            (
-                perimeter /
-                    spacing
-                ).roundToInt()
-                .coerceAtLeast(4)
-
+            (perimeter / spacing).roundToInt().coerceAtLeast(4)
         val actualSpacing =
-            if (bulbCount > 0) {
-                perimeter /
-                    bulbCount
-            } else {
-                spacing
-            }
+            if (bulbCount > 0) perimeter / bulbCount else spacing
+        val tangentProbe =
+            minOf(actualSpacing * 0.18f, 1.5f).coerceAtLeast(0.5f)
 
-        val bulbPositions =
-            Array(bulbCount) { index ->
-                roundedPoint(
-                    index *
-                        actualSpacing
-                )
+        val colorPaths =
+            Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
+
+        repeat(bulbCount) { index ->
+            val distance = index * actualSpacing
+            val center = roundedPoint(distance)
+            val ahead = roundedPoint(distance + tangentProbe)
+            val dx = ahead.x - center.x
+            val dy = ahead.y - center.y
+            val length = sqrt(dx * dx + dy * dy).coerceAtLeast(0.001f)
+            val tx = dx / length
+            val ty = dy / length
+            val start = Offset(
+                center.x - tx * halfBulbLength,
+                center.y - ty * halfBulbLength
+            )
+            val end = Offset(
+                center.x + tx * halfBulbLength,
+                center.y + ty * halfBulbLength
+            )
+
+            colorPaths[index % colorPaths.size].apply {
+                moveTo(start.x, start.y)
+                lineTo(end.x, end.y)
             }
+        }
+
+        val outerStyle = Stroke(
+            width = outerStroke,
+            cap = StrokeCap.Round
+        )
+        val middleStyle = Stroke(
+            width = middleStroke,
+            cap = StrokeCap.Round
+        )
+        val coreStyle = Stroke(
+            width = coreStroke,
+            cap = StrokeCap.Round
+        )
 
         onDrawWithContent {
             drawContent()
 
-            /*
-             * Broad haze. Adjacent colors blend here, so the eye doesn't see
-             * hard red/green/blue/yellow boundaries.
-             */
-            bulbPositions
-                .forEachIndexed {
-                    index,
-                    position ->
+            HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
+                drawPath(
+                    path = colorPaths[index],
+                    color = color.copy(alpha = 0.045f),
+                    style = outerStyle
+                )
+            }
 
-                    drawCircle(
-                        color =
-                            HOLIDAY_FOCUS_COLORS[
-                                index %
-                                    HOLIDAY_FOCUS_COLORS.size
-                            ].copy(
-                                alpha = 0.075f
-                            ),
-                        radius = outer,
-                        center = position
-                    )
-                }
+            HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
+                drawPath(
+                    path = colorPaths[index],
+                    color = color.copy(alpha = 0.14f),
+                    style = middleStyle
+                )
+            }
 
-            /*
-             * Stronger inner glow.
-             */
-            bulbPositions
-                .forEachIndexed {
-                    index,
-                    position ->
-
-                    drawCircle(
-                        color =
-                            HOLIDAY_FOCUS_COLORS[
-                                index %
-                                    HOLIDAY_FOCUS_COLORS.size
-                            ].copy(
-                                alpha = 0.18f
-                            ),
-                        radius = middle,
-                        center = position
-                    )
-                }
-
-            /*
-             * Tiny soft bulb core.
-             */
-            bulbPositions
-                .forEachIndexed {
-                    index,
-                    position ->
-
-                    drawCircle(
-                        color =
-                            HOLIDAY_FOCUS_COLORS[
-                                index %
-                                    HOLIDAY_FOCUS_COLORS.size
-                            ].copy(
-                                alpha = 0.72f
-                            ),
-                        radius = core,
-                        center = position
-                    )
-                }
+            HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
+                drawPath(
+                    path = colorPaths[index],
+                    color = color.copy(alpha = 0.38f),
+                    style = coreStyle
+                )
+            }
         }
     }
 }
