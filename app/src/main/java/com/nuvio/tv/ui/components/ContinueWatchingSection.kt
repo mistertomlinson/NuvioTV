@@ -66,6 +66,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.platform.LocalView
 import android.view.WindowManager
 import com.nuvio.tv.ui.screens.home.ContinueWatchingItem
+import com.nuvio.tv.ui.screens.home.holidaySegmentedFocusBorder
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.theme.NuvioTheme
@@ -542,20 +543,6 @@ fun ContinueWatchingCard(
         }
 
     val bgColor = NuvioColors.Background
-    val cwFocusRingColor = NuvioColors.FocusRing
-
-    val cwFocusedBorder = remember(
-        cwFocusRingColor,
-        cwCardShape
-    ) {
-        Border(
-            border = BorderStroke(
-                2.dp,
-                cwFocusRingColor
-            ),
-            shape = cwCardShape
-        )
-    }
 
     val badgeBackground = nuvioBadgeBrush(
         semantic = when {
@@ -583,6 +570,18 @@ fun ContinueWatchingCard(
             .onFocusChanged {
                 isCardFocused = it.isFocused
             }
+            .then(
+                if (
+                    isCardFocused ||
+                    retainFocusOutline
+                ) {
+                    Modifier.holidaySegmentedFocusBorder(
+                        cornerRadius = cornerRadius
+                    )
+                } else {
+                    Modifier
+                }
+            )
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
 
@@ -635,23 +634,16 @@ fun ContinueWatchingCard(
                     NuvioColors.FocusBackground
                 }
         ),
-        border =
-            if (isPosterStyle) {
-                CardDefaults.border(
-                    border = Border.None,
-                    focusedBorder = Border.None
-                )
-            } else {
-                CardDefaults.border(
-                    border =
-                        if (retainFocusOutline) {
-                            cwFocusedBorder
-                        } else {
-                            Border.None
-                        },
-                    focusedBorder = cwFocusedBorder
-                )
-            },
+        /*
+         * The visible outline is now owned by holidaySegmentedFocusBorder for
+         * every CW style. With Holiday Effects disabled that modifier draws the
+         * exact normal Nuvio focus ring, so TV Material must not draw a second
+         * CARD/WIDE outline underneath it.
+         */
+        border = CardDefaults.border(
+            border = Border.None,
+            focusedBorder = Border.None
+        ),
         scale = CardDefaults.scale(
             focusedScale = 1f
         )
@@ -700,25 +692,6 @@ fun ContinueWatchingCard(
                         }
                     )
                     .clip(cwClipShape)
-                    .then(
-                        if (
-                            isPosterStyle &&
-                            (
-                                isCardFocused ||
-                                    retainFocusOutline
-                                )
-                        ) {
-                            Modifier.border(
-                                border = BorderStroke(
-                                    2.dp,
-                                    cwFocusRingColor
-                                ),
-                                shape = cwCardShape
-                            )
-                        } else {
-                            Modifier
-                        }
-                    )
             ) {
                 if (imageModel.isNullOrBlank()) {
                     MonochromePosterPlaceholder()

@@ -73,6 +73,7 @@ import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.BadgeColorStyle
 import com.nuvio.tv.domain.model.PosterStatusIconStyle
+import com.nuvio.tv.domain.model.HolidayMode
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.theme.ThemeColors
@@ -86,7 +87,8 @@ private enum class AppearanceSection {
     BADGE_COLORS,
     POSTER_STATUS_ICONS,
     FONT,
-    LANGUAGE
+    LANGUAGE,
+    SEASONAL
 }
 
 private const val APPEARANCE_COLLAPSE_MILLIS = 240
@@ -110,9 +112,15 @@ fun ThemeSettingsScreen(
 @Composable
 fun ThemeSettingsContent(
     viewModel: ThemeSettingsViewModel = hiltViewModel(),
+    seasonalEffectsViewModel: SeasonalEffectsViewModel = hiltViewModel(),
     initialFocusRequester: FocusRequester? = null
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState by
+        viewModel.uiState.collectAsStateWithLifecycle()
+
+    val seasonalConfig by
+        seasonalEffectsViewModel.config
+            .collectAsStateWithLifecycle()
     val context = LocalContext.current
     val appearanceAnimationScope = rememberCoroutineScope()
     val appearanceListState = rememberLazyListState()
@@ -122,10 +130,14 @@ fun ThemeSettingsContent(
     var posterStatusIconsExpanded by remember { mutableStateOf(false) }
     var fontExpanded by remember { mutableStateOf(false) }
     var languageExpanded by remember { mutableStateOf(false) }
+    var holidayEffectsExpanded by remember { mutableStateOf(false) }
     var pendingBadgeColorsFocusRestore by remember { mutableStateOf(false) }
     var pendingPosterStatusIconsFocusRestore by remember { mutableStateOf(false) }
     var pendingFontFocusRestore by remember { mutableStateOf(false) }
     var pendingLanguageFocusRestore by remember { mutableStateOf(false) }
+    var pendingHolidayEffectsFocusRestore by remember {
+        mutableStateOf(false)
+    }
     var pendingLanguageRestart by remember { mutableStateOf(false) }
     var animatedFlattenBoundaries by remember {
         mutableStateOf<Set<Int>>(emptySet())
@@ -138,6 +150,7 @@ fun ThemeSettingsContent(
     val posterStatusIconsHeaderFocus = remember { FocusRequester() }
     val fontHeaderFocus = remember { FocusRequester() }
     val languageHeaderFocus = remember { FocusRequester() }
+    val holidayEffectsHeaderFocus = remember { FocusRequester() }
 
     val strLanguageSystem =
         stringResource(R.string.appearance_language_system)
@@ -208,6 +221,22 @@ fun ThemeSettingsContent(
         }
     }
 
+    LaunchedEffect(
+        holidayEffectsExpanded,
+        pendingHolidayEffectsFocusRestore
+    ) {
+        if (
+            !holidayEffectsExpanded &&
+            pendingHolidayEffectsFocusRestore
+        ) {
+            androidx.compose.runtime.withFrameNanos { }
+            runCatching {
+                holidayEffectsHeaderFocus.requestFocus()
+            }
+            pendingHolidayEffectsFocusRestore = false
+        }
+    }
+
     LaunchedEffect(pendingLanguageRestart, languageExpanded) {
         if (pendingLanguageRestart && !languageExpanded) {
             /*
@@ -230,7 +259,8 @@ fun ThemeSettingsContent(
         AppearanceSection.BADGE_COLORS,
         AppearanceSection.POSTER_STATUS_ICONS,
         AppearanceSection.FONT,
-        AppearanceSection.LANGUAGE
+        AppearanceSection.LANGUAGE,
+        AppearanceSection.SEASONAL
     )
     val expandedSections = buildSet {
         if (badgeColorsExpanded) add(AppearanceSection.BADGE_COLORS)
@@ -239,6 +269,9 @@ fun ThemeSettingsContent(
         }
         if (fontExpanded) add(AppearanceSection.FONT)
         if (languageExpanded) add(AppearanceSection.LANGUAGE)
+        if (holidayEffectsExpanded) {
+            add(AppearanceSection.SEASONAL)
+        }
     }
 
     fun groupPositionFor(
@@ -297,6 +330,8 @@ fun ThemeSettingsContent(
                 posterStatusIconsExpanded = expanded
             AppearanceSection.FONT -> fontExpanded = expanded
             AppearanceSection.LANGUAGE -> languageExpanded = expanded
+            AppearanceSection.SEASONAL ->
+                holidayEffectsExpanded = expanded
         }
     }
 
@@ -757,6 +792,82 @@ fun ThemeSettingsContent(
                             }
                         }
                     }
+
+                    item(
+                        key = "appearance_holiday_effects"
+                    ) {
+                        AppearanceExpandableSection(
+                            title = stringResource(
+                                R.string.appearance_holiday_effects
+                            ),
+                            subtitle = stringResource(
+                                R.string.appearance_holiday_effects_subtitle
+                            ),
+                            value = holidayModeLabel(
+                                seasonalConfig.holidayMode
+                            ),
+                            expanded = holidayEffectsExpanded,
+                            onToggle = {
+                                if (holidayEffectsExpanded) {
+                                    collapseSection(
+                                        AppearanceSection.SEASONAL,
+                                        "appearance_holiday_effects"
+                                    )
+                                } else {
+                                    expandSection(
+                                        AppearanceSection.SEASONAL
+                                    )
+                                }
+                            },
+                            focusRequester =
+                                holidayEffectsHeaderFocus,
+                            groupPosition =
+                                groupPositionFor(
+                                    AppearanceSection.SEASONAL
+                                ),
+                            animateTopFlatten =
+                                animateTopFlattenFor(
+                                    AppearanceSection.SEASONAL
+                                ),
+                            animateBottomFlatten =
+                                animateBottomFlattenFor(
+                                    AppearanceSection.SEASONAL
+                                ),
+                            deferBottomCorner =
+                                AppearanceSection.SEASONAL in
+                                    deferredBottomCornerSections
+                        ) {
+                            listOf(
+                                HolidayMode.ON,
+                                HolidayMode.OFF,
+                                HolidayMode.AUTOMATIC
+                            ).forEach { candidate ->
+                                AppearanceChoiceRow(
+                                    label =
+                                        holidayModeLabel(
+                                            candidate
+                                        ),
+                                    selected =
+                                        candidate ==
+                                            seasonalConfig.holidayMode,
+                                    onClick = {
+                                        seasonalEffectsViewModel
+                                            .setHolidayMode(
+                                                candidate
+                                            )
+
+                                        pendingHolidayEffectsFocusRestore =
+                                            true
+
+                                        collapseSection(
+                                            AppearanceSection.SEASONAL,
+                                            "appearance_holiday_effects"
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    }
                 }
 
                 SettingsVerticalScrollIndicators(
@@ -766,6 +877,27 @@ fun ThemeSettingsContent(
         }
     }
 }
+
+@Composable
+private fun holidayModeLabel(
+    mode: HolidayMode
+): String =
+    when (mode) {
+        HolidayMode.ON ->
+            stringResource(
+                R.string.appearance_holiday_mode_on
+            )
+
+        HolidayMode.OFF ->
+            stringResource(
+                R.string.appearance_holiday_mode_off
+            )
+
+        HolidayMode.AUTOMATIC ->
+            stringResource(
+                R.string.appearance_holiday_mode_automatic
+            )
+    }
 
 private enum class BadgePreviewSemantic {
     NEW_SEASON,

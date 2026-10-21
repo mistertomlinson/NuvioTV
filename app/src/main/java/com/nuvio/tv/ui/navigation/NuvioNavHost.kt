@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.nuvio.tv.ui.screens.CatalogSeeAllScreen
@@ -24,6 +25,7 @@ import com.nuvio.tv.ui.screens.detail.MetaDetailsScreen
 import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
 import com.nuvio.tv.ui.screens.home.HomeViewModel
+import com.nuvio.tv.ui.screens.home.SeasonalEffectsOverlayHost
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
@@ -68,14 +70,19 @@ private fun rootDestinationPopExit(
         return fadeOut(animationSpec = tween(350))
     }
 
-    Log.d("RootDissolve", "$destinationName cross-dissolve -> home")
-    return fadeOut(
-        targetAlpha = 0f,
-        animationSpec = tween(
-            durationMillis = 300,
-            easing = LinearEasing
-        )
+    /*
+     * The retained sidebar-root GraphicsLayer owns the complete visual
+     * Settings/Search/Library/Addons -> Home dissolve.
+     *
+     * Running a Navigation fade underneath that frozen layer duplicates alpha
+     * animation and forces additional UI/GPU work while the independent snow
+     * window is trying to maintain its 30fps cadence.
+     */
+    Log.d(
+        "RootDissolve",
+        "$destinationName frozen-layer dissolve -> home"
     )
+    return ExitTransition.None
 }
 
 /*
@@ -202,6 +209,16 @@ fun NuvioNavHost(
         }
 
     /*
+     * Snow is a separate Android surface above the Compose NavHost. Hold it at
+     * alpha=0 while the frozen Details frame waits for Home's first real draw,
+     * then release it on the exact same 350ms dissolve.
+     */
+    val detailReturnSnowReveal =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    /*
      * DETAIL_TO_DETAIL_RETURN_FROZEN_LAYER
      *
      * Normal Navigation Compose pop transitions fade the outgoing Detail down
@@ -259,6 +276,7 @@ fun NuvioNavHost(
             try {
                 detailReturnOverlayAlpha.snapTo(1f)
                 showDetailReturnOverlay.value = true
+                detailReturnSnowReveal.value = false
 
                 // Live Details is still on screen here.
                 androidx.compose.runtime.withFrameNanos { }
@@ -288,6 +306,12 @@ fun NuvioNavHost(
                 // Remove the temporary draw hook BEFORE the dissolve.
                 detailReturnAwaitingHomeDraw.value = false
 
+                /*
+                 * Start the dedicated snow-surface fade on the SAME boundary
+                 * as the retained Details-frame dissolve.
+                 */
+                detailReturnSnowReveal.value = true
+
                 // Keep the approved crossfade duration unchanged.
                 detailReturnOverlayAlpha.animateTo(
                     targetValue = 0f,
@@ -299,6 +323,7 @@ fun NuvioNavHost(
             } finally {
                 detailReturnAwaitingHomeDraw.value = false
                 showDetailReturnOverlay.value = false
+                detailReturnSnowReveal.value = false
                 detailReturnOverlayAlpha.snapTo(1f)
                 detailReturnRunning.set(false)
             }
@@ -493,6 +518,67 @@ fun NuvioNavHost(
         return from != to && isSidebarRoot(from) && isSidebarRoot(to)
     }
 
+    /*
+     * Seasonal snow is visible across Home and the root/glass/settings family.
+     * Content/detail/playback destinations intentionally receive no snow
+     * window at all.
+     */
+    fun isSeasonalOverlayRoute(
+        route: String
+    ): Boolean {
+        return route == Screen.Home.route ||
+            route == Screen.Search.route ||
+            route == Screen.Library.route ||
+            route == Screen.AddonManager.route ||
+            route == Screen.Settings.route ||
+            route == Screen.Discover.route ||
+            route == Screen.CatalogOrder.route ||
+            route == Screen.ThemeSettings.route ||
+            route == Screen.LayoutSettings.route ||
+            route == Screen.PlaybackSettings.route ||
+            route == Screen.Tracking.route ||
+            route == Screen.Trakt.route ||
+            route == Screen.Simkl.route ||
+            route == Screen.TmdbSettings.route ||
+            route == Screen.Plugins.route ||
+            route == Screen.About.route ||
+            route ==
+                Screen.SupportersContributors.route
+    }
+
+    val seasonalBackStackEntry by
+        navController
+            .currentBackStackEntryAsState()
+
+    val seasonalOverlayRoute =
+        seasonalBackStackEntry
+            ?.destination
+            ?.route
+            .orEmpty()
+
+    val seasonalOverlayVisible =
+        isSeasonalOverlayRoute(
+            seasonalOverlayRoute
+        )
+
+    /*
+     * Details keeps only the transparent seasonal SurfaceView alive after its
+     * 350ms fade-out. Snow and accumulation are paused there.
+     *
+     * Stream and Player remain completely free of the seasonal window.
+     */
+    val seasonalOverlayKeepAlive =
+        seasonalOverlayVisible ||
+            seasonalOverlayRoute
+                .startsWith("detail/")
+
+    val seasonalOverlayTargetVisible =
+        seasonalOverlayVisible &&
+            (
+                !showDetailReturnOverlay.value ||
+                    detailReturnSnowReveal.value
+                )
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -531,16 +617,12 @@ fun NuvioNavHost(
                     ExitTransition.None
 
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
-                            )
-                        )
-                    } else {
-                        ExitTransition.None
-                    }
+                    /*
+                     * Root transition pixels are owned by the retained/frozen
+                     * transition layers. Navigation must stay out of the alpha
+                     * animation so only one full-screen dissolve runs.
+                     */
+                    ExitTransition.None
 
                 else -> fadeOut(animationSpec = tween(350))
             }
@@ -589,16 +671,12 @@ fun NuvioNavHost(
                     ) -> ExitTransition.None
 
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
-                            )
-                        )
-                    } else {
-                        ExitTransition.None
-                    }
+                    /*
+                     * Root transition pixels are owned by the retained/frozen
+                     * transition layers. Navigation must stay out of the alpha
+                     * animation so only one full-screen dissolve runs.
+                     */
+                    ExitTransition.None
 
                 else -> fadeOut(animationSpec = tween(350))
             }
@@ -1982,5 +2060,17 @@ fun NuvioNavHost(
                 drawLayer(detailReturnLayer)
             }
         }
+
+        /*
+         * Separate-window live seasonal layer.
+         *
+         * This is intentionally outside ModernHomeContent's platform/parallax
+         * composition tree. Besides making Activity snapshots snow-free, this
+         * is the platform-transition isolation attempt for this build.
+         */
+        SeasonalEffectsOverlayHost(
+            visible = seasonalOverlayTargetVisible,
+            keepAlive = seasonalOverlayKeepAlive
+        )
     }
 }
