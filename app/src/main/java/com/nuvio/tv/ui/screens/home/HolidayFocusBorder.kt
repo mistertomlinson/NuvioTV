@@ -1,11 +1,19 @@
 package com.nuvio.tv.ui.screens.home
 
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
+import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -26,15 +34,34 @@ private val HOLIDAY_FOCUS_COLORS =
  * broad faint haze, tighter glow, soft colored core.
  *
  * This avoids the clearly-defined boundaries of colored dash segments.
+ *
+ * The seasonal config is observed only while a poster owns the visible focus
+ * outline. That keeps the normal Home rows free of per-card settings
+ * collectors while allowing the original focus ring to return immediately
+ * when Holiday Effects is disabled.
  */
+@Composable
 internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
     bulbSpacing: Dp = 6.dp,
     coreRadius: Dp = 1.15.dp,
     middleGlowRadius: Dp = 2.55.dp,
     outerGlowRadius: Dp = 4.6.dp
-): Modifier =
-    drawWithCache {
+): Modifier {
+    val seasonalEffectsViewModel: SeasonalEffectsViewModel =
+        hiltViewModel()
+    val config by
+        seasonalEffectsViewModel.config.collectAsStateWithLifecycle()
+
+    if (!config.enabled) {
+        return border(
+            width = 2.dp,
+            color = NuvioColors.FocusRing,
+            shape = RoundedCornerShape(cornerRadius)
+        )
+    }
+
+    return drawWithCache {
         val core =
             coreRadius.toPx()
                 .coerceAtLeast(0.5f)
@@ -426,3 +453,4 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                 }
         }
     }
+}
