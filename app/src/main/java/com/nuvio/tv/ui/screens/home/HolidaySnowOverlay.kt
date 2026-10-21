@@ -11,6 +11,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
@@ -24,9 +25,13 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.tv.LocalHomeHeroTrailerPlaying
+import com.nuvio.tv.LocalAppInForeground
+import com.nuvio.tv.LocalBackgroundedAtMs
 import com.nuvio.tv.domain.model.SeasonalEffectsConfig
 import com.nuvio.tv.domain.model.SnowSizeProfile
 import com.nuvio.tv.domain.model.SnowStartupMode
@@ -44,16 +49,42 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 
 internal object SeasonalSnowRuntime {
-    private val _homeScrolling = MutableStateFlow(false)
-    val homeScrolling: StateFlow<Boolean> = _homeScrolling.asStateFlow()
+    private val _homeScrolling =
+        MutableStateFlow(false)
+
+    val homeScrolling: StateFlow<Boolean> =
+        _homeScrolling.asStateFlow()
 
     /*
-     * HomeScreen owns the loading curtain and therefore owns the authoritative
-     * definition of "Home is actually visible". Seasonal effects do not invent
-     * their own timer/readiness heuristic.
+     * Home's existing loader/reveal transaction remains the one authority for
+     * when seasonal drawing may first become visible.
      */
-    private val _homeReady = MutableStateFlow(false)
-    val homeReady: StateFlow<Boolean> = _homeReady.asStateFlow()
+    private val _homeReady =
+        MutableStateFlow(false)
+
+    val homeReady: StateFlow<Boolean> =
+        _homeReady.asStateFlow()
+
+    /*
+     * Incrementing this creates a new snowfall simulation.
+     *
+     * Ordinary navigation does NOT increment it.
+     */
+    private val _restartGeneration =
+        MutableStateFlow(0L)
+
+    val restartGeneration: StateFlow<Long> =
+        _restartGeneration.asStateFlow()
+
+    /*
+     * Remember the last genuine Home loading session outside Home's
+     * destination composition.
+     *
+     * Re-entering the SAME Home session from Details/Settings therefore does
+     * not restart snowfall.
+     */
+    private var lastHomeLoadSessionId: Long? =
+        null
 
     fun setHomeScrolling(scrolling: Boolean) {
         if (_homeScrolling.value != scrolling) {
@@ -65,6 +96,22 @@ internal object SeasonalSnowRuntime {
         if (_homeReady.value != ready) {
             _homeReady.value = ready
         }
+    }
+
+    fun noteHomeLoadSession(
+        sessionId: Long
+    ) {
+        if (lastHomeLoadSessionId != sessionId) {
+            lastHomeLoadSessionId =
+                sessionId
+
+            restartSnowfall()
+        }
+    }
+
+    fun restartSnowfall() {
+        _restartGeneration.value =
+            _restartGeneration.value + 1L
     }
 }
 
@@ -117,6 +164,21 @@ private const val SNOW_BANK_RENDER_SMOOTH_RADIUS = 8
  */
 private const val SNOW_BANK_DEPOSIT_TOTAL_DP = 10.5f
 private const val SNOW_BANK_SEARCH_DISTANCE_PENALTY = 0.003125f
+
+/*
+ * Lives above the destination-specific Popup so navigating away from Home can
+ * remove the extra Android window without destroying snowfall progress.
+ */
+private class SeasonalSnowState {
+    var simulationNanos by
+        mutableLongStateOf(0L)
+
+    val bankHeightsDp =
+        FloatArray(SNOW_BANK_COLUMNS)
+
+    var bankGeneration by
+        mutableIntStateOf(0)
+}
 
 /*
  * Generated once. No Gaussian math occurs during rendering.
@@ -692,46 +754,109 @@ private fun depositSnowBankForInterval(
 
 @Composable
 internal fun SeasonalEffectsOverlayHost(
+    visible: Boolean,
     viewModel: SeasonalEffectsViewModel = hiltViewModel()
 ) {
     val config by
         viewModel.config
             .collectAsStateWithLifecycle()
 
-    if (!config.enabled) return
+    if (!config.enabled) {
+        return
+    }
 
-    /*
-     * Do not even compose/start the snowfall simulation underneath Home's
-     * loading curtain. The first snow frame begins only after Home's existing
-     * reveal transaction has completed.
-     */
     val homeReady by
         SeasonalSnowRuntime
             .homeReady
             .collectAsStateWithLifecycle()
 
-    if (!homeReady) return
-
-    val isScrolling by
+    val restartGeneration by
         SeasonalSnowRuntime
-            .homeScrolling
+            .restartGeneration
             .collectAsStateWithLifecycle()
 
-    val heroTrailerPlaying =
-        LocalHomeHeroTrailerPlaying.current.value
+    /*
+     * A new generation is the ONLY thing that creates a fresh bank/timeline.
+     * Route visibility is deliberately not a key.
+     */
+    val snowState =
+        remember(restartGeneration) {
+            SeasonalSnowState()
+        }
 
-    HolidaySnowOverlay(
-        config = config,
-        isScrolling = isScrolling,
-        heroTrailerPlaying = heroTrailerPlaying
-    )
+    /*
+     * Match Home's existing definition of a meaningful resume.
+     * A >30 second background session gets a fresh FALL_IN_FROM_TOP.
+     */
+    val appInForeground =
+        LocalAppInForeground.current
+
+    val backgroundedAtMs =
+        LocalBackgroundedAtMs.current
+
+    LaunchedEffect(appInForeground) {
+        if (
+            appInForeground &&
+            backgroundedAtMs > 0L
+        ) {
+            val backgroundedDurationMs =
+                System.currentTimeMillis() -
+                    backgroundedAtMs
+
+            if (
+                backgroundedDurationMs >
+                    30_000L
+            ) {
+                SeasonalSnowRuntime
+                    .restartSnowfall()
+            }
+        }
+    }
+
+    /*
+     * Cold launch/profile switch still waits for Home's real REVEAL phase.
+     *
+     * Details/Stream/Player remove the Popup entirely, but snowState above
+     * remains alive. Returning therefore resumes the existing bank/timeline.
+     */
+    if (!homeReady || !visible) {
+        return
+    }
+
+    /*
+     * Compose Popup owns a separate Android window.
+     *
+     * PixelCopy of the Activity window therefore captures Home WITHOUT snow,
+     * while this live snow window remains above Settings/Search/Addons.
+     *
+     * focusable=false means it cannot participate in TV D-pad focus.
+     */
+    Popup(
+        alignment = Alignment.TopStart,
+        onDismissRequest = {},
+        properties =
+            PopupProperties(
+                focusable = false,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false,
+                clippingEnabled = false
+            )
+    ) {
+        HolidaySnowOverlay(
+            config = config,
+            isScrolling = false,
+            heroTrailerPlaying = false,
+            snowState = snowState
+        )
+    }
 }
 
 @Composable
 private fun HolidaySnowOverlay(
     config: SeasonalEffectsConfig,
     isScrolling: Boolean,
-    heroTrailerPlaying: Boolean
+    heroTrailerPlaying: Boolean,
+    snowState: SeasonalSnowState
 ) {
     val pauseForTrailer =
         config.pauseDuringHeroTrailer &&
@@ -770,24 +895,12 @@ private fun HolidaySnowOverlay(
             requestedCount
         }
 
-    var simulationNanos by
-        remember(config.startupMode) {
-            mutableLongStateOf(0L)
-        }
-
     /*
-     * Mutable primitive arrays avoid hundreds of independent Compose states. A
-     * single generation integer invalidates the Canvas only when a landing
-     * actually changes the bank.
+     * Simulation ownership lives above the separate Popup window.
+     * Recreating the Popup therefore does not reset snowfall or accumulation.
      */
     val bankHeightsDp =
-        remember(config.startupMode) {
-            FloatArray(SNOW_BANK_COLUMNS)
-        }
-    var bankGeneration by
-        remember(config.startupMode) {
-            mutableIntStateOf(0)
-        }
+        snowState.bankHeightsDp
 
     LaunchedEffect(
         effectiveFps,
@@ -795,7 +908,8 @@ private fun HolidaySnowOverlay(
         config.startupMode,
         config.snowfallSpeed,
         config.depthLayers,
-        requestedCount
+        requestedCount,
+        snowState
     ) {
         val publishIntervalNanos =
             NANOS_PER_SECOND.toLong() /
@@ -829,7 +943,7 @@ private fun HolidaySnowOverlay(
                         now - lastPublishedVsync >=
                         publishIntervalNanos
                     ) {
-                        val beforeNanos = simulationNanos
+                        val beforeNanos = snowState.simulationNanos
                         val afterNanos =
                             beforeNanos +
                                 accumulatedSimulationNanos
@@ -847,9 +961,9 @@ private fun HolidaySnowOverlay(
                                 config = config
                             )
 
-                        simulationNanos = afterNanos
+                        snowState.simulationNanos = afterNanos
                         if (bankChanged) {
-                            bankGeneration++
+                            snowState.bankGeneration++
                         }
 
                         accumulatedSimulationNanos = 0L
@@ -880,7 +994,7 @@ private fun HolidaySnowOverlay(
     val bankTopPath = remember { Path() }
 
     /* Reading this state is enough to invalidate the Canvas after landings. */
-    val bankGenerationSnapshot = bankGeneration
+    val bankGenerationSnapshot = snowState.bankGeneration
 
     Canvas(modifier = drawModifier) {
         if (size.width <= 0f || size.height <= 0f) {
@@ -892,7 +1006,7 @@ private fun HolidaySnowOverlay(
 
         val atlas = snowSpriteAtlas
         val seconds =
-            simulationNanos /
+            snowState.simulationNanos /
                 NANOS_PER_SECOND
         val scale1080 = size.height / 1080f
 

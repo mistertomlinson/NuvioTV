@@ -86,7 +86,8 @@ private enum class AppearanceSection {
     BADGE_COLORS,
     POSTER_STATUS_ICONS,
     FONT,
-    LANGUAGE
+    LANGUAGE,
+    SEASONAL
 }
 
 private const val APPEARANCE_COLLAPSE_MILLIS = 240
@@ -110,9 +111,15 @@ fun ThemeSettingsScreen(
 @Composable
 fun ThemeSettingsContent(
     viewModel: ThemeSettingsViewModel = hiltViewModel(),
+    seasonalEffectsViewModel: SeasonalEffectsViewModel = hiltViewModel(),
     initialFocusRequester: FocusRequester? = null
 ) {
-    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val uiState by
+        viewModel.uiState.collectAsStateWithLifecycle()
+
+    val seasonalConfig by
+        seasonalEffectsViewModel.config
+            .collectAsStateWithLifecycle()
     val context = LocalContext.current
     val appearanceAnimationScope = rememberCoroutineScope()
     val appearanceListState = rememberLazyListState()
@@ -230,7 +237,8 @@ fun ThemeSettingsContent(
         AppearanceSection.BADGE_COLORS,
         AppearanceSection.POSTER_STATUS_ICONS,
         AppearanceSection.FONT,
-        AppearanceSection.LANGUAGE
+        AppearanceSection.LANGUAGE,
+        AppearanceSection.SEASONAL
     )
     val expandedSections = buildSet {
         if (badgeColorsExpanded) add(AppearanceSection.BADGE_COLORS)
@@ -297,6 +305,7 @@ fun ThemeSettingsContent(
                 posterStatusIconsExpanded = expanded
             AppearanceSection.FONT -> fontExpanded = expanded
             AppearanceSection.LANGUAGE -> languageExpanded = expanded
+            AppearanceSection.SEASONAL -> Unit
         }
     }
 
@@ -756,6 +765,35 @@ fun ThemeSettingsContent(
                                 )
                             }
                         }
+                    }
+
+                    item(
+                        key = "appearance_seasonal_effects"
+                    ) {
+                        SettingsToggleRow(
+                            title = "Seasonal Effects",
+                            subtitle = null,
+                            checked = seasonalConfig.enabled,
+                            onToggle = {
+                                seasonalEffectsViewModel
+                                    .setEnabled(
+                                        !seasonalConfig.enabled
+                                    )
+                            },
+                            showDivider = false,
+                            groupPosition =
+                                groupPositionFor(
+                                    AppearanceSection.SEASONAL
+                                ),
+                            animateTopFlatten =
+                                animateTopFlattenFor(
+                                    AppearanceSection.SEASONAL
+                                ),
+                            animateBottomFlatten =
+                                animateBottomFlattenFor(
+                                    AppearanceSection.SEASONAL
+                                )
+                        )
                     }
                 }
 

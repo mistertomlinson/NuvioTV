@@ -894,6 +894,20 @@ fun HomeScreen(
                 }
 
                 /*
+                 * New profile/cold Home loading sessions get a fresh snow
+                 * generation. Recomposition or ordinary back-navigation with
+                 * the same session ID does not.
+                 */
+                androidx.compose.runtime.LaunchedEffect(
+                    uiState.homeLoadSessionId
+                ) {
+                    SeasonalSnowRuntime
+                        .noteHomeLoadSession(
+                            uiState.homeLoadSessionId
+                        )
+                }
+
+                /*
                  * Seasonal effects share Home's existing reveal contract.
                  *
                  * phase 0: loader is active
@@ -907,20 +921,6 @@ fun HomeScreen(
                     SeasonalSnowRuntime.setHomeReady(
                         loaderPhase == 2
                     )
-                }
-
-                /*
-                 * Never leave a stale true value behind if this Home entry is
-                 * removed or a different Home load session replaces it.
-                 */
-                androidx.compose.runtime.DisposableEffect(
-                    uiState.homeLoadSessionId
-                ) {
-                    onDispose {
-                        SeasonalSnowRuntime.setHomeReady(
-                            false
-                        )
-                    }
                 }
 
                 val dataReady = !shouldShowLoadingGate

@@ -1,25 +1,33 @@
 package com.nuvio.tv.domain.model
 
 /**
- * Runtime-tunable Home seasonal effects. The intentionally expensive options
- * live in the same model so one lab build can A/B combinations without another
- * install/AOT cycle.
+ * Production seasonal-effect appearance.
+ *
+ * The snow lab has been retired. These values are the approved visual
+ * configuration and are intentionally fixed so an existing installation and
+ * a fresh installation render the same effect.
+ *
+ * Only [enabled] remains user-configurable.
  */
 data class SeasonalEffectsConfig(
     val enabled: Boolean = false,
-    val startupMode: SnowStartupMode = SnowStartupMode.PRE_FILLED,
-    val particleCount: Int = 60,
+    val startupMode: SnowStartupMode = SnowStartupMode.FALL_IN_FROM_TOP,
+    val particleCount: Int = 120,
     val targetFps: Int = 30,
-    val snowfallSpeed: SnowfallSpeed = SnowfallSpeed.NORMAL,
+    val snowfallSpeed: SnowfallSpeed = SnowfallSpeed.FAST,
     val sizeProfile: SnowSizeProfile = SnowSizeProfile.MIXED,
-    val wind: SnowWind = SnowWind.LIGHT,
-    val sway: SnowSway = SnowSway.MEDIUM,
-    val opacity: SnowOpacity = SnowOpacity.NORMAL,
+    val wind: SnowWind = SnowWind.MEDIUM,
+    val sway: SnowSway = SnowSway.OFF,
+    val opacity: SnowOpacity = SnowOpacity.BRIGHT,
     val depthLayers: Int = 3,
-    val reduceDensityWhileScrolling: Boolean = true,
-    val reduceFpsWhileScrolling: Boolean = true,
+
+    // Approved build uses every performance guardrail OFF.
+    val reduceDensityWhileScrolling: Boolean = false,
+    val reduceFpsWhileScrolling: Boolean = false,
     val freezeWhileScrolling: Boolean = false,
-    val pauseDuringHeroTrailer: Boolean = true,
+    val pauseDuringHeroTrailer: Boolean = false,
+
+    // Approved build uses no whole-layer snow blur.
     val blur: SnowBlur = SnowBlur.OFF
 ) {
     companion object {

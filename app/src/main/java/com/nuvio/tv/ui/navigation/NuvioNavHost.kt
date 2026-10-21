@@ -16,6 +16,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.nuvio.tv.ui.screens.CatalogSeeAllScreen
@@ -494,6 +495,46 @@ fun NuvioNavHost(
         return from != to && isSidebarRoot(from) && isSidebarRoot(to)
     }
 
+    /*
+     * Seasonal snow is visible across Home and the root/glass/settings family.
+     * Content/detail/playback destinations intentionally receive no snow
+     * window at all.
+     */
+    fun isSeasonalOverlayRoute(
+        route: String
+    ): Boolean {
+        return route == Screen.Home.route ||
+            route == Screen.Search.route ||
+            route == Screen.Library.route ||
+            route == Screen.AddonManager.route ||
+            route == Screen.Settings.route ||
+            route == Screen.Discover.route ||
+            route == Screen.CatalogOrder.route ||
+            route == Screen.ThemeSettings.route ||
+            route == Screen.LayoutSettings.route ||
+            route == Screen.PlaybackSettings.route ||
+            route == Screen.Tracking.route ||
+            route == Screen.Trakt.route ||
+            route == Screen.Simkl.route ||
+            route == Screen.TmdbSettings.route ||
+            route == Screen.Plugins.route ||
+            route == Screen.About.route ||
+            route ==
+                Screen.SupportersContributors.route
+    }
+
+    val seasonalBackStackEntry by
+        navController
+            .currentBackStackEntryAsState()
+
+    val seasonalOverlayVisible =
+        isSeasonalOverlayRoute(
+            seasonalBackStackEntry
+                ?.destination
+                ?.route
+                .orEmpty()
+        )
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -737,7 +778,6 @@ fun NuvioNavHost(
                         navController.navigate(Screen.CatalogSeeAll.createRoute(catalogId, addonId, type))
                     }
                 )
-                SeasonalEffectsOverlayHost()
             }
         }
 
@@ -1984,5 +2024,16 @@ fun NuvioNavHost(
                 drawLayer(detailReturnLayer)
             }
         }
+
+        /*
+         * Separate-window live seasonal layer.
+         *
+         * This is intentionally outside ModernHomeContent's platform/parallax
+         * composition tree. Besides making Activity snapshots snow-free, this
+         * is the platform-transition isolation attempt for this build.
+         */
+        SeasonalEffectsOverlayHost(
+            visible = seasonalOverlayVisible
+        )
     }
 }
