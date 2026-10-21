@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import android.graphics.Bitmap
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -7,10 +8,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.FilterQuality
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -18,34 +21,174 @@ import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.PI
 import kotlin.math.cos
+import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 
-private val HOLIDAY_FOCUS_COLORS =
-    arrayOf(
-        Color(0xFFFF2B2B),
-        Color(0xFF22C55E),
-        Color(0xFF2F7DFF),
-        Color(0xFFFFE12B)
+private const val HOLIDAY_BULB_SPRITE_SIZE = 48
+private const val HOLIDAY_BULB_COLOR_COUNT = 4
+
+/*
+ * RGB values stay saturated outside the hot center so the bloom still reads
+ * red / green / blue / amber from couch distance.
+ */
+private val HOLIDAY_BULB_RGB = arrayOf(
+    intArrayOf(255, 42, 32),
+    intArrayOf(48, 220, 88),
+    intArrayOf(62, 126, 255),
+    intArrayOf(255, 176, 24)
+)
+
+/*
+ * One tiny 192x48 texture atlas generated once for the lifetime of the process.
+ *
+ * Each tile contains the complete light treatment: a hot near-white center,
+ * saturated colored bloom, and a broad feathered halo. Runtime rendering uses
+ * only cached image draws -- there is no blur / RenderEffect on the focused
+ * card and no per-frame glow geometry construction.
+ */
+private val holidayBulbAtlas: ImageBitmap by lazy(LazyThreadSafetyMode.NONE) {
+    buildHolidayBulbAtlas()
+}
+
+private fun buildHolidayBulbAtlas(): ImageBitmap {
+    val atlasWidth =
+        HOLIDAY_BULB_SPRITE_SIZE * HOLIDAY_BULB_COLOR_COUNT
+    val atlasHeight = HOLIDAY_BULB_SPRITE_SIZE
+    val pixels = IntArray(atlasWidth * atlasHeight)
+    val center = (HOLIDAY_BULB_SPRITE_SIZE - 1) * 0.5f
+    val half = HOLIDAY_BULB_SPRITE_SIZE * 0.5f
+
+    HOLIDAY_BULB_RGB.forEachIndexed { colorIndex, rgb ->
+        val tileX = colorIndex * HOLIDAY_BULB_SPRITE_SIZE
+        val baseR = rgb[0] / 255f
+        val baseG = rgb[1] / 255f
+        val baseB = rgb[2] / 255f
+
+        for (y in 0 until HOLIDAY_BULB_SPRITE_SIZE) {
+            for (x in 0 until HOLIDAY_BULB_SPRITE_SIZE) {
+                val dx = (x + 0.5f - center) / half
+                val dy = (y + 0.5f - center) / half
+                val radiusSquared = dx * dx + dy * dy
+
+                fun gaussian(sigma: Float): Float =
+                    exp(
+                        (
+                            -0.5f *
+                                radiusSquared /
+                                (sigma * sigma)
+                            ).toDouble()
+                    ).toFloat()
+
+                /*
+                 * The outer layer is intentionally broad and faint. The inner
+                 * layer supplies the saturated bloom; the compact core then
+                 * drives both opacity and the near-white center.
+                 */
+                val outerGlow =
+                    0.30f * gaussian(0.43f)
+                val innerGlow =
+                    0.78f * gaussian(0.235f)
+                val hotCore =
+                    gaussian(0.135f)
+
+                val coloredAlpha =
+                    (
+                        1f -
+                            (1f - outerGlow) *
+                            (1f - innerGlow)
+                        ).coerceIn(0f, 1f)
+
+                val alpha =
+                    (
+                        1f -
+                            (1f - coloredAlpha) *
+                            (1f - hotCore)
+                        ).coerceIn(0f, 1f)
+
+                if (alpha < 0.0025f) {
+                    continue
+                }
+
+                /*
+                 * sqrt() keeps a visibly larger white-hot center without
+                 * introducing a hard circular boundary.
+                 */
+                val whiteMix =
+                    sqrt(hotCore.coerceIn(0f, 1f))
+
+                val hotR = 1f
+                val hotG = 0.985f
+                val hotB = 0.93f
+
+                val red =
+                    (
+                        (baseR * (1f - whiteMix) + hotR * whiteMix) *
+                            255f
+                        ).roundToInt().coerceIn(0, 255)
+                val green =
+                    (
+                        (baseG * (1f - whiteMix) + hotG * whiteMix) *
+                            255f
+                        ).roundToInt().coerceIn(0, 255)
+                val blue =
+                    (
+                        (baseB * (1f - whiteMix) + hotB * whiteMix) *
+                            255f
+                        ).roundToInt().coerceIn(0, 255)
+                val a =
+                    (alpha * 255f)
+                        .roundToInt()
+                        .coerceIn(0, 255)
+
+                pixels[
+                    y * atlasWidth +
+                        tileX + x
+                ] =
+                    (a shl 24) or
+                        (red shl 16) or
+                        (green shl 8) or
+                        blue
+            }
+        }
+    }
+
+    val bitmap = Bitmap.createBitmap(
+        atlasWidth,
+        atlasHeight,
+        Bitmap.Config.ARGB_8888
     )
+
+    bitmap.setPixels(
+        pixels,
+        0,
+        atlasWidth,
+        0,
+        0,
+        atlasWidth,
+        atlasHeight
+    )
+
+    return bitmap.asImageBitmap()
+}
 
 /*
  * Static Christmas-light focus treatment.
  *
- * Return to the round bulbs that read better from couch distance, but retain
- * the broader/lower-alpha glow from the later treatment. Bulbs are still
- * batched into four cached paths, so the whole focus treatment remains only
- * 12 path draws: broad haze + inner glow + soft core for each color.
+ * The light itself is a cached sprite modeled after a real illuminated bulb:
+ * hot white center -> colored bloom -> diffuse halo. Only the focused card
+ * draws these images, and the atlas is generated once, so the visual softness
+ * does not require a live blur pass.
  *
  * Holiday Effects OFF immediately restores the normal Nuvio focus ring.
  */
 @Composable
 internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
-    bulbSpacing: Dp = 7.dp,
-    coreRadius: Dp = 1.65.dp,
-    middleGlowRadius: Dp = 3.1.dp,
-    outerGlowRadius: Dp = 5.4.dp
+    bulbSpacing: Dp = 11.dp,
+    bulbDrawSize: Dp = 22.dp,
+    edgeInset: Dp = 2.2.dp
 ): Modifier {
     val seasonalEffectsViewModel: SeasonalEffectsViewModel = hiltViewModel()
     val config by seasonalEffectsViewModel.config.collectAsStateWithLifecycle()
@@ -59,22 +202,33 @@ internal fun Modifier.holidaySegmentedFocusBorder(
     }
 
     return drawWithCache {
-        val core = coreRadius.toPx().coerceAtLeast(0.75f)
-        val middle = middleGlowRadius.toPx().coerceAtLeast(core)
-        val outer = outerGlowRadius.toPx().coerceAtLeast(middle)
-        val spacing = bulbSpacing.toPx().coerceAtLeast(core * 2f + 1f)
+        val atlas = holidayBulbAtlas
+        val drawSizePx =
+            bulbDrawSize.toPx()
+                .roundToInt()
+                .coerceAtLeast(4)
+        val halfDrawSizePx = drawSizePx * 0.5f
+        val spacing =
+            bulbSpacing.toPx()
+                .coerceAtLeast(1f)
+        val inset =
+            edgeInset.toPx()
+                .coerceAtLeast(0f)
 
-        /* Keep the bulb centers on the visible card edge. */
-        val edgeInset = core
-        val left = edgeInset
-        val top = edgeInset
-        val right = (size.width - edgeInset).coerceAtLeast(left)
-        val bottom = (size.height - edgeInset).coerceAtLeast(top)
+        /*
+         * The luminous center follows the card edge; most of the soft halo is
+         * allowed to bloom inward while any available outer area receives the
+         * other half naturally.
+         */
+        val left = inset
+        val top = inset
+        val right = (size.width - inset).coerceAtLeast(left)
+        val bottom = (size.height - inset).coerceAtLeast(top)
         val width = right - left
         val height = bottom - top
 
         val requestedRadius =
-            (cornerRadius.toPx() - edgeInset).coerceAtLeast(0f)
+            (cornerRadius.toPx() - inset).coerceAtLeast(0f)
         val radius =
             requestedRadius.coerceAtMost(
                 minOf(width * 0.5f, height * 0.5f)
@@ -169,65 +323,46 @@ internal fun Modifier.holidaySegmentedFocusBorder(
         }
 
         val bulbCount =
-            (perimeter / spacing).roundToInt().coerceAtLeast(4)
+            (perimeter / spacing)
+                .roundToInt()
+                .coerceAtLeast(HOLIDAY_BULB_COLOR_COUNT)
         val actualSpacing =
-            if (bulbCount > 0) perimeter / bulbCount else spacing
-
-        val outerPaths = Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
-        val middlePaths = Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
-        val corePaths = Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
-
-        repeat(bulbCount) { index ->
-            val center = roundedPoint(index * actualSpacing)
-            val colorIndex = index % HOLIDAY_FOCUS_COLORS.size
-
-            outerPaths[colorIndex].addOval(
-                Rect(
-                    left = center.x - outer,
-                    top = center.y - outer,
-                    right = center.x + outer,
-                    bottom = center.y + outer
-                )
-            )
-            middlePaths[colorIndex].addOval(
-                Rect(
-                    left = center.x - middle,
-                    top = center.y - middle,
-                    right = center.x + middle,
-                    bottom = center.y + middle
-                )
-            )
-            corePaths[colorIndex].addOval(
-                Rect(
-                    left = center.x - core,
-                    top = center.y - core,
-                    right = center.x + core,
-                    bottom = center.y + core
-                )
-            )
-        }
+            if (bulbCount > 0) {
+                perimeter / bulbCount
+            } else {
+                spacing
+            }
+        val bulbCenters =
+            Array(bulbCount) { index ->
+                roundedPoint(index * actualSpacing)
+            }
 
         onDrawWithContent {
             drawContent()
 
-            HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
-                drawPath(
-                    path = outerPaths[index],
-                    color = color.copy(alpha = 0.045f)
-                )
-            }
+            bulbCenters.forEachIndexed { index, center ->
+                val colorIndex =
+                    index % HOLIDAY_BULB_COLOR_COUNT
 
-            HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
-                drawPath(
-                    path = middlePaths[index],
-                    color = color.copy(alpha = 0.14f)
-                )
-            }
-
-            HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
-                drawPath(
-                    path = corePaths[index],
-                    color = color.copy(alpha = 0.38f)
+                drawImage(
+                    image = atlas,
+                    srcOffset = IntOffset(
+                        colorIndex * HOLIDAY_BULB_SPRITE_SIZE,
+                        0
+                    ),
+                    srcSize = IntSize(
+                        HOLIDAY_BULB_SPRITE_SIZE,
+                        HOLIDAY_BULB_SPRITE_SIZE
+                    ),
+                    dstOffset = IntOffset(
+                        (center.x - halfDrawSizePx).roundToInt(),
+                        (center.y - halfDrawSizePx).roundToInt()
+                    ),
+                    dstSize = IntSize(
+                        drawSizePx,
+                        drawSizePx
+                    ),
+                    filterQuality = FilterQuality.Low
                 )
             }
         }
