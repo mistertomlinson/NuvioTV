@@ -1,0 +1,112 @@
+name: One-shot Double Tap V2 Source Tune
+
+on:
+  push:
+    branches:
+      - tune-double-tap-scroll-v2
+
+permissions:
+  contents: write
+
+jobs:
+  tune:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: tune-double-tap-scroll-v2
+
+      - name: Apply scroll tuning
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          content_path = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt')
+          content = content_path.read_text()
+          old_vertical = 'internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 3200f'
+          new_vertical = 'internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 3000f'
+          count = content.count(old_vertical)
+          if count != 1:
+              raise SystemExit(f'Expected 1 vertical-speed match, found {count}')
+          content_path.write_text(content.replace(old_vertical, new_vertical))
+
+          rows_path = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeRows.kt')
+          rows = rows_path.read_text()
+          old = '''                                                    val isRegularPortraitCatalogRow =
+                                                        !isNumbered &&
+                                                            !useLandscapePosters &&
+                                                            !perCatalogLandscape &&
+                                                            !isCwRow
+
+                                                    val targetPositionsPerSecond =
+                                                        if (
+                                                            isRegularPortraitCatalogRow
+                                                        ) {
+                                                            32f
+                                                        } else {
+                                                            20f
+                                                        }
+
+                                                    val velocityPxPerSecond =
+                                                        measuredPitchPx *
+                                                            targetPositionsPerSecond
+'''
+          new = '''                                                    val isPortraitCatalogGeometry =
+                                                        !useLandscapePosters &&
+                                                            !perCatalogLandscape &&
+                                                            !isCwRow
+
+                                                    val targetPositionsPerSecond =
+                                                        if (
+                                                            isPortraitCatalogGeometry
+                                                        ) {
+                                                            32f
+                                                        } else {
+                                                            20f
+                                                        }
+
+                                                    // Numbered rows deliberately use extra spacing for the
+                                                    // large number overlay. Do not let that visual spacing
+                                                    // inflate Double-Left screen velocity.
+                                                    val velocityPitchPx =
+                                                        if (isNumbered) {
+                                                            val numberedSpacingPx =
+                                                                with(doubleLeftDensity) {
+                                                                    numberedRowSpacing.toPx()
+                                                                }
+                                                            val regularSpacingPx =
+                                                                with(doubleLeftDensity) {
+                                                                    12.dp.toPx()
+                                                                }
+                                                            (
+                                                                measuredPitchPx -
+                                                                    numberedSpacingPx +
+                                                                    regularSpacingPx
+                                                            ).coerceAtLeast(1f)
+                                                        } else {
+                                                            measuredPitchPx
+                                                        }
+
+                                                    val velocityPxPerSecond =
+                                                        velocityPitchPx *
+                                                            targetPositionsPerSecond
+'''
+          count = rows.count(old)
+          if count != 2:
+              raise SystemExit(f'Expected 2 horizontal-speed blocks, found {count}')
+          rows_path.write_text(rows.replace(old, new))
+          PY
+
+      - name: Commit tuning
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt \
+                  app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeRows.kt
+          git diff --cached --check
+          git commit -m "Refine double-tap scroll tuning"
+          git push origin HEAD:tune-double-tap-scroll-v2
