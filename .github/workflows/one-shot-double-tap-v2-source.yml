@@ -97,11 +97,11 @@ jobs:
               ])
 
           rows, horizontal_count = pattern.subn(replacement, rows)
-          if horizontal_count == 2:
+          if horizontal_count == 1:
               rows_path.write_text(rows)
           elif not (
-              rows.count('val isPortraitCatalogGeometry =') == 2 and
-              rows.count('val velocityPitchPx =') == 2
+              rows.count('val isPortraitCatalogGeometry =') == 1 and
+              rows.count('val velocityPitchPx =') == 1
           ):
               raise SystemExit(
                   f'Unexpected horizontal-speed state: matches={horizontal_count}, '
