@@ -854,13 +854,6 @@ fun ThemeSettingsContent(
                                 }
                             )
 
-                            Spacer(
-                                modifier =
-                                    Modifier.height(
-                                        SettingsRowGap
-                                    )
-                            )
-
                             HolidayModeExpandableRow(
                                 title = stringResource(
                                     R.string.appearance_holiday_christmas
@@ -1110,11 +1103,7 @@ private fun HolidayModeExpandableRow(
         ) {
             Column(
                 modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(
-                            start = 18.dp
-                        ),
+                    Modifier.fillMaxWidth(),
                 verticalArrangement =
                     Arrangement.spacedBy(
                         SettingsRowGap

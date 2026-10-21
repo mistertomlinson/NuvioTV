@@ -2829,7 +2829,12 @@ private fun ModernCarouselCard(
                             retainPopupFocusOutline
                     ) {
                         Modifier.holidaySegmentedFocusBorder(
-                            cornerRadius = cardCornerRadius
+                            cornerRadius = cardCornerRadius,
+                            allowHalloweenPerch =
+                                !isBackdropExpanded &&
+                                    !effectiveIsExpanded &&
+                                    animatedCardWidth.value <=
+                                        cardWidth.value + 0.5f
                         )
                     } else {
                         Modifier

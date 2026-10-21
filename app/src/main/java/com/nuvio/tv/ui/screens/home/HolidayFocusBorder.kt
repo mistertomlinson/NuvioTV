@@ -6,6 +6,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -231,7 +232,8 @@ internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
     bulbSpacing: Dp = 11.dp,
     bulbDrawSize: Dp = 22.dp,
-    edgeInset: Dp = 2.2.dp
+    edgeInset: Dp = 2.2.dp,
+    allowHalloweenPerch: Boolean = true
 ): Modifier {
     val seasonalEffectsViewModel: SeasonalEffectsViewModel = hiltViewModel()
     val config by seasonalEffectsViewModel.config.collectAsStateWithLifecycle()
@@ -273,6 +275,14 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             }
         }
 
+        SideEffect {
+            HalloweenEffectsRuntime
+                .setFocusedPosterPerchEligible(
+                    owner = focusOwner,
+                    eligible = allowHalloweenPerch
+                )
+        }
+
         return onGloballyPositioned {
             val bounds =
                 it.boundsInWindow()
@@ -283,7 +293,8 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                     left = bounds.left,
                     top = bounds.top,
                     right = bounds.right,
-                    bottom = bounds.bottom
+                    bottom = bounds.bottom,
+                    perchEligible = allowHalloweenPerch
                 )
         }.border(
             width = 2.dp,
@@ -497,12 +508,15 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                     }
 
                 /*
-                 * Every bulb now keeps the exact previously-approved
-                 * FULL-BRIGHTNESS sprite as its baseline. The active color
-                 * family gets a second cached draw on top, which strengthens
-                 * mostly the translucent colored bloom instead of dimming
-                 * every other bulb.
+                 * Inactive colors now remain at 85% of the approved bulb
+                 * sprite. At full influence this reaches the exact previous
+                 * bright state: 100% base plus the existing 38% glow pass.
                  */
+                val baseAlpha =
+                    0.85f +
+                        0.15f *
+                            influence
+
                 val boostAlpha =
                     HOLIDAY_BULB_BOOST_ALPHA *
                         influence
@@ -533,7 +547,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                     srcSize = srcSize,
                     dstOffset = dstOffset,
                     dstSize = dstSize,
-                    alpha = 1f,
+                    alpha = baseAlpha,
                     filterQuality = FilterQuality.Low
                 )
 

@@ -1,14 +1,12 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
-import android.graphics.Rect
 import android.graphics.RectF
 import android.os.Build
 import android.view.SurfaceHolder
@@ -26,34 +24,33 @@ import androidx.compose.ui.window.PopupProperties
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.PI
-import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.floor
+import kotlin.math.max
+import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 internal object HalloweenEffectsRuntime {
     private val lastActivity =
-        AtomicLong(
-            System.nanoTime()
-        )
+        AtomicLong(System.nanoTime())
 
     @Volatile
-    private var focusedPosterOwner:
-        Any? = null
+    private var focusedPosterOwner: Any? = null
 
     @Volatile
-    private var focusedPosterBounds:
-        RectF? = null
+    private var focusedPosterBounds: RectF? = null
+
+    @Volatile
+    private var focusedPosterPerchEligible = false
 
     fun noteUserActivity() {
-        lastActivity.set(
-            System.nanoTime()
-        )
+        lastActivity.set(System.nanoTime())
     }
 
-    fun lastUserActivityNanos():
-        Long =
+    fun lastUserActivityNanos(): Long =
         lastActivity.get()
 
     fun updateFocusedPosterBounds(
@@ -61,12 +58,11 @@ internal object HalloweenEffectsRuntime {
         left: Float,
         top: Float,
         right: Float,
-        bottom: Float
+        bottom: Float,
+        perchEligible: Boolean
     ) {
         synchronized(this) {
-            focusedPosterOwner =
-                owner
-
+            focusedPosterOwner = owner
             focusedPosterBounds =
                 RectF(
                     left,
@@ -74,6 +70,23 @@ internal object HalloweenEffectsRuntime {
                     right,
                     bottom
                 )
+            focusedPosterPerchEligible =
+                perchEligible
+        }
+    }
+
+    fun setFocusedPosterPerchEligible(
+        owner: Any,
+        eligible: Boolean
+    ) {
+        synchronized(this) {
+            if (focusedPosterOwner !== owner) {
+                focusedPosterOwner = owner
+                focusedPosterBounds = null
+            }
+
+            focusedPosterPerchEligible =
+                eligible
         }
     }
 
@@ -81,25 +94,23 @@ internal object HalloweenEffectsRuntime {
         owner: Any
     ) {
         synchronized(this) {
-            if (
-                focusedPosterOwner ===
-                owner
-            ) {
-                focusedPosterOwner =
-                    null
-                focusedPosterBounds =
-                    null
+            if (focusedPosterOwner === owner) {
+                focusedPosterOwner = null
+                focusedPosterBounds = null
+                focusedPosterPerchEligible = false
             }
         }
     }
 
-    fun focusedPosterBounds():
-        RectF? =
+    fun focusedPosterPerchTarget(): RectF? =
         synchronized(this) {
-            focusedPosterBounds
-                ?.let {
+            if (!focusedPosterPerchEligible) {
+                null
+            } else {
+                focusedPosterBounds?.let {
                     RectF(it)
                 }
+            }
         }
 }
 
@@ -111,28 +122,25 @@ private const val MAX_DELTA_NANOS =
 private const val FADE_NANOS =
     350_000_000L
 
-private const val BAT_FRAME_COUNT = 8
-private const val BAT_FRAME_SIZE = 96
-private const val BAT_COUNT = 7
-
+private const val BAT_COUNT = 6
 private const val IDLE_PERCH_NANOS =
     20_000_000_000L
-
+private const val PERCH_COOLDOWN_NANOS =
+    12_000_000_000L
 private const val APPROACH_NANOS =
-    1_800_000_000L
-
+    1_050_000_000L
 private const val TAKEOFF_NANOS =
-    1_300_000_000L
+    850_000_000L
 
 private const val LIGHTNING_CYCLE_SECONDS =
-    240.0
+    180.0
 
 private val lightningStarts =
     doubleArrayOf(
-        10.0,
-        52.0,
-        119.0,
-        183.0
+        8.0,
+        47.0,
+        101.0,
+        151.0
     )
 
 private enum class PerchPhase {
@@ -143,293 +151,105 @@ private enum class PerchPhase {
 }
 
 private class HalloweenState {
-    var simulationNanos:
-        Long = 0L
+    var simulationNanos = 0L
 
-    var perchPhase:
-        PerchPhase =
+    var perchPhase =
         PerchPhase.NONE
 
-    var perchStartNanos:
-        Long = 0L
+    var perchStartNanos = 0L
 
-    var perchBounds:
-        RectF? = null
+    var perchBounds: RectF? = null
 
-    var lastObservedActivity:
-        Long =
+    var perchExitDirection = 1f
+
+    var lastPerchEndNanos =
+        Long.MIN_VALUE
+
+    var lastObservedActivity =
         HalloweenEffectsRuntime
             .lastUserActivityNanos()
 }
 
 private data class BatSeed(
-    val xSeed: Float,
-    val ySeed: Float,
-    val speedSeed: Float,
+    val phaseSeconds: Float,
+    val cycleSeconds: Float,
+    val activeSeconds: Float,
+    val laneSeed: Float,
     val depthSeed: Float,
-    val phaseSeed: Float,
-    val cycleSeed: Float,
-    val directionSeed: Float
+    val pathSeed: Float,
+    val wingSeed: Float,
+    val directionSeed: Float,
+    val scaleSeed: Float
 )
 
-private val bats:
-    List<BatSeed> =
+private val bats =
     buildList(BAT_COUNT) {
         var state =
-            0x5A17B47Du
+            0x5A17B47DL
 
-        fun nextFloat():
-            Float {
+        fun nextFloat(): Float {
             state =
-                state *
-                    1664525u +
-                    1013904223u
+                (
+                    state *
+                        1664525L +
+                        1013904223L
+                    ) and
+                    0xFFFFFFFFL
 
             return (
                 (
-                    (
-                        state shr 8
-                    ).toLong() and
-                        0x00FFFFFFL
-                    ).toFloat() /
-                    0x01000000L
-                )
+                    state ushr 8
+                    ) and
+                    0x00FFFFFFL
+                ).toFloat() /
+                0x01000000L
         }
 
-        repeat(BAT_COUNT) {
+        val phaseOffsets =
+            floatArrayOf(
+                0.0f,
+                0.48f,
+                0.96f,
+                5.8f,
+                10.7f,
+                15.4f
+            )
+
+        repeat(BAT_COUNT) { index ->
             add(
                 BatSeed(
-                    xSeed =
-                        nextFloat(),
-                    ySeed =
-                        nextFloat(),
-                    speedSeed =
+                    phaseSeconds =
+                        phaseOffsets[index] +
+                            nextFloat() *
+                                1.6f,
+                    cycleSeconds =
+                        17f +
+                            nextFloat() *
+                                11f,
+                    activeSeconds =
+                        2.45f +
+                            nextFloat() *
+                                1.25f,
+                    laneSeed =
                         nextFloat(),
                     depthSeed =
                         nextFloat(),
-                    phaseSeed =
+                    pathSeed =
                         nextFloat(),
-                    cycleSeed =
+                    wingSeed =
                         nextFloat(),
                     directionSeed =
+                        nextFloat(),
+                    scaleSeed =
                         nextFloat()
                 )
             )
         }
     }
 
-private val batAtlas:
-    Bitmap by
-    lazy(
-        LazyThreadSafetyMode.SYNCHRONIZED
-    ) {
-        buildBatAtlas()
-    }
-
-private fun buildBatAtlas():
-    Bitmap {
-    val width =
-        BAT_FRAME_SIZE *
-            BAT_FRAME_COUNT
-
-    val bitmap =
-        Bitmap.createBitmap(
-            width,
-            BAT_FRAME_SIZE,
-            Bitmap.Config.ARGB_8888
-        )
-
-    val canvas =
-        Canvas(bitmap)
-
-    val paint =
-        Paint(
-            Paint.ANTI_ALIAS_FLAG
-        ).apply {
-            color =
-                Color.rgb(
-                    15,
-                    15,
-                    19
-                )
-            style =
-                Paint.Style.FILL
-        }
-
-    repeat(
-        BAT_FRAME_COUNT
-    ) { frame ->
-        val left =
-            frame *
-                BAT_FRAME_SIZE
-
-        val cx =
-            left +
-                BAT_FRAME_SIZE *
-                0.5f
-
-        val cy =
-            BAT_FRAME_SIZE *
-                0.50f
-
-        val angle =
-            frame.toDouble() /
-                BAT_FRAME_COUNT *
-                PI *
-                2.0
-
-        val flap =
-            sin(angle)
-                .toFloat()
-
-        val wingTipY =
-            cy -
-                flap *
-                21f
-
-        fun drawWing(
-            direction: Float
-        ) {
-            val path =
-                Path()
-
-            path.moveTo(
-                cx +
-                    direction *
-                    4f,
-                cy - 5f
-            )
-
-            path.cubicTo(
-                cx +
-                    direction *
-                    13f,
-                cy - 13f,
-                cx +
-                    direction *
-                    27f,
-                wingTipY - 6f,
-                cx +
-                    direction *
-                    42f,
-                wingTipY
-            )
-
-            path.cubicTo(
-                cx +
-                    direction *
-                    36f,
-                wingTipY + 9f,
-                cx +
-                    direction *
-                    31f,
-                cy + 5f,
-                cx +
-                    direction *
-                    26f,
-                cy + 13f
-            )
-
-            path.cubicTo(
-                cx +
-                    direction *
-                    21f,
-                cy + 6f,
-                cx +
-                    direction *
-                    17f,
-                cy + 15f,
-                cx +
-                    direction *
-                    12f,
-                cy + 16f
-            )
-
-            path.cubicTo(
-                cx +
-                    direction *
-                    10f,
-                cy + 7f,
-                cx +
-                    direction *
-                    6f,
-                cy + 6f,
-                cx +
-                    direction *
-                    3f,
-                cy + 5f
-            )
-
-            path.close()
-
-            canvas.drawPath(
-                path,
-                paint
-            )
-        }
-
-        drawWing(-1f)
-        drawWing(1f)
-
-        canvas.drawOval(
-            RectF(
-                cx - 5.2f,
-                cy - 11f,
-                cx + 5.2f,
-                cy + 15f
-            ),
-            paint
-        )
-
-        canvas.drawCircle(
-            cx,
-            cy - 13f,
-            5.4f,
-            paint
-        )
-
-        val ears =
-            Path().apply {
-                moveTo(
-                    cx - 4.5f,
-                    cy - 16f
-                )
-                lineTo(
-                    cx - 7.5f,
-                    cy - 25f
-                )
-                lineTo(
-                    cx - 1.2f,
-                    cy - 18f
-                )
-                close()
-
-                moveTo(
-                    cx + 4.5f,
-                    cy - 16f
-                )
-                lineTo(
-                    cx + 7.5f,
-                    cy - 25f
-                )
-                lineTo(
-                    cx + 1.2f,
-                    cy - 18f
-                )
-                close()
-            }
-
-        canvas.drawPath(
-            ears,
-            paint
-        )
-    }
-
-    return bitmap
-}
-
 private data class LightningFrame(
-    val flashAlpha: Float,
+    val ambientAlpha: Float,
+    val graveyardAlpha: Float,
     val boltAlpha: Float,
     val eventIndex: Int
 )
@@ -451,8 +271,7 @@ internal fun HalloweenEffectsOverlayHost(
     }
 
     Popup(
-        alignment =
-            Alignment.TopStart,
+        alignment = Alignment.TopStart,
         onDismissRequest = {},
         properties =
             PopupProperties(
@@ -530,8 +349,7 @@ private class HalloweenSurfaceView(
         HalloweenState? = null
 
     @Volatile
-    private var appInForeground:
-        Boolean = true
+    private var appInForeground = true
 
     private val running =
         AtomicBoolean(false)
@@ -558,22 +376,39 @@ private class HalloweenSurfaceView(
     private var hiddenSurfaceCleared =
         false
 
-    private val srcRect =
-        Rect()
-
-    private val dstRect =
-        RectF()
-
-    private val batPaint =
+    private val silhouettePaint =
         Paint(
-            Paint.ANTI_ALIAS_FLAG or
-                Paint.FILTER_BITMAP_FLAG
-        )
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color =
+                Color.rgb(
+                    8,
+                    8,
+                    11
+                )
+            style =
+                Paint.Style.FILL
+        }
+
+    private val leftWingPath =
+        Path()
+
+    private val rightWingPath =
+        Path()
+
+    private val bodyPath =
+        Path()
 
     private val flashPaint =
         Paint().apply {
-            color = Color.WHITE
-            style = Paint.Style.FILL
+            color =
+                Color.rgb(
+                    248,
+                    249,
+                    255
+                )
+            style =
+                Paint.Style.FILL
         }
 
     private val graveyardPaint =
@@ -581,10 +416,27 @@ private class HalloweenSurfaceView(
             Paint.ANTI_ALIAS_FLAG
         ).apply {
             color = Color.BLACK
-            style = Paint.Style.FILL
+            style =
+                Paint.Style.FILL
         }
 
-    private val graveyardPath =
+    private val graveyardStrokePaint =
+        Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color = Color.BLACK
+            style =
+                Paint.Style.STROKE
+            strokeCap =
+                Paint.Cap.ROUND
+            strokeJoin =
+                Paint.Join.ROUND
+        }
+
+    private val graveyardFillPath =
+        Path()
+
+    private val graveyardDetailPath =
         Path()
 
     private var graveyardWidth =
@@ -593,27 +445,64 @@ private class HalloweenSurfaceView(
     private var graveyardHeight =
         -1
 
-    private val boltPath =
+    private val boltTrunkPath =
         Path()
 
-    private val boltShadowPaint =
+    private val boltBranchPath =
+        Path()
+
+    private var cachedBoltEventIndex =
+        Int.MIN_VALUE
+
+    private var cachedBoltWidth =
+        -1
+
+    private var cachedBoltHeight =
+        -1
+
+    private val boltGlowPaint =
         Paint(
             Paint.ANTI_ALIAS_FLAG
         ).apply {
-            color = Color.BLACK
-            style = Paint.Style.STROKE
+            color =
+                Color.rgb(
+                    190,
+                    214,
+                    255
+                )
+            style =
+                Paint.Style.STROKE
             strokeCap =
                 Paint.Cap.ROUND
             strokeJoin =
                 Paint.Join.ROUND
         }
 
-    private val boltPaint =
+    private val boltMidPaint =
+        Paint(
+            Paint.ANTI_ALIAS_FLAG
+        ).apply {
+            color =
+                Color.rgb(
+                    226,
+                    236,
+                    255
+                )
+            style =
+                Paint.Style.STROKE
+            strokeCap =
+                Paint.Cap.ROUND
+            strokeJoin =
+                Paint.Join.ROUND
+        }
+
+    private val boltCorePaint =
         Paint(
             Paint.ANTI_ALIAS_FLAG
         ).apply {
             color = Color.WHITE
-            style = Paint.Style.STROKE
+            style =
+                Paint.Style.STROKE
             strokeCap =
                 Paint.Cap.ROUND
             strokeJoin =
@@ -634,6 +523,7 @@ private class HalloweenSurfaceView(
             false
         isClickable = false
         isLongClickable = false
+
         setWillNotDraw(true)
     }
 
@@ -672,19 +562,22 @@ private class HalloweenSurfaceView(
         synchronized(
             presentationLock
         ) {
-            if (
-                !presentationInitialized
-            ) {
+            if (!presentationInitialized) {
                 presentationInitialized =
                     true
+
                 presentationStartAlpha =
                     target
+
                 presentationTargetAlpha =
                     target
+
                 presentationStartNanos =
                     now
+
                 hiddenSurfaceCleared =
                     target <= 0f
+
                 return
             }
 
@@ -717,9 +610,7 @@ private class HalloweenSurfaceView(
     private fun resolvePresentationAlphaLocked(
         nowNanos: Long
     ): Float {
-        if (
-            !presentationInitialized
-        ) {
+        if (!presentationInitialized) {
             return presentationTargetAlpha
         }
 
@@ -727,7 +618,9 @@ private class HalloweenSurfaceView(
             (
                 nowNanos -
                     presentationStartNanos
-                ).coerceAtLeast(0L)
+                ).coerceAtLeast(
+                0L
+            )
 
         if (
             elapsed >=
@@ -792,6 +685,8 @@ private class HalloweenSurfaceView(
     ) {
         graveyardWidth = -1
         graveyardHeight = -1
+        cachedBoltWidth = -1
+        cachedBoltHeight = -1
     }
 
     override fun surfaceDestroyed(
@@ -802,6 +697,7 @@ private class HalloweenSurfaceView(
 
     override fun onDetachedFromWindow() {
         stopRenderThread()
+
         super.onDetachedFromWindow()
     }
 
@@ -818,7 +714,8 @@ private class HalloweenSurfaceView(
     }
 
     override fun onVisibilityChanged(
-        changedView: android.view.View,
+        changedView:
+            android.view.View,
         visibility: Int
     ) {
         super.onVisibilityChanged(
@@ -863,11 +760,10 @@ private class HalloweenSurfaceView(
 
     private fun startRenderThread() {
         if (
-            !running
-                .compareAndSet(
-                    false,
-                    true
-                )
+            !running.compareAndSet(
+                false,
+                true
+            )
         ) {
             return
         }
@@ -877,7 +773,7 @@ private class HalloweenSurfaceView(
                 {
                     renderLoop()
                 },
-                "NuvioHalloween"
+                "NuvioHalloweenV2"
             ).apply {
                 priority =
                     Thread.NORM_PRIORITY +
@@ -902,7 +798,7 @@ private class HalloweenSurfaceView(
             thread.interrupt()
 
             runCatching {
-                thread.join(250L)
+                thread.join(120L)
             }
         }
     }
@@ -925,10 +821,12 @@ private class HalloweenSurfaceView(
                 if (!appInForeground) {
                     previousFrameNanos =
                         0L
+
                     nextFrameNanos =
                         System.nanoTime()
 
                     Thread.sleep(50L)
+
                     continue
                 }
 
@@ -937,6 +835,7 @@ private class HalloweenSurfaceView(
 
                 if (state == null) {
                     Thread.sleep(16L)
+
                     continue
                 }
 
@@ -982,15 +881,15 @@ private class HalloweenSurfaceView(
                     previousFrameNanos =
                         0L
 
-                    if (
-                        !hiddenSurfaceCleared
-                    ) {
+                    if (!hiddenSurfaceCleared) {
                         clearSurfaceFrame()
+
                         hiddenSurfaceCleared =
                             true
                     }
 
                     Thread.sleep(50L)
+
                     continue
                 }
 
@@ -1022,8 +921,9 @@ private class HalloweenSurfaceView(
                 )
 
                 drawFrame(
-                    state,
-                    alpha
+                    state = state,
+                    presentationAlpha =
+                        alpha
                 )
             } catch (
                 _: InterruptedException
@@ -1034,6 +934,7 @@ private class HalloweenSurfaceView(
 
                 previousFrameNanos =
                     0L
+
                 nextFrameNanos =
                     System.nanoTime()
             } catch (
@@ -1041,6 +942,7 @@ private class HalloweenSurfaceView(
             ) {
                 previousFrameNanos =
                     0L
+
                 nextFrameNanos =
                     System.nanoTime()
 
@@ -1049,9 +951,7 @@ private class HalloweenSurfaceView(
                 } catch (
                     _: InterruptedException
                 ) {
-                    if (
-                        !running.get()
-                    ) {
+                    if (!running.get()) {
                         return
                     }
                 }
@@ -1137,21 +1037,16 @@ private class HalloweenSurfaceView(
                     NANOS_PER_SECOND
 
             drawFlyingBats(
-                canvas =
-                    canvas,
-                seconds =
-                    seconds,
+                canvas = canvas,
+                seconds = seconds,
                 presentationAlpha =
                     presentationAlpha
             )
 
             drawPerchingBat(
-                canvas =
-                    canvas,
-                state =
-                    state,
-                seconds =
-                    seconds,
+                canvas = canvas,
+                state = state,
+                seconds = seconds,
                 presentationAlpha =
                     presentationAlpha
             )
@@ -1162,12 +1057,12 @@ private class HalloweenSurfaceView(
                 )
 
             if (
-                lightning.flashAlpha >
+                lightning.ambientAlpha >
                 0f
             ) {
-                val alpha =
+                flashPaint.alpha =
                     (
-                        lightning.flashAlpha *
+                        lightning.ambientAlpha *
                             presentationAlpha *
                             255f
                         ).roundToInt()
@@ -1176,9 +1071,6 @@ private class HalloweenSurfaceView(
                             255
                         )
 
-                flashPaint.alpha =
-                    alpha
-
                 canvas.drawRect(
                     0f,
                     0f,
@@ -1186,12 +1078,16 @@ private class HalloweenSurfaceView(
                     height.toFloat(),
                     flashPaint
                 )
+            }
 
+            if (
+                lightning.graveyardAlpha >
+                0f
+            ) {
                 drawGraveyard(
-                    canvas =
-                        canvas,
-                    flashAlpha =
-                        lightning.flashAlpha *
+                    canvas = canvas,
+                    alpha =
+                        lightning.graveyardAlpha *
                             presentationAlpha
                 )
             }
@@ -1201,8 +1097,7 @@ private class HalloweenSurfaceView(
                 0f
             ) {
                 drawLightningBolt(
-                    canvas =
-                        canvas,
+                    canvas = canvas,
                     alpha =
                         lightning.boltAlpha *
                             presentationAlpha,
@@ -1228,193 +1123,330 @@ private class HalloweenSurfaceView(
             height /
                 1080f
 
-        val margin =
-            90f *
-                screenScale
-
         bats.forEachIndexed {
                 index,
                 bat ->
 
             val cycle =
-                18.0 +
-                    bat.cycleSeed *
-                        24.0
+                bat.cycleSeconds
+                    .toDouble()
 
-            val activeDuration =
-                5.7 +
-                    bat.speedSeed *
-                        3.8
+            val active =
+                bat.activeSeconds
+                    .toDouble()
 
             var local =
                 (
                     seconds +
-                        bat.xSeed *
-                            cycle *
-                            2.15
+                        bat.phaseSeconds
+                            .toDouble()
                     ) %
                     cycle
 
             if (local < 0.0) {
-                local += cycle
+                local +=
+                    cycle
             }
 
-            if (
-                local >
-                activeDuration
-            ) {
+            if (local > active) {
                 return@forEachIndexed
             }
 
-            val progress =
+            val t =
                 (
                     local /
-                        activeDuration
+                        active
                     ).toFloat()
                     .coerceIn(
-                        0f,
-                        1f
-                    )
-
-            val depth =
-                0.48f +
-                    bat.depthSeed *
-                        0.78f
+                    0f,
+                    1f
+                )
 
             val fromLeft =
                 bat.directionSeed <
                     0.5f
 
-            val travel =
-                width +
-                    margin *
-                        2f
-
-            val x =
+            val direction =
                 if (fromLeft) {
-                    -margin +
-                        travel *
-                            progress
+                    1f
                 } else {
-                    width +
-                        margin -
-                        travel *
-                            progress
+                    -1f
                 }
 
-            val baseY =
-                height *
-                    (
-                        0.10f +
-                            bat.ySeed *
-                                0.43f
-                        )
+            val nx =
+                if (fromLeft) {
+                    -0.14f +
+                        1.28f *
+                            t
+                } else {
+                    1.14f -
+                        1.28f *
+                            t
+                }
 
-            val flutterY =
-                sin(
-                    progress *
-                        PI.toFloat() *
-                        (
-                            3.4f +
-                                bat.speedSeed *
-                                    2.1f
-                            ) +
-                        bat.phaseSeed *
-                            PI.toFloat() *
-                            2f
-                ) *
+            val dnx =
+                direction *
+                    1.28f
+
+            val pi =
+                PI.toFloat()
+
+            val lane =
+                0.10f +
+                    bat.laneSeed *
+                        0.42f
+
+            val waveA =
+                pi *
+                    2f *
+                    t +
+                    bat.pathSeed *
+                        pi *
+                        2f
+
+            val waveB =
+                pi *
+                    5f *
+                    t +
+                    bat.wingSeed *
+                        pi *
+                        2f
+
+            val ny =
+                lane -
+                    0.055f *
+                        sin(
+                            pi *
+                                t
+                        ) +
+                    0.034f *
+                        sin(waveA) +
+                    0.014f *
+                        sin(waveB)
+
+            val dny =
+                -0.055f *
+                    pi *
+                    cos(
+                        pi *
+                            t
+                    ) +
+                    0.034f *
+                    pi *
+                    2f *
+                    cos(waveA) +
+                    0.014f *
+                    pi *
+                    5f *
+                    cos(waveB)
+
+            val baseDepth =
+                1.62f +
+                    bat.depthSeed *
+                        0.92f
+
+            val approachDepth =
+                0.52f +
                     (
-                        16f +
-                            bat.depthSeed *
-                                36f
+                        1f -
+                            bat.depthSeed
                         ) *
-                    screenScale
+                        0.48f
 
-            val driftY =
-                sin(
-                    progress *
-                        PI.toFloat() +
-                        bat.phaseSeed *
-                            5f
-                ) *
-                    28f *
-                    screenScale
+            val depthWave =
+                pi *
+                    2f *
+                    t +
+                    bat.pathSeed *
+                        4.7f
 
-            val y =
-                baseY +
-                    flutterY +
-                    driftY
-
-            val size =
+            val depth =
                 (
-                    42f +
-                        depth *
-                            46f
-                    ) *
-                    screenScale
+                    baseDepth -
+                        approachDepth *
+                            sin(
+                                pi *
+                                    t
+                            ) +
+                        0.12f *
+                            sin(
+                                depthWave
+                            )
+                    ).coerceAtLeast(
+                    0.68f
+                )
+
+            val dDepth =
+                -approachDepth *
+                    pi *
+                    cos(
+                        pi *
+                            t
+                    ) +
+                    0.12f *
+                    pi *
+                    2f *
+                    cos(
+                        depthWave
+                    )
+
+            val dx =
+                dnx *
+                    2f *
+                    depth +
+                    (
+                        nx -
+                            0.5f
+                        ) *
+                    2f *
+                    dDepth
+
+            val dy =
+                -dny *
+                    1.20f *
+                    depth +
+                    (
+                        0.5f -
+                            ny
+                        ) *
+                    1.20f *
+                    dDepth
+
+            val dz =
+                dDepth
+
+            val yaw =
+                atan2(
+                    dx,
+                    dz
+                )
+
+            val horizontalSpeed =
+                sqrt(
+                    dx *
+                        dx +
+                        dz *
+                            dz
+                ).coerceAtLeast(
+                    0.001f
+                )
+
+            val pitch =
+                atan2(
+                    dy,
+                    horizontalSpeed
+                ) *
+                    0.72f
+
+            val roll =
+                (
+                    -dny *
+                        1.9f +
+                        sin(
+                            waveA +
+                                index *
+                                    0.63f
+                        ) *
+                        0.11f
+                    ).coerceIn(
+                    -0.48f,
+                    0.48f
+                )
 
             val wingHz =
-                6.4 +
-                    bat.speedSeed *
-                        4.2
+                7.8f +
+                    bat.wingSeed *
+                        3.6f
 
-            val frame =
-                (
-                    floor(
-                        seconds *
-                            wingHz +
-                            index *
-                                1.7
-                    ).toInt() %
-                        BAT_FRAME_COUNT +
-                        BAT_FRAME_COUNT
-                    ) %
-                    BAT_FRAME_COUNT
-
-            val rotation =
+            val glideSignal =
                 sin(
-                    progress *
-                        PI.toFloat() *
-                        4.0f +
-                        bat.phaseSeed *
-                            6f
+                    seconds *
+                        0.62 +
+                        bat.pathSeed
+                            .toDouble() *
+                            7.4
+                ).toFloat()
+
+            val flapAmplitude =
+                if (
+                    glideSignal >
+                    0.90f
+                ) {
+                    0.16f
+                } else {
+                    1f
+                }
+
+            val wingPhase =
+                (
+                    seconds *
+                        wingHz.toDouble() *
+                        PI *
+                        2.0 +
+                        bat.wingSeed
+                            .toDouble() *
+                            PI *
+                            2.0
+                    ).toFloat()
+
+            val flapLeft =
+                sin(
+                    wingPhase
                 ) *
-                    (
-                        5f +
-                            bat.depthSeed *
-                                8f
-                        )
+                    flapAmplitude
+
+            val flapRight =
+                sin(
+                    wingPhase +
+                        0.09f +
+                        bat.pathSeed *
+                            0.05f
+                ) *
+                    flapAmplitude
+
+            val baseSize =
+                (
+                    34f +
+                        bat.scaleSeed *
+                            12f
+                    ) *
+                    screenScale
 
             val alpha =
                 (
                     (
-                        0.58f +
-                            depth *
-                                0.28f
+                        0.70f +
+                            bat.depthSeed *
+                                0.20f
                         ) *
                         presentationAlpha *
                         255f
                     ).roundToInt()
                     .coerceIn(
-                        0,
-                        235
-                    )
+                    0,
+                    235
+                )
 
-            drawBatSprite(
-                canvas =
-                    canvas,
-                x =
-                    x,
-                y =
-                    y,
-                size =
-                    size,
-                frame =
-                    frame,
-                alpha =
-                    alpha,
-                rotation =
-                    rotation
+            drawBat3D(
+                canvas = canvas,
+                centerX =
+                    nx *
+                        width,
+                centerY =
+                    ny *
+                        height,
+                depth = depth,
+                baseSizePx =
+                    baseSize,
+                yaw = yaw,
+                pitch = pitch,
+                roll = roll,
+                flapLeft =
+                    flapLeft,
+                flapRight =
+                    flapRight,
+                fold = 0f,
+                alpha = alpha
             )
         }
     }
@@ -1425,6 +1457,10 @@ private class HalloweenSurfaceView(
         val activity =
             HalloweenEffectsRuntime
                 .lastUserActivityNanos()
+
+        val eligibleTarget =
+            HalloweenEffectsRuntime
+                .focusedPosterPerchTarget()
 
         if (
             activity !=
@@ -1439,40 +1475,67 @@ private class HalloweenSurfaceView(
                 state.perchPhase ==
                     PerchPhase.PERCHED
             ) {
-                state.perchPhase =
-                    PerchPhase.TAKEOFF
-
-                state.perchStartNanos =
-                    state.simulationNanos
+                beginPerchTakeoff(
+                    state
+                )
             }
         }
 
-        when (
-            state.perchPhase
+        if (
+            eligibleTarget == null &&
+            (
+                state.perchPhase ==
+                    PerchPhase.APPROACH ||
+                    state.perchPhase ==
+                    PerchPhase.PERCHED
+                )
         ) {
+            beginPerchTakeoff(
+                state
+            )
+        }
+
+        when (state.perchPhase) {
             PerchPhase.NONE -> {
                 val idleFor =
                     System.nanoTime() -
                         activity
 
+                val cooldownDone =
+                    state.lastPerchEndNanos ==
+                        Long.MIN_VALUE ||
+                        state.simulationNanos -
+                            state.lastPerchEndNanos >=
+                        PERCH_COOLDOWN_NANOS
+
                 if (
                     idleFor >=
-                    IDLE_PERCH_NANOS
+                        IDLE_PERCH_NANOS &&
+                    cooldownDone &&
+                    eligibleTarget != null
                 ) {
-                    val bounds =
-                        HalloweenEffectsRuntime
-                            .focusedPosterBounds()
+                    state.perchBounds =
+                        RectF(
+                            eligibleTarget
+                        )
 
-                    if (bounds != null) {
-                        state.perchBounds =
-                            bounds
+                    state.perchExitDirection =
+                        if (
+                            eligibleTarget
+                                .centerX() <
+                            width *
+                                0.5f
+                        ) {
+                            -1f
+                        } else {
+                            1f
+                        }
 
-                        state.perchPhase =
-                            PerchPhase.APPROACH
+                    state.perchPhase =
+                        PerchPhase.APPROACH
 
-                        state.perchStartNanos =
-                            state.simulationNanos
-                    }
+                    state.perchStartNanos =
+                        state.simulationNanos
                 }
             }
 
@@ -1504,9 +1567,31 @@ private class HalloweenSurfaceView(
 
                     state.perchBounds =
                         null
+
+                    state.lastPerchEndNanos =
+                        state.simulationNanos
                 }
             }
         }
+    }
+
+    private fun beginPerchTakeoff(
+        state: HalloweenState
+    ) {
+        if (
+            state.perchPhase ==
+                PerchPhase.TAKEOFF ||
+            state.perchPhase ==
+                PerchPhase.NONE
+        ) {
+            return
+        }
+
+        state.perchPhase =
+            PerchPhase.TAKEOFF
+
+        state.perchStartNanos =
+            state.simulationNanos
     }
 
     private fun drawPerchingBat(
@@ -1532,41 +1617,41 @@ private class HalloweenSurfaceView(
 
         val targetX =
             (
-                bounds.right -
+                bounds.left +
                     bounds.width() *
-                        0.20f
+                        0.72f
                 ).coerceIn(
-                36f,
-                width - 36f
+                34f,
+                width -
+                    34f
             )
 
         val targetY =
             (
-                bounds.top +
-                    2f *
+                bounds.top -
+                    8f *
                         screenScale
                 ).coerceIn(
-                24f,
-                height - 24f
+                22f,
+                height -
+                    22f
+            )
+
+        val alpha =
+            (
+                presentationAlpha *
+                    238f
+                ).roundToInt()
+                .coerceIn(
+                0,
+                238
             )
 
         val elapsed =
             state.simulationNanos -
                 state.perchStartNanos
 
-        val alpha =
-            (
-                presentationAlpha *
-                    235f
-                ).roundToInt()
-                .coerceIn(
-                    0,
-                    235
-                )
-
-        when (
-            state.perchPhase
-        ) {
+        when (state.perchPhase) {
             PerchPhase.APPROACH -> {
                 val p =
                     (
@@ -1575,102 +1660,178 @@ private class HalloweenSurfaceView(
                                 .toDouble()
                         ).toFloat()
                         .coerceIn(
-                            0f,
-                            1f
-                        )
+                        0f,
+                        1f
+                    )
 
                 val eased =
-                    p *
-                        p *
-                        (
-                            3f -
-                                2f *
-                                    p
-                            )
+                    smoothStep(p)
 
                 val startX =
-                    width +
-                        85f *
-                            screenScale
+                    targetX +
+                        if (
+                            targetX <
+                            width *
+                                0.5f
+                        ) {
+                            -width *
+                                0.34f
+                        } else {
+                            width *
+                                0.34f
+                        }
 
                 val startY =
                     (
                         targetY -
-                            170f *
-                                screenScale
+                            height *
+                                0.23f
                         ).coerceAtLeast(
-                        30f
+                        28f
                     )
 
-                val x =
-                    startX +
-                        (
-                            targetX -
-                                startX
-                            ) *
+                val centerX =
+                    lerpFloat(
+                        startX,
+                        targetX,
                         eased
+                    )
 
-                val y =
-                    startY +
-                        (
-                            targetY -
-                                startY
-                            ) *
-                        eased +
+                val centerY =
+                    lerpFloat(
+                        startY,
+                        targetY,
+                        eased
+                    ) -
                         sin(
                             p *
-                                PI.toFloat() *
-                                5f
+                                PI.toFloat()
                         ) *
-                        12f *
-                        screenScale *
-                        (
-                            1f -
-                                p
-                            )
+                        28f *
+                        screenScale
 
-                val frame =
+                val depth =
+                    lerpFloat(
+                        1.80f,
+                        0.88f,
+                        eased
+                    )
+
+                val yaw =
+                    lerpFloat(
+                        if (
+                            startX <
+                            targetX
+                        ) {
+                            1.05f
+                        } else {
+                            -1.05f
+                        },
+                        0.16f,
+                        eased
+                    )
+
+                val pitch =
+                    lerpFloat(
+                        -0.18f,
+                        0.08f,
+                        eased
+                    )
+
+                val roll =
+                    lerpFloat(
+                        if (
+                            startX <
+                            targetX
+                        ) {
+                            -0.26f
+                        } else {
+                            0.26f
+                        },
+                        0f,
+                        eased
+                    )
+
+                val wingPhase =
                     (
                         seconds *
-                            9.0
-                        ).toInt() %
-                        BAT_FRAME_COUNT
+                            10.8 *
+                            PI *
+                            2.0
+                        ).toFloat()
 
-                drawBatSprite(
-                    canvas,
-                    x,
-                    y,
-                    62f *
-                        screenScale,
-                    frame,
-                    alpha,
-                    -10f *
+                val flap =
+                    sin(
+                        wingPhase
+                    ) *
                         (
                             1f -
-                                eased
+                                0.70f *
+                                    eased
                             )
+
+                drawBat3D(
+                    canvas = canvas,
+                    centerX = centerX,
+                    centerY = centerY,
+                    depth = depth,
+                    baseSizePx =
+                        38f *
+                            screenScale,
+                    yaw = yaw,
+                    pitch = pitch,
+                    roll = roll,
+                    flapLeft = flap,
+                    flapRight =
+                        sin(
+                            wingPhase +
+                                0.08f
+                        ) *
+                            (
+                                1f -
+                                    0.70f *
+                                        eased
+                                ),
+                    fold =
+                        (
+                            eased *
+                                0.92f
+                            ).coerceIn(
+                            0f,
+                            0.92f
+                        ),
+                    alpha = alpha
                 )
             }
 
             PerchPhase.PERCHED -> {
-                val tinyMotion =
+                val tinyLift =
                     sin(
                         seconds *
-                            2.1
+                            2.2
                     ).toFloat() *
-                        1.5f *
+                        0.8f *
                         screenScale
 
-                drawBatSprite(
-                    canvas,
-                    targetX,
-                    targetY +
-                        tinyMotion,
-                    55f *
-                        screenScale,
-                    6,
-                    alpha,
-                    0f
+                drawBat3D(
+                    canvas = canvas,
+                    centerX = targetX,
+                    centerY =
+                        targetY +
+                            tinyLift,
+                    depth = 0.88f,
+                    baseSizePx =
+                        38f *
+                            screenScale,
+                    yaw = 0.12f,
+                    pitch = 0.10f,
+                    roll = 0f,
+                    flapLeft =
+                        -0.18f,
+                    flapRight =
+                        -0.16f,
+                    fold = 0.94f,
+                    alpha = alpha
                 )
             }
 
@@ -1682,76 +1843,113 @@ private class HalloweenSurfaceView(
                                 .toDouble()
                         ).toFloat()
                         .coerceIn(
-                            0f,
-                            1f
-                        )
+                        0f,
+                        1f
+                    )
 
                 val eased =
-                    p *
-                        p *
-                        (
-                            3f -
-                                2f *
-                                    p
-                            )
+                    smoothStep(p)
 
                 val endX =
-                    width +
-                        100f *
-                            screenScale
+                    targetX +
+                        state.perchExitDirection *
+                            width *
+                            0.40f
 
                 val endY =
                     (
                         targetY -
                             height *
-                                0.28f
+                                0.30f
                         ).coerceAtLeast(
-                        28f
+                        20f
                     )
 
-                val x =
-                    targetX +
-                        (
-                            endX -
-                                targetX
-                            ) *
+                val centerX =
+                    lerpFloat(
+                        targetX,
+                        endX,
                         eased
+                    )
 
-                val y =
-                    targetY +
-                        (
-                            endY -
-                                targetY
-                            ) *
-                        eased -
+                val centerY =
+                    lerpFloat(
+                        targetY,
+                        endY,
+                        eased
+                    ) -
                         sin(
                             p *
                                 PI.toFloat()
                         ) *
-                        45f *
+                        34f *
                         screenScale
 
-                val frame =
+                val depth =
+                    lerpFloat(
+                        0.88f,
+                        1.55f,
+                        eased
+                    )
+
+                val yaw =
+                    state.perchExitDirection *
+                        lerpFloat(
+                            0.12f,
+                            1.16f,
+                            eased
+                        )
+
+                val wingPhase =
                     (
                         seconds *
-                            11.0
-                        ).toInt() %
-                        BAT_FRAME_COUNT
+                            12.2 *
+                            PI *
+                            2.0
+                        ).toFloat()
 
-                drawBatSprite(
-                    canvas,
-                    x,
-                    y,
-                    (
-                        55f +
-                            p *
-                                14f
-                        ) *
-                        screenScale,
-                    frame,
-                    alpha,
-                    18f *
-                        eased
+                val flap =
+                    sin(
+                        wingPhase
+                    )
+
+                drawBat3D(
+                    canvas = canvas,
+                    centerX = centerX,
+                    centerY = centerY,
+                    depth = depth,
+                    baseSizePx =
+                        39f *
+                            screenScale,
+                    yaw = yaw,
+                    pitch = -0.20f,
+                    roll =
+                        -state
+                            .perchExitDirection *
+                            0.24f *
+                            eased,
+                    flapLeft = flap,
+                    flapRight =
+                        sin(
+                            wingPhase +
+                                0.10f
+                        ),
+                    fold =
+                        (
+                            0.94f *
+                                (
+                                    1f -
+                                        min(
+                                            1f,
+                                            p *
+                                                2.8f
+                                        )
+                                    )
+                            ).coerceIn(
+                            0f,
+                            0.94f
+                        ),
+                    alpha = alpha
                 )
             }
 
@@ -1760,65 +1958,468 @@ private class HalloweenSurfaceView(
         }
     }
 
-    private fun drawBatSprite(
+    private fun drawBat3D(
         canvas: Canvas,
-        x: Float,
-        y: Float,
-        size: Float,
-        frame: Int,
-        alpha: Int,
-        rotation: Float
+        centerX: Float,
+        centerY: Float,
+        depth: Float,
+        baseSizePx: Float,
+        yaw: Float,
+        pitch: Float,
+        roll: Float,
+        flapLeft: Float,
+        flapRight: Float,
+        fold: Float,
+        alpha: Int
     ) {
-        val safeFrame =
+        silhouettePaint.alpha =
+            alpha.coerceIn(
+                0,
+                255
+            )
+
+        drawWing(
+            canvas = canvas,
+            path = leftWingPath,
+            side = -1f,
+            centerX = centerX,
+            centerY = centerY,
+            depth = depth,
+            baseSizePx =
+                baseSizePx,
+            yaw = yaw,
+            pitch = pitch,
+            roll = roll,
+            flap = flapLeft,
+            fold = fold
+        )
+
+        drawWing(
+            canvas = canvas,
+            path = rightWingPath,
+            side = 1f,
+            centerX = centerX,
+            centerY = centerY,
+            depth = depth,
+            baseSizePx =
+                baseSizePx,
+            yaw = yaw,
+            pitch = pitch,
+            roll = roll,
+            flap = flapRight,
+            fold = fold
+        )
+
+        drawBody(
+            canvas = canvas,
+            centerX = centerX,
+            centerY = centerY,
+            depth = depth,
+            baseSizePx =
+                baseSizePx,
+            yaw = yaw,
+            pitch = pitch,
+            roll = roll
+        )
+    }
+
+    private fun drawWing(
+        canvas: Canvas,
+        path: Path,
+        side: Float,
+        centerX: Float,
+        centerY: Float,
+        depth: Float,
+        baseSizePx: Float,
+        yaw: Float,
+        pitch: Float,
+        roll: Float,
+        flap: Float,
+        fold: Float
+    ) {
+        path.reset()
+
+        val span =
+            1f -
+                fold *
+                    0.70f
+
+        val lift =
+            flap *
+                (
+                    0.34f -
+                        fold *
+                            0.22f
+                    )
+
+        fun point(
+            move: Boolean,
+            x: Float,
+            y: Float,
+            z: Float
+        ) {
+            appendProjected(
+                path = path,
+                move = move,
+                centerX = centerX,
+                centerY = centerY,
+                depth = depth,
+                baseSizePx =
+                    baseSizePx,
+                yaw = yaw,
+                pitch = pitch,
+                roll = roll,
+                localX = x,
+                localY = y,
+                localZ = z
+            )
+        }
+
+        point(
+            true,
+            side * 0.12f,
+            0.04f,
+            0.08f
+        )
+
+        point(
+            false,
+            side *
+                0.50f *
+                span,
+            0.04f +
+                lift *
+                    0.55f,
+            0.02f
+        )
+
+        point(
+            false,
+            side *
+                0.91f *
+                span,
+            0.02f +
+                lift *
+                    0.90f,
+            -0.02f
+        )
+
+        point(
+            false,
+            side *
+                1.26f *
+                span,
+            -0.02f +
+                lift,
+            0.10f +
+                side *
+                    0.025f
+        )
+
+        point(
+            false,
+            side *
+                1.00f *
+                span,
+            -0.25f +
+                lift *
+                    0.48f,
+            0.13f
+        )
+
+        point(
+            false,
+            side *
+                0.78f *
+                span,
+            -0.15f +
+                lift *
+                    0.34f,
+            0.07f
+        )
+
+        point(
+            false,
+            side *
+                0.58f *
+                span,
+            -0.27f +
+                lift *
+                    0.24f,
+            0.02f
+        )
+
+        point(
+            false,
+            side *
+                0.36f *
+                span,
+            -0.15f +
+                lift *
+                    0.15f,
+            -0.02f
+        )
+
+        point(
+            false,
+            side * 0.10f,
+            -0.20f,
+            -0.10f
+        )
+
+        path.close()
+
+        canvas.drawPath(
+            path,
+            silhouettePaint
+        )
+    }
+
+    private fun drawBody(
+        canvas: Canvas,
+        centerX: Float,
+        centerY: Float,
+        depth: Float,
+        baseSizePx: Float,
+        yaw: Float,
+        pitch: Float,
+        roll: Float
+    ) {
+        bodyPath.reset()
+
+        fun point(
+            move: Boolean,
+            x: Float,
+            y: Float,
+            z: Float
+        ) {
+            appendProjected(
+                path = bodyPath,
+                move = move,
+                centerX = centerX,
+                centerY = centerY,
+                depth = depth,
+                baseSizePx =
+                    baseSizePx,
+                yaw = yaw,
+                pitch = pitch,
+                roll = roll,
+                localX = x,
+                localY = y,
+                localZ = z
+            )
+        }
+
+        point(
+            true,
+            -0.11f,
+            0.08f,
+            0.38f
+        )
+
+        point(
+            false,
+            -0.17f,
+            0.20f,
+            0.43f
+        )
+
+        point(
+            false,
+            -0.04f,
+            0.15f,
+            0.47f
+        )
+
+        point(
+            false,
+            0.04f,
+            0.15f,
+            0.47f
+        )
+
+        point(
+            false,
+            0.17f,
+            0.20f,
+            0.43f
+        )
+
+        point(
+            false,
+            0.11f,
+            0.08f,
+            0.38f
+        )
+
+        point(
+            false,
+            0.16f,
+            0.03f,
+            0.14f
+        )
+
+        point(
+            false,
+            0.13f,
+            -0.08f,
+            -0.18f
+        )
+
+        point(
+            false,
+            0.05f,
+            -0.11f,
+            -0.46f
+        )
+
+        point(
+            false,
+            0f,
+            -0.04f,
+            -0.58f
+        )
+
+        point(
+            false,
+            -0.05f,
+            -0.11f,
+            -0.46f
+        )
+
+        point(
+            false,
+            -0.13f,
+            -0.08f,
+            -0.18f
+        )
+
+        point(
+            false,
+            -0.16f,
+            0.03f,
+            0.14f
+        )
+
+        bodyPath.close()
+
+        canvas.drawPath(
+            bodyPath,
+            silhouettePaint
+        )
+    }
+
+    private fun appendProjected(
+        path: Path,
+        move: Boolean,
+        centerX: Float,
+        centerY: Float,
+        depth: Float,
+        baseSizePx: Float,
+        yaw: Float,
+        pitch: Float,
+        roll: Float,
+        localX: Float,
+        localY: Float,
+        localZ: Float
+    ) {
+        val cosRoll =
+            cos(roll)
+
+        val sinRoll =
+            sin(roll)
+
+        val rollX =
+            localX *
+                cosRoll -
+                localY *
+                    sinRoll
+
+        val rollY =
+            localX *
+                sinRoll +
+                localY *
+                    cosRoll
+
+        val rollZ =
+            localZ
+
+        val cosPitch =
+            cos(pitch)
+
+        val sinPitch =
+            sin(pitch)
+
+        val pitchY =
+            rollY *
+                cosPitch -
+                rollZ *
+                    sinPitch
+
+        val pitchZ =
+            rollY *
+                sinPitch +
+                rollZ *
+                    cosPitch
+
+        val pitchX =
+            rollX
+
+        val cosYaw =
+            cos(yaw)
+
+        val sinYaw =
+            sin(yaw)
+
+        val rotatedX =
+            pitchX *
+                cosYaw +
+                pitchZ *
+                    sinYaw
+
+        val rotatedZ =
+            -pitchX *
+                sinYaw +
+                pitchZ *
+                    cosYaw
+
+        val rotatedY =
+            pitchY
+
+        val effectiveDepth =
             (
-                frame %
-                    BAT_FRAME_COUNT +
-                    BAT_FRAME_COUNT
-                ) %
-                BAT_FRAME_COUNT
+                depth +
+                    rotatedZ *
+                        0.24f
+                ).coerceAtLeast(
+                0.38f
+            )
 
-        srcRect.set(
-            safeFrame *
-                BAT_FRAME_SIZE,
-            0,
-            (
-                safeFrame +
-                    1
-                ) *
-                BAT_FRAME_SIZE,
-            BAT_FRAME_SIZE
-        )
+        val perspectiveScale =
+            baseSizePx /
+                effectiveDepth
 
-        val half =
-            size *
-                0.5f
+        val screenX =
+            centerX +
+                rotatedX *
+                    perspectiveScale
 
-        dstRect.set(
-            x - half,
-            y - half,
-            x + half,
-            y + half
-        )
+        val screenY =
+            centerY -
+                rotatedY *
+                    perspectiveScale
 
-        batPaint.alpha =
-            alpha
-
-        canvas.save()
-
-        canvas.rotate(
-            rotation,
-            x,
-            y
-        )
-
-        canvas.drawBitmap(
-            batAtlas,
-            srcRect,
-            dstRect,
-            batPaint
-        )
-
-        canvas.restore()
+        if (move) {
+            path.moveTo(
+                screenX,
+                screenY
+            )
+        } else {
+            path.lineTo(
+                screenX,
+                screenY
+            )
+        }
     }
 
     private fun lightningFrame(
@@ -1865,29 +2466,28 @@ private class HalloweenSurfaceView(
                         cycleNumber *
                             lightningStarts.size +
                             index
-
-                    return@forEachIndexed
                 }
             }
 
         if (age < 0.0) {
             return LightningFrame(
-                flashAlpha = 0f,
+                ambientAlpha = 0f,
+                graveyardAlpha = 0f,
                 boltAlpha = 0f,
                 eventIndex = -1
             )
         }
 
-        val flash =
+        val firstFlash =
             when {
                 age < 0.045 ->
                     (
                         age /
                             0.045 *
-                            0.66
+                            0.70
                         ).toFloat()
 
-                age < 0.105 ->
+                age < 0.115 ->
                     (
                         (
                             1.0 -
@@ -1895,59 +2495,98 @@ private class HalloweenSurfaceView(
                                     age -
                                         0.045
                                     ) /
-                                0.060
+                                0.070
                             ) *
-                            0.66
+                            0.70
                         ).toFloat()
 
-                age < 0.145 ->
+                else ->
+                    0f
+            }
+
+        val secondFlash =
+            when {
+                age < 0.180 ->
                     0f
 
-                age < 0.185 ->
+                age < 0.225 ->
                     (
                         (
                             age -
-                                0.145
+                                0.180
                             ) /
-                            0.040 *
-                            0.74
+                            0.045 *
+                            0.82
                         ).toFloat()
 
-                age < 0.370 ->
+                age < 0.335 ->
+                    (
+                        0.82 -
+                            (
+                                age -
+                                    0.225
+                                ) /
+                                0.110 *
+                                0.20
+                        ).toFloat()
+
+                age < 0.700 ->
                     (
                         (
                             1.0 -
                                 (
                                     age -
-                                        0.185
+                                        0.335
                                     ) /
-                                0.185
+                                0.365
                             ) *
-                            0.74
+                            0.62
                         ).toFloat()
 
                 else ->
                     0f
-            }.coerceIn(
+            }
+
+        val ambient =
+            max(
+                firstFlash,
+                secondFlash
+            ).coerceIn(
                 0f,
-                0.74f
+                0.82f
             )
+
+        val graveyard =
+            if (
+                ambient <=
+                0.015f
+            ) {
+                0f
+            } else {
+                (
+                    ambient /
+                        0.32f
+                    ).coerceIn(
+                    0f,
+                    1f
+                )
+            }
 
         val bolt =
             when {
-                age < 0.075 ->
+                age < 0.080 ->
                     0f
 
-                age < 0.115 ->
+                age < 0.130 ->
                     (
                         (
                             age -
-                                0.075
+                                0.080
                             ) /
-                            0.040
+                            0.050
                         ).toFloat()
 
-                age < 0.340 ->
+                age < 0.330 ->
                     1f
 
                 age < 1.050 ->
@@ -1955,9 +2594,9 @@ private class HalloweenSurfaceView(
                         1.0 -
                             (
                                 age -
-                                    0.340
+                                    0.330
                                 ) /
-                            0.710
+                            0.720
                         ).toFloat()
 
                 else ->
@@ -1968,45 +2607,54 @@ private class HalloweenSurfaceView(
             )
 
         return LightningFrame(
-            flashAlpha = flash,
-            boltAlpha = bolt,
-            eventIndex = eventIndex
+            ambientAlpha =
+                ambient,
+            graveyardAlpha =
+                graveyard,
+            boltAlpha =
+                bolt,
+            eventIndex =
+                eventIndex
         )
     }
 
     private fun drawGraveyard(
         canvas: Canvas,
-        flashAlpha: Float
+        alpha: Float
     ) {
         if (
-            graveyardWidth != width ||
-            graveyardHeight != height
+            graveyardWidth !=
+                width ||
+            graveyardHeight !=
+                height
         ) {
             rebuildGraveyard()
         }
 
-        val normalized =
+        val a =
             (
-                flashAlpha /
-                    0.74f
-                ).coerceIn(
-                0f,
-                1f
+                alpha *
+                    255f
+                ).roundToInt()
+                .coerceIn(
+                0,
+                255
             )
 
         graveyardPaint.alpha =
-            (
-                normalized *
-                    245f
-                ).roundToInt()
-                .coerceIn(
-                    0,
-                    245
-                )
+            a
+
+        graveyardStrokePaint.alpha =
+            a
 
         canvas.drawPath(
-            graveyardPath,
+            graveyardFillPath,
             graveyardPaint
+        )
+
+        canvas.drawPath(
+            graveyardDetailPath,
+            graveyardStrokePaint
         )
     }
 
@@ -2017,7 +2665,9 @@ private class HalloweenSurfaceView(
         graveyardHeight =
             height
 
-        graveyardPath.reset()
+        graveyardFillPath.reset()
+
+        graveyardDetailPath.reset()
 
         val w =
             width.toFloat()
@@ -2027,142 +2677,176 @@ private class HalloweenSurfaceView(
 
         val ground =
             h *
-                0.875f
+                0.865f
 
-        graveyardPath.moveTo(
+        graveyardFillPath.moveTo(
             0f,
             ground +
                 h *
-                    0.012f
+                    0.018f
         )
 
-        graveyardPath.cubicTo(
-            w *
-                0.18f,
-            ground -
-                h *
-                    0.025f,
-            w *
-                0.31f,
-            ground +
-                h *
-                    0.008f,
-            w *
-                0.47f,
-            ground -
-                h *
-                    0.020f
-        )
-
-        graveyardPath.cubicTo(
-            w *
-                0.64f,
+        graveyardFillPath.cubicTo(
+            w * 0.14f,
             ground -
                 h *
                     0.038f,
-            w *
-                0.79f,
+            w * 0.29f,
+            ground +
+                h *
+                    0.010f,
+            w * 0.46f,
+            ground -
+                h *
+                    0.030f
+        )
+
+        graveyardFillPath.cubicTo(
+            w * 0.62f,
+            ground -
+                h *
+                    0.060f,
+            w * 0.78f,
             ground +
                 h *
                     0.012f,
             w,
             ground -
                 h *
-                    0.018f
+                    0.028f
         )
 
-        graveyardPath.lineTo(
+        graveyardFillPath.lineTo(
             w,
             h
         )
 
-        graveyardPath.lineTo(
+        graveyardFillPath.lineTo(
             0f,
             h
         )
 
-        graveyardPath.close()
+        graveyardFillPath.close()
 
-        fun tombstone(
+        fun headstone(
             centerX: Float,
             widthFraction: Float,
-            heightFraction: Float
+            heightFraction: Float,
+            lean: Float = 0f
         ) {
-            val tw =
+            val stoneW =
                 w *
                     widthFraction
 
-            val th =
+            val stoneH =
                 h *
                     heightFraction
 
+            val baseY =
+                ground +
+                    h *
+                        0.006f
+
             val left =
                 centerX -
-                    tw *
+                    stoneW *
+                        0.5f
+
+            val right =
+                centerX +
+                    stoneW *
                         0.5f
 
             val top =
-                ground -
-                    th
+                baseY -
+                    stoneH
 
-            graveyardPath.addRoundRect(
-                RectF(
-                    left,
-                    top,
-                    left + tw,
-                    ground +
-                        h *
-                            0.01f
-                ),
-                tw *
-                    0.42f,
-                tw *
-                    0.42f,
-                Path.Direction.CW
+            val shoulderY =
+                top +
+                    stoneW *
+                        0.45f
+
+            graveyardFillPath.moveTo(
+                left +
+                    lean,
+                baseY
             )
+
+            graveyardFillPath.lineTo(
+                left +
+                    lean,
+                shoulderY
+            )
+
+            graveyardFillPath.cubicTo(
+                left +
+                    lean,
+                top,
+                right +
+                    lean,
+                top,
+                right +
+                    lean,
+                shoulderY
+            )
+
+            graveyardFillPath.lineTo(
+                right,
+                baseY
+            )
+
+            graveyardFillPath.close()
         }
 
-        tombstone(
-            w * 0.11f,
-            0.032f,
-            0.105f
+        headstone(
+            w * 0.10f,
+            0.036f,
+            0.125f,
+            -w *
+                0.004f
         )
 
-        tombstone(
+        headstone(
             w * 0.24f,
-            0.040f,
-            0.135f
-        )
-
-        tombstone(
-            w * 0.39f,
-            0.030f,
-            0.090f
-        )
-
-        tombstone(
-            w * 0.57f,
             0.045f,
-            0.150f
+            0.165f,
+            w *
+                0.003f
         )
 
-        tombstone(
+        headstone(
+            w * 0.39f,
+            0.032f,
+            0.100f
+        )
+
+        headstone(
+            w * 0.56f,
+            0.050f,
+            0.180f,
+            -w *
+                0.003f
+        )
+
+        headstone(
             w * 0.72f,
-            0.033f,
-            0.110f
+            0.035f,
+            0.130f
         )
 
-        tombstone(
+        headstone(
             w * 0.88f,
-            0.038f,
-            0.130f
+            0.043f,
+            0.160f,
+            w *
+                0.004f
         )
 
         fun cross(
             cx: Float,
             heightFraction: Float
         ) {
-            val ch =
+            val crossH =
                 h *
                     heightFraction
 
@@ -2172,31 +2856,42 @@ private class HalloweenSurfaceView(
 
             val arm =
                 w *
-                    0.030f
+                    0.034f
 
-            val top =
-                ground -
-                    ch
-
-            graveyardPath.addRect(
-                cx - stem * 0.5f,
-                top,
-                cx + stem * 0.5f,
+            val baseY =
                 ground +
                     h *
-                        0.008f,
+                        0.006f
+
+            val top =
+                baseY -
+                    crossH
+
+            graveyardFillPath.addRect(
+                cx -
+                    stem *
+                        0.5f,
+                top,
+                cx +
+                    stem *
+                        0.5f,
+                baseY,
                 Path.Direction.CW
             )
 
-            graveyardPath.addRect(
-                cx - arm * 0.5f,
+            graveyardFillPath.addRect(
+                cx -
+                    arm *
+                        0.5f,
                 top +
-                    ch *
-                        0.26f,
-                cx + arm * 0.5f,
+                    crossH *
+                        0.27f,
+                cx +
+                    arm *
+                        0.5f,
                 top +
-                    ch *
-                        0.26f +
+                    crossH *
+                        0.27f +
                     stem,
                 Path.Direction.CW
             )
@@ -2204,12 +2899,152 @@ private class HalloweenSurfaceView(
 
         cross(
             w * 0.32f,
-            0.145f
+            0.165f
         )
 
         cross(
-            w * 0.81f,
-            0.125f
+            w * 0.80f,
+            0.145f
+        )
+
+        graveyardStrokePaint.strokeWidth =
+            max(
+                2.2f,
+                h *
+                    0.0042f
+            )
+
+        val treeX =
+            w *
+                0.92f
+
+        val treeBaseY =
+            ground -
+                h *
+                    0.010f
+
+        graveyardDetailPath.moveTo(
+            treeX,
+            treeBaseY
+        )
+
+        graveyardDetailPath.lineTo(
+            treeX -
+                w *
+                    0.012f,
+            ground -
+                h *
+                    0.180f
+        )
+
+        graveyardDetailPath.lineTo(
+            treeX +
+                w *
+                    0.010f,
+            ground -
+                h *
+                    0.255f
+        )
+
+        graveyardDetailPath.moveTo(
+            treeX -
+                w *
+                    0.009f,
+            ground -
+                h *
+                    0.160f
+        )
+
+        graveyardDetailPath.lineTo(
+            treeX -
+                w *
+                    0.055f,
+            ground -
+                h *
+                    0.225f
+        )
+
+        graveyardDetailPath.lineTo(
+            treeX -
+                w *
+                    0.075f,
+            ground -
+                h *
+                    0.275f
+        )
+
+        graveyardDetailPath.moveTo(
+            treeX -
+                w *
+                    0.010f,
+            ground -
+                h *
+                    0.205f
+        )
+
+        graveyardDetailPath.lineTo(
+            treeX +
+                w *
+                    0.045f,
+            ground -
+                h *
+                    0.270f
+        )
+
+        graveyardDetailPath.lineTo(
+            treeX +
+                w *
+                    0.058f,
+            ground -
+                h *
+                    0.315f
+        )
+
+        val fenceTop =
+            ground -
+                h *
+                    0.070f
+
+        val fenceBottom =
+            ground +
+                h *
+                    0.006f
+
+        for (i in 0..9) {
+            val x =
+                w *
+                    (
+                        0.02f +
+                            i *
+                                0.055f
+                        )
+
+            graveyardDetailPath.moveTo(
+                x,
+                fenceBottom
+            )
+
+            graveyardDetailPath.lineTo(
+                x,
+                fenceTop -
+                    h *
+                        (
+                            0.006f *
+                                (i % 3)
+                            )
+            )
+        }
+
+        graveyardDetailPath.moveTo(
+            w * 0.015f,
+            fenceTop +
+                h *
+                    0.018f
+        )
+
+        graveyardDetailPath.lineTo(
+            w * 0.53f,
+            fenceTop
         )
     }
 
@@ -2218,156 +3053,384 @@ private class HalloweenSurfaceView(
         alpha: Float,
         eventIndex: Int
     ) {
-        val variant =
-            abs(
+        if (
+            eventIndex !=
+                cachedBoltEventIndex ||
+            width !=
+                cachedBoltWidth ||
+            height !=
+                cachedBoltHeight
+        ) {
+            rebuildLightningBolt(
                 eventIndex
-            ) %
-                3
+            )
+        }
 
-        val direction =
-            if (
-                variant %
-                    2 ==
-                0
-            ) {
-                1f
-            } else {
-                -1f
-            }
+        val screenScale =
+            height /
+                1080f
 
-        val startX =
-            width *
+        boltGlowPaint.alpha =
+            (
+                alpha *
+                    68f
+                ).roundToInt()
+                .coerceIn(
+                0,
+                68
+            )
+
+        boltGlowPaint.strokeWidth =
+            15f *
+                screenScale
+
+        canvas.drawPath(
+            boltTrunkPath,
+            boltGlowPaint
+        )
+
+        boltGlowPaint.strokeWidth =
+            8.5f *
+                screenScale
+
+        canvas.drawPath(
+            boltBranchPath,
+            boltGlowPaint
+        )
+
+        boltMidPaint.alpha =
+            (
+                alpha *
+                    190f
+                ).roundToInt()
+                .coerceIn(
+                0,
+                190
+            )
+
+        boltMidPaint.strokeWidth =
+            6.2f *
+                screenScale
+
+        canvas.drawPath(
+            boltTrunkPath,
+            boltMidPaint
+        )
+
+        boltMidPaint.strokeWidth =
+            3.6f *
+                screenScale
+
+        canvas.drawPath(
+            boltBranchPath,
+            boltMidPaint
+        )
+
+        boltCorePaint.alpha =
+            (
+                alpha *
+                    255f
+                ).roundToInt()
+                .coerceIn(
+                0,
+                255
+            )
+
+        boltCorePaint.strokeWidth =
+            2.2f *
+                screenScale
+
+        canvas.drawPath(
+            boltTrunkPath,
+            boltCorePaint
+        )
+
+        boltCorePaint.strokeWidth =
+            1.25f *
+                screenScale
+
+        canvas.drawPath(
+            boltBranchPath,
+            boltCorePaint
+        )
+    }
+
+    private fun rebuildLightningBolt(
+        eventIndex: Int
+    ) {
+        cachedBoltEventIndex =
+            eventIndex
+
+        cachedBoltWidth =
+            width
+
+        cachedBoltHeight =
+            height
+
+        boltTrunkPath.reset()
+
+        boltBranchPath.reset()
+
+        var rngState =
+            (
+                eventIndex.toLong() *
+                    1103515245L +
+                    0x5F3759DFL
+                ) and
+                0x7FFFFFFFL
+
+        fun nextFloat():
+            Float {
+            rngState =
                 (
-                    0.28f +
-                        variant *
-                            0.19f
-                    )
+                    rngState *
+                        1103515245L +
+                        12345L
+                    ) and
+                    0x7FFFFFFFL
 
-        val h =
-            height.toFloat()
+            return rngState.toFloat() /
+                0x7FFFFFFF
+                    .toFloat()
+        }
 
         val w =
             width.toFloat()
 
-        boltPath.reset()
+        val h =
+            height.toFloat()
 
-        boltPath.moveTo(
-            startX,
-            0f
-        )
+        val pointsX =
+            FloatArray(17)
 
-        boltPath.lineTo(
-            startX +
-                direction *
-                    w *
-                    0.034f,
-            h *
-                0.17f
-        )
+        val pointsY =
+            FloatArray(17)
 
-        boltPath.lineTo(
-            startX -
-                direction *
-                    w *
-                    0.008f,
-            h *
-                0.31f
-        )
+        pointsX[0] =
+            w *
+                (
+                    0.18f +
+                        nextFloat() *
+                            0.64f
+                    )
 
-        boltPath.lineTo(
-            startX +
-                direction *
-                    w *
-                    0.052f,
-            h *
-                0.43f
-        )
+        pointsY[0] =
+            -h *
+                0.025f
 
-        boltPath.lineTo(
-            startX +
-                direction *
-                    w *
-                    0.015f,
-            h *
-                0.58f
-        )
-
-        boltPath.lineTo(
-            startX +
-                direction *
-                    w *
-                    0.088f,
-            h *
-                0.76f
-        )
-
-        boltPath.moveTo(
-            startX +
-                direction *
-                    w *
-                    0.052f,
-            h *
-                0.43f
-        )
-
-        boltPath.lineTo(
-            startX -
-                direction *
-                    w *
-                    0.012f,
-            h *
-                0.51f
-        )
-
-        boltPath.lineTo(
-            startX -
-                direction *
-                    w *
-                    0.036f,
-            h *
-                0.63f
-        )
-
-        val scale =
-            height /
-                1080f
-
-        boltShadowPaint.strokeWidth =
-            8f *
-                scale
-
-        boltShadowPaint.alpha =
+        var drift =
             (
-                alpha *
-                    105f
-                ).roundToInt()
-                .coerceIn(
-                    0,
-                    105
+                nextFloat() -
+                    0.5f
+                ) *
+                w *
+                0.020f
+
+        boltTrunkPath.moveTo(
+            pointsX[0],
+            pointsY[0]
+        )
+
+        for (i in 1..16) {
+            val nextY =
+                h *
+                    (
+                        0.015f +
+                            i *
+                                0.049f
+                        )
+
+            drift =
+                drift *
+                    0.48f +
+                    (
+                        nextFloat() -
+                            0.5f
+                        ) *
+                    w *
+                    0.052f
+
+            val nextX =
+                (
+                    pointsX[
+                        i -
+                            1
+                    ] +
+                        drift
+                    ).coerceIn(
+                    w *
+                        0.05f,
+                    w *
+                        0.95f
                 )
 
-        canvas.drawPath(
-            boltPath,
-            boltShadowPaint
-        )
+            pointsX[i] =
+                nextX
 
-        boltPaint.strokeWidth =
-            3.4f *
-                scale
+            pointsY[i] =
+                nextY
 
-        boltPaint.alpha =
-            (
-                alpha *
-                    245f
-                ).roundToInt()
-                .coerceIn(
-                    0,
-                    245
+            boltTrunkPath.lineTo(
+                nextX,
+                nextY
+            )
+        }
+
+        val branchOrigins =
+            intArrayOf(
+                4,
+                7,
+                10,
+                13
+            )
+
+        branchOrigins
+            .forEachIndexed {
+                    branchIndex,
+                    origin ->
+
+                var x =
+                    pointsX[origin]
+
+                var y =
+                    pointsY[origin]
+
+                val direction =
+                    if (
+                        nextFloat() <
+                        0.5f
+                    ) {
+                        -1f
+                    } else {
+                        1f
+                    }
+
+                val segments =
+                    3 +
+                        (
+                            nextFloat() *
+                                3f
+                            ).toInt()
+
+                boltBranchPath.moveTo(
+                    x,
+                    y
                 )
 
-        canvas.drawPath(
-            boltPath,
-            boltPaint
-        )
+                var branchDrift =
+                    direction *
+                        w *
+                        (
+                            0.020f +
+                                nextFloat() *
+                                    0.020f
+                            )
+
+                for (
+                    segment in
+                    1..segments
+                ) {
+                    y +=
+                        h *
+                            (
+                                0.030f +
+                                    nextFloat() *
+                                        0.022f
+                                )
+
+                    branchDrift =
+                        branchDrift *
+                            0.70f +
+                            direction *
+                                w *
+                                (
+                                    0.006f +
+                                        nextFloat() *
+                                            0.020f
+                                    )
+
+                    x +=
+                        branchDrift
+
+                    boltBranchPath.lineTo(
+                        x,
+                        y
+                    )
+
+                    if (
+                        branchIndex ==
+                            1 &&
+                        segment ==
+                            2
+                    ) {
+                        val forkX =
+                            x -
+                                direction *
+                                    w *
+                                    (
+                                        0.024f +
+                                            nextFloat() *
+                                                0.020f
+                                        )
+
+                        val forkY =
+                            y +
+                                h *
+                                    (
+                                        0.045f +
+                                            nextFloat() *
+                                                0.025f
+                                        )
+
+                        boltBranchPath
+                            .moveTo(
+                                x,
+                                y
+                            )
+
+                        boltBranchPath
+                            .lineTo(
+                                forkX,
+                                forkY
+                            )
+
+                        boltBranchPath
+                            .moveTo(
+                                x,
+                                y
+                            )
+                    }
+                }
+            }
     }
+
+    private fun smoothStep(
+        value: Float
+    ): Float {
+        val t =
+            value.coerceIn(
+                0f,
+                1f
+            )
+
+        return t *
+            t *
+            (
+                3f -
+                    2f *
+                        t
+                )
+    }
+
+    private fun lerpFloat(
+        start: Float,
+        end: Float,
+        amount: Float
+    ): Float =
+        start +
+            (
+                end -
+                    start
+                ) *
+            amount
 }
