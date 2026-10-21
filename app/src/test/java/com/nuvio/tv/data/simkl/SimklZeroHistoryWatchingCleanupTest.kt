@@ -4,6 +4,7 @@ import com.nuvio.tv.core.tracking.TrackingEpisode
 import com.nuvio.tv.core.tracking.TrackingExternalIds
 import com.nuvio.tv.core.tracking.TrackingMediaKind
 import com.nuvio.tv.core.tracking.TrackingMediaReference
+import com.nuvio.tv.core.tracking.TrackingMutationResult
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -67,11 +68,63 @@ class SimklZeroHistoryWatchingCleanupTest {
         assertNull(targets.single().episode)
     }
 
+    @Test
+    fun `removing one episode from Completed series downgrades parent but keeps remaining history`() {
+        val firstEpisode = episodeReference(number = 1)
+        val initial = snapshot(
+            status = SimklListStatus.COMPLETED,
+            watchedEpisodesCount = 2,
+            watchedAt = "2026-10-21T16:00:00Z",
+            watchedEpisodeTimes = listOf(
+                "2026-10-21T15:00:00Z",
+                "2026-10-21T16:00:00Z"
+            )
+        )
+
+        val updated = initial.applyMutationReceipt(
+            receipt = removalReceipt(firstEpisode),
+            committedAtEpochMs = 1_761_063_600_000L
+        )
+
+        val entry = updated.entries.single()
+        assertEquals(SimklListStatus.WATCHING, entry.status)
+        assertEquals(1, entry.watchedEpisodesCount)
+        assertTrue(updated.zeroHistoryWatchingCleanupTargets(listOf(firstEpisode)).isEmpty())
+    }
+
+    @Test
+    fun `removing every episode from Completed series makes parent eligible for cleanup`() {
+        val firstEpisode = episodeReference(number = 1)
+        val secondEpisode = episodeReference(number = 2)
+        val initial = snapshot(
+            status = SimklListStatus.COMPLETED,
+            watchedEpisodesCount = 2,
+            watchedAt = "2026-10-21T16:00:00Z",
+            watchedEpisodeTimes = listOf(
+                "2026-10-21T15:00:00Z",
+                "2026-10-21T16:00:00Z"
+            )
+        )
+
+        val updated = initial.applyMutationReceipt(
+            receipt = removalReceipt(firstEpisode, secondEpisode),
+            committedAtEpochMs = 1_761_063_600_000L
+        )
+
+        val entry = updated.entries.single()
+        assertEquals(SimklListStatus.WATCHING, entry.status)
+        assertEquals(0, entry.watchedEpisodesCount)
+        val targets = updated.zeroHistoryWatchingCleanupTargets(listOf(firstEpisode, secondEpisode))
+        assertEquals(1, targets.size)
+        assertNull(targets.single().episode)
+    }
+
     private fun snapshot(
         status: SimklListStatus,
         watchedEpisodesCount: Int,
         watchedAt: String?,
-        rating: Int? = null
+        rating: Int? = null,
+        watchedEpisodeTimes: List<String?> = listOf(watchedAt)
     ): SimklSyncSnapshot = SimklSyncSnapshot(
         isInitialized = true,
         entries = listOf(
@@ -90,21 +143,30 @@ class SimklZeroHistoryWatchingCleanupTest {
                 seasons = listOf(
                     SimklSeason(
                         number = 1,
-                        episodes = listOf(
+                        episodes = watchedEpisodeTimes.mapIndexed { index, episodeWatchedAt ->
                             SimklEpisode(
-                                number = 1,
-                                watchedAt = watchedAt
+                                number = index + 1,
+                                watchedAt = episodeWatchedAt
                             )
-                        )
+                        }
                     )
                 )
             )
         )
     )
 
-    private fun episodeReference(): TrackingMediaReference = TrackingMediaReference(
+    private fun episodeReference(number: Int = 1): TrackingMediaReference = TrackingMediaReference(
         kind = TrackingMediaKind.SHOW,
         ids = TrackingExternalIds(tmdb = 987654),
-        episode = TrackingEpisode(season = 1, number = 1)
+        episode = TrackingEpisode(season = 1, number = number)
     )
+
+    private fun removalReceipt(vararg references: TrackingMediaReference): SimklMutationReceipt =
+        SimklMutationReceipt(
+            result = TrackingMutationResult(attemptedCount = references.size),
+            mutation = SimklCommittedMutation.RemoveFromHistory(
+                items = references.toList(),
+                deleted = SimklDeletedCounts(episodes = references.size)
+            )
+        )
 }

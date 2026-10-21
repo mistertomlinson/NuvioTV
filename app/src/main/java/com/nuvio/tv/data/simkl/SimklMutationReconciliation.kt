@@ -142,6 +142,7 @@ private fun SimklLibraryEntry.withoutWatchedEpisode(
     val watchedEpisodes = updatedSeasons.flatMap(SimklSeason::episodes)
         .filter { episode -> episode.watchedAt != null }
     return copy(
+        status = if (status == SimklListStatus.COMPLETED) SimklListStatus.WATCHING else status,
         lastWatchedAt = watchedEpisodes.maxOfOrNull { episode -> requireNotNull(episode.watchedAt) },
         watchedEpisodesCount = watchedEpisodes.size,
         seasons = updatedSeasons
