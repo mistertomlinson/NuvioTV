@@ -17,10 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -85,10 +82,59 @@ private const val SNOW_SPRITE_COUNT =
  * need to be reduced for production-speed accumulation.
  */
 private const val SNOW_BANK_COLUMNS = 96
-private const val SNOW_BANK_MAX_HEIGHT_DP = 22f
+private const val SNOW_BANK_MAX_HEIGHT_DP = 7.5f
 private const val SNOW_BANK_CENTER_DEPOSIT_DP = 2.35f
 private const val SNOW_BANK_NEAR_DEPOSIT_DP = 1.15f
 private const val SNOW_BANK_FAR_DEPOSIT_DP = 0.45f
+
+/*
+ * Even after the bank is completely full, do not let all 96 columns converge
+ * to one identical flat ceiling. A pair of very low-frequency waves gives the
+ * finished bank shallow natural drifts while keeping the absolute peak at the
+ * configured maximum.
+ */
+private val snowBankColumnCapDp =
+    FloatArray(SNOW_BANK_COLUMNS) { index ->
+        val denominator =
+            (SNOW_BANK_COLUMNS - 1)
+                .coerceAtLeast(1)
+                .toDouble()
+
+        val phase =
+            index.toDouble() /
+                denominator
+
+        val broadWave =
+            sin(
+                phase * PI * 4.0 +
+                    0.35
+            )
+
+        val secondaryWave =
+            sin(
+                phase * PI * 10.0 +
+                    1.20
+            )
+
+        val combined =
+            broadWave * 0.68 +
+                secondaryWave * 0.32
+
+        val normalized =
+            (
+                (combined + 1.0) *
+                    0.5
+                ).coerceIn(
+                0.0,
+                1.0
+            ).toFloat()
+
+        SNOW_BANK_MAX_HEIGHT_DP *
+            (
+                0.78f +
+                    normalized * 0.22f
+                )
+    }
 
 private data class SnowParticle(
     val xSeed: Float,
@@ -398,7 +444,9 @@ private fun depositSnowBankForInterval(
         val before = bankHeightsDp[wrapped]
         val after =
             (before + amountDp)
-                .coerceAtMost(SNOW_BANK_MAX_HEIGHT_DP)
+                .coerceAtMost(
+                    snowBankColumnCapDp[wrapped]
+                )
         if (after > before) {
             bankHeightsDp[wrapped] = after
             changed = true
@@ -449,14 +497,45 @@ private fun depositSnowBankForInterval(
             /* Prefer the lowest local pocket so the bank spreads naturally. */
             var targetColumn = baseColumn
             var bestScore = Float.MAX_VALUE
+
             for (offset in -2..2) {
-                val candidate = wrapColumn(baseColumn + offset)
+                val candidate =
+                    wrapColumn(
+                        baseColumn + offset
+                    )
+
+                val cap =
+                    snowBankColumnCapDp[
+                        candidate
+                    ]
+
+                val current =
+                    bankHeightsDp[
+                        candidate
+                    ]
+
+                val room =
+                    cap - current
+
+                if (room <= 0.01f) {
+                    continue
+                }
+
+                val normalizedHeight =
+                    current /
+                        cap.coerceAtLeast(
+                            0.01f
+                        )
+
                 val score =
-                    bankHeightsDp[candidate] +
-                        abs(offset) * 0.08f
+                    normalizedHeight +
+                        abs(offset) *
+                            0.025f
+
                 if (score < bestScore) {
                     bestScore = score
-                    targetColumn = candidate
+                    targetColumn =
+                        candidate
                 }
             }
 
@@ -646,7 +725,6 @@ private fun HolidaySnowOverlay(
             )
 
     val bankFillPath = remember { Path() }
-    val bankTopPath = remember { Path() }
 
     /* Reading this state is enough to invalidate the Canvas after landings. */
     val bankGenerationSnapshot = bankGeneration
@@ -876,11 +954,17 @@ private fun HolidaySnowOverlay(
         }
 
         /*
-         * Shallow accumulated bank: one filled path + one soft top-edge stroke.
-         * No settled-particle objects, collisions, or retained sprite pile.
+         * Shallow accumulated bank.
+         *
+         * The physics/storage remains a tiny 96-value height map, but the
+         * visible surface is interpolated through midpoints instead of joining
+         * adjacent samples with hard straight segments. This removes the
+         * pixelated staircase / sharp-point appearance without adding landed
+         * particles or collision physics.
+         *
+         * One opaque filled path only.
          */
         bankFillPath.reset()
-        bankTopPath.reset()
 
         val columnWidth =
             if (SNOW_BANK_COLUMNS > 1) {
@@ -890,42 +974,108 @@ private fun HolidaySnowOverlay(
                 size.width
             }
 
-        bankFillPath.moveTo(0f, size.height)
+        fun bankSurfaceY(
+            column: Int
+        ): Float {
+            val maxHeightDp =
+                snowBankColumnCapDp[
+                    column
+                ]
 
-        for (column in 0 until SNOW_BANK_COLUMNS) {
-            val x = column * columnWidth
-            val heightPx =
-                bankHeightsDp[column]
-                    .coerceIn(
-                        0f,
-                        SNOW_BANK_MAX_HEIGHT_DP
-                    ) * density
-            val y = size.height - heightPx
+            val heightDp =
+                bankHeightsDp[
+                    column
+                ].coerceIn(
+                    0f,
+                    maxHeightDp
+                )
 
-            if (column == 0) {
-                bankFillPath.lineTo(x, y)
-                bankTopPath.moveTo(x, y)
-            } else {
-                bankFillPath.lineTo(x, y)
-                bankTopPath.lineTo(x, y)
-            }
+            return size.height -
+                heightDp * density
         }
 
-        bankFillPath.lineTo(size.width, size.height)
+        val firstY =
+            bankSurfaceY(0)
+
+        bankFillPath.moveTo(
+            0f,
+            size.height
+        )
+
+        bankFillPath.lineTo(
+            0f,
+            firstY
+        )
+
+        var previousX = 0f
+        var previousY = firstY
+
+        for (
+            column in
+            1 until SNOW_BANK_COLUMNS
+        ) {
+            val x =
+                column *
+                    columnWidth
+
+            val y =
+                bankSurfaceY(
+                    column
+                )
+
+            /*
+             * Quadratic midpoint smoothing:
+             *
+             * Use the previous sample as the control point and terminate at
+             * the midpoint between adjacent samples. This preserves the actual
+             * accumulated contour while eliminating hard corners.
+             */
+            val midpointX =
+                (
+                    previousX +
+                        x
+                    ) * 0.5f
+
+            val midpointY =
+                (
+                    previousY +
+                        y
+                    ) * 0.5f
+
+            bankFillPath
+                .quadraticBezierTo(
+                    previousX,
+                    previousY,
+                    midpointX,
+                    midpointY
+                )
+
+            previousX = x
+            previousY = y
+        }
+
+        /*
+         * Finish the final half-segment at the right edge.
+         */
+        bankFillPath
+            .quadraticBezierTo(
+                previousX,
+                previousY,
+                previousX,
+                previousY
+            )
+
+        bankFillPath.lineTo(
+            size.width,
+            size.height
+        )
+
         bankFillPath.close()
 
         drawPath(
             path = bankFillPath,
-            color = Color.White.copy(alpha = 0.82f)
+            color = Color.White
         )
-        drawPath(
-            path = bankTopPath,
-            color = Color.White.copy(alpha = 0.24f),
-            style = Stroke(
-                width = 2.4.dp.toPx(),
-                cap = StrokeCap.Round,
-                join = StrokeJoin.Round
-            )
-        )
+
     }
 }
