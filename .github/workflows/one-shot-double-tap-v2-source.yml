@@ -50,7 +50,7 @@ jobs:
                                                     val velocityPxPerSecond =
                                                         measuredPitchPx *
                                                             targetPositionsPerSecond
-'''
+          '''
           new = '''                                                    val isPortraitCatalogGeometry =
                                                         !useLandscapePosters &&
                                                             !perCatalogLandscape &&
@@ -90,7 +90,7 @@ jobs:
                                                     val velocityPxPerSecond =
                                                         velocityPitchPx *
                                                             targetPositionsPerSecond
-'''
+          '''
           horizontal_count = rows.count(old)
           if horizontal_count == 2:
               rows_path.write_text(rows.replace(old, new))
