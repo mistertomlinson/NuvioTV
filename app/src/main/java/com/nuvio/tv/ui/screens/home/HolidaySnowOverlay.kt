@@ -28,6 +28,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.LocalBackgroundedAtMs
+import com.nuvio.tv.domain.model.HolidayTheme
 import com.nuvio.tv.domain.model.SeasonalEffectsConfig
 import com.nuvio.tv.domain.model.SnowSizeProfile
 import com.nuvio.tv.domain.model.SnowStartupMode
@@ -97,7 +98,7 @@ private const val SNOW_BANK_COLUMNS = 768
 private const val SNOW_BANK_MAX_HEIGHT_DP = 7.5f
 private const val SNOW_BANK_DEPOSIT_RADIUS = 16
 private const val SNOW_BANK_RENDER_SMOOTH_RADIUS = 8
-private const val SNOW_BANK_DEPOSIT_TOTAL_DP = 10.5f
+private const val SNOW_BANK_DEPOSIT_TOTAL_DP = 4.0f
 private const val SNOW_BANK_SEARCH_DISTANCE_PENALTY = 0.003125f
 
 /*
@@ -416,21 +417,55 @@ private fun depositSnowBankForInterval(
 @Composable
 internal fun SeasonalEffectsOverlayHost(
     visible: Boolean,
+    homeVisible: Boolean = visible,
     keepAlive: Boolean = visible,
     viewModel: SeasonalEffectsViewModel = hiltViewModel()
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
-    if (!config.enabled) return
+    val appInForeground = LocalAppInForeground.current
+
+    val activeHoliday =
+        remember(
+            config,
+            appInForeground
+        ) {
+            config.activeHoliday()
+        }
 
     val homeReady by SeasonalSnowRuntime.homeReady.collectAsStateWithLifecycle()
     val restartGeneration by
         SeasonalSnowRuntime.restartGeneration.collectAsStateWithLifecycle()
 
+    if (
+        activeHoliday ==
+        HolidayTheme.HALLOWEEN
+    ) {
+        HalloweenEffectsOverlayHost(
+            visible =
+                homeReady &&
+                    homeVisible,
+            keepAlive =
+                homeReady &&
+                    keepAlive,
+            appInForeground =
+                appInForeground,
+            generation =
+                restartGeneration
+        )
+        return
+    }
+
+    if (
+        activeHoliday !=
+        HolidayTheme.CHRISTMAS
+    ) {
+        return
+    }
+
     val snowState = remember(restartGeneration) {
         SeasonalSnowState()
     }
 
-    val appInForeground = LocalAppInForeground.current
     val backgroundedAtMs = LocalBackgroundedAtMs.current
 
     LaunchedEffect(appInForeground) {

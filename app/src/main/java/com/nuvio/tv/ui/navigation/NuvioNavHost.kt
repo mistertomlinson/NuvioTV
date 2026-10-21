@@ -26,6 +26,7 @@ import com.nuvio.tv.ui.screens.home.HomeScreen
 import com.nuvio.tv.ui.screens.addon.AddonManagerScreen
 import com.nuvio.tv.ui.screens.home.HomeViewModel
 import com.nuvio.tv.ui.screens.home.SeasonalEffectsOverlayHost
+import com.nuvio.tv.ui.screens.home.HalloweenEffectsRuntime
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.nuvio.tv.ui.screens.addon.CatalogOrderScreen
 import com.nuvio.tv.ui.screens.library.LibraryScreen
@@ -57,6 +58,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -580,7 +584,20 @@ fun NuvioNavHost(
                 )
 
     Box(
-        modifier = Modifier.fillMaxSize()
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { event ->
+                    if (
+                        event.type ==
+                        KeyEventType.KeyDown
+                    ) {
+                        HalloweenEffectsRuntime
+                            .noteUserActivity()
+                    }
+
+                    false
+                }
     ) {
         NavHost(
         navController = navController,
@@ -2070,6 +2087,10 @@ fun NuvioNavHost(
          */
         SeasonalEffectsOverlayHost(
             visible = seasonalOverlayTargetVisible,
+            homeVisible =
+                seasonalOverlayRoute ==
+                    Screen.Home.route &&
+                    seasonalOverlayTargetVisible,
             keepAlive = seasonalOverlayKeepAlive
         )
     }

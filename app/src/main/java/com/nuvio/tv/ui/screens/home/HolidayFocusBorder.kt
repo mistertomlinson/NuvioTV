@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -14,13 +15,18 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.tv.LocalAppInForeground
+import com.nuvio.tv.domain.model.HolidayTheme
 import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.PI
@@ -45,7 +51,7 @@ private const val HOLIDAY_BULB_CORE_HUE_TINT = 0.12f
  */
 private const val HOLIDAY_BULB_PULSE_STEP_MS = 50L
 private const val HOLIDAY_BULB_COLOR_PHASE_MS = 900L
-private const val HOLIDAY_BULB_MIN_ALPHA = 0.58f
+private const val HOLIDAY_BULB_BOOST_ALPHA = 0.38f
 
 /*
  * RGB values stay saturated outside the hot center so the bloom still reads
@@ -229,12 +235,63 @@ internal fun Modifier.holidaySegmentedFocusBorder(
 ): Modifier {
     val seasonalEffectsViewModel: SeasonalEffectsViewModel = hiltViewModel()
     val config by seasonalEffectsViewModel.config.collectAsStateWithLifecycle()
+    val appInForeground = LocalAppInForeground.current
 
-    if (!config.enabled) {
+    val activeHoliday =
+        remember(
+            config,
+            appInForeground
+        ) {
+            config.activeHoliday()
+        }
+
+    if (activeHoliday == null) {
         return border(
             width = 2.dp,
             color = NuvioColors.FocusRing,
             shape = RoundedCornerShape(cornerRadius)
+        )
+    }
+
+    if (
+        activeHoliday ==
+        HolidayTheme.HALLOWEEN
+    ) {
+        val focusOwner =
+            remember {
+                Any()
+            }
+
+        DisposableEffect(
+            focusOwner
+        ) {
+            onDispose {
+                HalloweenEffectsRuntime
+                    .clearFocusedPosterBounds(
+                        focusOwner
+                    )
+            }
+        }
+
+        return onGloballyPositioned {
+            val bounds =
+                it.boundsInWindow()
+
+            HalloweenEffectsRuntime
+                .updateFocusedPosterBounds(
+                    owner = focusOwner,
+                    left = bounds.left,
+                    top = bounds.top,
+                    right = bounds.right,
+                    bottom = bounds.bottom
+                )
+        }.border(
+            width = 2.dp,
+            color = Color(0xFFFF7A00),
+            shape =
+                RoundedCornerShape(
+                    cornerRadius
+                )
         )
     }
 
@@ -439,35 +496,58 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                         x * x * (3f - 2f * x)
                     }
 
-                val bulbAlpha =
-                    HOLIDAY_BULB_MIN_ALPHA +
-                        (
-                            1f -
-                                HOLIDAY_BULB_MIN_ALPHA
-                            ) *
+                /*
+                 * Every bulb now keeps the exact previously-approved
+                 * FULL-BRIGHTNESS sprite as its baseline. The active color
+                 * family gets a second cached draw on top, which strengthens
+                 * mostly the translucent colored bloom instead of dimming
+                 * every other bulb.
+                 */
+                val boostAlpha =
+                    HOLIDAY_BULB_BOOST_ALPHA *
                         influence
+
+                val srcOffset = IntOffset(
+                    colorIndex * HOLIDAY_BULB_SPRITE_SIZE,
+                    0
+                )
+
+                val srcSize = IntSize(
+                    HOLIDAY_BULB_SPRITE_SIZE,
+                    HOLIDAY_BULB_SPRITE_SIZE
+                )
+
+                val dstOffset = IntOffset(
+                    (center.x - halfDrawSizePx).roundToInt(),
+                    (center.y - halfDrawSizePx).roundToInt()
+                )
+
+                val dstSize = IntSize(
+                    drawSizePx,
+                    drawSizePx
+                )
 
                 drawImage(
                     image = atlas,
-                    srcOffset = IntOffset(
-                        colorIndex * HOLIDAY_BULB_SPRITE_SIZE,
-                        0
-                    ),
-                    srcSize = IntSize(
-                        HOLIDAY_BULB_SPRITE_SIZE,
-                        HOLIDAY_BULB_SPRITE_SIZE
-                    ),
-                    dstOffset = IntOffset(
-                        (center.x - halfDrawSizePx).roundToInt(),
-                        (center.y - halfDrawSizePx).roundToInt()
-                    ),
-                    dstSize = IntSize(
-                        drawSizePx,
-                        drawSizePx
-                    ),
-                    alpha = bulbAlpha,
+                    srcOffset = srcOffset,
+                    srcSize = srcSize,
+                    dstOffset = dstOffset,
+                    dstSize = dstSize,
+                    alpha = 1f,
                     filterQuality = FilterQuality.Low
                 )
+
+                if (boostAlpha > 0.002f) {
+                    drawImage(
+                        image = atlas,
+                        srcOffset = srcOffset,
+                        srcSize = srcSize,
+                        dstOffset = dstOffset,
+                        dstSize = dstSize,
+                        alpha = boostAlpha,
+                        filterQuality = FilterQuality.Low
+                    )
+                }
             }
         }
     }

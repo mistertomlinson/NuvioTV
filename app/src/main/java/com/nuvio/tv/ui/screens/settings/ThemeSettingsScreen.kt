@@ -73,6 +73,9 @@ import com.nuvio.tv.domain.model.AppFont
 import com.nuvio.tv.domain.model.AppTheme
 import com.nuvio.tv.domain.model.BadgeColorStyle
 import com.nuvio.tv.domain.model.PosterStatusIconStyle
+import com.nuvio.tv.domain.model.HolidayMode
+import com.nuvio.tv.domain.model.HolidayTheme
+import com.nuvio.tv.domain.model.SeasonalEffectsConfig
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioGradients
 import com.nuvio.tv.ui.theme.ThemeColors
@@ -129,6 +132,8 @@ fun ThemeSettingsContent(
     var posterStatusIconsExpanded by remember { mutableStateOf(false) }
     var fontExpanded by remember { mutableStateOf(false) }
     var languageExpanded by remember { mutableStateOf(false) }
+    var holidayEffectsExpanded by remember { mutableStateOf(false) }
+    var expandedHoliday by remember { mutableStateOf<HolidayTheme?>(null) }
     var pendingBadgeColorsFocusRestore by remember { mutableStateOf(false) }
     var pendingPosterStatusIconsFocusRestore by remember { mutableStateOf(false) }
     var pendingFontFocusRestore by remember { mutableStateOf(false) }
@@ -145,6 +150,7 @@ fun ThemeSettingsContent(
     val posterStatusIconsHeaderFocus = remember { FocusRequester() }
     val fontHeaderFocus = remember { FocusRequester() }
     val languageHeaderFocus = remember { FocusRequester() }
+    val holidayEffectsHeaderFocus = remember { FocusRequester() }
 
     val strLanguageSystem =
         stringResource(R.string.appearance_language_system)
@@ -247,6 +253,9 @@ fun ThemeSettingsContent(
         }
         if (fontExpanded) add(AppearanceSection.FONT)
         if (languageExpanded) add(AppearanceSection.LANGUAGE)
+        if (holidayEffectsExpanded) {
+            add(AppearanceSection.SEASONAL)
+        }
     }
 
     fun groupPositionFor(
@@ -305,7 +314,12 @@ fun ThemeSettingsContent(
                 posterStatusIconsExpanded = expanded
             AppearanceSection.FONT -> fontExpanded = expanded
             AppearanceSection.LANGUAGE -> languageExpanded = expanded
-            AppearanceSection.SEASONAL -> Unit
+            AppearanceSection.SEASONAL -> {
+                holidayEffectsExpanded = expanded
+                if (!expanded) {
+                    expandedHoliday = null
+                }
+            }
         }
     }
 
@@ -768,19 +782,33 @@ fun ThemeSettingsContent(
                     }
 
                     item(
-                        key = "appearance_seasonal_effects"
+                        key = "appearance_holiday_effects"
                     ) {
-                        SettingsToggleRow(
-                            title = "Seasonal Effects",
-                            subtitle = null,
-                            checked = seasonalConfig.enabled,
+                        AppearanceExpandableSection(
+                            title = stringResource(
+                                R.string.appearance_holiday_effects
+                            ),
+                            subtitle = stringResource(
+                                R.string.appearance_holiday_effects_subtitle
+                            ),
+                            value = holidayEffectsSummary(
+                                seasonalConfig
+                            ),
+                            expanded = holidayEffectsExpanded,
                             onToggle = {
-                                seasonalEffectsViewModel
-                                    .setEnabled(
-                                        !seasonalConfig.enabled
+                                if (holidayEffectsExpanded) {
+                                    collapseSection(
+                                        AppearanceSection.SEASONAL,
+                                        "appearance_holiday_effects"
                                     )
+                                } else {
+                                    expandSection(
+                                        AppearanceSection.SEASONAL
+                                    )
+                                }
                             },
-                            showDivider = false,
+                            focusRequester =
+                                holidayEffectsHeaderFocus,
                             groupPosition =
                                 groupPositionFor(
                                     AppearanceSection.SEASONAL
@@ -792,14 +820,325 @@ fun ThemeSettingsContent(
                             animateBottomFlatten =
                                 animateBottomFlattenFor(
                                     AppearanceSection.SEASONAL
-                                )
-                        )
+                                ),
+                            deferBottomCorner =
+                                AppearanceSection.SEASONAL in
+                                    deferredBottomCornerSections
+                        ) {
+                            HolidayModeExpandableRow(
+                                title = stringResource(
+                                    R.string.appearance_holiday_halloween
+                                ),
+                                mode =
+                                    seasonalConfig.halloweenMode,
+                                expanded =
+                                    expandedHoliday ==
+                                        HolidayTheme.HALLOWEEN,
+                                onToggle = {
+                                    expandedHoliday =
+                                        if (
+                                            expandedHoliday ==
+                                            HolidayTheme.HALLOWEEN
+                                        ) {
+                                            null
+                                        } else {
+                                            HolidayTheme.HALLOWEEN
+                                        }
+                                },
+                                onModeSelected = { mode ->
+                                    seasonalEffectsViewModel
+                                        .setHolidayMode(
+                                            HolidayTheme.HALLOWEEN,
+                                            mode
+                                        )
+                                }
+                            )
+
+                            Spacer(
+                                modifier =
+                                    Modifier.height(
+                                        SettingsRowGap
+                                    )
+                            )
+
+                            HolidayModeExpandableRow(
+                                title = stringResource(
+                                    R.string.appearance_holiday_christmas
+                                ),
+                                mode =
+                                    seasonalConfig.christmasMode,
+                                expanded =
+                                    expandedHoliday ==
+                                        HolidayTheme.CHRISTMAS,
+                                onToggle = {
+                                    expandedHoliday =
+                                        if (
+                                            expandedHoliday ==
+                                            HolidayTheme.CHRISTMAS
+                                        ) {
+                                            null
+                                        } else {
+                                            HolidayTheme.CHRISTMAS
+                                        }
+                                },
+                                onModeSelected = { mode ->
+                                    seasonalEffectsViewModel
+                                        .setHolidayMode(
+                                            HolidayTheme.CHRISTMAS,
+                                            mode
+                                        )
+                                }
+                            )
+                        }
                     }
                 }
 
                 SettingsVerticalScrollIndicators(
                     state = appearanceListState
                 )
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun holidayModeLabel(
+    mode: HolidayMode
+): String =
+    when (mode) {
+        HolidayMode.ON ->
+            stringResource(
+                R.string.appearance_holiday_mode_on
+            )
+
+        HolidayMode.OFF ->
+            stringResource(
+                R.string.appearance_holiday_mode_off
+            )
+
+        HolidayMode.AUTOMATIC ->
+            stringResource(
+                R.string.appearance_holiday_mode_automatic
+            )
+    }
+
+@Composable
+private fun holidayEffectsSummary(
+    config: SeasonalEffectsConfig
+): String {
+    return when (
+        config.activeHoliday()
+    ) {
+        HolidayTheme.HALLOWEEN ->
+            stringResource(
+                R.string.appearance_holiday_halloween
+            )
+
+        HolidayTheme.CHRISTMAS ->
+            stringResource(
+                R.string.appearance_holiday_christmas
+            )
+
+        null -> {
+            if (
+                config.halloweenMode ==
+                    HolidayMode.OFF &&
+                config.christmasMode ==
+                    HolidayMode.OFF
+            ) {
+                stringResource(
+                    R.string.appearance_holiday_mode_off
+                )
+            } else {
+                stringResource(
+                    R.string.appearance_holiday_mode_automatic
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HolidayModeExpandableRow(
+    title: String,
+    mode: HolidayMode,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    onModeSelected: (HolidayMode) -> Unit
+) {
+    var isFocused by
+        remember {
+            mutableStateOf(false)
+        }
+
+    Column(
+        modifier =
+            Modifier.fillMaxWidth(),
+        verticalArrangement =
+            Arrangement.spacedBy(
+                if (expanded) {
+                    SettingsRowGap
+                } else {
+                    0.dp
+                }
+            )
+    ) {
+        Card(
+            onClick = onToggle,
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .height(49.dp)
+                    .onFocusChanged { state ->
+                        isFocused =
+                            state.isFocused
+                    },
+            colors =
+                CardDefaults.colors(
+                    containerColor =
+                        SettingsRightSurfaceColor,
+                    focusedContainerColor =
+                        SettingsRightSurfaceFocusedColor
+                ),
+            border =
+                CardDefaults.border(
+                    border = Border.None,
+                    focusedBorder = Border.None
+                ),
+            shape =
+                CardDefaults.shape(
+                    RoundedCornerShape(
+                        SettingsInnerRowRadius
+                    )
+                ),
+            scale =
+                CardDefaults.scale(
+                    focusedScale = 1f,
+                    pressedScale = 1f
+                )
+        ) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(
+                            horizontal = 14.dp
+                        ),
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    modifier =
+                        Modifier.weight(1f),
+                    style =
+                        MaterialTheme.typography
+                            .bodyMedium,
+                    color =
+                        if (isFocused) {
+                            NuvioColors.TextPrimary
+                        } else {
+                            NuvioColors.TextSecondary
+                        },
+                    maxLines = 1,
+                    overflow =
+                        TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text =
+                        holidayModeLabel(mode),
+                    style =
+                        MaterialTheme.typography
+                            .bodySmall,
+                    color =
+                        NuvioColors.TextSecondary
+                )
+
+                Spacer(
+                    modifier =
+                        Modifier.width(8.dp)
+                )
+
+                Icon(
+                    imageVector =
+                        if (expanded) {
+                            Icons.Default.ExpandMore
+                        } else {
+                            Icons.Default.ChevronRight
+                        },
+                    contentDescription = null,
+                    tint =
+                        if (isFocused) {
+                            NuvioColors.TextPrimary
+                        } else {
+                            NuvioColors.TextSecondary
+                        },
+                    modifier =
+                        Modifier.size(20.dp)
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = expanded,
+            enter =
+                expandVertically(
+                    animationSpec =
+                        tween(
+                            durationMillis =
+                                APPEARANCE_COLLAPSE_MILLIS,
+                            easing =
+                                FastOutSlowInEasing
+                        ),
+                    expandFrom =
+                        Alignment.Top
+                ),
+            exit =
+                shrinkVertically(
+                    animationSpec =
+                        tween(
+                            durationMillis =
+                                APPEARANCE_COLLAPSE_MILLIS,
+                            easing =
+                                FastOutSlowInEasing
+                        ),
+                    shrinkTowards =
+                        Alignment.Top
+                )
+        ) {
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(
+                            start = 18.dp
+                        ),
+                verticalArrangement =
+                    Arrangement.spacedBy(
+                        SettingsRowGap
+                    )
+            ) {
+                listOf(
+                    HolidayMode.ON,
+                    HolidayMode.OFF,
+                    HolidayMode.AUTOMATIC
+                ).forEach { candidate ->
+                    AppearanceChoiceRow(
+                        label =
+                            holidayModeLabel(
+                                candidate
+                            ),
+                        selected =
+                            candidate == mode,
+                        onClick = {
+                            onModeSelected(
+                                candidate
+                            )
+                        }
+                    )
+                }
             }
         }
     }
