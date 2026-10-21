@@ -7,10 +7,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -21,7 +20,6 @@ import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlin.math.sqrt
 
 private val HOLIDAY_FOCUS_COLORS =
     arrayOf(
@@ -34,29 +32,23 @@ private val HOLIDAY_FOCUS_COLORS =
 /*
  * Static Christmas-light focus treatment.
  *
- * The bulbs are tiny rounded line segments rather than circles or wide dashed
- * stripes. Geometry is cached into four paths (one per color), so rendering
- * costs only 12 path draws total: broad haze + inner glow + soft core for each
- * color. The wide low-alpha passes deliberately overlap so adjacent colors
- * blend instead of exposing hard red/green/blue/yellow boundaries.
+ * Return to the round bulbs that read better from couch distance, but retain
+ * the broader/lower-alpha glow from the later treatment. Bulbs are still
+ * batched into four cached paths, so the whole focus treatment remains only
+ * 12 path draws: broad haze + inner glow + soft core for each color.
  *
- * Seasonal state is observed only while a visible focus outline owns this
- * modifier. Holiday Effects OFF immediately restores the exact normal Nuvio
- * focus ring instead of leaving seasonal colors behind.
+ * Holiday Effects OFF immediately restores the normal Nuvio focus ring.
  */
 @Composable
 internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
     bulbSpacing: Dp = 7.dp,
-    bulbLength: Dp = 3.2.dp,
-    coreWidth: Dp = 1.8.dp,
-    middleGlowWidth: Dp = 5.6.dp,
-    outerGlowWidth: Dp = 10.dp
+    coreRadius: Dp = 1.65.dp,
+    middleGlowRadius: Dp = 3.1.dp,
+    outerGlowRadius: Dp = 5.4.dp
 ): Modifier {
-    val seasonalEffectsViewModel: SeasonalEffectsViewModel =
-        hiltViewModel()
-    val config by
-        seasonalEffectsViewModel.config.collectAsStateWithLifecycle()
+    val seasonalEffectsViewModel: SeasonalEffectsViewModel = hiltViewModel()
+    val config by seasonalEffectsViewModel.config.collectAsStateWithLifecycle()
 
     if (!config.enabled) {
         return border(
@@ -67,17 +59,13 @@ internal fun Modifier.holidaySegmentedFocusBorder(
     }
 
     return drawWithCache {
-        val coreStroke = coreWidth.toPx().coerceAtLeast(0.75f)
-        val middleStroke = middleGlowWidth.toPx().coerceAtLeast(coreStroke)
-        val outerStroke = outerGlowWidth.toPx().coerceAtLeast(middleStroke)
-        val halfBulbLength = bulbLength.toPx().coerceAtLeast(1f) * 0.5f
-        val spacing = bulbSpacing.toPx().coerceAtLeast(halfBulbLength * 2f + 1f)
+        val core = coreRadius.toPx().coerceAtLeast(0.75f)
+        val middle = middleGlowRadius.toPx().coerceAtLeast(core)
+        val outer = outerGlowRadius.toPx().coerceAtLeast(middle)
+        val spacing = bulbSpacing.toPx().coerceAtLeast(core * 2f + 1f)
 
-        /*
-         * Keep the colored core on the visible card edge. Glow is allowed to
-         * spread inward/outward naturally rather than recessing the ring.
-         */
-        val edgeInset = coreStroke * 0.5f
+        /* Keep the bulb centers on the visible card edge. */
+        val edgeInset = core
         val left = edgeInset
         val top = edgeInset
         val right = (size.width - edgeInset).coerceAtLeast(left)
@@ -124,8 +112,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                 return rectangularPoint(rawDistance)
             }
 
-            var d =
-                ((rawDistance % perimeter) + perimeter) % perimeter
+            var d = ((rawDistance % perimeter) + perimeter) % perimeter
 
             if (d <= straightHorizontal) {
                 return Offset(left + radius + d, top)
@@ -185,73 +172,62 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             (perimeter / spacing).roundToInt().coerceAtLeast(4)
         val actualSpacing =
             if (bulbCount > 0) perimeter / bulbCount else spacing
-        val tangentProbe =
-            minOf(actualSpacing * 0.18f, 1.5f).coerceAtLeast(0.5f)
 
-        val colorPaths =
-            Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
+        val outerPaths = Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
+        val middlePaths = Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
+        val corePaths = Array(HOLIDAY_FOCUS_COLORS.size) { Path() }
 
         repeat(bulbCount) { index ->
-            val distance = index * actualSpacing
-            val center = roundedPoint(distance)
-            val ahead = roundedPoint(distance + tangentProbe)
-            val dx = ahead.x - center.x
-            val dy = ahead.y - center.y
-            val length = sqrt(dx * dx + dy * dy).coerceAtLeast(0.001f)
-            val tx = dx / length
-            val ty = dy / length
-            val start = Offset(
-                center.x - tx * halfBulbLength,
-                center.y - ty * halfBulbLength
-            )
-            val end = Offset(
-                center.x + tx * halfBulbLength,
-                center.y + ty * halfBulbLength
-            )
+            val center = roundedPoint(index * actualSpacing)
+            val colorIndex = index % HOLIDAY_FOCUS_COLORS.size
 
-            colorPaths[index % colorPaths.size].apply {
-                moveTo(start.x, start.y)
-                lineTo(end.x, end.y)
-            }
+            outerPaths[colorIndex].addOval(
+                Rect(
+                    left = center.x - outer,
+                    top = center.y - outer,
+                    right = center.x + outer,
+                    bottom = center.y + outer
+                )
+            )
+            middlePaths[colorIndex].addOval(
+                Rect(
+                    left = center.x - middle,
+                    top = center.y - middle,
+                    right = center.x + middle,
+                    bottom = center.y + middle
+                )
+            )
+            corePaths[colorIndex].addOval(
+                Rect(
+                    left = center.x - core,
+                    top = center.y - core,
+                    right = center.x + core,
+                    bottom = center.y + core
+                )
+            )
         }
-
-        val outerStyle = Stroke(
-            width = outerStroke,
-            cap = StrokeCap.Round
-        )
-        val middleStyle = Stroke(
-            width = middleStroke,
-            cap = StrokeCap.Round
-        )
-        val coreStyle = Stroke(
-            width = coreStroke,
-            cap = StrokeCap.Round
-        )
 
         onDrawWithContent {
             drawContent()
 
             HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
                 drawPath(
-                    path = colorPaths[index],
-                    color = color.copy(alpha = 0.045f),
-                    style = outerStyle
+                    path = outerPaths[index],
+                    color = color.copy(alpha = 0.045f)
                 )
             }
 
             HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
                 drawPath(
-                    path = colorPaths[index],
-                    color = color.copy(alpha = 0.14f),
-                    style = middleStyle
+                    path = middlePaths[index],
+                    color = color.copy(alpha = 0.14f)
                 )
             }
 
             HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
                 drawPath(
-                    path = colorPaths[index],
-                    color = color.copy(alpha = 0.38f),
-                    style = coreStyle
+                    path = corePaths[index],
+                    color = color.copy(alpha = 0.38f)
                 )
             }
         }
