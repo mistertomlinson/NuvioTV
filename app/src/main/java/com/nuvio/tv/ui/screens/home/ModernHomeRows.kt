@@ -1668,23 +1668,44 @@ internal fun ModernRowSection(
                                                      * additional per-frame work
                                                      * is introduced.
                                                      */
-                                                    val isRegularPortraitCatalogRow =
-                                                        !isNumbered &&
-                                                            !useLandscapePosters &&
+                                                    val isPortraitCatalogGeometry =
+                                                        !useLandscapePosters &&
                                                             !perCatalogLandscape &&
                                                             !isCwRow
 
                                                     val targetPositionsPerSecond =
                                                         if (
-                                                            isRegularPortraitCatalogRow
+                                                            isPortraitCatalogGeometry
                                                         ) {
                                                             32f
                                                         } else {
                                                             20f
                                                         }
 
+                                                    // Numbered rows deliberately use extra spacing for the
+                                                    // large number overlay. Do not let that visual spacing
+                                                    // inflate Double-Left screen velocity.
+                                                    val velocityPitchPx =
+                                                        if (isNumbered) {
+                                                            val numberedSpacingPx =
+                                                                with(doubleLeftDensity) {
+                                                                    numberedRowSpacing.toPx()
+                                                                }
+                                                            val regularSpacingPx =
+                                                                with(doubleLeftDensity) {
+                                                                    12.dp.toPx()
+                                                                }
+                                                            (
+                                                                measuredPitchPx -
+                                                                    numberedSpacingPx +
+                                                                    regularSpacingPx
+                                                            ).coerceAtLeast(1f)
+                                                        } else {
+                                                            measuredPitchPx
+                                                        }
+
                                                     val velocityPxPerSecond =
-                                                        measuredPitchPx *
+                                                        velocityPitchPx *
                                                             targetPositionsPerSecond
 
                                                     var previousFrame:
