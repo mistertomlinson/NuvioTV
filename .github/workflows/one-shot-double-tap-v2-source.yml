@@ -19,6 +19,7 @@ jobs:
         run: |
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           content_path = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt')
           content = content_path.read_text()
@@ -32,70 +33,81 @@ jobs:
 
           rows_path = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeRows.kt')
           rows = rows_path.read_text()
-          old = '''                                                    val isRegularPortraitCatalogRow =
-                                                        !isNumbered &&
-                                                            !useLandscapePosters &&
-                                                            !perCatalogLandscape &&
-                                                            !isCwRow
+          pattern = re.compile(
+              r'(?m)^(?P<i>[ \t]*)val isRegularPortraitCatalogRow =\n'
+              r'[ \t]+!isNumbered &&\n'
+              r'[ \t]+!useLandscapePosters &&\n'
+              r'[ \t]+!perCatalogLandscape &&\n'
+              r'[ \t]+!isCwRow\n\n'
+              r'(?P=i)val targetPositionsPerSecond =\n'
+              r'[ \t]+if \(\n'
+              r'[ \t]+isRegularPortraitCatalogRow\n'
+              r'[ \t]+\) \{\n'
+              r'[ \t]+32f\n'
+              r'[ \t]+\} else \{\n'
+              r'[ \t]+20f\n'
+              r'[ \t]+\}\n\n'
+              r'(?P=i)val velocityPxPerSecond =\n'
+              r'[ \t]+measuredPitchPx \*\n'
+              r'[ \t]+targetPositionsPerSecond'
+          )
 
-                                                    val targetPositionsPerSecond =
-                                                        if (
-                                                            isRegularPortraitCatalogRow
-                                                        ) {
-                                                            32f
-                                                        } else {
-                                                            20f
-                                                        }
+          def replacement(match):
+              i = match.group('i')
+              return '\n'.join([
+                  i + 'val isPortraitCatalogGeometry =',
+                  i + '    !useLandscapePosters &&',
+                  i + '        !perCatalogLandscape &&',
+                  i + '        !isCwRow',
+                  '',
+                  i + 'val targetPositionsPerSecond =',
+                  i + '    if (',
+                  i + '        isPortraitCatalogGeometry',
+                  i + '    ) {',
+                  i + '        32f',
+                  i + '    } else {',
+                  i + '        20f',
+                  i + '    }',
+                  '',
+                  i + '// Numbered rows deliberately use extra spacing for the',
+                  i + '// large number overlay. Do not let that visual spacing',
+                  i + '// inflate Double-Left screen velocity.',
+                  i + 'val velocityPitchPx =',
+                  i + '    if (isNumbered) {',
+                  i + '        val numberedSpacingPx =',
+                  i + '            with(doubleLeftDensity) {',
+                  i + '                numberedRowSpacing.toPx()',
+                  i + '            }',
+                  i + '        val regularSpacingPx =',
+                  i + '            with(doubleLeftDensity) {',
+                  i + '                12.dp.toPx()',
+                  i + '            }',
+                  i + '        (',
+                  i + '            measuredPitchPx -',
+                  i + '                numberedSpacingPx +',
+                  i + '                regularSpacingPx',
+                  i + '        ).coerceAtLeast(1f)',
+                  i + '    } else {',
+                  i + '        measuredPitchPx',
+                  i + '    }',
+                  '',
+                  i + 'val velocityPxPerSecond =',
+                  i + '    velocityPitchPx *',
+                  i + '        targetPositionsPerSecond',
+              ])
 
-                                                    val velocityPxPerSecond =
-                                                        measuredPitchPx *
-                                                            targetPositionsPerSecond
-          '''
-          new = '''                                                    val isPortraitCatalogGeometry =
-                                                        !useLandscapePosters &&
-                                                            !perCatalogLandscape &&
-                                                            !isCwRow
-
-                                                    val targetPositionsPerSecond =
-                                                        if (
-                                                            isPortraitCatalogGeometry
-                                                        ) {
-                                                            32f
-                                                        } else {
-                                                            20f
-                                                        }
-
-                                                    // Numbered rows deliberately use extra spacing for the
-                                                    // large number overlay. Do not let that visual spacing
-                                                    // inflate Double-Left screen velocity.
-                                                    val velocityPitchPx =
-                                                        if (isNumbered) {
-                                                            val numberedSpacingPx =
-                                                                with(doubleLeftDensity) {
-                                                                    numberedRowSpacing.toPx()
-                                                                }
-                                                            val regularSpacingPx =
-                                                                with(doubleLeftDensity) {
-                                                                    12.dp.toPx()
-                                                                }
-                                                            (
-                                                                measuredPitchPx -
-                                                                    numberedSpacingPx +
-                                                                    regularSpacingPx
-                                                            ).coerceAtLeast(1f)
-                                                        } else {
-                                                            measuredPitchPx
-                                                        }
-
-                                                    val velocityPxPerSecond =
-                                                        velocityPitchPx *
-                                                            targetPositionsPerSecond
-          '''
-          horizontal_count = rows.count(old)
+          rows, horizontal_count = pattern.subn(replacement, rows)
           if horizontal_count == 2:
-              rows_path.write_text(rows.replace(old, new))
-          elif rows.count(new) != 2:
-              raise SystemExit(f'Unexpected horizontal-speed state: old matches={horizontal_count}, new matches={rows.count(new)}')
+              rows_path.write_text(rows)
+          elif not (
+              rows.count('val isPortraitCatalogGeometry =') == 2 and
+              rows.count('val velocityPitchPx =') == 2
+          ):
+              raise SystemExit(
+                  f'Unexpected horizontal-speed state: matches={horizontal_count}, '
+                  f'geometry={rows.count("val isPortraitCatalogGeometry =")}, '
+                  f'pitch={rows.count("val velocityPitchPx =")}'
+              )
           PY
 
       - name: Commit tuning if needed
