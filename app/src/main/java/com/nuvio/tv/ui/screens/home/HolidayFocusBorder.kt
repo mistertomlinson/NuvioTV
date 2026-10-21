@@ -4,7 +4,11 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -25,10 +29,23 @@ import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.abs
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 private const val HOLIDAY_BULB_SPRITE_SIZE = 48
 private const val HOLIDAY_BULB_COLOR_COUNT = 4
 private const val HOLIDAY_BULB_CORE_HUE_TINT = 0.12f
+
+/*
+ * One shared-looking, deliberately low-frequency brightness animation.
+ *
+ * Only the focused card owns this clock, and it publishes at 20fps. The
+ * expensive-looking glow itself remains the exact cached sprite atlas.
+ */
+private const val HOLIDAY_BULB_PULSE_STEP_MS = 50L
+private const val HOLIDAY_BULB_COLOR_PHASE_MS = 900L
+private const val HOLIDAY_BULB_MIN_ALPHA = 0.58f
 
 /*
  * RGB values stay saturated outside the hot center so the bloom still reads
@@ -221,6 +238,33 @@ internal fun Modifier.holidaySegmentedFocusBorder(
         )
     }
 
+    /*
+     * Absolute monotonic time means changing focused cards does not restart the
+     * sequence at red. All focused-poster implementations therefore appear to
+     * share one continuous red -> green -> blue -> amber pulse.
+     */
+    var pulsePhase by remember {
+        mutableFloatStateOf(0f)
+    }
+
+    LaunchedEffect(Unit) {
+        while (isActive) {
+            val cycleMs =
+                HOLIDAY_BULB_COLOR_PHASE_MS *
+                    HOLIDAY_BULB_COLOR_COUNT
+
+            val phaseMs =
+                (System.nanoTime() / 1_000_000L) %
+                    cycleMs
+
+            pulsePhase =
+                phaseMs.toFloat() /
+                    HOLIDAY_BULB_COLOR_PHASE_MS.toFloat()
+
+            delay(HOLIDAY_BULB_PULSE_STEP_MS)
+        }
+    }
+
     return drawWithCache {
         val atlas = holidayBulbAtlas
         val drawSizePx =
@@ -364,6 +408,45 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                 val colorIndex =
                     index % HOLIDAY_BULB_COLOR_COUNT
 
+                /*
+                 * Only brightness changes. The approved bulb/core/halo sprite
+                 * remains completely unchanged.
+                 *
+                 * Adjacent color families overlap through the handoff, so the
+                 * sequence breathes rather than blinks.
+                 */
+                val rawDistance =
+                    abs(
+                        pulsePhase -
+                            colorIndex.toFloat()
+                    )
+
+                val wrappedDistance =
+                    minOf(
+                        rawDistance,
+                        HOLIDAY_BULB_COLOR_COUNT.toFloat() -
+                            rawDistance
+                    )
+
+                val influence =
+                    if (wrappedDistance >= 1f) {
+                        0f
+                    } else {
+                        val x =
+                            (1f - wrappedDistance)
+                                .coerceIn(0f, 1f)
+
+                        x * x * (3f - 2f * x)
+                    }
+
+                val bulbAlpha =
+                    HOLIDAY_BULB_MIN_ALPHA +
+                        (
+                            1f -
+                                HOLIDAY_BULB_MIN_ALPHA
+                            ) *
+                        influence
+
                 drawImage(
                     image = atlas,
                     srcOffset = IntOffset(
@@ -382,6 +465,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                         drawSizePx,
                         drawSizePx
                     ),
+                    alpha = bulbAlpha,
                     filterQuality = FilterQuality.Low
                 )
             }

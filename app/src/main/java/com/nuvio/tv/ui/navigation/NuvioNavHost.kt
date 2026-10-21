@@ -209,6 +209,16 @@ fun NuvioNavHost(
         }
 
     /*
+     * Snow is a separate Android surface above the Compose NavHost. Hold it at
+     * alpha=0 while the frozen Details frame waits for Home's first real draw,
+     * then release it on the exact same 350ms dissolve.
+     */
+    val detailReturnSnowReveal =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    /*
      * DETAIL_TO_DETAIL_RETURN_FROZEN_LAYER
      *
      * Normal Navigation Compose pop transitions fade the outgoing Detail down
@@ -266,6 +276,7 @@ fun NuvioNavHost(
             try {
                 detailReturnOverlayAlpha.snapTo(1f)
                 showDetailReturnOverlay.value = true
+                detailReturnSnowReveal.value = false
 
                 // Live Details is still on screen here.
                 androidx.compose.runtime.withFrameNanos { }
@@ -295,6 +306,12 @@ fun NuvioNavHost(
                 // Remove the temporary draw hook BEFORE the dissolve.
                 detailReturnAwaitingHomeDraw.value = false
 
+                /*
+                 * Start the dedicated snow-surface fade on the SAME boundary
+                 * as the retained Details-frame dissolve.
+                 */
+                detailReturnSnowReveal.value = true
+
                 // Keep the approved crossfade duration unchanged.
                 detailReturnOverlayAlpha.animateTo(
                     targetValue = 0f,
@@ -306,6 +323,7 @@ fun NuvioNavHost(
             } finally {
                 detailReturnAwaitingHomeDraw.value = false
                 showDetailReturnOverlay.value = false
+                detailReturnSnowReveal.value = false
                 detailReturnOverlayAlpha.snapTo(1f)
                 detailReturnRunning.set(false)
             }
@@ -532,13 +550,34 @@ fun NuvioNavHost(
         navController
             .currentBackStackEntryAsState()
 
+    val seasonalOverlayRoute =
+        seasonalBackStackEntry
+            ?.destination
+            ?.route
+            .orEmpty()
+
     val seasonalOverlayVisible =
         isSeasonalOverlayRoute(
-            seasonalBackStackEntry
-                ?.destination
-                ?.route
-                .orEmpty()
+            seasonalOverlayRoute
         )
+
+    /*
+     * Details keeps only the transparent seasonal SurfaceView alive after its
+     * 350ms fade-out. Snow and accumulation are paused there.
+     *
+     * Stream and Player remain completely free of the seasonal window.
+     */
+    val seasonalOverlayKeepAlive =
+        seasonalOverlayVisible ||
+            seasonalOverlayRoute
+                .startsWith("detail/")
+
+    val seasonalOverlayTargetVisible =
+        seasonalOverlayVisible &&
+            (
+                !showDetailReturnOverlay.value ||
+                    detailReturnSnowReveal.value
+                )
 
     Box(
         modifier = Modifier.fillMaxSize()
@@ -2030,7 +2069,8 @@ fun NuvioNavHost(
          * is the platform-transition isolation attempt for this build.
          */
         SeasonalEffectsOverlayHost(
-            visible = seasonalOverlayVisible
+            visible = seasonalOverlayTargetVisible,
+            keepAlive = seasonalOverlayKeepAlive
         )
     }
 }

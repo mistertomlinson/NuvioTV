@@ -12,6 +12,7 @@ import android.graphics.RectF
 import android.os.Build
 import android.view.SurfaceHolder
 import android.view.SurfaceView
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -415,6 +416,7 @@ private fun depositSnowBankForInterval(
 @Composable
 internal fun SeasonalEffectsOverlayHost(
     visible: Boolean,
+    keepAlive: Boolean = visible,
     viewModel: SeasonalEffectsViewModel = hiltViewModel()
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -441,7 +443,12 @@ internal fun SeasonalEffectsOverlayHost(
         }
     }
 
-    if (!homeReady || !visible) return
+    /*
+     * Details keeps the transparent surface alive so Home <-> Details can
+     * crossfade the SAME snow frame without rebuilding anything. Stream and
+     * Player do not keep the seasonal window at all.
+     */
+    if (!homeReady || !keepAlive) return
 
     /*
      * Keep the separate Popup window so Activity PixelCopy/backdrop capture
@@ -462,7 +469,9 @@ internal fun SeasonalEffectsOverlayHost(
     ) {
         DedicatedSnowSurface(
             config = config,
-            snowState = snowState
+            snowState = snowState,
+            visible = visible,
+            appInForeground = appInForeground
         )
     }
 }
@@ -470,12 +479,19 @@ internal fun SeasonalEffectsOverlayHost(
 @Composable
 private fun DedicatedSnowSurface(
     config: SeasonalEffectsConfig,
-    snowState: SeasonalSnowState
+    snowState: SeasonalSnowState,
+    visible: Boolean,
+    appInForeground: Boolean
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val view = remember(snowState, context) {
         SeasonalSnowSurfaceView(context).apply {
-            bind(config, snowState)
+            bind(
+                config = config,
+                state = snowState,
+                visible = visible,
+                appInForeground = appInForeground
+            )
         }
     }
 
@@ -488,7 +504,14 @@ private fun DedicatedSnowSurface(
     AndroidView(
         factory = { view },
         modifier = Modifier.fillMaxSize(),
-        update = { it.bind(config, snowState) }
+        update = {
+            it.bind(
+                config = config,
+                state = snowState,
+                visible = visible,
+                appInForeground = appInForeground
+            )
+        }
     )
 }
 
@@ -505,6 +528,26 @@ private class SeasonalSnowSurfaceView(
 
     private val running = AtomicBoolean(false)
     private var renderThread: Thread? = null
+
+    @Volatile
+    private var appInForeground: Boolean = true
+
+    /*
+     * Presentation alpha belongs to the producer thread, not Compose.
+     *
+     * That preserves the main reason the SurfaceView fixed platform/root
+     * hesitation: no per-frame seasonal animation is scheduled on Compose's
+     * frame clock.
+     */
+    private val presentationLock = Any()
+    private var presentationInitialized = false
+    private var presentationStartAlpha = 1f
+    private var presentationTargetAlpha = 1f
+    private var presentationStartNanos = 0L
+    private val presentationDurationNanos = 350_000_000L
+
+    @Volatile
+    private var hiddenSurfaceCleared = false
 
     private val spritePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
     private val bankFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -548,17 +591,109 @@ private class SeasonalSnowSurfaceView(
 
     fun bind(
         config: SeasonalEffectsConfig,
-        state: SeasonalSnowState
+        state: SeasonalSnowState,
+        visible: Boolean,
+        appInForeground: Boolean
     ) {
         currentConfig = config
+        this.appInForeground = appInForeground
+
         if (currentState !== state) {
             currentState = state
             cachedBankGeneration = Int.MIN_VALUE
         }
+
+        updatePresentationTarget(visible)
+
+        /*
+         * SurfaceView can survive an Android-TV screensaver transition while
+         * its old producer thread does not. Explicitly verify the producer on
+         * every foreground bind instead of relying only on surfaceCreated().
+         */
+        if (appInForeground) {
+            ensureRenderThread()
+        }
     }
 
+    private fun updatePresentationTarget(
+        visible: Boolean
+    ) {
+        val target =
+            if (visible) 1f else 0f
+        val now =
+            System.nanoTime()
+
+        synchronized(presentationLock) {
+            if (!presentationInitialized) {
+                presentationInitialized = true
+                presentationStartAlpha = target
+                presentationTargetAlpha = target
+                presentationStartNanos = now
+                hiddenSurfaceCleared = target <= 0f
+                return
+            }
+
+            if (presentationTargetAlpha == target) {
+                return
+            }
+
+            val current =
+                resolvePresentationAlphaLocked(now)
+
+            presentationStartAlpha = current
+            presentationTargetAlpha = target
+            presentationStartNanos = now
+            hiddenSurfaceCleared = false
+        }
+    }
+
+    private fun resolvePresentationAlphaLocked(
+        nowNanos: Long
+    ): Float {
+        if (!presentationInitialized) {
+            return presentationTargetAlpha
+        }
+
+        val elapsed =
+            (nowNanos - presentationStartNanos)
+                .coerceAtLeast(0L)
+
+        if (elapsed >= presentationDurationNanos) {
+            return presentationTargetAlpha
+        }
+
+        val t =
+            (
+                elapsed.toDouble() /
+                    presentationDurationNanos.toDouble()
+                ).toFloat()
+                .coerceIn(0f, 1f)
+
+        val eased =
+            FastOutSlowInEasing.transform(t)
+
+        return presentationStartAlpha +
+            (
+                presentationTargetAlpha -
+                    presentationStartAlpha
+                ) *
+            eased
+    }
+
+    private fun presentationAlpha(
+        nowNanos: Long
+    ): Float =
+        synchronized(presentationLock) {
+            resolvePresentationAlphaLocked(nowNanos)
+        }
+
+    private fun presentationTargetVisible(): Boolean =
+        synchronized(presentationLock) {
+            presentationTargetAlpha > 0.5f
+        }
+
     override fun surfaceCreated(holder: SurfaceHolder) {
-        startRenderThread()
+        ensureRenderThread()
     }
 
     override fun surfaceChanged(
@@ -580,8 +715,66 @@ private class SeasonalSnowSurfaceView(
         super.onDetachedFromWindow()
     }
 
+    override fun onWindowFocusChanged(
+        hasWindowFocus: Boolean
+    ) {
+        super.onWindowFocusChanged(hasWindowFocus)
+
+        if (hasWindowFocus) {
+            /*
+             * Important for Android-TV screensavers: some devices restore the
+             * same SurfaceView/window without delivering a useful new
+             * surfaceCreated callback.
+             */
+            ensureRenderThread()
+        }
+    }
+
+    override fun onVisibilityChanged(
+        changedView: android.view.View,
+        visibility: Int
+    ) {
+        super.onVisibilityChanged(
+            changedView,
+            visibility
+        )
+
+        if (
+            visibility ==
+                android.view.View.VISIBLE
+        ) {
+            ensureRenderThread()
+        }
+    }
+
     fun shutdown() {
         stopRenderThread()
+    }
+
+    private fun ensureRenderThread() {
+        if (
+            !isAttachedToWindow ||
+            !holder.surface.isValid
+        ) {
+            return
+        }
+
+        val existing =
+            renderThread
+
+        if (
+            running.get() &&
+            existing?.isAlive == true
+        ) {
+            return
+        }
+
+        /*
+         * Recover from a producer that terminated while Android retained the
+         * SurfaceView object across screensaver/window transitions.
+         */
+        running.set(false)
+        startRenderThread()
     }
 
     private fun startRenderThread() {
@@ -611,38 +804,171 @@ private class SeasonalSnowSurfaceView(
         var nextFrameNanos = System.nanoTime()
 
         while (running.get()) {
-            val config = currentConfig
-            val state = currentState
-            val targetFps = config.targetFps.coerceIn(1, 60)
-            val frameIntervalNanos = NANOS_PER_SECOND.toLong() / targetFps
+            try {
+                /*
+                 * Do not accumulate invisible time while Android has the app
+                 * backgrounded/screensaver-covered. A >30s real resume is
+                 * already handled by SeasonalSnowRuntime.restartSnowfall().
+                 */
+                if (!appInForeground) {
+                    previousFrameNanos = 0L
+                    nextFrameNanos = System.nanoTime()
+                    Thread.sleep(50L)
+                    continue
+                }
 
-            val now = System.nanoTime()
-            if (now < nextFrameNanos) {
-                val remaining = nextFrameNanos - now
-                try {
+                val config = currentConfig
+                val state = currentState
+                val targetFps =
+                    config.targetFps.coerceIn(1, 60)
+                val frameIntervalNanos =
+                    NANOS_PER_SECOND.toLong() /
+                        targetFps
+
+                val now = System.nanoTime()
+
+                if (now < nextFrameNanos) {
+                    val remaining =
+                        nextFrameNanos - now
+
                     Thread.sleep(
                         remaining / 1_000_000L,
-                        (remaining % 1_000_000L).toInt()
+                        (
+                            remaining %
+                                1_000_000L
+                            ).toInt()
                     )
+                    continue
+                }
+
+                val frameNow =
+                    System.nanoTime()
+
+                nextFrameNanos =
+                    frameNow +
+                        frameIntervalNanos
+
+                val alpha =
+                    presentationAlpha(
+                        frameNow
+                    )
+
+                val targetVisible =
+                    presentationTargetVisible()
+
+                /*
+                 * Once Home's 350ms fade-out is complete, freeze BOTH falling
+                 * snow and bank accumulation while Details is open.
+                 */
+                if (
+                    alpha <= 0.001f &&
+                    !targetVisible
+                ) {
+                    previousFrameNanos = 0L
+
+                    if (!hiddenSurfaceCleared) {
+                        clearSurfaceFrame()
+                        hiddenSurfaceCleared = true
+                    }
+
+                    Thread.sleep(50L)
+                    continue
+                }
+
+                hiddenSurfaceCleared = false
+
+                if (state != null) {
+                    if (previousFrameNanos != 0L) {
+                        val delta =
+                            (
+                                frameNow -
+                                    previousFrameNanos
+                                ).coerceIn(
+                                0L,
+                                MAX_CATCH_UP_DELTA_NANOS
+                            )
+
+                        advanceSimulation(
+                            state,
+                            config,
+                            delta
+                        )
+                    }
+
+                    previousFrameNanos =
+                        frameNow
+
+                    drawFrame(
+                        state = state,
+                        config = config,
+                        presentationAlpha = alpha
+                    )
+                } else {
+                    previousFrameNanos =
+                        frameNow
+                }
+            } catch (_: InterruptedException) {
+                if (!running.get()) {
+                    return
+                }
+
+                previousFrameNanos = 0L
+                nextFrameNanos =
+                    System.nanoTime()
+            } catch (_: Throwable) {
+                /*
+                 * Surface replacement can race one producer frame on some TV
+                 * builds. Keep the producer alive and retry instead of leaving
+                 * a permanently frozen final buffer.
+                 */
+                previousFrameNanos = 0L
+                nextFrameNanos =
+                    System.nanoTime()
+
+                try {
+                    Thread.sleep(16L)
                 } catch (_: InterruptedException) {
-                    if (!running.get()) return
+                    if (!running.get()) {
+                        return
+                    }
                 }
-                continue
             }
+        }
+    }
 
-            val frameNow = System.nanoTime()
-            nextFrameNanos = frameNow + frameIntervalNanos
+    private fun clearSurfaceFrame() {
+        if (
+            !holder.surface.isValid ||
+            width <= 0 ||
+            height <= 0
+        ) {
+            return
+        }
 
-            if (state != null) {
-                if (previousFrameNanos != 0L) {
-                    val delta = (frameNow - previousFrameNanos)
-                        .coerceIn(0L, MAX_CATCH_UP_DELTA_NANOS)
-                    advanceSimulation(state, config, delta)
+        val canvas =
+            try {
+                if (
+                    Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.M
+                ) {
+                    holder.lockHardwareCanvas()
+                } else {
+                    holder.lockCanvas()
                 }
-                previousFrameNanos = frameNow
-                drawFrame(state, config)
-            } else {
-                previousFrameNanos = frameNow
+            } catch (_: Throwable) {
+                null
+            } ?: return
+
+        try {
+            canvas.drawColor(
+                android.graphics.Color.TRANSPARENT,
+                PorterDuff.Mode.CLEAR
+            )
+        } finally {
+            runCatching {
+                holder.unlockCanvasAndPost(
+                    canvas
+                )
             }
         }
     }
@@ -672,7 +998,8 @@ private class SeasonalSnowSurfaceView(
 
     private fun drawFrame(
         state: SeasonalSnowState,
-        config: SeasonalEffectsConfig
+        config: SeasonalEffectsConfig,
+        presentationAlpha: Float
     ) {
         if (!holder.surface.isValid || width <= 0 || height <= 0) return
 
@@ -688,8 +1015,17 @@ private class SeasonalSnowSurfaceView(
 
         try {
             canvas.drawColor(android.graphics.Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
-            drawSnowParticles(canvas, state, config)
-            drawSnowBank(canvas, state)
+            drawSnowParticles(
+                canvas = canvas,
+                state = state,
+                config = config,
+                presentationAlpha = presentationAlpha
+            )
+            drawSnowBank(
+                canvas = canvas,
+                state = state,
+                presentationAlpha = presentationAlpha
+            )
         } finally {
             runCatching { holder.unlockCanvasAndPost(canvas) }
         }
@@ -698,7 +1034,8 @@ private class SeasonalSnowSurfaceView(
     private fun drawSnowParticles(
         canvas: Canvas,
         state: SeasonalSnowState,
-        config: SeasonalEffectsConfig
+        config: SeasonalEffectsConfig,
+        presentationAlpha: Float
     ) {
         val seconds = state.simulationNanos / NANOS_PER_SECOND
         val scale1080 = height / 1080f
@@ -784,7 +1121,10 @@ private class SeasonalSnowSurfaceView(
             val steadyAlpha = (
                 baseAlpha * opacityMultiplier * (0.78f + depth * 0.20f)
                 ).coerceIn(0.10f, 0.96f)
-            val alpha = steadyAlpha * startupOpacity
+            val alpha =
+                steadyAlpha *
+                    startupOpacity *
+                    presentationAlpha
             val spriteDrawSize = (radius * 5.6f).roundToInt().coerceAtLeast(5)
 
             val sprite = particle.spriteIndex
@@ -810,7 +1150,8 @@ private class SeasonalSnowSurfaceView(
 
     private fun drawSnowBank(
         canvas: Canvas,
-        state: SeasonalSnowState
+        state: SeasonalSnowState,
+        presentationAlpha: Float
     ) {
         if (
             cachedBankGeneration != state.bankGeneration ||
@@ -823,9 +1164,41 @@ private class SeasonalSnowSurfaceView(
             cachedBankHeight = height
         }
 
-        canvas.drawPath(bankFillPath, bankFillPaint)
-        canvas.drawPath(bankTopPath, bankOuterFeatherPaint)
-        canvas.drawPath(bankTopPath, bankInnerFeatherPaint)
+        bankFillPaint.alpha =
+            (
+                255f *
+                    presentationAlpha
+                ).roundToInt()
+                .coerceIn(0, 255)
+
+        bankOuterFeatherPaint.alpha =
+            (
+                0.08f *
+                    255f *
+                    presentationAlpha
+                ).roundToInt()
+                .coerceIn(0, 255)
+
+        bankInnerFeatherPaint.alpha =
+            (
+                0.20f *
+                    255f *
+                    presentationAlpha
+                ).roundToInt()
+                .coerceIn(0, 255)
+
+        canvas.drawPath(
+            bankFillPath,
+            bankFillPaint
+        )
+        canvas.drawPath(
+            bankTopPath,
+            bankOuterFeatherPaint
+        )
+        canvas.drawPath(
+            bankTopPath,
+            bankInnerFeatherPaint
+        )
     }
 
     private fun rebuildBankPaths(state: SeasonalSnowState) {
