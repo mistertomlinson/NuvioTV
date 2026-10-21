@@ -20,26 +20,33 @@ private val HOLIDAY_FOCUS_COLORS = arrayOf(
 )
 
 /**
- * Static holiday focus ring for Home catalog posters.
- *
- * Deliberately draw-only: no animation clock, no state loop and no layout
- * change. The segments are intentionally large enough to stay visibly
- * red/green/blue/yellow at normal TV viewing distance instead of blending into
- * one pale line. A wider low-alpha copy underneath fakes a soft glow without
- * RenderEffect/blur.
+ * Static holiday focus ring that reads like tiny Christmas lights rather than
+ * broad stripes. The ring stays draw-only: no animation clock, no state loop,
+ * no layout change and no real blur/RenderEffect.
  */
 internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
-    segmentLength: Dp = 22.dp,
-    strokeWidth: Dp = 3.dp,
-    glowWidth: Dp = 7.dp
+    segmentLength: Dp = 4.dp,
+    gapLength: Dp = 2.dp,
+    strokeWidth: Dp = 2.25.dp,
+    glowWidth: Dp = 7.dp,
+    outerGlowWidth: Dp = 11.dp
 ): Modifier = drawWithCache {
     val segmentPx = segmentLength.toPx().coerceAtLeast(1f)
+    val gapPx = gapLength.toPx().coerceAtLeast(0.5f)
+    val stepPx = segmentPx + gapPx
+    val cyclePx = stepPx * HOLIDAY_FOCUS_COLORS.size
+    val offPx = (cyclePx - segmentPx).coerceAtLeast(1f)
+    val dashIntervals = floatArrayOf(segmentPx, offPx)
+
     val mainWidthPx = strokeWidth.toPx().coerceAtLeast(1f)
     val glowWidthPx = glowWidth.toPx().coerceAtLeast(mainWidthPx)
-    val dashIntervals = floatArrayOf(segmentPx, segmentPx * 3f)
+    val outerGlowWidthPx = outerGlowWidth.toPx().coerceAtLeast(glowWidthPx)
 
-    val inset = glowWidthPx * 0.5f
+    // Center the main stroke half a stroke-width inside the bounds. Its outer
+    // edge therefore lands directly on the poster edge instead of looking inset.
+    // Glow uses the same path; the portion beyond the draw bounds clips naturally.
+    val inset = mainWidthPx * 0.5f
     val borderSize = Size(
         width = (size.width - inset * 2f).coerceAtLeast(0f),
         height = (size.height - inset * 2f).coerceAtLeast(0f)
@@ -48,40 +55,64 @@ internal fun Modifier.holidaySegmentedFocusBorder(
     val roundedCorner = CornerRadius(radiusPx, radiusPx)
     val topLeft = Offset(inset, inset)
 
+    fun phaseFor(index: Int): Float = when (index) {
+        0 -> 0f
+        1 -> stepPx * 3f
+        2 -> stepPx * 2f
+        else -> stepPx
+    }
+
     val mainStyles = Array(HOLIDAY_FOCUS_COLORS.size) { index ->
-        val phase = when (index) {
-            0 -> 0f
-            1 -> segmentPx * 3f
-            2 -> segmentPx * 2f
-            else -> segmentPx
-        }
         Stroke(
             width = mainWidthPx,
-            cap = StrokeCap.Butt,
-            pathEffect = PathEffect.dashPathEffect(dashIntervals, phase)
+            cap = StrokeCap.Round,
+            pathEffect = PathEffect.dashPathEffect(
+                dashIntervals,
+                phaseFor(index)
+            )
         )
     }
 
     val glowStyles = Array(HOLIDAY_FOCUS_COLORS.size) { index ->
-        val phase = when (index) {
-            0 -> 0f
-            1 -> segmentPx * 3f
-            2 -> segmentPx * 2f
-            else -> segmentPx
-        }
         Stroke(
             width = glowWidthPx,
             cap = StrokeCap.Round,
-            pathEffect = PathEffect.dashPathEffect(dashIntervals, phase)
+            pathEffect = PathEffect.dashPathEffect(
+                dashIntervals,
+                phaseFor(index)
+            )
+        )
+    }
+
+    val outerGlowStyles = Array(HOLIDAY_FOCUS_COLORS.size) { index ->
+        Stroke(
+            width = outerGlowWidthPx,
+            cap = StrokeCap.Round,
+            pathEffect = PathEffect.dashPathEffect(
+                dashIntervals,
+                phaseFor(index)
+            )
         )
     }
 
     onDrawWithContent {
         drawContent()
 
+        // Two cheap low-alpha strokes make adjacent bulbs bleed softly into
+        // one another, hiding hard color boundaries without a real blur pass.
         HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
             drawRoundRect(
-                color = color.copy(alpha = 0.16f),
+                color = color.copy(alpha = 0.07f),
+                topLeft = topLeft,
+                size = borderSize,
+                cornerRadius = roundedCorner,
+                style = outerGlowStyles[index]
+            )
+        }
+
+        HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
+            drawRoundRect(
+                color = color.copy(alpha = 0.22f),
                 topLeft = topLeft,
                 size = borderSize,
                 cornerRadius = roundedCorner,
@@ -91,7 +122,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
 
         HOLIDAY_FOCUS_COLORS.forEachIndexed { index, color ->
             drawRoundRect(
-                color = color,
+                color = color.copy(alpha = 0.96f),
                 topLeft = topLeft,
                 size = borderSize,
                 cornerRadius = roundedCorner,
