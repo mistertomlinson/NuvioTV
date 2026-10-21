@@ -11,11 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -25,7 +21,6 @@ import com.nuvio.tv.domain.model.SnowSizeProfile
 import com.nuvio.tv.domain.model.SnowStartupMode
 import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import kotlin.math.PI
-import kotlin.math.cos
 import kotlin.math.sin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -56,10 +51,7 @@ private data class SnowParticle(
     val alphaSeed: Float,
     val phase: Float,
     val swayFrequency: Float,
-    val depthSeed: Float,
-    val shapeSeed: Float,
-    val aspectSeed: Float,
-    val softnessSeed: Float
+    val depthSeed: Float
 )
 
 private const val MAX_SNOW_PARTICLES = 120
@@ -67,12 +59,9 @@ private const val NANOS_PER_SECOND = 1_000_000_000.0
 private const val MAX_FRAME_DELTA_NANOS = 100_000_000L
 private const val SOFT_FADE_DURATION_SECONDS = 1.5
 private const val FALL_IN_SPAWN_WINDOW_SECONDS = 3.0
-private const val TWO_PI = (2.0 * PI).toFloat()
 
 private val snowParticles: List<SnowParticle> = buildList(MAX_SNOW_PARTICLES) {
     // Deterministic LCG: no Random object and no particle allocation at runtime.
-    // Extra shape values are derived from the original motion seeds so this keeps
-    // the same overall motion distribution while improving appearance.
     var state = 0x51A7C0DEu
     fun nextFloat(): Float {
         state = state * 1664525u + 1013904223u
@@ -80,31 +69,16 @@ private val snowParticles: List<SnowParticle> = buildList(MAX_SNOW_PARTICLES) {
     }
 
     repeat(MAX_SNOW_PARTICLES) {
-        val xSeed = nextFloat()
-        val ySeed = nextFloat()
-        val sizeSeed = nextFloat()
-        val speedSeed = nextFloat()
-        val alphaSeed = nextFloat()
-        val phase = nextFloat() * TWO_PI
-        val swayFrequency = 0.45f + nextFloat() * 0.85f
-        val depthSeed = nextFloat()
-
         add(
             SnowParticle(
-                xSeed = xSeed,
-                ySeed = ySeed,
-                sizeSeed = sizeSeed,
-                speedSeed = speedSeed,
-                alphaSeed = alphaSeed,
-                phase = phase,
-                swayFrequency = swayFrequency,
-                depthSeed = depthSeed,
-                shapeSeed =
-                    (xSeed * 0.73f + ySeed * 0.41f + sizeSeed * 0.87f + depthSeed * 0.29f) % 1f,
-                aspectSeed =
-                    (ySeed * 0.67f + alphaSeed * 0.53f + speedSeed * 0.31f + depthSeed * 0.47f) % 1f,
-                softnessSeed =
-                    (xSeed * 0.37f + alphaSeed * 0.89f + sizeSeed * 0.43f + depthSeed * 0.61f) % 1f
+                xSeed = nextFloat(),
+                ySeed = nextFloat(),
+                sizeSeed = nextFloat(),
+                speedSeed = nextFloat(),
+                alphaSeed = nextFloat(),
+                phase = nextFloat() * (2f * PI.toFloat()),
+                swayFrequency = 0.45f + nextFloat() * 0.85f,
+                depthSeed = nextFloat()
             )
         )
     }
@@ -262,7 +236,7 @@ private fun HolidaySnowOverlay(
 
             val yTravel =
                 motionSeconds * baseFallPxPerSecond * fallMultiplier * depth * scale1080
-            val y = if (config.startupMode == SnowStartupMode.FALL_IN_FROM_TOP) {
+            var y = if (config.startupMode == SnowStartupMode.FALL_IN_FROM_TOP) {
                 (yTravel.toFloat() % travelHeight) - margin
             } else {
                 (particle.ySeed * travelHeight + yTravel).toFloat() % travelHeight - margin
@@ -294,125 +268,12 @@ private fun HolidaySnowOverlay(
                 (baseAlpha * opacityMultiplier * (0.78f + depth * 0.20f))
                     .coerceIn(0.10f, 0.96f)
             val alpha = steadyAlpha * startupOpacity
-            val center = Offset(x, y)
 
-            // Keep the soft/fuzzy family across the whole field. Two tiny
-            // shape-matched halo passes fake blur without RenderEffect or an
-            // offscreen layer. The occasional tuft uses only short rounded
-            // protrusions OUTSIDE the visible body, so no brighter overlap seam
-            // can show through the low-alpha center.
-            val softHalo = when (depthBand) {
-                0 -> particle.softnessSeed > 0.08f
-                else -> true
-            }
-            val fuzzyTuft = particle.shapeSeed > 0.45f
-
-            drawSoftIrregularSnowFlake(
-                center = center,
+            drawCircle(
+                color = Color.White.copy(alpha = alpha),
                 radius = radius,
-                alpha = alpha,
-                aspectSeed = particle.aspectSeed,
-                shapeSeed = particle.shapeSeed,
-                softHalo = softHalo,
-                fuzzyTuft = fuzzyTuft
+                center = androidx.compose.ui.geometry.Offset(x, y)
             )
         }
     }
-}
-
-private fun DrawScope.drawSoftIrregularSnowFlake(
-    center: Offset,
-    radius: Float,
-    alpha: Float,
-    aspectSeed: Float,
-    shapeSeed: Float,
-    softHalo: Boolean,
-    fuzzyTuft: Boolean
-) {
-    // Tuft flakes stay close to round so their tiny protrusions read as soft
-    // snow crystals rather than geometric lines. Blob flakes keep stronger
-    // irregularity for variety across the field.
-    val widthFactor = if (fuzzyTuft) {
-        0.86f + aspectSeed * 0.30f
-    } else {
-        (0.62f + aspectSeed * 0.82f).coerceIn(0.62f, 1.44f)
-    }
-    val heightFactor = if (fuzzyTuft) {
-        1.12f - (widthFactor - 1f) * 0.45f
-    } else {
-        (1.24f - (widthFactor - 1f) * 0.42f).coerceIn(0.66f, 1.40f)
-    }
-    val halfWidth = radius * widthFactor
-    val halfHeight = radius * heightFactor
-
-    if (softHalo) {
-        val innerScale = 1.48f + shapeSeed * 0.12f
-        val outerScale = 2.05f + shapeSeed * 0.18f
-
-        drawOval(
-            color = Color.White.copy(alpha = alpha * 0.045f),
-            topLeft = Offset(
-                center.x - halfWidth * outerScale,
-                center.y - halfHeight * outerScale
-            ),
-            size = Size(
-                halfWidth * 2f * outerScale,
-                halfHeight * 2f * outerScale
-            )
-        )
-        drawOval(
-            color = Color.White.copy(alpha = alpha * 0.115f),
-            topLeft = Offset(
-                center.x - halfWidth * innerScale,
-                center.y - halfHeight * innerScale
-            ),
-            size = Size(
-                halfWidth * 2f * innerScale,
-                halfHeight * 2f * innerScale
-            )
-        )
-    }
-
-    if (fuzzyTuft) {
-        // Barely-protruding rounded nubs recreate the small fuzzy flakes from
-        // the earlier mixed version without drawing hard crystal arms. Each nub
-        // begins near the body edge and extends only a fraction of the radius.
-        // Because the segments do not cross the center, their alpha cannot stack
-        // underneath the visible body and create bright overlap hotspots.
-        val rotation = shapeSeed * TWO_PI
-        val armPairs = if (shapeSeed > 0.78f) 3 else 2
-        val angleStep = PI.toFloat() / armPairs
-        val nubStart = radius * 0.94f
-        val nubEnd = radius * (1.30f + aspectSeed * 0.10f)
-        val nubWidth = (radius * 0.62f).coerceAtLeast(0.70f)
-        val nubAlpha = alpha * 0.18f
-
-        for (arm in 0 until armPairs) {
-            val angle = rotation + angleStep * arm
-            val dx = cos(angle)
-            val dy = sin(angle)
-            drawLine(
-                color = Color.White.copy(alpha = nubAlpha),
-                start = Offset(center.x + dx * nubStart, center.y + dy * nubStart),
-                end = Offset(center.x + dx * nubEnd, center.y + dy * nubEnd),
-                strokeWidth = nubWidth,
-                cap = StrokeCap.Round
-            )
-            drawLine(
-                color = Color.White.copy(alpha = nubAlpha),
-                start = Offset(center.x - dx * nubStart, center.y - dy * nubStart),
-                end = Offset(center.x - dx * nubEnd, center.y - dy * nubEnd),
-                strokeWidth = nubWidth,
-                cap = StrokeCap.Round
-            )
-        }
-    }
-
-    // Exactly one visible body pass. No secondary solid lobes means there is no
-    // brighter alpha accumulation where shapes overlap.
-    drawOval(
-        color = Color.White.copy(alpha = alpha),
-        topLeft = Offset(center.x - halfWidth, center.y - halfHeight),
-        size = Size(halfWidth * 2f, halfHeight * 2f)
-    )
 }
