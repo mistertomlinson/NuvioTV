@@ -147,8 +147,8 @@ private const val KEY_REPEAT_THROTTLE_MS = 140L
 
 internal const val HOME_DOUBLE_UP_GAP_MS = 80L
 private const val HOME_DOUBLE_UP_LEAD_ROWS = 3
-private const val HOME_DOUBLE_UP_TOP_RUNWAY_ROWS = 6
-internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2400f
+private const val HOME_DOUBLE_UP_TOP_RUNWAY_ROWS = 3
+internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 3200f
 
 @androidx.compose.runtime.Stable
 private class EnhancedHomeRowsFocusHolder {
@@ -5357,7 +5357,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                                      * Long trips only:
                                      *
                                      * Keep:
-                                     * - top six rows
+                                     * - top three rows
                                      * - three rows immediately above
                                      *   the current viewport
                                      * - every currently visible row
@@ -5513,7 +5513,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                                      * We are now visually at the real
                                      * first row. Restore all omitted
                                      * middle rows. They are inserted
-                                     * BELOW the six-row top runway, so
+                                     * BELOW the three-row top runway, so
                                      * the current top viewport does
                                      * not move.
                                      */

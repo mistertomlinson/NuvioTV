@@ -1577,10 +1577,10 @@ internal fun ModernRowSection(
                                                      *     1000 / 80 = 12.5
                                                      *     positions/sec maximum.
                                                      *
-                                                     * Double-Left targets 2x that
+                                                     * Double-Left now targets a lower
                                                      * traversal rate:
                                                      *
-                                                     *     25 positions/sec.
+                                                     *     20 positions/sec.
                                                      *
                                                      * Measure ACTUAL adjacent item
                                                      * pitch, not just card width.
@@ -1648,7 +1648,7 @@ internal fun ModernRowSection(
                                                      * Numbered and landscape
                                                      * rows already have the
                                                      * desired perceived speed at
-                                                     * 25 positions/sec because
+                                                     * 20 positions/sec because
                                                      * their item pitch is much
                                                      * wider.
                                                      *
@@ -1658,10 +1658,10 @@ internal fun ModernRowSection(
                                                      * positions/sec produces a
                                                      * visibly slower physical
                                                      * sweep. Boost only that row
-                                                     * geometry to 40 positions/sec.
+                                                     * geometry to 32 positions/sec.
                                                      *
-                                                     * Continue Watching is left
-                                                     * untouched as well.
+                                                     * Continue Watching uses the
+                                                     * lower rate as well.
                                                      *
                                                      * This value is calculated
                                                      * once before scrolling; no
@@ -1678,9 +1678,9 @@ internal fun ModernRowSection(
                                                         if (
                                                             isRegularPortraitCatalogRow
                                                         ) {
-                                                            40f
+                                                            32f
                                                         } else {
-                                                            25f
+                                                            20f
                                                         }
 
                                                     val velocityPxPerSecond =
@@ -1691,7 +1691,7 @@ internal fun ModernRowSection(
                                                         Long? = null
 
                                                     /*
-                                                     * Same velocity as Double-Up.
+                                                     * Same frame-driven scroll model as Double-Up.
                                                      * This is a real LazyRow scroll;
                                                      * it is not an instant teleport.
                                                      */
