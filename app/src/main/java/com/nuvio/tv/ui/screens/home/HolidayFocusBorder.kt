@@ -4,9 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -16,10 +14,7 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -27,7 +22,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.tv.LocalAppInForeground
-import com.nuvio.tv.domain.model.HolidayTheme
 import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.PI
@@ -232,77 +226,25 @@ internal fun Modifier.holidaySegmentedFocusBorder(
     cornerRadius: Dp,
     bulbSpacing: Dp = 11.dp,
     bulbDrawSize: Dp = 22.dp,
-    edgeInset: Dp = 2.2.dp,
-    allowHalloweenPerch: Boolean = true
+    edgeInset: Dp = 2.2.dp
 ): Modifier {
     val seasonalEffectsViewModel: SeasonalEffectsViewModel = hiltViewModel()
     val config by seasonalEffectsViewModel.config.collectAsStateWithLifecycle()
     val appInForeground = LocalAppInForeground.current
 
-    val activeHoliday =
+    val christmasActive =
         remember(
             config,
             appInForeground
         ) {
-            config.activeHoliday()
+            config.isChristmasActive()
         }
 
-    if (activeHoliday == null) {
+    if (!christmasActive) {
         return border(
             width = 2.dp,
             color = NuvioColors.FocusRing,
             shape = RoundedCornerShape(cornerRadius)
-        )
-    }
-
-    if (
-        activeHoliday ==
-        HolidayTheme.HALLOWEEN
-    ) {
-        val focusOwner =
-            remember {
-                Any()
-            }
-
-        DisposableEffect(
-            focusOwner
-        ) {
-            onDispose {
-                HalloweenEffectsRuntime
-                    .clearFocusedPosterBounds(
-                        focusOwner
-                    )
-            }
-        }
-
-        SideEffect {
-            HalloweenEffectsRuntime
-                .setFocusedPosterPerchEligible(
-                    owner = focusOwner,
-                    eligible = allowHalloweenPerch
-                )
-        }
-
-        return onGloballyPositioned {
-            val bounds =
-                it.boundsInWindow()
-
-            HalloweenEffectsRuntime
-                .updateFocusedPosterBounds(
-                    owner = focusOwner,
-                    left = bounds.left,
-                    top = bounds.top,
-                    right = bounds.right,
-                    bottom = bounds.bottom,
-                    perchEligible = allowHalloweenPerch
-                )
-        }.border(
-            width = 2.dp,
-            color = Color(0xFFFF7A00),
-            shape =
-                RoundedCornerShape(
-                    cornerRadius
-                )
         )
     }
 
@@ -457,16 +399,206 @@ internal fun Modifier.holidaySegmentedFocusBorder(
         val bulbCount =
             (perimeter / spacing)
                 .roundToInt()
-                .coerceAtLeast(HOLIDAY_BULB_COLOR_COUNT)
+                .coerceAtLeast(
+                    HOLIDAY_BULB_COLOR_COUNT
+                )
+
         val actualSpacing =
             if (bulbCount > 0) {
-                perimeter / bulbCount
+                perimeter /
+                    bulbCount
             } else {
                 spacing
             }
+
+        fun cornerVariationScale(
+            rawDistance: Float
+        ): Float {
+            if (
+                radius <= 0.01f ||
+                perimeter <= 0f
+            ) {
+                return 1f
+            }
+
+            var d =
+                (
+                    (
+                        rawDistance %
+                            perimeter
+                        ) +
+                        perimeter
+                    ) %
+                    perimeter
+
+            if (
+                d <=
+                straightHorizontal
+            ) {
+                return 1f
+            }
+
+            d -=
+                straightHorizontal
+
+            if (d <= quarterArc) {
+                return 0.58f
+            }
+
+            d -= quarterArc
+
+            if (
+                d <=
+                straightVertical
+            ) {
+                return 1f
+            }
+
+            d -=
+                straightVertical
+
+            if (d <= quarterArc) {
+                return 0.58f
+            }
+
+            d -= quarterArc
+
+            if (
+                d <=
+                straightHorizontal
+            ) {
+                return 1f
+            }
+
+            d -=
+                straightHorizontal
+
+            if (d <= quarterArc) {
+                return 0.58f
+            }
+
+            d -= quarterArc
+
+            if (
+                d <=
+                straightVertical
+            ) {
+                return 1f
+            }
+
+            return 0.58f
+        }
+
+        /*
+         * Deliberately imperfect, but not chaotic.
+         *
+         * Straight sections vary by about +/-14%. Rounded corners get
+         * substantially less variation so a large accidental-looking gap
+         * does not appear at a corner. The generated weights are normalized,
+         * so the complete strand still closes perfectly around the card.
+         *
+         * The seed is deterministic for a given card geometry: changing
+         * focus never causes the lights to rearrange themselves.
+         */
+        var spacingSeed =
+            0x5EED1234L xor
+                (
+                    bulbCount.toLong()
+                        .shl(8)
+                    ) xor
+                (
+                    size.width
+                        .roundToInt()
+                        .toLong()
+                        .shl(20)
+                    ) xor
+                size.height
+                    .roundToInt()
+                    .toLong()
+
+        fun nextSpacingNoise():
+            Float {
+            spacingSeed =
+                (
+                    spacingSeed *
+                        1664525L +
+                        1013904223L
+                    ) and
+                    0xFFFFFFFFL
+
+            return (
+                (
+                    spacingSeed ushr 8
+                    ) and
+                    0x00FFFFFFL
+                ).toFloat() /
+                0x01000000L
+        }
+
+        val rawDeviations =
+            FloatArray(
+                bulbCount
+            ) { index ->
+                val uniformDistance =
+                    index *
+                        actualSpacing
+
+                val centeredNoise =
+                    nextSpacingNoise() -
+                        0.5f
+
+                centeredNoise *
+                    cornerVariationScale(
+                        uniformDistance
+                    )
+            }
+
+        val averageDeviation =
+            rawDeviations
+                .average()
+                .toFloat()
+
+        val gapWeights =
+            FloatArray(
+                bulbCount
+            ) { index ->
+                1f +
+                    (
+                        rawDeviations[index] -
+                            averageDeviation
+                        ) *
+                    0.28f
+            }
+
+        val totalGapWeight =
+            gapWeights
+                .sum()
+                .coerceAtLeast(
+                    0.001f
+                )
+
+        val normalizeGapWeight =
+            bulbCount.toFloat() /
+                totalGapWeight
+
+        var currentDistance =
+            0f
+
         val bulbCenters =
-            Array(bulbCount) { index ->
-                roundedPoint(index * actualSpacing)
+            Array(
+                bulbCount
+            ) { index ->
+                val center =
+                    roundedPoint(
+                        currentDistance
+                    )
+
+                currentDistance +=
+                    actualSpacing *
+                        gapWeights[index] *
+                        normalizeGapWeight
+
+                center
             }
 
         onDrawWithContent {
@@ -508,9 +640,11 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                     }
 
                 /*
-                 * Inactive colors now remain at 85% of the approved bulb
-                 * sprite. At full influence this reaches the exact previous
-                 * bright state: 100% base plus the existing 38% glow pass.
+                 * Approved TV tuning:
+                 *
+                 * Resting bulbs stay at 85% brightness. At full influence the
+                 * base sprite reaches 100%, then receives the same 38% cached
+                 * glow boost used by the approved bright state.
                  */
                 val baseAlpha =
                     0.85f +
@@ -521,25 +655,36 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                     HOLIDAY_BULB_BOOST_ALPHA *
                         influence
 
-                val srcOffset = IntOffset(
-                    colorIndex * HOLIDAY_BULB_SPRITE_SIZE,
-                    0
-                )
+                val srcOffset =
+                    IntOffset(
+                        colorIndex *
+                            HOLIDAY_BULB_SPRITE_SIZE,
+                        0
+                    )
 
-                val srcSize = IntSize(
-                    HOLIDAY_BULB_SPRITE_SIZE,
-                    HOLIDAY_BULB_SPRITE_SIZE
-                )
+                val srcSize =
+                    IntSize(
+                        HOLIDAY_BULB_SPRITE_SIZE,
+                        HOLIDAY_BULB_SPRITE_SIZE
+                    )
 
-                val dstOffset = IntOffset(
-                    (center.x - halfDrawSizePx).roundToInt(),
-                    (center.y - halfDrawSizePx).roundToInt()
-                )
+                val dstOffset =
+                    IntOffset(
+                        (
+                            center.x -
+                                halfDrawSizePx
+                            ).roundToInt(),
+                        (
+                            center.y -
+                                halfDrawSizePx
+                            ).roundToInt()
+                    )
 
-                val dstSize = IntSize(
-                    drawSizePx,
-                    drawSizePx
-                )
+                val dstSize =
+                    IntSize(
+                        drawSizePx,
+                        drawSizePx
+                    )
 
                 drawImage(
                     image = atlas,
@@ -548,10 +693,14 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                     dstOffset = dstOffset,
                     dstSize = dstSize,
                     alpha = baseAlpha,
-                    filterQuality = FilterQuality.Low
+                    filterQuality =
+                        FilterQuality.Low
                 )
 
-                if (boostAlpha > 0.002f) {
+                if (
+                    boostAlpha >
+                    0.002f
+                ) {
                     drawImage(
                         image = atlas,
                         srcOffset = srcOffset,
@@ -559,7 +708,8 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                         dstOffset = dstOffset,
                         dstSize = dstSize,
                         alpha = boostAlpha,
-                        filterQuality = FilterQuality.Low
+                        filterQuality =
+                            FilterQuality.Low
                     )
                 }
             }

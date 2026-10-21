@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.nuvio.tv.data.local.SeasonalEffectsDataStore
 import com.nuvio.tv.domain.model.HolidayMode
-import com.nuvio.tv.domain.model.HolidayTheme
 import com.nuvio.tv.domain.model.SeasonalEffectsConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -33,12 +32,10 @@ class SeasonalEffectsViewModel @Inject constructor(
         )
 
     fun setHolidayMode(
-        holiday: HolidayTheme,
         mode: HolidayMode
     ) {
         viewModelScope.launch {
             dataStore.setHolidayMode(
-                holiday,
                 mode
             )
         }

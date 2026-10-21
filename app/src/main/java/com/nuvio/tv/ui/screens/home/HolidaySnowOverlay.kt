@@ -28,7 +28,6 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.LocalBackgroundedAtMs
-import com.nuvio.tv.domain.model.HolidayTheme
 import com.nuvio.tv.domain.model.SeasonalEffectsConfig
 import com.nuvio.tv.domain.model.SnowSizeProfile
 import com.nuvio.tv.domain.model.SnowStartupMode
@@ -417,50 +416,25 @@ private fun depositSnowBankForInterval(
 @Composable
 internal fun SeasonalEffectsOverlayHost(
     visible: Boolean,
-    homeVisible: Boolean = visible,
     keepAlive: Boolean = visible,
     viewModel: SeasonalEffectsViewModel = hiltViewModel()
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
     val appInForeground = LocalAppInForeground.current
 
-    val activeHoliday =
+    val christmasActive =
         remember(
             config,
             appInForeground
         ) {
-            config.activeHoliday()
+            config.isChristmasActive()
         }
+
+    if (!christmasActive) return
 
     val homeReady by SeasonalSnowRuntime.homeReady.collectAsStateWithLifecycle()
     val restartGeneration by
         SeasonalSnowRuntime.restartGeneration.collectAsStateWithLifecycle()
-
-    if (
-        activeHoliday ==
-        HolidayTheme.HALLOWEEN
-    ) {
-        HalloweenEffectsOverlayHost(
-            visible =
-                homeReady &&
-                    homeVisible,
-            keepAlive =
-                homeReady &&
-                    keepAlive,
-            appInForeground =
-                appInForeground,
-            generation =
-                restartGeneration
-        )
-        return
-    }
-
-    if (
-        activeHoliday !=
-        HolidayTheme.CHRISTMAS
-    ) {
-        return
-    }
 
     val snowState = remember(restartGeneration) {
         SeasonalSnowState()

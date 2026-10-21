@@ -6,7 +6,6 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.HolidayMode
-import com.nuvio.tv.domain.model.HolidayTheme
 import com.nuvio.tv.domain.model.SeasonalEffectsConfig
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,17 +23,24 @@ class SeasonalEffectsDataStore @Inject constructor(
             "seasonal_effects"
     }
 
-    private val legacyEnabledKey =
-        booleanPreferencesKey("enabled")
+    private val holidayModeKey =
+        stringPreferencesKey(
+            "holiday_mode"
+        )
 
-    private val halloweenModeKey =
+    private val oldHalloweenModeKey =
         stringPreferencesKey(
             "halloween_mode"
         )
 
-    private val christmasModeKey =
+    private val oldChristmasModeKey =
         stringPreferencesKey(
             "christmas_mode"
+        )
+
+    private val legacyEnabledKey =
+        booleanPreferencesKey(
+            "enabled"
         )
 
     private fun store(
@@ -56,122 +62,123 @@ class SeasonalEffectsDataStore @Inject constructor(
             }
         }.getOrNull() ?: fallback
 
-    private fun resolveModes(
+    private fun resolveMode(
         prefs: Preferences
-    ): Pair<HolidayMode, HolidayMode> {
-        val map = prefs.asMap()
+    ): HolidayMode {
+        val map =
+            prefs.asMap()
 
-        val hasHalloweenMode =
+        if (
             map.containsKey(
-                halloweenModeKey
+                holidayModeKey
+            )
+        ) {
+            return decodeMode(
+                prefs[holidayModeKey],
+                HolidayMode.AUTOMATIC
+            )
+        }
+
+        val hasOldHalloween =
+            map.containsKey(
+                oldHalloweenModeKey
             )
 
-        val hasChristmasMode =
+        val hasOldChristmas =
             map.containsKey(
-                christmasModeKey
+                oldChristmasModeKey
             )
 
         if (
-            !hasHalloweenMode &&
-            !hasChristmasMode
+            hasOldHalloween ||
+            hasOldChristmas
         ) {
-            val hasLegacyChoice =
-                map.containsKey(
-                    legacyEnabledKey
+            val halloween =
+                decodeMode(
+                    prefs[oldHalloweenModeKey],
+                    HolidayMode.AUTOMATIC
                 )
 
-            if (hasLegacyChoice) {
-                return if (
-                    prefs[legacyEnabledKey] == true
-                ) {
-                    HolidayMode.OFF to
-                        HolidayMode.ON
-                } else {
-                    HolidayMode.OFF to
-                        HolidayMode.OFF
-                }
-            }
+            val christmas =
+                decodeMode(
+                    prefs[oldChristmasModeKey],
+                    HolidayMode.AUTOMATIC
+                )
 
-            return HolidayMode.AUTOMATIC to
-                HolidayMode.AUTOMATIC
+            return when {
+                christmas !=
+                    HolidayMode.OFF ->
+                    christmas
+
+                halloween ==
+                    HolidayMode.ON ->
+                    HolidayMode.AUTOMATIC
+
+                hasOldChristmas ->
+                    HolidayMode.OFF
+
+                else ->
+                    HolidayMode.AUTOMATIC
+            }
         }
 
-        return decodeMode(
-            prefs[halloweenModeKey],
-            HolidayMode.AUTOMATIC
-        ) to decodeMode(
-            prefs[christmasModeKey],
-            HolidayMode.AUTOMATIC
-        )
+        if (
+            map.containsKey(
+                legacyEnabledKey
+            )
+        ) {
+            return if (
+                prefs[legacyEnabledKey] ==
+                true
+            ) {
+                HolidayMode.ON
+            } else {
+                HolidayMode.OFF
+            }
+        }
+
+        return HolidayMode.AUTOMATIC
     }
 
     val config:
         Flow<SeasonalEffectsConfig> =
         profileManager.activeProfileId
-            .flatMapLatest { profileId ->
+            .flatMapLatest {
+                    profileId ->
+
                 factory.get(
                     profileId,
                     FEATURE
-                ).data.map { prefs ->
-                    val modes =
-                        resolveModes(prefs)
+                ).data.map {
+                        prefs ->
 
                     SeasonalEffectsConfig
                         .Recommended
                         .copy(
-                            halloweenMode =
-                                modes.first,
-                            christmasMode =
-                                modes.second
+                            holidayMode =
+                                resolveMode(
+                                    prefs
+                                )
                         )
                 }
             }
 
     suspend fun setHolidayMode(
-        holiday: HolidayTheme,
         mode: HolidayMode
     ) {
-        store().edit { prefs ->
-            val current =
-                resolveModes(prefs)
+        store().edit {
+                prefs ->
 
-            var halloween =
-                current.first
+            prefs[holidayModeKey] =
+                mode.name
 
-            var christmas =
-                current.second
+            prefs.remove(
+                oldHalloweenModeKey
+            )
 
-            when (holiday) {
-                HolidayTheme.HALLOWEEN -> {
-                    halloween = mode
-
-                    if (
-                        mode ==
-                        HolidayMode.ON
-                    ) {
-                        christmas =
-                            HolidayMode.OFF
-                    }
-                }
-
-                HolidayTheme.CHRISTMAS -> {
-                    christmas = mode
-
-                    if (
-                        mode ==
-                        HolidayMode.ON
-                    ) {
-                        halloween =
-                            HolidayMode.OFF
-                    }
-                }
-            }
-
-            prefs[halloweenModeKey] =
-                halloween.name
-
-            prefs[christmasModeKey] =
-                christmas.name
+            prefs.remove(
+                oldChristmasModeKey
+            )
 
             prefs.remove(
                 legacyEnabledKey

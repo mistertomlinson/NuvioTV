@@ -4,9 +4,14 @@ import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.Month
 
+/**
+ * Christmas holiday effects.
+ *
+ * The visual configuration remains fixed at the approved values.
+ * Only [holidayMode] is user configurable.
+ */
 data class SeasonalEffectsConfig(
-    val halloweenMode: HolidayMode = HolidayMode.AUTOMATIC,
-    val christmasMode: HolidayMode = HolidayMode.AUTOMATIC,
+    val holidayMode: HolidayMode = HolidayMode.AUTOMATIC,
     val startupMode: SnowStartupMode = SnowStartupMode.FALL_IN_FROM_TOP,
     val particleCount: Int = 120,
     val targetFps: Int = 30,
@@ -22,33 +27,19 @@ data class SeasonalEffectsConfig(
     val pauseDuringHeroTrailer: Boolean = false,
     val blur: SnowBlur = SnowBlur.OFF
 ) {
-    fun activeHoliday(
+    fun isChristmasActive(
         date: LocalDate = LocalDate.now()
-    ): HolidayTheme? {
-        if (halloweenMode == HolidayMode.ON) {
-            return HolidayTheme.HALLOWEEN
-        }
+    ): Boolean =
+        when (holidayMode) {
+            HolidayMode.ON ->
+                true
 
-        if (christmasMode == HolidayMode.ON) {
-            return HolidayTheme.CHRISTMAS
-        }
+            HolidayMode.OFF ->
+                false
 
-        if (
-            halloweenMode == HolidayMode.AUTOMATIC &&
-            date.month == Month.OCTOBER
-        ) {
-            return HolidayTheme.HALLOWEEN
+            HolidayMode.AUTOMATIC ->
+                isChristmasAutomaticDate(date)
         }
-
-        if (
-            christmasMode == HolidayMode.AUTOMATIC &&
-            isChristmasAutomaticDate(date)
-        ) {
-            return HolidayTheme.CHRISTMAS
-        }
-
-        return null
-    }
 
     private fun isChristmasAutomaticDate(
         date: LocalDate
@@ -61,7 +52,9 @@ data class SeasonalEffectsConfig(
         }
 
         val start =
-            christmasAutomaticStart(date.year)
+            christmasAutomaticStart(
+                date.year
+            )
 
         val end =
             LocalDate.of(
@@ -108,11 +101,6 @@ enum class HolidayMode {
     ON,
     OFF,
     AUTOMATIC
-}
-
-enum class HolidayTheme {
-    HALLOWEEN,
-    CHRISTMAS
 }
 
 enum class SnowStartupMode {
