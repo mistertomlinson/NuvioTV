@@ -76,22 +76,24 @@ private const val SNOW_SPRITE_COUNT =
 /*
  * TEST accumulation tuning.
  *
- * 96 samples + one fill path is intentionally tiny. The relatively generous
- * deposit amounts make the bank visibly grow within tens of seconds so the
- * shape/cap can be judged quickly. If approved, only these deposit constants
- * need to be reduced for production-speed accumulation.
+ * 192 samples are still just a tiny primitive array, but halve the horizontal
+ * spacing of the old height map. Deposits are spread over a wider kernel so
+ * the deliberately fast test build keeps roughly the same visual fill rate
+ * without growing blocky local towers.
  */
-private const val SNOW_BANK_COLUMNS = 96
+private const val SNOW_BANK_COLUMNS = 192
 private const val SNOW_BANK_MAX_HEIGHT_DP = 7.5f
-private const val SNOW_BANK_CENTER_DEPOSIT_DP = 2.35f
-private const val SNOW_BANK_NEAR_DEPOSIT_DP = 1.15f
-private const val SNOW_BANK_FAR_DEPOSIT_DP = 0.45f
+private const val SNOW_BANK_CENTER_DEPOSIT_DP = 1.80f
+private const val SNOW_BANK_NEAR_DEPOSIT_DP = 1.55f
+private const val SNOW_BANK_MID_DEPOSIT_DP = 1.25f
+private const val SNOW_BANK_FAR_DEPOSIT_DP = 0.90f
+private const val SNOW_BANK_EDGE_DEPOSIT_DP = 0.65f
 
 /*
- * Even after the bank is completely full, do not let all 96 columns converge
- * to one identical flat ceiling. A pair of very low-frequency waves gives the
- * finished bank shallow natural drifts while keeping the absolute peak at the
- * configured maximum.
+ * Even after the bank is completely full, do not let all columns converge to
+ * one identical flat ceiling. This is the same low-frequency wave formula as
+ * the approved 96-column build; the higher sampling resolution only traces it
+ * more finely. Maximum height and final silhouette stay unchanged.
  */
 private val snowBankColumnCapDp =
     FloatArray(SNOW_BANK_COLUMNS) { index ->
@@ -494,11 +496,15 @@ private fun depositSnowBankForInterval(
                     .toInt()
                     .coerceIn(0, columns - 1)
 
-            /* Prefer the lowest local pocket so the bank spreads naturally. */
+            /*
+             * Search a slightly wider local neighborhood now that the source
+             * map has twice the horizontal resolution. This keeps deposits
+             * seeking low pockets instead of forming narrow spikes.
+             */
             var targetColumn = baseColumn
             var bestScore = Float.MAX_VALUE
 
-            for (offset in -2..2) {
+            for (offset in -4..4) {
                 val candidate =
                     wrapColumn(
                         baseColumn + offset
@@ -530,7 +536,7 @@ private fun depositSnowBankForInterval(
                 val score =
                     normalizedHeight +
                         abs(offset) *
-                            0.025f
+                            0.0125f
 
                 if (score < bestScore) {
                     bestScore = score
@@ -539,11 +545,20 @@ private fun depositSnowBankForInterval(
                 }
             }
 
+            /*
+             * Wider bell-shaped deposit kernel. The total deposited material
+             * stays intentionally high for this visual test, but it is spread
+             * across nine finer columns instead of five coarse ones.
+             */
             addDeposit(targetColumn, SNOW_BANK_CENTER_DEPOSIT_DP)
             addDeposit(targetColumn - 1, SNOW_BANK_NEAR_DEPOSIT_DP)
             addDeposit(targetColumn + 1, SNOW_BANK_NEAR_DEPOSIT_DP)
-            addDeposit(targetColumn - 2, SNOW_BANK_FAR_DEPOSIT_DP)
-            addDeposit(targetColumn + 2, SNOW_BANK_FAR_DEPOSIT_DP)
+            addDeposit(targetColumn - 2, SNOW_BANK_MID_DEPOSIT_DP)
+            addDeposit(targetColumn + 2, SNOW_BANK_MID_DEPOSIT_DP)
+            addDeposit(targetColumn - 3, SNOW_BANK_FAR_DEPOSIT_DP)
+            addDeposit(targetColumn + 3, SNOW_BANK_FAR_DEPOSIT_DP)
+            addDeposit(targetColumn - 4, SNOW_BANK_EDGE_DEPOSIT_DP)
+            addDeposit(targetColumn + 4, SNOW_BANK_EDGE_DEPOSIT_DP)
         }
     }
 
@@ -624,9 +639,9 @@ private fun HolidaySnowOverlay(
         }
 
     /*
-     * Mutable primitive arrays avoid 96 independent Compose states. A single
-     * generation integer invalidates the Canvas only when an actual landing
-     * changes the bank.
+     * Mutable primitive arrays avoid hundreds of independent Compose states. A
+     * single generation integer invalidates the Canvas only when a landing
+     * actually changes the bank.
      */
     val bankHeightsDp =
         remember(config.startupMode) {
@@ -956,11 +971,12 @@ private fun HolidaySnowOverlay(
         /*
          * Shallow accumulated bank.
          *
-         * The physics/storage remains a tiny 96-value height map, but the
-         * visible surface is interpolated through midpoints instead of joining
-         * adjacent samples with hard straight segments. This removes the
-         * pixelated staircase / sharp-point appearance without adding landed
-         * particles or collision physics.
+         * The physical bank now has 192 samples. The visible height is derived
+         * from a five-tap blend of neighboring FILL FRACTIONS, not a blur of
+         * the final cap heights. That distinction is important: while building,
+         * isolated landings blend into soft drifts; when every column is full,
+         * every fraction is exactly 1 and the approved cap/wave is reproduced
+         * exactly.
          *
          * One opaque filled path only.
          */
@@ -974,21 +990,43 @@ private fun HolidaySnowOverlay(
                 size.width
             }
 
-        fun bankSurfaceY(
-            column: Int
-        ): Float {
-            val maxHeightDp =
-                snowBankColumnCapDp[
-                    column
-                ]
+        fun wrappedBankColumn(index: Int): Int {
+            val wrapped = index % SNOW_BANK_COLUMNS
+            return if (wrapped < 0) {
+                wrapped + SNOW_BANK_COLUMNS
+            } else {
+                wrapped
+            }
+        }
+
+        fun bankFillProgress(column: Int): Float {
+            val wrapped =
+                wrappedBankColumn(column)
+            val cap =
+                snowBankColumnCapDp[wrapped]
+                    .coerceAtLeast(0.01f)
+
+            return (
+                bankHeightsDp[wrapped] /
+                    cap
+                ).coerceIn(0f, 1f)
+        }
+
+        fun bankSurfaceY(column: Int): Float {
+            val progress =
+                bankFillProgress(column) * 0.52f +
+                    (
+                        bankFillProgress(column - 1) +
+                            bankFillProgress(column + 1)
+                        ) * 0.18f +
+                    (
+                        bankFillProgress(column - 2) +
+                            bankFillProgress(column + 2)
+                        ) * 0.06f
 
             val heightDp =
-                bankHeightsDp[
-                    column
-                ].coerceIn(
-                    0f,
-                    maxHeightDp
-                )
+                snowBankColumnCapDp[column] *
+                    progress.coerceIn(0f, 1f)
 
             return size.height -
                 heightDp * density
@@ -1023,13 +1061,6 @@ private fun HolidaySnowOverlay(
                     column
                 )
 
-            /*
-             * Quadratic midpoint smoothing:
-             *
-             * Use the previous sample as the control point and terminate at
-             * the midpoint between adjacent samples. This preserves the actual
-             * accumulated contour while eliminating hard corners.
-             */
             val midpointX =
                 (
                     previousX +
@@ -1054,9 +1085,6 @@ private fun HolidaySnowOverlay(
             previousY = y
         }
 
-        /*
-         * Finish the final half-segment at the right edge.
-         */
         bankFillPath
             .quadraticBezierTo(
                 previousX,
@@ -1076,6 +1104,5 @@ private fun HolidaySnowOverlay(
             path = bankFillPath,
             color = Color.White
         )
-
     }
 }
