@@ -892,6 +892,37 @@ fun HomeScreen(
                 ) {
                     mutableStateOf(if (initiallyReady) 2 else 0)
                 }
+
+                /*
+                 * Seasonal effects share Home's existing reveal contract.
+                 *
+                 * phase 0: loader is active
+                 * phase 1: loader is fading out
+                 * phase 2: Home is revealed
+                 *
+                 * SideEffect publishes the committed phase before drawing,
+                 * avoiding a separate snow timer or readiness race.
+                 */
+                androidx.compose.runtime.SideEffect {
+                    SeasonalSnowRuntime.setHomeReady(
+                        loaderPhase == 2
+                    )
+                }
+
+                /*
+                 * Never leave a stale true value behind if this Home entry is
+                 * removed or a different Home load session replaces it.
+                 */
+                androidx.compose.runtime.DisposableEffect(
+                    uiState.homeLoadSessionId
+                ) {
+                    onDispose {
+                        SeasonalSnowRuntime.setHomeReady(
+                            false
+                        )
+                    }
+                }
+
                 val dataReady = !shouldShowLoadingGate
 
                 var cachedViewportPredecodeStarted by remember(

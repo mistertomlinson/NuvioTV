@@ -17,7 +17,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -44,9 +47,23 @@ internal object SeasonalSnowRuntime {
     private val _homeScrolling = MutableStateFlow(false)
     val homeScrolling: StateFlow<Boolean> = _homeScrolling.asStateFlow()
 
+    /*
+     * HomeScreen owns the loading curtain and therefore owns the authoritative
+     * definition of "Home is actually visible". Seasonal effects do not invent
+     * their own timer/readiness heuristic.
+     */
+    private val _homeReady = MutableStateFlow(false)
+    val homeReady: StateFlow<Boolean> = _homeReady.asStateFlow()
+
     fun setHomeScrolling(scrolling: Boolean) {
         if (_homeScrolling.value != scrolling) {
             _homeScrolling.value = scrolling
+        }
+    }
+
+    fun setHomeReady(ready: Boolean) {
+        if (_homeReady.value != ready) {
+            _homeReady.value = ready
         }
     }
 }
@@ -683,6 +700,18 @@ internal fun SeasonalEffectsOverlayHost(
 
     if (!config.enabled) return
 
+    /*
+     * Do not even compose/start the snowfall simulation underneath Home's
+     * loading curtain. The first snow frame begins only after Home's existing
+     * reveal transaction has completed.
+     */
+    val homeReady by
+        SeasonalSnowRuntime
+            .homeReady
+            .collectAsStateWithLifecycle()
+
+    if (!homeReady) return
+
     val isScrolling by
         SeasonalSnowRuntime
             .homeScrolling
@@ -848,6 +877,7 @@ private fun HolidaySnowOverlay(
             )
 
     val bankFillPath = remember { Path() }
+    val bankTopPath = remember { Path() }
 
     /* Reading this state is enough to invalidate the Canvas after landings. */
     val bankGenerationSnapshot = bankGeneration
@@ -1086,9 +1116,10 @@ private fun HolidaySnowOverlay(
          * every fraction is exactly 1 and the approved cap/wave is reproduced
          * exactly.
          *
-         * One opaque filled path only.
+         * Opaque fill plus a tiny feather on only the exposed top edge.
          */
         bankFillPath.reset()
+        bankTopPath.reset()
 
         val columnWidth =
             if (SNOW_BANK_COLUMNS > 1) {
@@ -1162,6 +1193,16 @@ private fun HolidaySnowOverlay(
             firstY
         )
 
+        /*
+         * Separate open path for only the exposed snow surface. This lets us
+         * feather the visible boundary without blurring the opaque bank body
+         * or accidentally outlining the screen edges/bottom.
+         */
+        bankTopPath.moveTo(
+            0f,
+            firstY
+        )
+
         var previousX = 0f
         var previousY = firstY
 
@@ -1198,11 +1239,27 @@ private fun HolidaySnowOverlay(
                     midpointY
                 )
 
+            bankTopPath
+                .quadraticBezierTo(
+                    previousX,
+                    previousY,
+                    midpointX,
+                    midpointY
+                )
+
             previousX = x
             previousY = y
         }
 
         bankFillPath
+            .quadraticBezierTo(
+                previousX,
+                previousY,
+                previousX,
+                previousY
+            )
+
+        bankTopPath
             .quadraticBezierTo(
                 previousX,
                 previousY,
@@ -1217,9 +1274,47 @@ private fun HolidaySnowOverlay(
 
         bankFillPath.close()
 
+        /*
+         * The bank itself remains completely opaque.
+         */
         drawPath(
             path = bankFillPath,
             color = Color.White
+        )
+
+        /*
+         * Anti-staircase feather.
+         *
+         * At only ~7.5dp tall, the approved shallow wave spans very few
+         * physical vertical pixels on Android TV. More horizontal samples
+         * cannot fix that final rasterization step. Two extremely cheap,
+         * translucent strokes create a short coverage ramp outside the hard
+         * white boundary and visually hide those pixel steps.
+         *
+         * This is NOT a blur pass and does not allocate an offscreen layer.
+         */
+        drawPath(
+            path = bankTopPath,
+            color = Color.White.copy(
+                alpha = 0.08f
+            ),
+            style = Stroke(
+                width = 2.4f * density,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        )
+
+        drawPath(
+            path = bankTopPath,
+            color = Color.White.copy(
+                alpha = 0.20f
+            ),
+            style = Stroke(
+                width = 1.2f * density,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
         )
     }
 }
