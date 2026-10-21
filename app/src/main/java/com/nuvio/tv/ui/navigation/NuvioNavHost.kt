@@ -70,14 +70,19 @@ private fun rootDestinationPopExit(
         return fadeOut(animationSpec = tween(350))
     }
 
-    Log.d("RootDissolve", "$destinationName cross-dissolve -> home")
-    return fadeOut(
-        targetAlpha = 0f,
-        animationSpec = tween(
-            durationMillis = 300,
-            easing = LinearEasing
-        )
+    /*
+     * The retained sidebar-root GraphicsLayer owns the complete visual
+     * Settings/Search/Library/Addons -> Home dissolve.
+     *
+     * Running a Navigation fade underneath that frozen layer duplicates alpha
+     * animation and forces additional UI/GPU work while the independent snow
+     * window is trying to maintain its 30fps cadence.
+     */
+    Log.d(
+        "RootDissolve",
+        "$destinationName frozen-layer dissolve -> home"
     )
+    return ExitTransition.None
 }
 
 /*
@@ -573,16 +578,12 @@ fun NuvioNavHost(
                     ExitTransition.None
 
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
-                            )
-                        )
-                    } else {
-                        ExitTransition.None
-                    }
+                    /*
+                     * Root transition pixels are owned by the retained/frozen
+                     * transition layers. Navigation must stay out of the alpha
+                     * animation so only one full-screen dissolve runs.
+                     */
+                    ExitTransition.None
 
                 else -> fadeOut(animationSpec = tween(350))
             }
@@ -631,16 +632,12 @@ fun NuvioNavHost(
                     ) -> ExitTransition.None
 
                 isSidebarRootTransition(from, to) ->
-                    if (to == Screen.Home.route) {
-                        fadeOut(
-                            animationSpec = tween(
-                                durationMillis = 300,
-                                easing = LinearEasing
-                            )
-                        )
-                    } else {
-                        ExitTransition.None
-                    }
+                    /*
+                     * Root transition pixels are owned by the retained/frozen
+                     * transition layers. Navigation must stay out of the alpha
+                     * animation so only one full-screen dissolve runs.
+                     */
+                    ExitTransition.None
 
                 else -> fadeOut(animationSpec = tween(350))
             }
