@@ -2070,7 +2070,15 @@ fun NuvioNavHost(
          */
         SeasonalEffectsOverlayHost(
             visible = seasonalOverlayTargetVisible,
-            keepAlive = seasonalOverlayKeepAlive
+            keepAlive = seasonalOverlayKeepAlive,
+            /*
+             * Home still waits for its loader/reveal gate. Other supported
+             * root/settings routes must not inherit a stale Home-only
+             * readiness value; doing so produced Christmas focus lights with
+             * no snow until a process relaunch.
+             */
+            requireHomeReady =
+                seasonalOverlayRoute == Screen.Home.route
         )
     }
 }

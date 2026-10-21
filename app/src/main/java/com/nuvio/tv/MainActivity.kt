@@ -1251,6 +1251,16 @@ private fun LegacySidebarScaffold(
                                         }
 
                                         else -> {
+                                            /*
+                                             * A real root-route navigation is
+                                             * not a temporary sidebar focus
+                                             * handoff. Release trailer/card
+                                             * preservation now so the expanded
+                                             * card collapses during the existing
+                                             * pre-snapshot delay below.
+                                             */
+                                            preserveSidebarTrailerPlayback = false
+
                                             legacyRootTransitionTarget =
                                                 targetRoute
 

@@ -160,6 +160,8 @@ internal class HomePosterStatusRegistry {
         mutableMapOf<String, androidx.compose.runtime.MutableState<Boolean>>()
     private val reminderStates =
         mutableMapOf<String, androidx.compose.runtime.MutableState<Boolean>>()
+    private val watchedExitAnimationGenerations =
+        mutableMapOf<String, androidx.compose.runtime.MutableIntState>()
     private var watchedKeys: Set<String> = emptySet()
     private var reminderKeys: Set<String> = emptySet()
 
@@ -168,6 +170,13 @@ internal class HomePosterStatusRegistry {
         key: String
     ): androidx.compose.runtime.MutableState<Boolean> =
         map.getOrPut(key) { androidx.compose.runtime.mutableStateOf(false) }
+
+    private fun watchedExitGenerationStateFor(
+        key: String
+    ): androidx.compose.runtime.MutableIntState =
+        watchedExitAnimationGenerations.getOrPut(key) {
+            androidx.compose.runtime.mutableIntStateOf(0)
+        }
 
     fun syncWatched(
         movieStatus: Map<String, Boolean>,
@@ -189,6 +198,16 @@ internal class HomePosterStatusRegistry {
         }
         reminderKeys = keys
     }
+
+    fun armWatchedExitAnimation(statusKey: String) {
+        val state = watchedExitGenerationStateFor(statusKey)
+        state.intValue = state.intValue + 1
+    }
+
+    fun watchedExitAnimationGeneration(item: MetaPreview): Int =
+        watchedExitGenerationStateFor(
+            homeItemStatusKey(item.id, item.apiType)
+        ).intValue
 
     fun isWatched(item: MetaPreview): Boolean =
         stateFor(
@@ -403,6 +422,21 @@ private fun ModernCatalogRowItem(
         expandedCatalogFocusKey
     ) {
         if (expandedCatalogFocusKey != focusKey) {
+            preserveExpandedCardThroughSidebarSettle = false
+            return@LaunchedEffect
+        }
+
+        /*
+         * MainActivity deliberately drops the preservation flag before a
+         * root-route snapshot. The drawer is still open at that moment, so
+         * clear the card-local settle latch immediately instead of waiting for
+         * normal focus restoration. That gives the existing capture delay time
+         * to record the collapsed card rather than a paused trailer frame.
+         */
+        if (
+            isSidebarExpanded &&
+            !preserveSidebarTrailerPlayback
+        ) {
             preserveExpandedCardThroughSidebarSettle = false
             return@LaunchedEffect
         }
@@ -3348,6 +3382,7 @@ private const val POSTER_STATUS_ICON_TRANSITION_MS = 220
 private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStatusIcon(
     animationKey: String,
     visible: Boolean,
+    forcedExitGeneration: Int = 0,
     renderAllowed: Boolean,
     popupTransitionBlocked: Boolean,
     drawableRes: Int,
@@ -3370,6 +3405,37 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
         mutableStateOf(false)
     }
 
+    var observedForcedExitGeneration by remember(animationKey) {
+        androidx.compose.runtime.mutableIntStateOf(forcedExitGeneration)
+    }
+
+    var forceNextExit by remember(animationKey) {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(
+        animationKey,
+        forcedExitGeneration
+    ) {
+        if (
+            forcedExitGeneration ==
+            observedForcedExitGeneration
+        ) {
+            return@LaunchedEffect
+        }
+
+        observedForcedExitGeneration =
+            forcedExitGeneration
+        forceNextExit = true
+
+        /*
+         * If a mutation fails/cancels, never leave a stale intent around that
+         * could animate an unrelated synchronization much later.
+         */
+        delay(5_000L)
+        forceNextExit = false
+    }
+
     val iconAlpha = remember(animationKey) {
         Animatable(
             if (visible) 1f else 0f
@@ -3389,7 +3455,8 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
     LaunchedEffect(
         animationKey,
         visible,
-        animationBlocked
+        animationBlocked,
+        forceNextExit
     ) {
         /*
          * Status mutations caused by the options popup must not animate behind
@@ -3403,7 +3470,12 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
             return@LaunchedEffect
         }
 
-        if (pendingPopupChange) {
+        val forcedExitPending =
+            forceNextExit &&
+                !visible &&
+                renderedVisible
+
+        if (pendingPopupChange || forcedExitPending) {
             /*
              * The state may have changed twice while blocked. In that case the
              * final state already equals what is rendered, so there is nothing
@@ -3537,6 +3609,9 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
             }
 
             pendingPopupChange = false
+            if (forcedExitPending) {
+                forceNextExit = false
+            }
             return@LaunchedEffect
         }
 
@@ -3643,6 +3718,11 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
             preview
         )
 
+    val watchedExitAnimationGeneration =
+        registry.watchedExitAnimationGeneration(
+            preview
+        )
+
     val popupEnvironment =
         LocalHomePopupGlassEnvironment.current
 
@@ -3686,6 +3766,8 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
                 "${preview.apiType}|${preview.id}|watched",
             visible =
                 watched,
+            forcedExitGeneration =
+                watchedExitAnimationGeneration,
             renderAllowed =
                 showHeavyOverlays,
             popupTransitionBlocked =

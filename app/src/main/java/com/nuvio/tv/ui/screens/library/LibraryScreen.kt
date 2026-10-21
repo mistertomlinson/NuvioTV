@@ -147,9 +147,6 @@ private fun LibraryScreenContent(
     val visibleItemKeys = remember(uiState.visibleItems) {
         uiState.visibleItems.map { "${it.type}:${it.id}" }
     }
-    val visibleItemIndexByKey = remember(visibleItemKeys) {
-        visibleItemKeys.withIndex().associate { (index, key) -> key to index }
-    }
     val posterFocusRequesters = remember(visibleItemKeys) {
         visibleItemKeys.associateWith { FocusRequester() }
     }
@@ -165,12 +162,16 @@ private fun LibraryScreenContent(
     LaunchedEffect(uiState.isLoading, uiState.sourceMode, uiState.listTabs.size) {
         if (!uiState.isLoading && pendingPrimaryFocus) {
             val restoreKey = lastFocusedPosterKey
-            val restoreIndex = restoreKey?.let { visibleItemIndexByKey[it] }
             val restoreRequester = restoreKey?.let { posterFocusRequesters[it] }
 
             var focused = false
-            if (restoreIndex != null && restoreRequester != null) {
-                runCatching { gridState.scrollToItem(restoreIndex) }
+            if (restoreRequester != null) {
+                /*
+                 * rememberLazyGridState already preserves the exact Library
+                 * viewport while Details is on top. Do not force-scroll here:
+                 * the old poster-only index ignored the header/filter grid
+                 * items and shifted the viewport before focus was restored.
+                 */
                 focused = runCatching { restoreRequester.requestFocus() }.isSuccess
                 if (!focused) {
                     delay(16)
@@ -444,7 +445,7 @@ private fun LibrarySelectorsRow(
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         if (sourceMode == LibrarySourceMode.TRAKT) {
             LibraryDropdownPicker(
@@ -466,7 +467,7 @@ private fun LibrarySelectorsRow(
                 Modifier.weight(1f)
             } else {
                 Modifier
-                    .width(360.dp)
+                    .width(320.dp)
                     .focusRequester(primaryFocusRequester)
             },
             title = stringResource(R.string.library_filter_type),
@@ -482,8 +483,12 @@ private fun LibrarySelectorsRow(
 
         if (sortOptions.isNotEmpty()) {
             LibraryDropdownPicker(
-                modifier = Modifier
-                    .weight(1f),
+                modifier =
+                    if (sourceMode == LibrarySourceMode.TRAKT) {
+                        Modifier.weight(1f)
+                    } else {
+                        Modifier.width(320.dp)
+                    },
                 title = stringResource(R.string.library_filter_sort),
                 value = selectedSortLabel,
                 selectedValue = selectedSortOption.key,

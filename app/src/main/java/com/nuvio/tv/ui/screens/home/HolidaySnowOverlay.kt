@@ -417,6 +417,7 @@ private fun depositSnowBankForInterval(
 internal fun SeasonalEffectsOverlayHost(
     visible: Boolean,
     keepAlive: Boolean = visible,
+    requireHomeReady: Boolean = true,
     viewModel: SeasonalEffectsViewModel = hiltViewModel()
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -457,7 +458,12 @@ internal fun SeasonalEffectsOverlayHost(
      * crossfade the SAME snow frame without rebuilding anything. Stream and
      * Player do not keep the seasonal window at all.
      */
-    if (!homeReady || !keepAlive) return
+    if (
+        !keepAlive ||
+        (requireHomeReady && !homeReady)
+    ) {
+        return
+    }
 
     /*
      * Keep the separate Popup window so Activity PixelCopy/backdrop capture

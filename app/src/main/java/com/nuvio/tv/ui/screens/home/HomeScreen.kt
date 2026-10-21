@@ -1390,6 +1390,15 @@ fun HomeScreen(
                         watchedRatingHandoffStatusKey = statusKey
                         watchedRatingHandoffObservedPending = false
                         watchedRatingHandoffIsSeries = true
+                    } else {
+                        /*
+                         * Whole-series action state updates before the
+                         * terminal poster-badge state. Arm this exact poster
+                         * so the later false state still takes the normal
+                         * shrink/fade watched-icon exit.
+                         */
+                        posterStatusRegistry
+                            .armWatchedExitAnimation(statusKey)
                     }
 
                     viewModel.togglePosterSeriesWatched(
