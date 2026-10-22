@@ -438,6 +438,44 @@ fun HomeScreen(
         mutableStateOf(false)
     }
 
+    /*
+     * Whole-series unwatch can take noticeable time because the
+     * repository removes episode history in a batch. Keep that async
+     * mutation authoritative, but let the poster badge begin its existing
+     * exit immediately. Value=false means we have not yet observed the
+     * ViewModel pending state for this optimistic action.
+     */
+    val optimisticSeriesUnwatchPendingObserved = remember {
+        androidx.compose.runtime.mutableStateMapOf<String, Boolean>()
+    }
+
+    LaunchedEffect(
+        uiState.seriesWatchedActionPending,
+        uiState.seriesWatchedActionStatus
+    ) {
+        optimisticSeriesUnwatchPendingObserved
+            .keys
+            .toList()
+            .forEach { statusKey ->
+                if (statusKey in uiState.seriesWatchedActionPending) {
+                    optimisticSeriesUnwatchPendingObserved[statusKey] = true
+                    return@forEach
+                }
+
+                if (optimisticSeriesUnwatchPendingObserved[statusKey] == true) {
+                    /*
+                     * Success publishes false. A failure leaves the old
+                     * true action status intact, so roll the presentation
+                     * back without touching history/provider state.
+                     */
+                    if (uiState.seriesWatchedActionStatus[statusKey] == true) {
+                        posterStatusRegistry.restoreWatched(statusKey)
+                    }
+                    optimisticSeriesUnwatchPendingObserved.remove(statusKey)
+                }
+            }
+    }
+
     val watchedRatingHandoffActive =
         watchedRatingHandoffStatusKey != null
 
@@ -1387,24 +1425,34 @@ fun HomeScreen(
                         uiState.seriesWatchedActionStatus[statusKey] == true
 
                     if (!wasAlreadyWatched) {
+                        /*
+                         * A very fast re-watch can happen before the slower
+                         * authoritative series projection has emitted the
+                         * preceding unwatch. Remove only the presentation guard;
+                         * the real watched badge still waits for provider state.
+                         */
+                        posterStatusRegistry.cancelWatchedExit(statusKey)
                         watchedRatingHandoffStatusKey = statusKey
                         watchedRatingHandoffObservedPending = false
                         watchedRatingHandoffIsSeries = true
-                    } else {
-                        /*
-                         * Whole-series action state updates before the
-                         * terminal poster-badge state. Arm this exact poster
-                         * so the later false state still takes the normal
-                         * shrink/fade watched-icon exit.
-                         */
-                        posterStatusRegistry
-                            .armWatchedExitAnimation(statusKey)
                     }
 
+                    /*
+                     * togglePosterSeriesWatched synchronously publishes its
+                     * pending key before launching the expensive episode batch.
+                     * Start the optimistic badge exit immediately after that
+                     * publication. The provider/history mutation itself remains
+                     * unchanged and authoritative.
+                     */
                     viewModel.togglePosterSeriesWatched(
                         item = item,
                         addonBaseUrl = selectedPoster.addonBaseUrl
                     )
+
+                    if (wasAlreadyWatched) {
+                        optimisticSeriesUnwatchPendingObserved[statusKey] = false
+                        posterStatusRegistry.beginWatchedExit(statusKey)
+                    }
 
                     /*
                      * Mark Watched may hand directly to the rating overlay.
