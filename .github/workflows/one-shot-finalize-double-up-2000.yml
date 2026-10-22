@@ -15,7 +15,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set tested Double-Up speed to 2000
+      - name: Apply tested final tuning and self-clean
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -28,12 +28,14 @@ jobs:
               raise SystemExit(f'Expected exactly one 2400f Double-Up constant, found {count}')
           p.write_text(s.replace(old, new, 1))
           PY
+          rm -f .github/finalize-double-up-2000-trigger
+          rm -f .github/workflows/one-shot-finalize-double-up-2000.yml
 
       - name: Commit tested final tuning
         run: |
           git diff --check
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeContent.kt
+          git add -A
           git commit -m "Set double-tap Up speed to 2000"
           git push origin HEAD:fix-numbered-double-left-and-up-2400
