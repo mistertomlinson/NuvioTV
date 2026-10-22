@@ -148,7 +148,7 @@ private const val KEY_REPEAT_THROTTLE_MS = 140L
 internal const val HOME_DOUBLE_UP_GAP_MS = 80L
 private const val HOME_DOUBLE_UP_LEAD_ROWS = 3
 private const val HOME_DOUBLE_UP_TOP_RUNWAY_ROWS = 3
-internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2800f
+internal const val HOME_DOUBLE_UP_VELOCITY_DP_PER_SEC = 2000f
 
 @androidx.compose.runtime.Stable
 private class EnhancedHomeRowsFocusHolder {
