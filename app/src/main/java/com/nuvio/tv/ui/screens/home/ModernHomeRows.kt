@@ -128,6 +128,7 @@ import com.nuvio.tv.LocalSidebarExpanded
 import com.nuvio.tv.LocalSidebarOpenRequest
 import com.nuvio.tv.LocalHomeHeroTrailerPlaying
 import com.nuvio.tv.LocalPreserveSidebarTrailerPlayback
+import com.nuvio.tv.LocalRootNavigationCollapseExpandedCard
 import com.nuvio.tv.LocalRowFocusRestorer
 import com.nuvio.tv.LocalSidebarFocusRestoreActive
 import com.nuvio.tv.LocalNoBackdropImage
@@ -160,6 +161,9 @@ internal class HomePosterStatusRegistry {
         mutableMapOf<String, androidx.compose.runtime.MutableState<Boolean>>()
     private val reminderStates =
         mutableMapOf<String, androidx.compose.runtime.MutableState<Boolean>>()
+    private val watchedExitAnimationGenerations =
+        mutableMapOf<String, androidx.compose.runtime.MutableIntState>()
+    private val optimisticallyHiddenWatchedKeys = mutableSetOf<String>()
     private var watchedKeys: Set<String> = emptySet()
     private var reminderKeys: Set<String> = emptySet()
 
@@ -169,18 +173,35 @@ internal class HomePosterStatusRegistry {
     ): androidx.compose.runtime.MutableState<Boolean> =
         map.getOrPut(key) { androidx.compose.runtime.mutableStateOf(false) }
 
+    private fun watchedExitGenerationStateFor(
+        key: String
+    ): androidx.compose.runtime.MutableIntState =
+        watchedExitAnimationGenerations.getOrPut(key) {
+            androidx.compose.runtime.mutableIntStateOf(0)
+        }
+
     fun syncWatched(
         movieStatus: Map<String, Boolean>,
         seriesStatus: Map<String, Boolean>
     ) {
-        val next = buildSet {
+        val authoritativeNext = buildSet {
             movieStatus.forEach { (key, value) -> if (value) add(key) }
             seriesStatus.forEach { (key, value) -> if (value) add(key) }
         }
-        (watchedKeys + next).forEach { key ->
+        val next = authoritativeNext - optimisticallyHiddenWatchedKeys
+        (watchedKeys + next + optimisticallyHiddenWatchedKeys).forEach { key ->
             stateFor(watchedStates, key).value = key in next
         }
         watchedKeys = next
+
+        /*
+         * Once the authoritative projection itself says a hidden key is no
+         * longer watched, the optimism has served its purpose. Drop the guard
+         * so a later real re-watch can publish the badge normally.
+         */
+        optimisticallyHiddenWatchedKeys.removeAll { key ->
+            key !in authoritativeNext
+        }
     }
 
     fun syncReminders(keys: Set<String>) {
@@ -189,6 +210,27 @@ internal class HomePosterStatusRegistry {
         }
         reminderKeys = keys
     }
+
+    fun beginWatchedExit(statusKey: String) {
+        optimisticallyHiddenWatchedKeys += statusKey
+        val generation = watchedExitGenerationStateFor(statusKey)
+        generation.intValue = generation.intValue + 1
+        stateFor(watchedStates, statusKey).value = false
+    }
+
+    fun restoreWatched(statusKey: String) {
+        optimisticallyHiddenWatchedKeys -= statusKey
+        stateFor(watchedStates, statusKey).value = true
+    }
+
+    fun cancelWatchedExit(statusKey: String) {
+        optimisticallyHiddenWatchedKeys -= statusKey
+    }
+
+    fun watchedExitAnimationGeneration(item: MetaPreview): Int =
+        watchedExitGenerationStateFor(
+            homeItemStatusKey(item.id, item.apiType)
+        ).intValue
 
     fun isWatched(item: MetaPreview): Boolean =
         stateFor(
@@ -377,6 +419,37 @@ private fun ModernCatalogRowItem(
     val isSidebarExpanded = LocalSidebarExpanded.current
     val preserveSidebarTrailerPlayback =
         LocalPreserveSidebarTrailerPlayback.current
+    val rootNavigationCollapseExpandedCard =
+        LocalRootNavigationCollapseExpandedCard.current
+    var rootNavigationPosterSettledForCollapse by remember(focusKey) {
+        mutableStateOf(false)
+    }
+    LaunchedEffect(
+        rootNavigationCollapseExpandedCard,
+        expandedCatalogFocusKey,
+        focusKey
+    ) {
+        if (
+            rootNavigationCollapseExpandedCard &&
+            expandedCatalogFocusKey == focusKey
+        ) {
+            rootNavigationPosterSettledForCollapse = false
+            /*
+             * TrailerPlayer/SurfaceView is removed immediately by the
+             * playback gate below. Give Android and Compose three real
+             * frames to detach the video surface and commit image content
+             * before changing card geometry.
+             */
+            repeat(3) { withFrameNanos { } }
+            rootNavigationPosterSettledForCollapse = true
+        } else {
+            rootNavigationPosterSettledForCollapse = false
+        }
+    }
+    val rootNavigationCollapseGeometry =
+        rootNavigationCollapseExpandedCard &&
+            rootNavigationPosterSettledForCollapse &&
+            expandedCatalogFocusKey == focusKey
     val sidebarFocusRestoreActive =
         LocalSidebarFocusRestoreActive.current
 
@@ -403,6 +476,21 @@ private fun ModernCatalogRowItem(
         expandedCatalogFocusKey
     ) {
         if (expandedCatalogFocusKey != focusKey) {
+            preserveExpandedCardThroughSidebarSettle = false
+            return@LaunchedEffect
+        }
+
+        /*
+         * MainActivity deliberately drops the preservation flag before a
+         * root-route snapshot. The drawer is still open at that moment, so
+         * clear the card-local settle latch immediately instead of waiting for
+         * normal focus restoration. That gives the existing capture delay time
+         * to record the collapsed card rather than a paused trailer frame.
+         */
+        if (
+            isSidebarExpanded &&
+            !preserveSidebarTrailerPlayback
+        ) {
             preserveExpandedCardThroughSidebarSettle = false
             return@LaunchedEffect
         }
@@ -453,6 +541,7 @@ private fun ModernCatalogRowItem(
             )
 
     val isBackdropExpanded =
+        !rootNavigationCollapseGeometry &&
         (
             effectiveExpandEnabled ||
                 preserveExpandedCardForPopupHandoff ||
@@ -463,11 +552,12 @@ private fun ModernCatalogRowItem(
             !suppressExpandedCardForPopup
 
     val playTrailerInExpandedCard =
-        (
-            effectiveAutoplayEnabled ||
-                preserveExpandedCardForPopupHandoff ||
-                preserveExpandedCardForSidebarHandoff
-        ) &&
+        !rootNavigationCollapseExpandedCard &&
+            (
+                effectiveAutoplayEnabled ||
+                    preserveExpandedCardForPopupHandoff ||
+                    preserveExpandedCardForSidebarHandoff
+            ) &&
             (!isSidebarExpanded || preserveSidebarTrailerPlayback) &&
             trailerPlaybackTarget ==
                 FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD &&
@@ -2417,6 +2507,8 @@ private fun ModernCarouselCard(
     val isSidebarExpanded = LocalSidebarExpanded.current
     val preserveSidebarTrailerPlayback =
         LocalPreserveSidebarTrailerPlayback.current
+    val rootNavigationCollapseExpandedCard =
+        LocalRootNavigationCollapseExpandedCard.current
     val homeTrailerPlayingState =
         LocalHomeHeroTrailerPlaying.current
     val noBackdropImage = LocalNoBackdropImage.current
@@ -2504,16 +2596,20 @@ private fun ModernCarouselCard(
     } else {
         cardWidth
     }
-    // Original: default spring animation — no snap() override
-    // Only pay the animation cost on the card that is actually focused/expanding.
-    // Unfocused, unexpanded cards snap directly to cardWidth — no animation state,
-    // no per-frame Choreographer callback, no row remeasure.
+    // Normal unfocused cards still snap with zero animation overhead.
+    // Root-route navigation is a deliberate visual handoff: keep this one
+    // card on the existing width spring long enough to watch it collapse.
     val animatedCardWidthBase by if (
         (
             focusedPosterBackdropExpandEnabled ||
                 preserveExpandedWidthForFocusHandoff
         ) &&
-        (isFocused || isBackdropExpanded || effectiveIsExpanded)
+        (
+            isFocused ||
+                isBackdropExpanded ||
+                effectiveIsExpanded ||
+                rootNavigationCollapseExpandedCard
+        )
     ) {
         animateDpAsState(
             targetValue = targetCardWidth,
@@ -2540,9 +2636,10 @@ private fun ModernCarouselCard(
     ) {
         val collapsedPx = with(density) { cardWidth.toPx() }
         val targetPx = with(density) { targetCardWidth.toPx() }
-        // Once focus leaves the card, collapse immediately so D-pad navigation
-        // never carries width animation work into scrolling. If the trailer ends
-        // naturally while this card is still focused, animate the collapse.
+        // Ordinary focus loss still snaps immediately so D-pad navigation
+        // never carries width animation work into scrolling. Root-route
+        // navigation is the explicit exception: it intentionally lets the
+        // same spring collapse remain visible before the frozen-frame handoff.
         if (!isAnchored) {
             anchoredWidth.snapTo(
                 if (
@@ -2557,7 +2654,7 @@ private fun ModernCarouselCard(
             return@LaunchedEffect
         }
         if (!effectiveIsExpanded) {
-            if (!isFocused) {
+            if (!isFocused && !rootNavigationCollapseExpandedCard) {
                 anchoredWidth.snapTo(collapsedPx)
             } else {
                 anchoredWidth.animateTo(collapsedPx) {
@@ -2631,8 +2728,26 @@ private fun ModernCarouselCard(
 
     // In noBackdropImage mode, NEVER switch to the backdrop image.
     // The poster stays as-is; covered by the black overlay then the trailer.
-    val imageUrl = remember(noBackdropImage, playTrailerInExpandedCard, effectiveIsExpanded, item.imageUrl, item.heroPreview.backdrop, item.heroPreview.poster) {
-        if (useLandscapePosters) {
+    val imageUrl = remember(
+        rootNavigationCollapseExpandedCard,
+        noBackdropImage,
+        playTrailerInExpandedCard,
+        effectiveIsExpanded,
+        item.imageUrl,
+        item.heroPreview.backdrop,
+        item.heroPreview.poster
+    ) {
+        if (rootNavigationCollapseExpandedCard) {
+            /*
+             * Root navigation is a poster-first handoff: the video Surface is
+             * removed and the card's normal resting image is restored while
+             * geometry is still expanded. The caller holds this state for three
+             * rendered frames before the width spring starts, guaranteeing that
+             * PixelCopy can never capture a portrait card containing a stale
+             * trailer Surface frame.
+             */
+            item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
+        } else if (useLandscapePosters) {
             item.imageUrl
         } else if (noBackdropImage && playTrailerInExpandedCard) {
             item.imageUrl ?: item.heroPreview.poster ?: item.heroPreview.backdrop
@@ -3348,6 +3463,7 @@ private const val POSTER_STATUS_ICON_TRANSITION_MS = 220
 private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStatusIcon(
     animationKey: String,
     visible: Boolean,
+    forcedExitGeneration: Int = 0,
     renderAllowed: Boolean,
     popupTransitionBlocked: Boolean,
     drawableRes: Int,
@@ -3370,6 +3486,37 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
         mutableStateOf(false)
     }
 
+    var observedForcedExitGeneration by remember(animationKey) {
+        androidx.compose.runtime.mutableIntStateOf(forcedExitGeneration)
+    }
+
+    var forceNextExit by remember(animationKey) {
+        mutableStateOf(false)
+    }
+
+    LaunchedEffect(
+        animationKey,
+        forcedExitGeneration
+    ) {
+        if (
+            forcedExitGeneration ==
+            observedForcedExitGeneration
+        ) {
+            return@LaunchedEffect
+        }
+
+        observedForcedExitGeneration =
+            forcedExitGeneration
+        forceNextExit = true
+
+        /*
+         * If a mutation fails/cancels, never leave a stale intent around that
+         * could animate an unrelated synchronization much later.
+         */
+        delay(5_000L)
+        forceNextExit = false
+    }
+
     val iconAlpha = remember(animationKey) {
         Animatable(
             if (visible) 1f else 0f
@@ -3389,7 +3536,8 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
     LaunchedEffect(
         animationKey,
         visible,
-        animationBlocked
+        animationBlocked,
+        forceNextExit
     ) {
         /*
          * Status mutations caused by the options popup must not animate behind
@@ -3403,7 +3551,12 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
             return@LaunchedEffect
         }
 
-        if (pendingPopupChange) {
+        val forcedExitPending =
+            forceNextExit &&
+                !visible &&
+                renderedVisible
+
+        if (pendingPopupChange || forcedExitPending) {
             /*
              * The state may have changed twice while blocked. In that case the
              * final state already equals what is rendered, so there is nothing
@@ -3537,6 +3690,9 @@ private fun androidx.compose.foundation.layout.BoxScope.AnimatedModernPosterStat
             }
 
             pendingPopupChange = false
+            if (forcedExitPending) {
+                forceNextExit = false
+            }
             return@LaunchedEffect
         }
 
@@ -3643,6 +3799,11 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
             preview
         )
 
+    val watchedExitAnimationGeneration =
+        registry.watchedExitAnimationGeneration(
+            preview
+        )
+
     val popupEnvironment =
         LocalHomePopupGlassEnvironment.current
 
@@ -3686,6 +3847,8 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
                 "${preview.apiType}|${preview.id}|watched",
             visible =
                 watched,
+            forcedExitGeneration =
+                watchedExitAnimationGeneration,
             renderAllowed =
                 showHeavyOverlays,
             popupTransitionBlocked =

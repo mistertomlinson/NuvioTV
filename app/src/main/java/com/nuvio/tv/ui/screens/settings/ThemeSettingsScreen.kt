@@ -93,6 +93,7 @@ private enum class AppearanceSection {
 
 private const val APPEARANCE_COLLAPSE_MILLIS = 240
 private const val APPEARANCE_LIST_SETTLE_MILLIS = 520
+private const val APPEARANCE_SEASONAL_LIST_SETTLE_MILLIS = 820
 
 @Composable
 fun ThemeSettingsScreen(
@@ -229,6 +230,12 @@ fun ThemeSettingsContent(
             !holidayEffectsExpanded &&
             pendingHolidayEffectsFocusRestore
         ) {
+            /*
+             * Let the child rows finish shrinking before focus returns to the
+             * header. The list can then perform its slower visual settle without
+             * a simultaneous focus-driven bring-into-view correction.
+             */
+            delay(APPEARANCE_COLLAPSE_MILLIS.toLong())
             androidx.compose.runtime.withFrameNanos { }
             runCatching {
                 holidayEffectsHeaderFocus.requestFocus()
@@ -494,10 +501,17 @@ fun ThemeSettingsContent(
             applySectionExpandedState(section, false)
             releaseDeferredBottomCornerAfterCollapse(section)
 
+            val settleDurationMillis =
+                if (section == AppearanceSection.SEASONAL) {
+                    APPEARANCE_SEASONAL_LIST_SETTLE_MILLIS
+                } else {
+                    APPEARANCE_LIST_SETTLE_MILLIS
+                }
+
             appearanceListSettleOffsetY.animateTo(
                 targetValue = 0f,
                 animationSpec = tween(
-                    durationMillis = APPEARANCE_LIST_SETTLE_MILLIS,
+                    durationMillis = settleDurationMillis,
                     easing = FastOutSlowInEasing
                 )
             )

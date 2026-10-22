@@ -42,6 +42,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.Image
 import com.nuvio.tv.R
+import com.nuvio.tv.LocalSidebarRootNavigationActive
 import com.nuvio.tv.ui.theme.NuvioGradients
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -228,8 +229,11 @@ fun StreamingPlatformCarousel(
     var retainFocusedAppearanceForSidebar by remember {
         mutableStateOf(false)
     }
+    val sidebarRootNavigationActive =
+        LocalSidebarRootNavigationActive.current
     val showFocusedAppearance =
-        isCarouselFocused || retainFocusedAppearanceForSidebar
+        !sidebarRootNavigationActive &&
+            (isCarouselFocused || retainFocusedAppearanceForSidebar)
 
     // Color
     val displayIndex = if (showFocusedAppearance) focusedIndex else

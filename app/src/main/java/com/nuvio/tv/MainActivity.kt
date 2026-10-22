@@ -170,12 +170,14 @@ val LocalHomeHeroTrailerPlaying =
         androidx.compose.runtime.mutableStateOf(false)
     }
 val LocalPreserveSidebarTrailerPlayback = compositionLocalOf { false }
+val LocalRootNavigationCollapseExpandedCard = compositionLocalOf { false }
 
 /*
  * Visual-only Home focus retention while the LEGACY sidebar is handing
  * actual focus back to the exact poster/CW card.
  */
 val LocalSidebarFocusRestoreActive = compositionLocalOf { false }
+val LocalSidebarRootNavigationActive = compositionLocalOf { false }
 val LocalRowFocusRestorer = compositionLocalOf<androidx.compose.runtime.MutableState<FocusRequester>> { androidx.compose.runtime.mutableStateOf(FocusRequester.Default) }
 val LocalSettingsBackdropBitmap = compositionLocalOf<Bitmap?> { null }
 
@@ -1251,6 +1253,16 @@ private fun LegacySidebarScaffold(
                                         }
 
                                         else -> {
+                                            /*
+                                             * A real root-route navigation is
+                                             * not a temporary sidebar focus
+                                             * handoff. Release trailer/card
+                                             * preservation now so the expanded
+                                             * card collapses during the existing
+                                             * pre-snapshot delay below.
+                                             */
+                                            preserveSidebarTrailerPlayback = false
+
                                             legacyRootTransitionTarget =
                                                 targetRoute
 
@@ -1261,7 +1273,15 @@ private fun LegacySidebarScaffold(
                                                  * fully gone so the frozen frame contains
                                                  * the clean outgoing destination.
                                                  */
-                                                delay(220L)
+                                                /*
+                                                 * Root navigation is the one case
+                                                 * where we intentionally animate a
+                                                 * focused card after focus has moved
+                                                 * into the drawer. Let the normal
+                                                 * width spring visibly collapse and
+                                                 * settle before PixelCopy.
+                                                 */
+                                                delay(500L)
                                                 repeat(2) {
                                                     withFrameNanos { }
                                                 }
@@ -1396,11 +1416,18 @@ private fun LegacySidebarScaffold(
                 LocalHomeHeroTrailerPlaying provides homeHeroTrailerPlaying,
                 LocalPreserveSidebarTrailerPlayback provides
                     preserveSidebarTrailerPlayback,
+                LocalRootNavigationCollapseExpandedCard provides
+                    (legacyRootTransitionTarget != null),
                 LocalSidebarFocusRestoreActive provides
                     (
                         legacyDrawerVisible ||
                             pendingContentFocusTransfer ||
                             legacyRootTransitionTarget != null ||
+                            legacyRootTransitionBitmap != null
+                    ),
+                LocalSidebarRootNavigationActive provides
+                    (
+                        legacyRootTransitionTarget != null ||
                             legacyRootTransitionBitmap != null
                     ),
                 LocalRowFocusRestorer provides rowFocusRestorer,

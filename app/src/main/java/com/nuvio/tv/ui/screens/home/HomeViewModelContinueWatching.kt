@@ -1111,7 +1111,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         currentKeys == cwLastBadgeEpisodeKeys &&
                         staleValidationIds.isEmpty()
                     ) {
-                        publishBadgeUpdate(allWatchedEpisodes)
+                        publishBadgeUpdate(
+                            allWatchedEpisodes = allWatchedEpisodes,
+                            historyAuthoritative = authoritativeProfileCycle
+                        )
                         return@launch
                     }
                     cwLastBadgeEpisodeKeys = currentKeys.toSet()
@@ -1190,7 +1193,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         }
                     }
 
-                    publishBadgeUpdate(allWatchedEpisodes)
+                    publishBadgeUpdate(
+                            allWatchedEpisodes = allWatchedEpisodes,
+                            historyAuthoritative = authoritativeProfileCycle
+                        )
                 }
 
                 // --- CW next-up injection ---
@@ -1336,7 +1342,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 // discovered during async inject and persists their
                                 // deadlines so they're skipped on next launch.
                                 val asyncWatchedEpisodes = watchProgressRepository.getWatchedShowEpisodes()
-                                publishBadgeUpdate(asyncWatchedEpisodes)
+                                publishBadgeUpdate(
+                                    allWatchedEpisodes = asyncWatchedEpisodes,
+                                    historyAuthoritative = authoritativeProfileCycle
+                                )
 
                                 if (discoveredNextUpItems.isNotEmpty()) {
                                     // Respect the active provider's age
@@ -3197,7 +3206,8 @@ private fun HomeViewModel.expandWatchedSeriesBadgeIds(
 }
 
 private fun HomeViewModel.publishBadgeUpdate(
-    allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>
+    allWatchedEpisodes: Map<String, Set<Pair<Int, Int>>>,
+    historyAuthoritative: Boolean
 ) {
     val validatedNotFullyWatched = mutableSetOf<String>()
     val validatedNonTerminal = mutableSetOf<String>()
@@ -3266,11 +3276,25 @@ private fun HomeViewModel.publishBadgeUpdate(
     val expandedNonTerminal =
         expandWatchedSeriesBadgeIds(validatedNonTerminal)
 
-    // Merge with persisted badges — don't remove badges we have not
-    // revalidated.  Do remove badges when a released regular episode is
-    // missing OR when refreshed metadata says the show is no longer terminal.
-    val disqualified = expandedNotFullyWatched + expandedNonTerminal
     val current = fullyWatchedSeriesIds.fullyWatchedSeriesIds.value
+    val expandedWatchedHistoryIds =
+        expandWatchedSeriesBadgeIds(allWatchedEpisodes.keys)
+    val missingFromAuthoritativeHistory =
+        authoritativeMissingWatchedSeriesBadgeIds(
+            currentBadgeIds = current,
+            watchedHistoryIds = expandedWatchedHistoryIds,
+            historyAuthoritative = historyAuthoritative
+        )
+
+    // Merge with persisted badges — don't remove badges we have not
+    // revalidated while a remote provider is still loading. Once watched
+    // history is authoritative, a persisted badge whose show is absent from
+    // that history is conclusively stale (for example after whole-series
+    // "mark unwatched") and must be removed as well.
+    val disqualified =
+        expandedNotFullyWatched +
+            expandedNonTerminal +
+            missingFromAuthoritativeHistory
     val merged = (current - disqualified) + expandedFullyWatched
 
     /*

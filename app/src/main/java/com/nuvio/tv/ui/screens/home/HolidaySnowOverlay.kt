@@ -54,6 +54,10 @@ internal object SeasonalSnowRuntime {
     private val _restartGeneration = MutableStateFlow(0L)
     val restartGeneration: StateFlow<Long> = _restartGeneration.asStateFlow()
 
+    private val _surfaceRecoveryGeneration = MutableStateFlow(0L)
+    val surfaceRecoveryGeneration: StateFlow<Long> =
+        _surfaceRecoveryGeneration.asStateFlow()
+
     private var lastHomeLoadSessionId: Long? = null
 
     fun setHomeScrolling(scrolling: Boolean) {
@@ -77,6 +81,11 @@ internal object SeasonalSnowRuntime {
 
     fun restartSnowfall() {
         _restartGeneration.value = _restartGeneration.value + 1L
+    }
+
+    fun recoverSurfaceAfterForeground() {
+        _surfaceRecoveryGeneration.value =
+            _surfaceRecoveryGeneration.value + 1L
     }
 }
 
@@ -417,6 +426,7 @@ private fun depositSnowBankForInterval(
 internal fun SeasonalEffectsOverlayHost(
     visible: Boolean,
     keepAlive: Boolean = visible,
+    requireHomeReady: Boolean = true,
     viewModel: SeasonalEffectsViewModel = hiltViewModel()
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -430,11 +440,36 @@ internal fun SeasonalEffectsOverlayHost(
             config.isChristmasActive()
         }
 
-    if (!christmasActive) return
+    /*
+     * OFF tears the snow Popup/SurfaceView down completely. When the effect is
+     * enabled again, wait to remount until a brand-new runtime generation has
+     * been published. This avoids re-entering the snow tree with stale producer
+     * identity while still keeping Holiday Effects genuinely absent when OFF.
+     */
+    val snowActivationReady = remember {
+        androidx.compose.runtime.mutableStateOf(christmasActive)
+    }
+
+    LaunchedEffect(christmasActive) {
+        if (!christmasActive) {
+            snowActivationReady.value = false
+            return@LaunchedEffect
+        }
+
+        if (!snowActivationReady.value) {
+            SeasonalSnowRuntime.restartSnowfall()
+            androidx.compose.runtime.withFrameNanos { }
+            snowActivationReady.value = true
+        }
+    }
+
+    if (!christmasActive || !snowActivationReady.value) return
 
     val homeReady by SeasonalSnowRuntime.homeReady.collectAsStateWithLifecycle()
     val restartGeneration by
         SeasonalSnowRuntime.restartGeneration.collectAsStateWithLifecycle()
+    val surfaceRecoveryGeneration by
+        SeasonalSnowRuntime.surfaceRecoveryGeneration.collectAsStateWithLifecycle()
 
     val snowState = remember(restartGeneration) {
         SeasonalSnowState()
@@ -444,11 +479,12 @@ internal fun SeasonalEffectsOverlayHost(
 
     LaunchedEffect(appInForeground) {
         if (appInForeground && backgroundedAtMs > 0L) {
-            val backgroundedDurationMs =
-                System.currentTimeMillis() - backgroundedAtMs
-            if (backgroundedDurationMs > 30_000L) {
-                SeasonalSnowRuntime.restartSnowfall()
-            }
+            /*
+             * A real Android-TV sleep can invalidate the translucent producer
+             * while Compose state survives. Recreate only the producer/view on
+             * every foreground return; keep particle/bank simulation intact.
+             */
+            SeasonalSnowRuntime.recoverSurfaceAfterForeground()
         }
     }
 
@@ -457,7 +493,12 @@ internal fun SeasonalEffectsOverlayHost(
      * crossfade the SAME snow frame without rebuilding anything. Stream and
      * Player do not keep the seasonal window at all.
      */
-    if (!homeReady || !keepAlive) return
+    if (
+        !keepAlive ||
+        (requireHomeReady && !homeReady)
+    ) {
+        return
+    }
 
     /*
      * Keep the separate Popup window so Activity PixelCopy/backdrop capture
@@ -479,6 +520,7 @@ internal fun SeasonalEffectsOverlayHost(
         DedicatedSnowSurface(
             config = config,
             snowState = snowState,
+            surfaceRecoveryGeneration = surfaceRecoveryGeneration,
             visible = visible,
             appInForeground = appInForeground
         )
@@ -489,11 +531,16 @@ internal fun SeasonalEffectsOverlayHost(
 private fun DedicatedSnowSurface(
     config: SeasonalEffectsConfig,
     snowState: SeasonalSnowState,
+    surfaceRecoveryGeneration: Long,
     visible: Boolean,
     appInForeground: Boolean
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val view = remember(snowState, context) {
+    val view = remember(
+        snowState,
+        surfaceRecoveryGeneration,
+        context
+    ) {
         SeasonalSnowSurfaceView(context).apply {
             bind(
                 config = config,
@@ -510,18 +557,20 @@ private fun DedicatedSnowSurface(
         }
     }
 
-    AndroidView(
-        factory = { view },
-        modifier = Modifier.fillMaxSize(),
-        update = {
-            it.bind(
-                config = config,
-                state = snowState,
-                visible = visible,
-                appInForeground = appInForeground
-            )
-        }
-    )
+    androidx.compose.runtime.key(surfaceRecoveryGeneration) {
+        AndroidView(
+            factory = { view },
+            modifier = Modifier.fillMaxSize(),
+            update = {
+                it.bind(
+                    config = config,
+                    state = snowState,
+                    visible = visible,
+                    appInForeground = appInForeground
+                )
+            }
+        )
+    }
 }
 
 private class SeasonalSnowSurfaceView(
@@ -701,8 +750,22 @@ private class SeasonalSnowSurfaceView(
             presentationTargetAlpha > 0.5f
         }
 
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+
+        /*
+         * A freshly recreated translucent Popup SurfaceView can attach before
+         * its Surface is useful on some Android-TV builds. surfaceCreated() is
+         * still the normal path, but these idempotent retries ensure OFF -> ON
+         * cannot leave a valid surface with no producer thread.
+         */
+        post { ensureRenderThread() }
+        postDelayed({ ensureRenderThread() }, 96L)
+    }
+
     override fun surfaceCreated(holder: SurfaceHolder) {
         ensureRenderThread()
+        post { ensureRenderThread() }
     }
 
     override fun surfaceChanged(

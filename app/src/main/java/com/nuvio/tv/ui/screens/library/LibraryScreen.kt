@@ -1,11 +1,14 @@
 package com.nuvio.tv.ui.screens.library
 
 import android.view.KeyEvent as AndroidKeyEvent
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -34,33 +38,47 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.MenuDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
@@ -76,6 +94,7 @@ import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.PosterShape
 import com.nuvio.tv.domain.model.TraktListPrivacy
 import com.nuvio.tv.ui.components.EmptyScreenState
+import com.nuvio.tv.ui.components.GlassDialogAnimatedPanel
 import com.nuvio.tv.ui.components.GridContentCard
 import com.nuvio.tv.ui.components.PosterCardDefaults
 import com.nuvio.tv.ui.components.LoadingIndicator
@@ -84,10 +103,12 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.theme.NuvioTheme
 import com.nuvio.tv.ui.util.formatAddonTypeLabel
 import kotlinx.coroutines.delay
+import kotlin.math.roundToInt
 import androidx.compose.ui.res.stringResource
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.screens.settings.SettingsCompactContent
 import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
+import com.nuvio.tv.ui.screens.settings.SettingsGlassCanvasBrush
 import com.nuvio.tv.ui.screens.settings.SettingsGlassGroupColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
@@ -102,7 +123,10 @@ import com.nuvio.tv.ui.screens.settings.SettingsDialogFocusScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPressedScale
 import com.nuvio.tv.ui.screens.settings.SettingsDialogGlassIdleColor
 import com.nuvio.tv.ui.components.glassDialogFocusTransform
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
 import com.nuvio.tv.ui.screens.settings.SettingsDialogPillShape
+import dev.chrisbanes.haze.haze
 
 private const val KEY_REPEAT_THROTTLE_MS = 80L
 
@@ -140,15 +164,22 @@ private fun LibraryScreenContent(
     val uiState by viewModel.uiState.collectAsState()
     var showDeleteConfirm by remember { mutableStateOf(false) }
     var expandedPicker by remember { mutableStateOf<String?>(null) }
+    val libraryPickerHazeState = remember { HazeState() }
+    val libraryPickerAnchors = remember { mutableStateMapOf<String, IntRect>() }
+    var libraryRootOffsetPx by remember { mutableStateOf(IntOffset.Zero) }
+    val pickerFocusRequesters = remember {
+        mapOf(
+            "list" to FocusRequester(),
+            "type" to FocusRequester(),
+            "sort" to FocusRequester()
+        )
+    }
     val primaryFocusRequester = remember { FocusRequester() }
     val gridState = rememberLazyGridState()
     var pendingPrimaryFocus by remember { mutableStateOf(true) }
     var lastFocusedPosterKey by rememberSaveable { mutableStateOf<String?>(null) }
     val visibleItemKeys = remember(uiState.visibleItems) {
         uiState.visibleItems.map { "${it.type}:${it.id}" }
-    }
-    val visibleItemIndexByKey = remember(visibleItemKeys) {
-        visibleItemKeys.withIndex().associate { (index, key) -> key to index }
     }
     val posterFocusRequesters = remember(visibleItemKeys) {
         visibleItemKeys.associateWith { FocusRequester() }
@@ -165,12 +196,16 @@ private fun LibraryScreenContent(
     LaunchedEffect(uiState.isLoading, uiState.sourceMode, uiState.listTabs.size) {
         if (!uiState.isLoading && pendingPrimaryFocus) {
             val restoreKey = lastFocusedPosterKey
-            val restoreIndex = restoreKey?.let { visibleItemIndexByKey[it] }
             val restoreRequester = restoreKey?.let { posterFocusRequesters[it] }
 
             var focused = false
-            if (restoreIndex != null && restoreRequester != null) {
-                runCatching { gridState.scrollToItem(restoreIndex) }
+            if (restoreRequester != null) {
+                /*
+                 * rememberLazyGridState already preserves the exact Library
+                 * viewport while Details is on top. Do not force-scroll here:
+                 * the old poster-only index ignored the header/filter grid
+                 * items and shifted the viewport before focus was restored.
+                 */
                 focused = runCatching { restoreRequester.requestFocus() }.isSuccess
                 if (!focused) {
                     delay(16)
@@ -237,11 +272,29 @@ private fun LibraryScreenContent(
 
     val lastKeyRepeatTime = remember { longArrayOf(0L) }
 
-    LazyVerticalGrid(
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onGloballyPositioned { coordinates ->
+                val rootPosition = coordinates.positionInRoot()
+                libraryRootOffsetPx = IntOffset(
+                    x = rootPosition.x.roundToInt(),
+                    y = rootPosition.y.roundToInt()
+                )
+            }
+    ) {
+        LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = posterCardStyle.width),
         state = gridState,
         modifier = Modifier
             .fillMaxSize()
+            .then(
+                if (expandedPicker != null) {
+                    Modifier.haze(libraryPickerHazeState)
+                } else {
+                    Modifier
+                }
+            )
             .onPreviewKeyEvent { event ->
                 val native = event.nativeKeyEvent
                 if (native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount > 0) {
@@ -290,21 +343,13 @@ private fun LibraryScreenContent(
                 selectedTypeTab = uiState.selectedTypeTab,
                 selectedSortOption = uiState.selectedSortOption,
                 primaryFocusRequester = primaryFocusRequester,
+                pickerFocusRequesters = pickerFocusRequesters,
                 expandedPicker = expandedPicker,
+                onAnchorBoundsChanged = { picker, bounds ->
+                    libraryPickerAnchors[picker] = bounds
+                },
                 onExpandedChange = { picker, shouldExpand ->
                     expandedPicker = if (shouldExpand) picker else null
-                },
-                onSelectList = { key ->
-                    viewModel.onSelectListTab(key)
-                    expandedPicker = null
-                },
-                onSelectType = { type ->
-                    viewModel.onSelectTypeTab(type)
-                    expandedPicker = null
-                },
-                onSelectSort = { sort ->
-                    viewModel.onSelectSortOption(sort)
-                    expandedPicker = null
                 }
             )
         }
@@ -359,6 +404,61 @@ private fun LibraryScreenContent(
         }
 
         item(span = { GridItemSpan(maxLineSpan) }) { Spacer(modifier = Modifier.height(8.dp)) }
+    }
+
+        val overlayPicker = expandedPicker
+        if (overlayPicker != null) {
+            val overlayAnchor = libraryPickerAnchors[overlayPicker]
+            val overlayOptions = when (overlayPicker) {
+                "list" -> uiState.listTabs.map { LibraryOption(it.title, it.key) }
+                "type" -> uiState.availableTypeTabs.map {
+                    LibraryOption(localizedTypeLabel(it.key), it.key)
+                }
+                "sort" -> uiState.availableSortOptions.map {
+                    LibraryOption(stringResource(it.labelResId), it.key)
+                }
+                else -> emptyList()
+            }
+            val overlaySelectedValue = when (overlayPicker) {
+                "list" -> uiState.selectedListKey
+                "type" -> uiState.selectedTypeTab?.key
+                "sort" -> uiState.selectedSortOption.key
+                else -> null
+            }
+
+            if (overlayAnchor != null && overlayOptions.isNotEmpty()) {
+                LibraryInWindowDropdown(
+                    pickerKey = overlayPicker,
+                    anchorBounds = overlayAnchor,
+                    rootOffset = libraryRootOffsetPx,
+                    selectedValue = overlaySelectedValue,
+                    options = overlayOptions,
+                    hazeState = libraryPickerHazeState,
+                    anchorFocusRequester = pickerFocusRequesters.getValue(overlayPicker),
+                    onDismiss = {
+                        runCatching {
+                            pickerFocusRequesters.getValue(overlayPicker).requestFocus()
+                        }
+                        expandedPicker = null
+                    },
+                    onSelect = { option ->
+                        runCatching {
+                            pickerFocusRequesters.getValue(overlayPicker).requestFocus()
+                        }
+                        expandedPicker = null
+                        when (overlayPicker) {
+                            "list" -> viewModel.onSelectListTab(option.value)
+                            "type" -> uiState.availableTypeTabs
+                                .firstOrNull { it.key == option.value }
+                                ?.let(viewModel::onSelectTypeTab)
+                            "sort" -> uiState.availableSortOptions
+                                .firstOrNull { it.key == option.value }
+                                ?.let(viewModel::onSelectSortOption)
+                        }
+                    }
+                )
+            }
+        }
     }
 
     if (uiState.showManageDialog && uiState.sourceMode == LibrarySourceMode.TRAKT) {
@@ -432,67 +532,71 @@ private fun LibrarySelectorsRow(
     selectedTypeTab: LibraryTypeTab?,
     selectedSortOption: LibrarySortOption,
     primaryFocusRequester: FocusRequester,
+    pickerFocusRequesters: Map<String, FocusRequester>,
     expandedPicker: String?,
-    onExpandedChange: (String, Boolean) -> Unit,
-    onSelectList: (String) -> Unit,
-    onSelectType: (LibraryTypeTab) -> Unit,
-    onSelectSort: (LibrarySortOption) -> Unit
+    onAnchorBoundsChanged: (String, IntRect) -> Unit,
+    onExpandedChange: (String, Boolean) -> Unit
 ) {
     val selectedListLabel = listTabs.firstOrNull { it.key == selectedListKey }?.title ?: "Select"
-    val selectedTypeLabel = selectedTypeTab?.let { localizedTypeLabel(it.key) } ?: stringResource(R.string.library_type_all)
+    val selectedTypeLabel = selectedTypeTab?.let { localizedTypeLabel(it.key) }
+        ?: stringResource(R.string.library_type_all)
     val selectedSortLabel = stringResource(selectedSortOption.labelResId)
 
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement =
+            if (sourceMode == LibrarySourceMode.TRAKT) {
+                Arrangement.spacedBy(24.dp)
+            } else {
+                Arrangement.SpaceEvenly
+            }
     ) {
         if (sourceMode == LibrarySourceMode.TRAKT) {
-            LibraryDropdownPicker(
+            LibraryDropdownAnchor(
+                pickerKey = "list",
                 modifier = Modifier
                     .weight(1f)
                     .focusRequester(primaryFocusRequester),
+                anchorFocusRequester = pickerFocusRequesters.getValue("list"),
                 title = stringResource(R.string.library_filter_list),
                 value = selectedListLabel,
-                selectedValue = selectedListKey,
                 expanded = expandedPicker == "list",
-                options = listTabs.map { LibraryOption(it.title, it.key) },
-                onExpandedChange = { onExpandedChange("list", it) },
-                onSelect = { onSelectList(it.value) }
+                onAnchorBoundsChanged = onAnchorBoundsChanged,
+                onExpandedChange = { onExpandedChange("list", it) }
             )
         }
 
-        LibraryDropdownPicker(
+        LibraryDropdownAnchor(
+            pickerKey = "type",
             modifier = if (sourceMode == LibrarySourceMode.TRAKT) {
                 Modifier.weight(1f)
             } else {
                 Modifier
-                    .width(360.dp)
+                    .width(320.dp)
                     .focusRequester(primaryFocusRequester)
             },
+            anchorFocusRequester = pickerFocusRequesters.getValue("type"),
             title = stringResource(R.string.library_filter_type),
             value = selectedTypeLabel,
-            selectedValue = selectedTypeTab?.key,
             expanded = expandedPicker == "type",
-            options = typeTabs.map { LibraryOption(localizedTypeLabel(it.key), it.key) },
-            onExpandedChange = { onExpandedChange("type", it) },
-            onSelect = { option ->
-                typeTabs.firstOrNull { it.key == option.value }?.let(onSelectType)
-            }
+            onAnchorBoundsChanged = onAnchorBoundsChanged,
+            onExpandedChange = { onExpandedChange("type", it) }
         )
 
         if (sortOptions.isNotEmpty()) {
-            LibraryDropdownPicker(
-                modifier = Modifier
-                    .weight(1f),
+            LibraryDropdownAnchor(
+                pickerKey = "sort",
+                modifier = if (sourceMode == LibrarySourceMode.TRAKT) {
+                    Modifier.weight(1f)
+                } else {
+                    Modifier.width(320.dp)
+                },
+                anchorFocusRequester = pickerFocusRequesters.getValue("sort"),
                 title = stringResource(R.string.library_filter_sort),
                 value = selectedSortLabel,
-                selectedValue = selectedSortOption.key,
                 expanded = expandedPicker == "sort",
-                options = sortOptions.map { LibraryOption(stringResource(it.labelResId), it.key) },
-                onExpandedChange = { onExpandedChange("sort", it) },
-                onSelect = { option ->
-                    sortOptions.firstOrNull { it.key == option.value }?.let(onSelectSort)
-                }
+                onAnchorBoundsChanged = onAnchorBoundsChanged,
+                onExpandedChange = { onExpandedChange("sort", it) }
             )
         }
     }
@@ -500,26 +604,40 @@ private fun LibrarySelectorsRow(
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
-private fun LibraryDropdownPicker(
+private fun LibraryDropdownAnchor(
+    pickerKey: String,
     modifier: Modifier = Modifier,
+    anchorFocusRequester: FocusRequester,
     title: String,
     value: String,
-    selectedValue: String?,
     expanded: Boolean,
-    options: List<LibraryOption>,
-    onExpandedChange: (Boolean) -> Unit,
-    onSelect: (LibraryOption) -> Unit
+    onAnchorBoundsChanged: (String, IntRect) -> Unit,
+    onExpandedChange: (Boolean) -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
-    var anchorSize by remember { mutableStateOf(IntSize.Zero) }
-    var focusedOptionValue by remember(expanded) { mutableStateOf<String?>(null) }
 
-    Box(modifier = modifier) {
+    Box(
+        modifier = modifier
+            .focusRequester(anchorFocusRequester)
+            .onGloballyPositioned { coordinates ->
+                val rootPosition = coordinates.positionInRoot()
+                val left = rootPosition.x.roundToInt()
+                val top = rootPosition.y.roundToInt()
+                onAnchorBoundsChanged(
+                    pickerKey,
+                    IntRect(
+                        left = left,
+                        top = top,
+                        right = left + coordinates.size.width,
+                        bottom = top + coordinates.size.height
+                    )
+                )
+            }
+    ) {
         Card(
             onClick = { onExpandedChange(!expanded) },
             modifier = Modifier
                 .fillMaxWidth()
-                .onSizeChanged { anchorSize = it }
                 .onFocusChanged { isFocused = it.isFocused },
             shape = CardDefaults.shape(shape = RoundedCornerShape(14.dp)),
             colors = CardDefaults.colors(
@@ -562,50 +680,140 @@ private fun LibraryDropdownPicker(
                         overflow = TextOverflow.Ellipsis
                     )
                     Icon(
-                        imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                        contentDescription = if (expanded) "Collapse $title" else "Expand $title",
-                        tint = if (isFocused) NuvioColors.Secondary else NuvioColors.TextSecondary
+                        imageVector = if (expanded) {
+                            Icons.Default.KeyboardArrowUp
+                        } else {
+                            Icons.Default.KeyboardArrowDown
+                        },
+                        contentDescription = if (expanded) {
+                            "Collapse $title"
+                        } else {
+                            "Expand $title"
+                        },
+                        tint = if (isFocused) {
+                            NuvioColors.Secondary
+                        } else {
+                            NuvioColors.TextSecondary
+                        }
                     )
                 }
             }
         }
+    }
+}
 
-        DropdownMenu(
-            expanded = expanded,
-            onDismissRequest = {
-                focusedOptionValue = null
-                onExpandedChange(false)
-            },
-            modifier = Modifier
-                .width(with(LocalDensity.current) { anchorSize.width.toDp() })
-                .heightIn(max = 260.dp),
-            shape = RoundedCornerShape(14.dp),
-            containerColor = SettingsGlassRowColor,
-            tonalElevation = 0.dp,
-            shadowElevation = 8.dp,
-            border = BorderStroke(1.dp, SettingsGlassBorderColor)
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun LibraryInWindowDropdown(
+    pickerKey: String,
+    anchorBounds: IntRect,
+    rootOffset: IntOffset,
+    selectedValue: String?,
+    options: List<LibraryOption>,
+    hazeState: HazeState,
+    anchorFocusRequester: FocusRequester,
+    onDismiss: () -> Unit,
+    onSelect: (LibraryOption) -> Unit
+) {
+    val density = LocalDensity.current
+    val optionFocusRequesters = remember(pickerKey, options) {
+        options.associate { option -> option.value to FocusRequester() }
+    }
+    var focusedOptionValue by remember(pickerKey) {
+        mutableStateOf<String?>(null)
+    }
+    val shape = RoundedCornerShape(14.dp)
+    val gapPx = with(density) { 8.dp.roundToPx() }
+    val menuWidth = with(density) { anchorBounds.width.toDp() }
+    val localX = anchorBounds.left - rootOffset.x
+    val localY = anchorBounds.bottom - rootOffset.y + gapPx
+    val blurEnabled =
+        android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+
+    LaunchedEffect(pickerKey, selectedValue, options) {
+        withFrameNanos { }
+        val requester =
+            selectedValue
+                ?.let(optionFocusRequesters::get)
+                ?: options.firstOrNull()?.value?.let(optionFocusRequesters::get)
+                ?: return@LaunchedEffect
+
+        var focused = runCatching { requester.requestFocus() }.getOrDefault(false)
+        if (!focused) {
+            delay(16L)
+            runCatching { requester.requestFocus() }
+        }
+    }
+
+    val hazeBackgroundColor = NuvioColors.Background
+    val surfaceModifier =
+        if (blurEnabled) {
+            Modifier
+                .clip(shape)
+                .hazeEffect(state = hazeState) {
+                    this.blurEnabled = true
+                    /*
+                     * Haze 1.x needs an opaque base when blurring Lazy content.
+                     * Without it, the original sharp source remains visible
+                     * behind the blurred layer and leaks through around each
+                     * poster's bounds, making blur look strongest only in the
+                     * center of every card.
+                     */
+                    this.backgroundColor = hazeBackgroundColor
+                    this.blurRadius = 29.dp
+                    this.noiseFactor = 0.025f
+                }
+        } else {
+            Modifier.clip(shape)
+        }
+
+    Box(
+        modifier = Modifier
+            .offset { IntOffset(localX, localY) }
+            .width(menuWidth)
+            .heightIn(max = 260.dp)
+            .zIndex(100f)
+            .then(surfaceModifier)
+            .background(
+                brush = SettingsGlassCanvasBrush,
+                shape = shape
+            )
+            .border(
+                width = 1.dp,
+                color = Color.White.copy(alpha = 0.09f),
+                shape = shape
+            )
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (
+                    native.action == AndroidKeyEvent.ACTION_DOWN &&
+                    native.keyCode == AndroidKeyEvent.KEYCODE_BACK
+                ) {
+                    runCatching { anchorFocusRequester.requestFocus() }
+                    onDismiss()
+                    true
+                } else {
+                    false
+                }
+            }
+    ) {
+        LazyColumn(
+            modifier = Modifier.fillMaxWidth(),
+            contentPadding = PaddingValues(
+                horizontal = 12.dp,
+                vertical = 8.dp
+            ),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            options.forEach { option ->
+            items(options, key = { it.value }) { option ->
                 val isSelected = option.value == selectedValue
                 val isOptionFocused = option.value == focusedOptionValue
-                val itemTextColor =
-                    if (isOptionFocused || isSelected) {
-                        NuvioColors.TextPrimary
-                    } else {
-                        NuvioColors.TextSecondary
-                    }
-                val itemBackgroundColor = when {
-                    isOptionFocused -> SettingsGlassRowFocusedColor
-                    isSelected -> SettingsDialogGlassSelectedColor
-                    else -> Color.Transparent
-                }
                 val optionScale by animateFloatAsState(
-                    targetValue =
-                        if (isOptionFocused) {
-                            SettingsDialogFocusScale
-                        } else {
-                            1f
-                        },
+                    targetValue = if (isOptionFocused) {
+                        SettingsDialogFocusScale
+                    } else {
+                        1f
+                    },
                     animationSpec = tween(
                         durationMillis = 160,
                         easing = FastOutSlowInEasing
@@ -613,17 +821,20 @@ private fun LibraryDropdownPicker(
                     label = "libraryDropdownOptionScale"
                 )
 
-                DropdownMenuItem(
+                Card(
+                    onClick = {
+                        runCatching { anchorFocusRequester.requestFocus() }
+                        onSelect(option)
+                    },
                     modifier = Modifier
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                        .fillMaxWidth()
+                        .focusRequester(
+                            optionFocusRequesters.getValue(option.value)
+                        )
                         .graphicsLayer {
                             scaleX = optionScale
                             scaleY = optionScale
                         }
-                        .background(
-                            color = itemBackgroundColor,
-                            shape = RoundedCornerShape(10.dp)
-                        )
                         .onFocusChanged { state ->
                             val hasFocus = state.isFocused || state.hasFocus
                             focusedOptionValue = when {
@@ -632,20 +843,40 @@ private fun LibraryDropdownPicker(
                                 else -> focusedOptionValue
                             }
                         },
-                    text = {
-                        Text(
-                            text = option.label,
-                            color = itemTextColor,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    },
-                    onClick = { onSelect(option) },
-                    colors = MenuDefaults.itemColors(
-                        textColor = itemTextColor,
-                        disabledTextColor = NuvioColors.TextDisabled
+                    shape = CardDefaults.shape(
+                        shape = RoundedCornerShape(10.dp)
+                    ),
+                    colors = CardDefaults.colors(
+                        containerColor = if (isSelected) {
+                            SettingsDialogGlassSelectedColor
+                        } else {
+                            Color.Transparent
+                        },
+                        focusedContainerColor = SettingsGlassRowFocusedColor
+                    ),
+                    border = CardDefaults.border(
+                        border = androidx.tv.material3.Border.None,
+                        focusedBorder = androidx.tv.material3.Border.None
+                    ),
+                    scale = CardDefaults.scale(
+                        focusedScale = 1f,
+                        pressedScale = 1f
                     )
-                )
+                ) {
+                    Text(
+                        text = option.label,
+                        color = if (isOptionFocused || isSelected) {
+                            NuvioColors.TextPrimary
+                        } else {
+                            NuvioColors.TextSecondary
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp)
+                    )
+                }
             }
         }
     }
