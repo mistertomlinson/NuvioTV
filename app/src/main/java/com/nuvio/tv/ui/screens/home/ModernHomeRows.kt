@@ -1758,14 +1758,15 @@ internal fun ModernRowSection(
                                                      * additional per-frame work
                                                      * is introduced.
                                                      */
-                                                    val isPortraitCatalogGeometry =
-                                                        !useLandscapePosters &&
+                                                    val isRegularPortraitCatalogRow =
+                                                        !isNumbered &&
+                                                            !useLandscapePosters &&
                                                             !perCatalogLandscape &&
                                                             !isCwRow
 
                                                     val targetPositionsPerSecond =
                                                         if (
-                                                            isPortraitCatalogGeometry
+                                                            isRegularPortraitCatalogRow
                                                         ) {
                                                             32f
                                                         } else {
