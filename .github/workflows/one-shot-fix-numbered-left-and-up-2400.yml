@@ -30,38 +30,25 @@ jobs:
 
           rows_path = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeRows.kt')
           rows = rows_path.read_text()
-          old_block = '''                                                    val isPortraitCatalogGeometry =
-                                                        !useLandscapePosters &&
-                                                            !perCatalogLandscape &&
-                                                            !isCwRow
+          old_name = 'val isPortraitCatalogGeometry ='
+          new_name = 'val isRegularPortraitCatalogRow ='
+          if rows.count(old_name) != 1:
+              raise SystemExit(f'Expected exactly one portrait geometry declaration, found {rows.count(old_name)}')
+          rows = rows.replace(old_name, new_name)
 
-                                                    val targetPositionsPerSecond =
-                                                        if (
-                                                            isPortraitCatalogGeometry
-                                                        ) {
-                                                            32f
-                                                        } else {
-                                                            20f
-                                                        }
-'''
-          new_block = '''                                                    val isRegularPortraitCatalogRow =
-                                                        !isNumbered &&
-                                                            !useLandscapePosters &&
-                                                            !perCatalogLandscape &&
-                                                            !isCwRow
+          old_first_condition = '                                                        !useLandscapePosters &&'
+          new_first_condition = '                                                        !isNumbered &&\n                                                            !useLandscapePosters &&'
+          marker = 'val isRegularPortraitCatalogRow =\n' + old_first_condition
+          if rows.count(marker) != 1:
+              raise SystemExit(f'Expected exactly one numbered-rate insertion point, found {rows.count(marker)}')
+          rows = rows.replace(marker, 'val isRegularPortraitCatalogRow =\n' + new_first_condition)
 
-                                                    val targetPositionsPerSecond =
-                                                        if (
-                                                            isRegularPortraitCatalogRow
-                                                        ) {
-                                                            32f
-                                                        } else {
-                                                            20f
-                                                        }
-'''
-          if rows.count(old_block) != 1:
-              raise SystemExit(f'Expected exactly one portrait-rate block, found {rows.count(old_block)}')
-          rows_path.write_text(rows.replace(old_block, new_block))
+          old_ref = '                                                            isPortraitCatalogGeometry'
+          new_ref = '                                                            isRegularPortraitCatalogRow'
+          if rows.count(old_ref) != 1:
+              raise SystemExit(f'Expected exactly one portrait geometry reference, found {rows.count(old_ref)}')
+          rows = rows.replace(old_ref, new_ref)
+          rows_path.write_text(rows)
           PY
 
       - name: Commit fix
