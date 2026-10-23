@@ -8,6 +8,7 @@
     alias(libs.plugins.kotlin.serialization)
 }
 
+import java.io.File
 import java.util.Properties
 
 val localProperties = Properties().apply {
@@ -23,6 +24,27 @@ val devProperties = Properties().apply {
         load(devPropertiesFile.inputStream())
     }
 }
+
+val durableSecretsFile =
+    File(System.getProperty("user.home"), ".nuvio/secrets.properties")
+
+val durableSecrets = Properties().apply {
+    if (durableSecretsFile.exists()) {
+        durableSecretsFile.inputStream().use { load(it) }
+    }
+}
+
+fun productionProperty(name: String, defaultValue: String = ""): String =
+    durableSecrets.getProperty(name)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: localProperties.getProperty(name, defaultValue)
+
+fun developmentProperty(name: String, defaultValue: String = ""): String =
+    devProperties.getProperty(name)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: productionProperty(name, defaultValue)
 
 fun env(name: String): String? = providers.environmentVariable(name).orNull
 
@@ -47,25 +69,25 @@ android {
         versionCode = 38
         versionName = "0.4.20-beta"
 
-        buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
-        buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
-        buildConfigField("String", "TRAILER_API_URL", "\"${localProperties.getProperty("TRAILER_API_URL", "")}\"")
-        buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${localProperties.getProperty("IMDB_RATINGS_API_BASE_URL", "https://seriesgraph.com/")}\"")
-        buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${localProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", "https://imdb.tapframe.space/")}\"")
-        buildConfigField("String", "TRAKT_CLIENT_ID", "\"${localProperties.getProperty("TRAKT_CLIENT_ID", "")}\"")
-        buildConfigField("String", "TRAKT_CLIENT_SECRET", "\"${localProperties.getProperty("TRAKT_CLIENT_SECRET", "")}\"")
-        buildConfigField("String", "TRAKT_API_URL", "\"${localProperties.getProperty("TRAKT_API_URL", "https://api.trakt.tv/")}\"")
-        buildConfigField("String", "TRAKT_REDIRECT_URI", "\"${localProperties.getProperty("TRAKT_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob")}\"")
-        buildConfigField("String", "SIMKL_CLIENT_ID", "\"${localProperties.getProperty("SIMKL_CLIENT_ID", "")}\"")
-        buildConfigField("String", "SIMKL_APP_NAME", "\"${localProperties.getProperty("SIMKL_APP_NAME", "nuvio")}\"")
-        buildConfigField("String", "TMDB_API_KEY", "\"${localProperties.getProperty("TMDB_API_KEY", "")}\"")
-        buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://app.nuvio.tv/tv-login")}\"")
-        buildConfigField("String", "DONATIONS_BASE_URL", "\"${localProperties.getProperty("DONATIONS_BASE_URL", "")}\"")
-        buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${localProperties.getProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
-        buildConfigField("String", "DONATIONS_DONATE_URL", "\"${localProperties.getProperty("DONATIONS_DONATE_URL", "")}\"")
-        buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
-        buildConfigField("String", "CREDIT_ANALYZER_BASE_URL", "\"${localProperties.getProperty("CREDIT_ANALYZER_BASE_URL", "")}\"")
-        buildConfigField("String", "CREDIT_ANALYZER_TOKEN", "\"${localProperties.getProperty("CREDIT_ANALYZER_TOKEN", "")}\"")
+        buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${productionProperty("PARENTAL_GUIDE_API_URL", "")}\"")
+        buildConfigField("String", "INTRODB_API_URL", "\"${productionProperty("INTRODB_API_URL", "")}\"")
+        buildConfigField("String", "TRAILER_API_URL", "\"${productionProperty("TRAILER_API_URL", "")}\"")
+        buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${productionProperty("IMDB_RATINGS_API_BASE_URL", "https://seriesgraph.com/")}\"")
+        buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${productionProperty("IMDB_TAPFRAME_API_BASE_URL", "https://imdb.tapframe.space/")}\"")
+        buildConfigField("String", "TRAKT_CLIENT_ID", "\"${productionProperty("TRAKT_CLIENT_ID", "")}\"")
+        buildConfigField("String", "TRAKT_CLIENT_SECRET", "\"${productionProperty("TRAKT_CLIENT_SECRET", "")}\"")
+        buildConfigField("String", "TRAKT_API_URL", "\"${productionProperty("TRAKT_API_URL", "https://api.trakt.tv/")}\"")
+        buildConfigField("String", "TRAKT_REDIRECT_URI", "\"${productionProperty("TRAKT_REDIRECT_URI", "urn:ietf:wg:oauth:2.0:oob")}\"")
+        buildConfigField("String", "SIMKL_CLIENT_ID", "\"${productionProperty("SIMKL_CLIENT_ID", "")}\"")
+        buildConfigField("String", "SIMKL_APP_NAME", "\"${productionProperty("SIMKL_APP_NAME", "nuvio")}\"")
+        buildConfigField("String", "TMDB_API_KEY", "\"${productionProperty("TMDB_API_KEY", "")}\"")
+        buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${productionProperty("TV_LOGIN_WEB_BASE_URL", "https://app.nuvio.tv/tv-login")}\"")
+        buildConfigField("String", "DONATIONS_BASE_URL", "\"${productionProperty("DONATIONS_BASE_URL", "")}\"")
+        buildConfigField("String", "PREMIUMIZE_CLIENT_ID", "\"${productionProperty("PREMIUMIZE_CLIENT_ID", "")}\"")
+        buildConfigField("String", "DONATIONS_DONATE_URL", "\"${productionProperty("DONATIONS_DONATE_URL", "")}\"")
+        buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${productionProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
+        buildConfigField("String", "CREDIT_ANALYZER_BASE_URL", "\"${productionProperty("CREDIT_ANALYZER_BASE_URL", "")}\"")
+        buildConfigField("String", "CREDIT_ANALYZER_TOKEN", "\"${productionProperty("CREDIT_ANALYZER_TOKEN", "")}\"")
 
         // In-app updater (GitHub Releases)
         buildConfigField("String", "GITHUB_OWNER", "\"tapframe\"")
@@ -90,19 +112,19 @@ android {
             buildConfigField("boolean", "IS_DEBUG_BUILD", "true")
 
             // Dev environment (from local.dev.properties)
-            buildConfigField("String", "SUPABASE_URL", "\"${devProperties.getProperty("SUPABASE_URL", "")}\"")
-            buildConfigField("String", "SUPABASE_ANON_KEY", "\"${devProperties.getProperty("SUPABASE_ANON_KEY", "")}\"")
-            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${devProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://app.nuvio.tv/tv-login")}\"")
-            buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${devProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
-            buildConfigField("String", "INTRODB_API_URL", "\"${devProperties.getProperty("INTRODB_API_URL", "")}\"")
-            buildConfigField("String", "TRAILER_API_URL", "\"${devProperties.getProperty("TRAILER_API_URL", "")}\"")
-            buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${devProperties.getProperty("IMDB_RATINGS_API_BASE_URL", "https://seriesgraph.com/")}\"")
-            buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${devProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", "https://imdb.tapframe.space/")}\"")
-            buildConfigField("String", "DONATIONS_BASE_URL", "\"${devProperties.getProperty("DONATIONS_BASE_URL", localProperties.getProperty("DONATIONS_BASE_URL", ""))}\"")
-            buildConfigField("String", "DONATIONS_DONATE_URL", "\"${devProperties.getProperty("DONATIONS_DONATE_URL", localProperties.getProperty("DONATIONS_DONATE_URL", ""))}\"")
-            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${devProperties.getProperty("AVATAR_PUBLIC_BASE_URL", localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", ""))}\"")
-            buildConfigField("String", "CREDIT_ANALYZER_BASE_URL", "\"${devProperties.getProperty("CREDIT_ANALYZER_BASE_URL", localProperties.getProperty("CREDIT_ANALYZER_BASE_URL", ""))}\"")
-            buildConfigField("String", "CREDIT_ANALYZER_TOKEN", "\"${devProperties.getProperty("CREDIT_ANALYZER_TOKEN", localProperties.getProperty("CREDIT_ANALYZER_TOKEN", ""))}\"")
+            buildConfigField("String", "SUPABASE_URL", "\"${developmentProperty("SUPABASE_URL", "")}\"")
+            buildConfigField("String", "SUPABASE_ANON_KEY", "\"${developmentProperty("SUPABASE_ANON_KEY", "")}\"")
+            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${developmentProperty("TV_LOGIN_WEB_BASE_URL", "https://app.nuvio.tv/tv-login")}\"")
+            buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${developmentProperty("PARENTAL_GUIDE_API_URL", "")}\"")
+            buildConfigField("String", "INTRODB_API_URL", "\"${developmentProperty("INTRODB_API_URL", "")}\"")
+            buildConfigField("String", "TRAILER_API_URL", "\"${developmentProperty("TRAILER_API_URL", "")}\"")
+            buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${developmentProperty("IMDB_RATINGS_API_BASE_URL", "https://seriesgraph.com/")}\"")
+            buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${developmentProperty("IMDB_TAPFRAME_API_BASE_URL", "https://imdb.tapframe.space/")}\"")
+            buildConfigField("String", "DONATIONS_BASE_URL", "\"${developmentProperty("DONATIONS_BASE_URL", productionProperty("DONATIONS_BASE_URL", ""))}\"")
+            buildConfigField("String", "DONATIONS_DONATE_URL", "\"${developmentProperty("DONATIONS_DONATE_URL", productionProperty("DONATIONS_DONATE_URL", ""))}\"")
+            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${developmentProperty("AVATAR_PUBLIC_BASE_URL", productionProperty("AVATAR_PUBLIC_BASE_URL", ""))}\"")
+            buildConfigField("String", "CREDIT_ANALYZER_BASE_URL", "\"${developmentProperty("CREDIT_ANALYZER_BASE_URL", productionProperty("CREDIT_ANALYZER_BASE_URL", ""))}\"")
+            buildConfigField("String", "CREDIT_ANALYZER_TOKEN", "\"${developmentProperty("CREDIT_ANALYZER_TOKEN", productionProperty("CREDIT_ANALYZER_TOKEN", ""))}\"")
         }
         release {
             // Profile collection can coexist with an installed official release.
@@ -126,17 +148,17 @@ android {
             buildConfigField("boolean", "IS_DEBUG_BUILD", "false")
 
             // Production environment (from local.properties)
-            buildConfigField("String", "SUPABASE_URL", "\"${localProperties.getProperty("SUPABASE_URL", "")}\"")
-            buildConfigField("String", "SUPABASE_ANON_KEY", "\"${localProperties.getProperty("SUPABASE_ANON_KEY", "")}\"")
-            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${localProperties.getProperty("TV_LOGIN_WEB_BASE_URL", "https://app.nuvio.tv/tv-login")}\"")
-            buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${localProperties.getProperty("PARENTAL_GUIDE_API_URL", "")}\"")
-            buildConfigField("String", "INTRODB_API_URL", "\"${localProperties.getProperty("INTRODB_API_URL", "")}\"")
-            buildConfigField("String", "TRAILER_API_URL", "\"${localProperties.getProperty("TRAILER_API_URL", "")}\"")
-            buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${localProperties.getProperty("IMDB_RATINGS_API_BASE_URL", "https://seriesgraph.com/")}\"")
-            buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${localProperties.getProperty("IMDB_TAPFRAME_API_BASE_URL", "https://imdb.tapframe.space/")}\"")
-            buildConfigField("String", "DONATIONS_BASE_URL", "\"${localProperties.getProperty("DONATIONS_BASE_URL", "")}\"")
-            buildConfigField("String", "DONATIONS_DONATE_URL", "\"${localProperties.getProperty("DONATIONS_DONATE_URL", "")}\"")
-            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${localProperties.getProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
+            buildConfigField("String", "SUPABASE_URL", "\"${productionProperty("SUPABASE_URL", "")}\"")
+            buildConfigField("String", "SUPABASE_ANON_KEY", "\"${productionProperty("SUPABASE_ANON_KEY", "")}\"")
+            buildConfigField("String", "TV_LOGIN_WEB_BASE_URL", "\"${productionProperty("TV_LOGIN_WEB_BASE_URL", "https://app.nuvio.tv/tv-login")}\"")
+            buildConfigField("String", "PARENTAL_GUIDE_API_URL", "\"${productionProperty("PARENTAL_GUIDE_API_URL", "")}\"")
+            buildConfigField("String", "INTRODB_API_URL", "\"${productionProperty("INTRODB_API_URL", "")}\"")
+            buildConfigField("String", "TRAILER_API_URL", "\"${productionProperty("TRAILER_API_URL", "")}\"")
+            buildConfigField("String", "IMDB_RATINGS_API_BASE_URL", "\"${productionProperty("IMDB_RATINGS_API_BASE_URL", "https://seriesgraph.com/")}\"")
+            buildConfigField("String", "IMDB_TAPFRAME_API_BASE_URL", "\"${productionProperty("IMDB_TAPFRAME_API_BASE_URL", "https://imdb.tapframe.space/")}\"")
+            buildConfigField("String", "DONATIONS_BASE_URL", "\"${productionProperty("DONATIONS_BASE_URL", "")}\"")
+            buildConfigField("String", "DONATIONS_DONATE_URL", "\"${productionProperty("DONATIONS_DONATE_URL", "")}\"")
+            buildConfigField("String", "AVATAR_PUBLIC_BASE_URL", "\"${productionProperty("AVATAR_PUBLIC_BASE_URL", "")}\"")
         }
         create("benchmark") {
             initWith(buildTypes.getByName("release"))
@@ -211,6 +233,42 @@ android {
             )
         }
     }
+}
+
+val requiredSideloadConfig =
+    listOf(
+        "CREDIT_ANALYZER_BASE_URL",
+        "CREDIT_ANALYZER_TOKEN",
+        "SUPABASE_URL",
+        "SUPABASE_ANON_KEY",
+    )
+
+val verifySideloadConfig =
+    tasks.register("verifySideloadConfig") {
+        group = "verification"
+        description =
+            "Fails sideload builds when required Nuvio runtime configuration is missing."
+
+        doLast {
+            val missing =
+                requiredSideloadConfig.filter { productionProperty(it).isBlank() }
+
+            if (missing.isNotEmpty()) {
+                throw org.gradle.api.GradleException(
+                    "Missing required Nuvio sideload config: ${missing.joinToString()}. " +
+                        "Add the values to ${durableSecretsFile.absolutePath}.",
+                )
+            }
+        }
+    }
+
+tasks.matching {
+    it.name == "preSideloadBuild" ||
+        it.name == "assembleSideload" ||
+        it.name.startsWith("assembleSideload") ||
+        it.name.startsWith("bundleSideload")
+}.configureEach {
+    dependsOn(verifySideloadConfig)
 }
 
 androidComponents {
