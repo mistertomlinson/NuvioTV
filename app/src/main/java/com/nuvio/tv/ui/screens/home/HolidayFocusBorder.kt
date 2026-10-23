@@ -31,12 +31,12 @@ import com.nuvio.tv.LocalAppInForeground
 import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.PI
+import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
-import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -412,17 +412,56 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             )
         }
 
+        /*
+         * Put the open ends at the midpoint of the left edge. This is derived
+         * from the live rounded-card geometry rather than a fixed pixel offset,
+         * so posters, wide cards, and expanded trailer boxes all keep the same
+         * believable powered-entry / free-end placement.
+         */
+        val strandStartDistance =
+            straightHorizontal +
+                quarterArc +
+                straightVertical +
+                quarterArc +
+                straightHorizontal +
+                quarterArc +
+                straightVertical * 0.5f
+
+        /*
+         * Leave a real physical break rather than allocating bulb spacing over
+         * a closed loop. About 1.75 normal gaps is enough for the wire break to
+         * read through the bulb halos while remaining subtle on small cards.
+         */
+        val openGapLength =
+            minOf(
+                spacing * 1.75f,
+                perimeter * 0.12f
+            )
+        val strandLength =
+            (perimeter - openGapLength)
+                .coerceAtLeast(0f)
+
         val bulbCount =
-            (perimeter / spacing)
-                .roundToInt()
-                .coerceAtLeast(
+            if (strandLength <= 0f) {
+                HOLIDAY_BULB_COLOR_COUNT
+            } else {
+                (
+                    (strandLength / spacing)
+                        .roundToInt() +
+                        1
+                    ).coerceAtLeast(
                     HOLIDAY_BULB_COLOR_COUNT
                 )
+            }
+
+        val gapCount =
+            (bulbCount - 1)
+                .coerceAtLeast(1)
 
         val actualSpacing =
-            if (bulbCount > 0) {
-                perimeter /
-                    bulbCount
+            if (gapCount > 0) {
+                strandLength /
+                    gapCount
             } else {
                 spacing
             }
@@ -510,8 +549,9 @@ internal fun Modifier.holidaySegmentedFocusBorder(
          *
          * Straight sections vary by about +/-14%. Rounded corners get
          * substantially less variation so a large accidental-looking gap
-         * does not appear at a corner. The generated weights are normalized,
-         * so the complete strand still closes perfectly around the card.
+         * does not appear at a corner. The generated weights are normalized
+         * across only the connected portion of the strand; the reserved open
+         * gap is never consumed by normalization.
          *
          * The seed is deterministic for a given card geometry: changing
          * focus never causes the lights to rearrange themselves.
@@ -553,7 +593,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
 
         val rawDeviations =
             FloatArray(
-                bulbCount
+                gapCount
             ) { index ->
                 val uniformDistance =
                     index *
@@ -565,7 +605,8 @@ internal fun Modifier.holidaySegmentedFocusBorder(
 
                 centeredNoise *
                     cornerVariationScale(
-                        uniformDistance
+                        strandStartDistance +
+                            uniformDistance
                     )
             }
 
@@ -576,7 +617,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
 
         val gapWeights =
             FloatArray(
-                bulbCount
+                gapCount
             ) { index ->
                 1f +
                     (
@@ -594,7 +635,7 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                 )
 
         val normalizeGapWeight =
-            bulbCount.toFloat() /
+            gapCount.toFloat() /
                 totalGapWeight
 
         var currentDistance =
@@ -606,13 +647,16 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             ) { index ->
                 val center =
                     roundedPoint(
-                        currentDistance
+                        strandStartDistance +
+                            currentDistance
                     )
 
-                currentDistance +=
-                    actualSpacing *
-                        gapWeights[index] *
-                        normalizeGapWeight
+                if (index < gapCount) {
+                    currentDistance +=
+                        actualSpacing *
+                            gapWeights[index] *
+                            normalizeGapWeight
+                }
 
                 center
             }
@@ -672,19 +716,31 @@ internal fun Modifier.holidaySegmentedFocusBorder(
 
         fun inwardUnitNormal(index: Int): Offset {
             val center = bulbCenters[index]
-            val previous =
-                bulbCenters[
-                    (index - 1 + bulbCount) %
-                        bulbCount
-                ]
-            val next =
-                bulbCenters[
-                    (index + 1) %
-                        bulbCount
-                ]
+            val tangentX: Float
+            val tangentY: Float
 
-            val tangentX = next.x - previous.x
-            val tangentY = next.y - previous.y
+            when {
+                bulbCount <= 1 -> {
+                    tangentX = 0f
+                    tangentY = 0f
+                }
+
+                index == 0 -> {
+                    tangentX = bulbCenters[1].x - center.x
+                    tangentY = bulbCenters[1].y - center.y
+                }
+
+                index == bulbCount - 1 -> {
+                    tangentX = center.x - bulbCenters[index - 1].x
+                    tangentY = center.y - bulbCenters[index - 1].y
+                }
+
+                else -> {
+                    tangentX = bulbCenters[index + 1].x - bulbCenters[index - 1].x
+                    tangentY = bulbCenters[index + 1].y - bulbCenters[index - 1].y
+                }
+            }
+
             val tangentLength =
                 sqrt(
                     tangentX * tangentX +
@@ -816,22 +872,46 @@ internal fun Modifier.holidaySegmentedFocusBorder(
         val wireHighlightPath = Path()
 
         if (bulbCount > 0) {
+            val powerAnchor = wireAnchors[0]
+
+            /*
+             * The unbulbed power lead reaches the ACTUAL left boundary of the
+             * modifier, not merely the inset light perimeter. It therefore
+             * visibly runs into the physical card edge and stops there, which
+             * reads as the cord wrapping behind the poster. This does not depend
+             * on poster opacity or draw ordering, so Android SurfaceView-backed
+             * expanded trailer boxes preserve the effect too.
+             */
+            val powerEntryPoint =
+                Offset(
+                    0f,
+                    powerAnchor.y
+                )
+
             cablePath.moveTo(
-                wireAnchors[0].x,
-                wireAnchors[0].y
+                powerEntryPoint.x,
+                powerEntryPoint.y
+            )
+            cablePath.lineTo(
+                powerAnchor.x,
+                powerAnchor.y
             )
             wireHighlightPath.moveTo(
-                wireAnchors[0].x,
-                wireAnchors[0].y
+                powerEntryPoint.x,
+                powerEntryPoint.y
+            )
+            wireHighlightPath.lineTo(
+                powerAnchor.x,
+                powerAnchor.y
             )
 
-            for (index in 0 until bulbCount) {
+            /*
+             * Never close the last segment back to index 0. The missing span is
+             * the real end of the strand rather than a hidden mathematical loop.
+             */
+            for (index in 0 until bulbCount - 1) {
                 val start = wireAnchors[index]
-                val end =
-                    wireAnchors[
-                        (index + 1) %
-                            bulbCount
-                    ]
+                val end = wireAnchors[index + 1]
                 val dx = end.x - start.x
                 val dy = end.y - start.y
                 val segmentLength =
@@ -894,8 +974,8 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             /*
              * Real miniature-light sockets stand a little proud of the cord.
              * Add all stems to the same cached cable path so they cost no extra
-             * per-bulb draw calls. The glowing sprites are rendered afterward
-             * and naturally hide each stem/cord junction.
+             * per-bulb draw calls. The final stem ends at the final bulb, making
+             * that bulb the visibly terminated free end of the strand.
              */
             mountedBulbCenters.forEachIndexed { index, center ->
                 val anchor = wireAnchors[index]
@@ -940,8 +1020,8 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             drawContent()
 
             /*
-             * Three path draws total regardless of bulb count:
-             * shadow/bundle depth -> green insulation -> broken highlight.
+             * Three path draws total for the exposed cord regardless of bulb
+             * count: shadow/bundle depth -> green insulation -> broken highlight.
              * The highlight's short repeating glints suggest the alternating
              * exposed ridge of twisted conductors without animating or drawing
              * a costly literal helix.

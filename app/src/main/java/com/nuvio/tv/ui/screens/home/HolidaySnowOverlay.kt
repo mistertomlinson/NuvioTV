@@ -35,11 +35,13 @@ import com.nuvio.tv.ui.screens.settings.SeasonalEffectsViewModel
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.floor
 import kotlin.math.roundToInt
 import kotlin.math.sin
+import kotlin.math.sqrt
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -100,6 +102,18 @@ private const val SNOW_SPRITE_SIZE = 24
 private const val SNOW_SPRITE_COLUMNS = 4
 private const val SNOW_SPRITE_ROWS = 3
 private const val SNOW_SPRITE_COUNT = SNOW_SPRITE_COLUMNS * SNOW_SPRITE_ROWS
+
+/*
+ * Rendered size is the depth cue. These limits span the existing profiles after
+ * their depth-layer multiplier, so size can drive speed without changing the
+ * approved overall min/max motion envelope.
+ */
+private const val SNOW_MIN_VISUAL_RADIUS_AT_1080P = 0.58f
+private const val SNOW_MAX_VISUAL_RADIUS_AT_1080P = 6.44f
+private const val SNOW_MIN_FALL_PX_PER_SECOND_AT_1080P = 48f
+private const val SNOW_MAX_FALL_PX_PER_SECOND_AT_1080P = 130f
+private const val SNOW_MIN_MOTION_ASPECT_RATIO = 1.04f
+private const val SNOW_MAX_MOTION_ASPECT_RATIO = 1.22f
 
 /* Approved accumulated-bank geometry. */
 private const val SNOW_BANK_COLUMNS = 768
@@ -314,6 +328,36 @@ private fun snowDepth(particle: SnowParticle, layerCount: Int): Float =
         }
     }
 
+private fun snowVisualRadiusAt1080(
+    particle: SnowParticle,
+    config: SeasonalEffectsConfig,
+    depth: Float
+): Float {
+    val profileRadius = when (config.sizeProfile) {
+        SnowSizeProfile.TINY -> 0.85f + particle.sizeSeed * 1.25f
+        SnowSizeProfile.BALANCED -> 1.10f + particle.sizeSeed * 2.30f
+        SnowSizeProfile.LARGE -> 2.00f + particle.sizeSeed * 3.75f
+        SnowSizeProfile.MIXED ->
+            0.85f + particle.sizeSeed * particle.sizeSeed * 4.75f
+    }
+
+    return profileRadius * depth
+}
+
+private fun snowVisualDepthFraction(radiusAt1080: Float): Float =
+    (
+        (radiusAt1080 - SNOW_MIN_VISUAL_RADIUS_AT_1080P) /
+            (SNOW_MAX_VISUAL_RADIUS_AT_1080P - SNOW_MIN_VISUAL_RADIUS_AT_1080P)
+        ).coerceIn(0f, 1f)
+
+private fun snowFallPxPerSecondAt1080(radiusAt1080: Float): Float {
+    val depthFraction = snowVisualDepthFraction(radiusAt1080)
+    return SNOW_MIN_FALL_PX_PER_SECOND_AT_1080P +
+        (SNOW_MAX_FALL_PX_PER_SECOND_AT_1080P -
+            SNOW_MIN_FALL_PX_PER_SECOND_AT_1080P) *
+        depthFraction
+}
+
 private fun completedLandingsAt(
     particle: SnowParticle,
     seconds: Double,
@@ -328,9 +372,10 @@ private fun completedLandingsAt(
     if (seconds <= spawnDelay) return 0L
 
     val depth = snowDepth(particle, config.depthLayers)
-    val baseFallPxPerSecond = 52.0 + particle.speedSeed * 62.0
+    val radiusAt1080 = snowVisualRadiusAt1080(particle, config, depth)
+    val fallPxPerSecondAt1080 = snowFallPxPerSecondAt1080(radiusAt1080)
     val cycleSeconds = TRAVEL_HEIGHT_AT_1080P /
-        (baseFallPxPerSecond * config.snowfallSpeed.multiplier * depth)
+        (fallPxPerSecondAt1080 * config.snowfallSpeed.multiplier)
 
     if (cycleSeconds <= 0.0) return 0L
 
@@ -1139,7 +1184,9 @@ private class SeasonalSnowSurfaceView(
         for (index in 0 until effectiveCount) {
             val particle = snowParticles[index]
             val depth = snowDepth(particle, layerCount)
-            val baseFallPxPerSecond = 52f + particle.speedSeed * 62f
+            val radiusAt1080 = snowVisualRadiusAt1080(particle, config, depth)
+            val depthFraction = snowVisualDepthFraction(radiusAt1080)
+            val fallPxPerSecondAt1080 = snowFallPxPerSecondAt1080(radiusAt1080)
 
             val motionSeconds = if (
                 config.startupMode == SnowStartupMode.FALL_IN_FROM_TOP
@@ -1152,11 +1199,13 @@ private class SeasonalSnowSurfaceView(
                 seconds
             }
 
-            val yTravel = motionSeconds *
-                baseFallPxPerSecond *
-                fallMultiplier *
-                depth *
-                scale1080
+            val velocityY =
+                fallPxPerSecondAt1080 *
+                    fallMultiplier *
+                    scale1080
+            val yTravel =
+                motionSeconds *
+                    velocityY
 
             val y = if (config.startupMode == SnowStartupMode.FALL_IN_FROM_TOP) {
                 (yTravel.toFloat() % travelHeight) - margin
@@ -1165,30 +1214,35 @@ private class SeasonalSnowSurfaceView(
                     travelHeight - margin
             }
 
-            val directionalWind = motionSeconds * windPxPerSecond * depth
+            val windVelocityX = windPxPerSecond * depth
+            val directionalWind = motionSeconds * windVelocityX
+            val swayScale = 0.72f + particle.depthSeed * 0.56f
+            val swayAngularVelocity =
+                particle.swayFrequency * 2f * PI.toFloat()
+            val swayPhase =
+                motionSeconds * swayAngularVelocity +
+                    particle.phase
             val sway = if (swayAmplitude == 0f) {
                 0f
             } else {
-                sin(
-                    motionSeconds * particle.swayFrequency * 2.0 * PI +
-                        particle.phase
-                ).toFloat() * swayAmplitude *
-                    (0.72f + particle.depthSeed * 0.56f)
+                sin(swayPhase).toFloat() *
+                    swayAmplitude *
+                    swayScale
+            }
+            val swayVelocityX = if (swayAmplitude == 0f) {
+                0f
+            } else {
+                cos(swayPhase).toFloat() *
+                    swayAngularVelocity *
+                    swayAmplitude *
+                    swayScale
             }
 
             var x = particle.xSeed * width + directionalWind.toFloat() + sway
             x %= width.toFloat()
             if (x < 0f) x += width.toFloat()
 
-            val radius1080 = when (config.sizeProfile) {
-                SnowSizeProfile.TINY -> 0.85f + particle.sizeSeed * 1.25f
-                SnowSizeProfile.BALANCED -> 1.10f + particle.sizeSeed * 2.30f
-                SnowSizeProfile.LARGE -> 2.00f + particle.sizeSeed * 3.75f
-                SnowSizeProfile.MIXED ->
-                    0.85f + particle.sizeSeed * particle.sizeSeed * 4.75f
-            }
-
-            val radius = radius1080 * scale1080 * depth
+            val radius = radiusAt1080 * scale1080
             val baseAlpha = 0.34f + particle.alphaSeed * 0.44f
             val steadyAlpha = (
                 baseAlpha * opacityMultiplier * (0.78f + depth * 0.20f)
@@ -1197,7 +1251,33 @@ private class SeasonalSnowSurfaceView(
                 steadyAlpha *
                     startupOpacity *
                     presentationAlpha
-            val spriteDrawSize = (radius * 5.6f).roundToInt().coerceAtLeast(5)
+            val spriteDrawSize = (radius * 5.6f).coerceAtLeast(5f)
+
+            /*
+             * Preserve approximately the same sprite area while stretching its
+             * long axis with apparent depth. Rotating that axis into the actual
+             * velocity vector makes wind and sway read as motion rather than a
+             * vertical oval pasted onto a diagonal trajectory.
+             */
+            val motionAspectRatio =
+                SNOW_MIN_MOTION_ASPECT_RATIO +
+                    (SNOW_MAX_MOTION_ASPECT_RATIO -
+                        SNOW_MIN_MOTION_ASPECT_RATIO) *
+                    depthFraction
+            val areaPreservingScale = sqrt(motionAspectRatio)
+            val spriteWidth = spriteDrawSize / areaPreservingScale
+            val spriteHeight = spriteDrawSize * areaPreservingScale
+            val velocityX = windVelocityX + swayVelocityX
+            val travelRotationDegrees =
+                (
+                    atan2(
+                        velocityY.toDouble(),
+                        velocityX.toDouble()
+                    ) *
+                        180.0 /
+                        PI -
+                        90.0
+                    ).toFloat()
 
             val sprite = particle.spriteIndex
             val sourceX = (sprite % SNOW_SPRITE_COLUMNS) * SNOW_SPRITE_SIZE
@@ -1210,13 +1290,21 @@ private class SeasonalSnowSurfaceView(
                 sourceY + SNOW_SPRITE_SIZE
             )
             dstRect.set(
-                x - spriteDrawSize * 0.5f,
-                y - spriteDrawSize * 0.5f,
-                x + spriteDrawSize * 0.5f,
-                y + spriteDrawSize * 0.5f
+                x - spriteWidth * 0.5f,
+                y - spriteHeight * 0.5f,
+                x + spriteWidth * 0.5f,
+                y + spriteHeight * 0.5f
             )
             spritePaint.alpha = (alpha * 255f).roundToInt().coerceIn(0, 255)
+
+            val saveCount = canvas.save()
+            canvas.rotate(
+                travelRotationDegrees,
+                x,
+                y
+            )
             canvas.drawBitmap(atlas, srcRect, dstRect, spritePaint)
+            canvas.restoreToCount(saveCount)
         }
     }
 
