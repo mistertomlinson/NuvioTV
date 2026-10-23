@@ -413,30 +413,29 @@ internal fun Modifier.holidaySegmentedFocusBorder(
         }
 
         /*
-         * Put the open ends at the midpoint of the left edge. This is derived
-         * from the live rounded-card geometry rather than a fixed pixel offset,
-         * so posters, wide cards, and expanded trailer boxes all keep the same
-         * believable powered-entry / free-end placement.
+         * Reserve the break around the bottom-right corner. The free end begins
+         * on the bottom edge just after the corner and the powered end finishes
+         * on the right edge just before it. Because both offsets are derived
+         * from the live straight-edge lengths and radius, normal posters, wide
+         * cards, and expanded trailer boxes all keep the same corner treatment.
          */
-        val strandStartDistance =
+        val cornerGapLeg =
+            minOf(
+                spacing * 0.72f,
+                straightHorizontal * 0.28f,
+                straightVertical * 0.28f
+            ).coerceAtLeast(0f)
+        val bottomRightArcStartDistance =
             straightHorizontal +
                 quarterArc +
-                straightVertical +
+                straightVertical
+        val strandStartDistance =
+            bottomRightArcStartDistance +
                 quarterArc +
-                straightHorizontal +
-                quarterArc +
-                straightVertical * 0.5f
-
-        /*
-         * Leave a real physical break rather than allocating bulb spacing over
-         * a closed loop. About 1.75 normal gaps is enough for the wire break to
-         * read through the bulb halos while remaining subtle on small cards.
-         */
+                cornerGapLeg
         val openGapLength =
-            minOf(
-                spacing * 1.75f,
-                perimeter * 0.12f
-            )
+            (quarterArc + cornerGapLeg * 2f)
+                .coerceAtMost(perimeter * 0.18f)
         val strandLength =
             (perimeter - openGapLength)
                 .coerceAtLeast(0f)
@@ -872,42 +871,35 @@ internal fun Modifier.holidaySegmentedFocusBorder(
         val wireHighlightPath = Path()
 
         if (bulbCount > 0) {
-            val powerAnchor = wireAnchors[0]
-
             /*
-             * The unbulbed power lead reaches the ACTUAL left boundary of the
-             * modifier, not merely the inset light perimeter. It therefore
-             * visibly runs into the physical card edge and stops there, which
-             * reads as the cord wrapping behind the poster. This does not depend
-             * on poster opacity or draw ordering, so Android SurfaceView-backed
-             * expanded trailer boxes preserve the effect too.
+             * The free end is the first bulb itself. Start the actual cord at
+             * that bulb center, then run into its anchor and around the card.
+             * There is no exposed wire before the terminal bulb and therefore
+             * no little tail wrapping into the reserved corner gap.
              */
-            val powerEntryPoint =
-                Offset(
-                    0f,
-                    powerAnchor.y
-                )
+            val terminalBulbCenter = mountedBulbCenters[0]
+            val terminalAnchor = wireAnchors[0]
 
             cablePath.moveTo(
-                powerEntryPoint.x,
-                powerEntryPoint.y
+                terminalBulbCenter.x,
+                terminalBulbCenter.y
             )
             cablePath.lineTo(
-                powerAnchor.x,
-                powerAnchor.y
+                terminalAnchor.x,
+                terminalAnchor.y
             )
             wireHighlightPath.moveTo(
-                powerEntryPoint.x,
-                powerEntryPoint.y
+                terminalBulbCenter.x,
+                terminalBulbCenter.y
             )
             wireHighlightPath.lineTo(
-                powerAnchor.x,
-                powerAnchor.y
+                terminalAnchor.x,
+                terminalAnchor.y
             )
 
             /*
              * Never close the last segment back to index 0. The missing span is
-             * the real end of the strand rather than a hidden mathematical loop.
+             * the real bottom-right break rather than a hidden mathematical loop.
              */
             for (index in 0 until bulbCount - 1) {
                 val start = wireAnchors[index]
@@ -972,12 +964,52 @@ internal fun Modifier.holidaySegmentedFocusBorder(
             }
 
             /*
-             * Real miniature-light sockets stand a little proud of the cord.
-             * Add all stems to the same cached cable path so they cost no extra
-             * per-bulb draw calls. The final stem ends at the final bulb, making
-             * that bulb the visibly terminated free end of the strand.
+             * The powered end is the opposite end of the open strand. From the
+             * last anchor it keeps moving naturally toward the bottom-right
+             * corner while easing outward toward the physical edge. It passes
+             * the card edge by only a tiny amount and stops immediately before
+             * the rounded corner, which makes it read as the cord slipping
+             * behind the poster instead of making a 90-degree turn.
              */
-            mountedBulbCenters.forEachIndexed { index, center ->
+            val powerAnchor = wireAnchors[bulbCount - 1]
+            val cornerStartY = bottom - radius
+            val powerOverhangPx = 1.55.dp.toPx()
+            val powerEndY =
+                (cornerStartY - 0.45.dp.toPx())
+                    .coerceAtLeast(powerAnchor.y)
+            val powerEnd =
+                Offset(
+                    size.width + powerOverhangPx,
+                    powerEndY
+                )
+            val powerControl =
+                Offset(
+                    powerAnchor.x +
+                        (powerEnd.x - powerAnchor.x) * 0.18f,
+                    powerAnchor.y +
+                        (powerEnd.y - powerAnchor.y) * 0.68f
+                )
+
+            cablePath.quadraticBezierTo(
+                powerControl.x,
+                powerControl.y,
+                powerEnd.x,
+                powerEnd.y
+            )
+            wireHighlightPath.quadraticBezierTo(
+                powerControl.x,
+                powerControl.y,
+                powerEnd.x,
+                powerEnd.y
+            )
+
+            /*
+             * Every non-terminal bulb still mounts on its short socket stem.
+             * Index 0 is intentionally skipped because the main cable already
+             * ends directly inside that bulb rather than continuing past it.
+             */
+            for (index in 1 until bulbCount) {
+                val center = mountedBulbCenters[index]
                 val anchor = wireAnchors[index]
                 cablePath.moveTo(
                     anchor.x,
