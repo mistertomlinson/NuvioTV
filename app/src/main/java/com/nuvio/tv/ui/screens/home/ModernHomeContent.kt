@@ -4089,57 +4089,26 @@ fun ModernHomeContent(
             }
         }
         suspend fun runTransition(
-            initialTarget: String,
-            pollRetarget: (() -> String?)? = null
+            initialTarget: String
         ) {
             val originPlatform = catalogDisplayedPlatformId
+            if (initialTarget == originPlatform) {
+                displayedPlatformId = initialTarget
+                return
+            }
+
             val safeParallaxMax = screenWidthPx * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f
             val navDir = platformNavDirectionRef.get()
             val exitDir = if (navDir >= 0) -1f else 1f
             val enterDir = -exitDir
-            var preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(initialTarget)) }
+            val target = initialTarget
+            val preloadJob = transitionPreloadScope.launch {
+                preloadBackdrop(incomingBackdropUrl(target))
+            }
 
-            // QUIET GATE — no heavy work while presses are arriving, so the
-            // platform icon focus animation never fights recomposition. Waits
-            // for 150ms without a new press, conflating to the latest target.
-            // Tunables for the quiet gate.
-            val quietFirstMs = 250L      // single deliberate press
-            val quietEscalatedMs = 400L  // once scrubbing is detected
-            suspend fun awaitQuiet(from: String): String {
-                var latest = from
-                if (pollRetarget == null) return latest
-                var quietMs = quietFirstMs
-                var lastActivity = android.os.SystemClock.elapsedRealtime()
-                while (true) {
-                    kotlinx.coroutines.delay(50L)
-                    val next = pollRetarget()
-                    if (next != null) {
-                        if (next != latest) {
-                            preloadJob.cancel()
-                            preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(next)) }
-                            latest = next
-                        }
-                        lastActivity = android.os.SystemClock.elapsedRealtime()
-                        quietMs = quietEscalatedMs
-                        continue
-                    }
-                    if (android.os.SystemClock.elapsedRealtime() - lastActivity < quietMs) continue
-                    // Physical key still down (e.g. inside the 250ms pre-repeat
-                    // window of a hold): not quiet, keep waiting.
-                    if (isPlatformDpadHeld()) continue
-                    return latest
-                }
-            }
-            var target = awaitQuiet(initialTarget)
-            if (target == originPlatform) {
-                // Scrubbed back to the starting platform before any work began:
-                // nothing was captured or flipped — nothing to do.
-                return
-            }
             try {
-                // CAPTURE — record the outgoing hero backdrop + catalog block into
-                // ghost GraphicsLayers. Two frames so the draw pass that performs
-                // the recording has definitely run before we flip content.
+                // CAPTURE immediately on the first press. There is deliberately
+                // no quiet/debounce gate: one press starts one atomic transition.
                 ghostCaptureTick += 1
                 withFrameNanos {}
                 withFrameNanos {}
@@ -4151,9 +4120,9 @@ fun ModernHomeContent(
                 ghostVisible = true
                 isPlatformTransitioning = true
 
-                // FLIP UNDER GHOST — the ghost bitmaps replace the live draw, so
-                // the heavy recomposition of the incoming platform runs behind
-                // the static old platform: never at black, never during presses.
+                // FLIP UNDER GHOST — this transition owns its destination until
+                // the enter animation finishes. Later D-pad presses only update
+                // selectedPlatformId and the conflated wake-up channel below.
                 suspend fun flipTo(flipTarget: String) {
                     val incomingRows = uiState.catalogRows
                         .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == flipTarget }
@@ -4171,48 +4140,73 @@ fun ModernHomeContent(
                     withFrameNanos {}
                     withFrameNanos {}
                 }
+
                 flipTo(target)
                 preloadJob.join()
                 preloadBackdrop(latestHeroBackdrop)
 
-                // STRAGGLERS — presses that arrived during the flip re-enter the
-                // quiet gate, then re-flip invisibly under the ghost.
-                var straggler = pollRetarget?.invoke()
-                while (straggler != null) {
-                    val settled = awaitQuiet(straggler)
-                    if (settled != target) {
-                        preloadJob.cancel()
-                        preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(settled)) }
-                        flipTo(settled)
-                        target = settled
-                        preloadJob.join()
-                        preloadBackdrop(latestHeroBackdrop)
+                // EXIT — unchanged ghost/parallax geometry and timing.
+                coroutineScope {
+                    launch {
+                        ghostAlpha.animateTo(
+                            0f,
+                            tween(
+                                150,
+                                easing = androidx.compose.animation.core.FastOutLinearInEasing
+                            )
+                        )
                     }
-                    straggler = pollRetarget?.invoke()
+                    launch {
+                        ghostOffset.animateTo(
+                            exitDir * catalogSlideTravelPx,
+                            tween(
+                                150,
+                                easing = androidx.compose.animation.core.FastOutLinearInEasing
+                            )
+                        )
+                    }
+                    launch {
+                        ghostParallax.animateTo(
+                            exitDir * safeParallaxMax,
+                            tween(
+                                150,
+                                easing = androidx.compose.animation.core.FastOutLinearInEasing
+                            )
+                        )
+                    }
                 }
+                ghostVisible = false
 
-                if (target == originPlatform) {
-                    // Scrubbed back after flipping away: restore the origin
-                    // content under the ghost, then drop the ghost with no
-                    // animation — visually nothing ever happened.
-                    flipTo(originPlatform)
-                    catalogSlideAlpha.snapTo(1f)
-                    catalogSlideOffset.snapTo(0f)
-                    backdropParallaxOffset.snapTo(0f)
-                } else {
-                    // EXIT — ghost slides and fades to black. All heavy work is
-                    // done, so the black that follows is only the swap (~1 frame).
-                    coroutineScope {
-                        launch { ghostAlpha.animateTo(0f, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                        launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                        launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                // ENTER — also uninterruptible. When this settles, the outer
+                // driver immediately compares against the CURRENT focused
+                // platform and starts another transition if focus moved.
+                coroutineScope {
+                    launch {
+                        catalogSlideAlpha.animateTo(
+                            1f,
+                            tween(
+                                250,
+                                easing = androidx.compose.animation.core.LinearEasing
+                            )
+                        )
                     }
-                    ghostVisible = false
-                    // ENTER — new content slides in decelerating to a stop.
-                    coroutineScope {
-                        launch { catalogSlideAlpha.animateTo(1f, tween(250, easing = androidx.compose.animation.core.LinearEasing)) }
-                        launch { catalogSlideOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
-                        launch { backdropParallaxOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
+                    launch {
+                        catalogSlideOffset.animateTo(
+                            0f,
+                            tween(
+                                330,
+                                easing = androidx.compose.animation.core.LinearOutSlowInEasing
+                            )
+                        )
+                    }
+                    launch {
+                        backdropParallaxOffset.animateTo(
+                            0f,
+                            tween(
+                                330,
+                                easing = androidx.compose.animation.core.LinearOutSlowInEasing
+                            )
+                        )
                     }
                 }
             } finally {
@@ -4221,8 +4215,13 @@ fun ModernHomeContent(
                 catalogGhostBitmap = null
                 isPlatformTransitioning = false
             }
-            // Now that the screen is fully visible, sync heroItem to the new platform's content
-            val currentRow = latestCarouselRows.firstOrNull { it.key == latestActiveRow?.key } ?: latestActiveRow
+
+            // Now that the screen is fully visible, sync heroItem to the new
+            // platform's content before any chained transition begins.
+            val currentRow =
+                latestCarouselRows.firstOrNull {
+                    it.key == latestActiveRow?.key
+                } ?: latestActiveRow
             val currentIndex = latestActiveItemIndex
             val hero = currentRow?.items?.getOrNull(currentIndex)?.heroPreview
             if (hero != null) {
@@ -4230,27 +4229,53 @@ fun ModernHomeContent(
                 heroItemRowKey = currentRow.key
             }
         }
-        // Press handling — two modes, restored to original semantics:
-        // - Debounced (fast scroll OFF): every press waits for a 300ms quiet
-        //   window; one uninterruptible transition per settled destination.
-        // A single quiet-gated transition per settled destination: presses within
-        // the quiet window conflate to the latest target; runTransition owns the
-        // quiet gate, backdrop preload, and flip-under-ghost. (The former
-        // fast-scroll mode routed through the same runTransition and behaved
-        // identically once the quiet gate landed, so it was removed.)
-        val platformChannel = remember { kotlinx.coroutines.channels.Channel<String>(kotlinx.coroutines.channels.Channel.CONFLATED) }
+
+        /*
+         * Immediate + atomic platform transitions.
+         *
+         * The first D-pad change wakes this driver immediately. runTransition
+         * is intentionally uninterruptible; presses that arrive during it only
+         * update selectedPlatformId. As soon as ENTER settles, the current focus
+         * is read again and the next transition starts immediately if needed.
+         *
+         * Channel.CONFLATED is only a wake-up signal, so rapid input never builds
+         * a backlog of obsolete intermediate platforms.
+         */
+        val platformChannel = remember {
+            kotlinx.coroutines.channels.Channel<String>(
+                kotlinx.coroutines.channels.Channel.CONFLATED
+            )
+        }
         LaunchedEffect(selectedPlatformId) {
             platformChannel.trySend(selectedPlatformId)
         }
         LaunchedEffect(aggregatePlatformsEnabled) {
+            // Also wake on aggregate-mode changes even when platform focus itself
+            // did not change, avoiding a stale suspended receiver after restart.
+            platformChannel.trySend(latestSelectedPlatformId)
+
             while (true) {
-                val targetId = platformChannel.receive()
-                if (!aggregatePlatformsEnabled || targetId == catalogDisplayedPlatformId) {
+                platformChannel.receive()
+
+                if (!aggregatePlatformsEnabled) {
+                    val targetId = latestSelectedPlatformId
                     displayedPlatformId = targetId
                     catalogDisplayedPlatformId = targetId
                     continue
                 }
-                runTransition(targetId) { platformChannel.tryReceive().getOrNull() }
+
+                var targetId = latestSelectedPlatformId
+                while (
+                    aggregatePlatformsEnabled &&
+                        targetId != catalogDisplayedPlatformId
+                ) {
+                    runTransition(targetId)
+
+                    // This is the handoff point: do not wait for another quiet
+                    // period or another channel receive. Chase whatever platform
+                    // is focused at this exact moment until visual + focus match.
+                    targetId = latestSelectedPlatformId
+                }
             }
         }
 
