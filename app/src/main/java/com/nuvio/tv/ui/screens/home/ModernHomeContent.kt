@@ -3453,7 +3453,9 @@ fun ModernHomeContent(
                         // never see through one layer to the next. translationX
                         // (parallax motion) is unaffected.
                         alpha = 1f
-                        translationX = backdropParallaxOffset.value
+                        translationX =
+                            if (ghostVisible) 0f
+                            else backdropParallaxOffset.value
                     },
                 cinematicScale =
                     if (shouldOverscanCinematicBackdrop) 1.0f
@@ -3564,7 +3566,8 @@ fun ModernHomeContent(
                         .graphicsLayer {
                             alpha = 1f
                             translationX =
-                                backdropParallaxOffset.value
+                                if (ghostVisible) 0f
+                                else backdropParallaxOffset.value
                         },
                     cinematicScale =
                         if (shouldOverscanCinematicBackdrop) {
@@ -4134,7 +4137,7 @@ fun ModernHomeContent(
                         ghostOffset.animateTo(
                             exitDir * catalogSlideTravelPx,
                             tween(
-                                250,
+                                300,
                                 easing = androidx.compose.animation.core.FastOutLinearInEasing
                             )
                         )
@@ -4143,7 +4146,7 @@ fun ModernHomeContent(
                         ghostParallax.animateTo(
                             exitDir * safeParallaxMax,
                             tween(
-                                250,
+                                300,
                                 easing = androidx.compose.animation.core.FastOutLinearInEasing
                             )
                         )
@@ -4153,7 +4156,7 @@ fun ModernHomeContent(
                         ghostAlpha.animateTo(
                             0f,
                             tween(
-                                220,
+                                260,
                                 easing = androidx.compose.animation.core.FastOutLinearInEasing
                             )
                         )
@@ -4169,7 +4172,7 @@ fun ModernHomeContent(
                         catalogSlideAlpha.animateTo(
                             1f,
                             tween(
-                                250,
+                                300,
                                 easing = androidx.compose.animation.core.LinearEasing
                             )
                         )
@@ -4178,7 +4181,7 @@ fun ModernHomeContent(
                         catalogSlideOffset.animateTo(
                             0f,
                             tween(
-                                330,
+                                400,
                                 easing = androidx.compose.animation.core.LinearOutSlowInEasing
                             )
                         )
@@ -4187,7 +4190,7 @@ fun ModernHomeContent(
                         backdropParallaxOffset.animateTo(
                             0f,
                             tween(
-                                330,
+                                400,
                                 easing = androidx.compose.animation.core.LinearOutSlowInEasing
                             )
                         )
@@ -4439,7 +4442,9 @@ fun ModernHomeContent(
                 }
                 .graphicsLayer {
                     alpha = 1f
-                    translationX = catalogSlideOffset.value
+                    translationX =
+                        if (ghostVisible) 0f
+                        else catalogSlideOffset.value
                 }
         ) {
             HeroTitleBlock(
