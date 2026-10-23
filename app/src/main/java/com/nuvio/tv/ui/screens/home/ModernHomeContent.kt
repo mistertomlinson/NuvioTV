@@ -4102,7 +4102,7 @@ fun ModernHomeContent(
             val exitDir = if (navDir >= 0) -1f else 1f
             val enterDir = -exitDir
             val target = initialTarget
-            val preloadJob = transitionPreloadScope.launch {
+            transitionPreloadScope.launch {
                 preloadBackdrop(incomingBackdropUrl(target))
             }
 
@@ -4141,12 +4141,20 @@ fun ModernHomeContent(
                     withFrameNanos {}
                 }
 
-                flipTo(target)
-                preloadJob.join()
-                preloadBackdrop(latestHeroBackdrop)
-
-                // EXIT — unchanged ghost/parallax geometry and timing.
+                // EXIT begins as soon as the captured ghost is ready. The incoming
+                // platform flips/recomposes underneath it while the old screen is
+                // already moving, so image work can never hold visible motion.
                 coroutineScope {
+                    launch {
+                        flipTo(target)
+
+                        // flipTo waits through the incoming platform's first two
+                        // frames. Warm the exact resulting hero backdrop afterward,
+                        // but keep it detached from the transition timeline.
+                        transitionPreloadScope.launch {
+                            preloadBackdrop(latestHeroBackdrop)
+                        }
+                    }
                     launch {
                         ghostAlpha.animateTo(
                             0f,
