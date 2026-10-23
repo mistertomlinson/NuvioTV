@@ -1000,13 +1000,13 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                 /*
                  * Approved TV tuning:
                  *
-                 * Resting bulbs stay at 85% brightness. At full influence the
+                 * Resting bulbs stay at 75% brightness. At full influence the
                  * base sprite reaches 100%, then receives the same 38% cached
                  * glow boost used by the approved bright state.
                  */
                 val baseAlpha =
-                    0.85f +
-                        0.15f *
+                    0.75f +
+                        0.25f *
                             influence
 
                 val boostAlpha =

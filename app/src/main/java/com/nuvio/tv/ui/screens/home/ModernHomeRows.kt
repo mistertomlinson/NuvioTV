@@ -1762,7 +1762,9 @@ internal fun ModernRowSection(
                                                         !isNumbered &&
                                                             !useLandscapePosters &&
                                                             !perCatalogLandscape &&
-                                                            !isCwRow
+                                                            !isCwRow &&
+                                                            row.key !=
+                                                                HomeViewModel.MY_LIST_CATALOG_KEY
 
                                                     val targetPositionsPerSecond =
                                                         if (
