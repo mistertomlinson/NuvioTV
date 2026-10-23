@@ -4107,8 +4107,14 @@ fun ModernHomeContent(
             }
 
             try {
-                // CAPTURE immediately on the first press. There is deliberately
-                // no quiet/debounce gate: one press starts one atomic transition.
+                // Give the platform selector one frame to begin its own focus
+                // animation before the heavier ghost recording work starts. This
+                // is a frame-priority handoff, not a navigation debounce.
+                withFrameNanos {}
+
+                // CAPTURE immediately after that first selector frame. There is
+                // deliberately no quiet/debounce gate: one press still starts one
+                // atomic transition.
                 ghostCaptureTick += 1
                 withFrameNanos {}
                 withFrameNanos {}
@@ -4141,34 +4147,28 @@ fun ModernHomeContent(
                     withFrameNanos {}
                 }
 
-                // EXIT begins as soon as the captured ghost is ready. The incoming
-                // platform flips/recomposes underneath it while the old screen is
-                // already moving, so image work can never hold visible motion.
+                // EXIT motion begins as soon as the captured ghost is ready. The
+                // destination flips underneath it concurrently, but opacity waits
+                // only for the destination's two invisible prep frames so the old
+                // page never fades toward an unprepared screen.
+                val incomingFirstFramesReady =
+                    kotlinx.coroutines.CompletableDeferred<Unit>()
                 coroutineScope {
                     launch {
                         flipTo(target)
+                        incomingFirstFramesReady.complete(Unit)
 
-                        // flipTo waits through the incoming platform's first two
-                        // frames. Warm the exact resulting hero backdrop afterward,
-                        // but keep it detached from the transition timeline.
+                        // Warm the exact resulting hero backdrop afterward, but
+                        // keep image loading detached from the transition timeline.
                         transitionPreloadScope.launch {
                             preloadBackdrop(latestHeroBackdrop)
                         }
                     }
                     launch {
-                        ghostAlpha.animateTo(
-                            0f,
-                            tween(
-                                150,
-                                easing = androidx.compose.animation.core.FastOutLinearInEasing
-                            )
-                        )
-                    }
-                    launch {
                         ghostOffset.animateTo(
                             exitDir * catalogSlideTravelPx,
                             tween(
-                                150,
+                                250,
                                 easing = androidx.compose.animation.core.FastOutLinearInEasing
                             )
                         )
@@ -4177,7 +4177,17 @@ fun ModernHomeContent(
                         ghostParallax.animateTo(
                             exitDir * safeParallaxMax,
                             tween(
-                                150,
+                                250,
+                                easing = androidx.compose.animation.core.FastOutLinearInEasing
+                            )
+                        )
+                    }
+                    launch {
+                        incomingFirstFramesReady.await()
+                        ghostAlpha.animateTo(
+                            0f,
+                            tween(
+                                220,
                                 easing = androidx.compose.animation.core.FastOutLinearInEasing
                             )
                         )
