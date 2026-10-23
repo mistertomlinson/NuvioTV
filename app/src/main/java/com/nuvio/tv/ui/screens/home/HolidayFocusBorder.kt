@@ -12,9 +12,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -47,6 +53,16 @@ private const val HOLIDAY_BULB_CORE_HUE_TINT = 0.12f
 private const val HOLIDAY_BULB_PULSE_STEP_MS = 50L
 private const val HOLIDAY_BULB_COLOR_PHASE_MS = 900L
 private const val HOLIDAY_BULB_BOOST_ALPHA = 0.38f
+
+/*
+ * Real-string wire palette. The broad almost-black pass provides the soft
+ * self-shadow of bundled conductors, the narrower evergreen pass supplies the
+ * plastic insulation, and the broken highlight is intentionally faint so it
+ * reads as a twist/specular ridge rather than decorative striping.
+ */
+private val HOLIDAY_WIRE_SHADOW = Color(0xD9000905)
+private val HOLIDAY_WIRE_BASE = Color(0xFF0D3A1D)
+private val HOLIDAY_WIRE_HIGHLIGHT = Color(0x98547F50)
 
 /*
  * RGB values stay saturated outside the hot center so the bloom still reads
@@ -601,10 +617,352 @@ internal fun Modifier.holidaySegmentedFocusBorder(
                 center
             }
 
+        /*
+         * Build one believable miniature light cord and cache all of its
+         * geometry with the card. Nothing in this section depends on the bulb
+         * pulse phase, so the 20fps brightness animation never regenerates the
+         * wire, its random bends, or its socket stems.
+         *
+         * The cable rides just inside the bulb centers instead of tracing a
+         * mathematically perfect rounded rectangle. Each gap gets a tiny,
+         * deterministic quadratic bend. That gives the strand the irregular
+         * tension/sag of real insulated wire without allowing obvious waves or
+         * corner gaps. Focus changes therefore never reshuffle the strand.
+         */
+        /*
+         * Keep one canonical thin strand width for every card geometry. The
+         * first pass looked best once the trailer card expanded, so use that
+         * lighter visual weight everywhere rather than letting compact posters
+         * read as a heavy green frame.
+         */
+        val wireShadowWidthPx = 1.82.dp.toPx()
+        val wireWidthPx = 1.10.dp.toPx()
+        val wireHighlightWidthPx = 0.30.dp.toPx()
+        val bulbMountOffsetPx = 2.05.dp.toPx()
+        val wireRadialJitterPx = 0.42.dp.toPx()
+        val wireMaxBendPx = 1.15.dp.toPx()
+        val twistDashOnPx = 1.70.dp.toPx()
+        val twistDashOffPx = 2.35.dp.toPx()
+        val cardCenter =
+            Offset(
+                (left + right) * 0.5f,
+                (top + bottom) * 0.5f
+            )
+
+        var wireSeed =
+            spacingSeed xor
+                0x6A09E667L xor
+                (bulbCount.toLong() shl 14)
+
+        fun nextWireNoise(): Float {
+            wireSeed =
+                (
+                    wireSeed *
+                        1103515245L +
+                        12345L
+                    ) and
+                    0x7FFFFFFFL
+
+            return (
+                wireSeed and
+                    0x00FFFFFFL
+                ).toFloat() /
+                0x01000000L
+        }
+
+        fun inwardUnitNormal(index: Int): Offset {
+            val center = bulbCenters[index]
+            val previous =
+                bulbCenters[
+                    (index - 1 + bulbCount) %
+                        bulbCount
+                ]
+            val next =
+                bulbCenters[
+                    (index + 1) %
+                        bulbCount
+                ]
+
+            val tangentX = next.x - previous.x
+            val tangentY = next.y - previous.y
+            val tangentLength =
+                sqrt(
+                    tangentX * tangentX +
+                        tangentY * tangentY
+                )
+
+            var normalX: Float
+            var normalY: Float
+
+            if (tangentLength > 0.001f) {
+                normalX = -tangentY / tangentLength
+                normalY = tangentX / tangentLength
+            } else {
+                val toCenterX = cardCenter.x - center.x
+                val toCenterY = cardCenter.y - center.y
+                val toCenterLength =
+                    sqrt(
+                        toCenterX * toCenterX +
+                            toCenterY * toCenterY
+                    ).coerceAtLeast(0.001f)
+
+                normalX = toCenterX / toCenterLength
+                normalY = toCenterY / toCenterLength
+            }
+
+            val toCenterX = cardCenter.x - center.x
+            val toCenterY = cardCenter.y - center.y
+
+            if (
+                normalX * toCenterX +
+                    normalY * toCenterY < 0f
+            ) {
+                normalX = -normalX
+                normalY = -normalY
+            }
+
+            return Offset(normalX, normalY)
+        }
+
+        val wireNormals =
+            Array(bulbCount) { index ->
+                inwardUnitNormal(index)
+            }
+
+        /*
+         * The cable now straddles the original perimeter instead of living
+         * permanently inside every bulb. This lets real-looking sockets mount
+         * bulbs on either side of the strand.
+         *
+         * Side selection is deterministic and deliberately constrained to no
+         * more than two bulbs in a row on the same side. That avoids both a
+         * mechanical alternating pattern and ugly random clusters. Geometry is
+         * cached, so focus/pulse updates never reshuffle the bulbs.
+         */
+        val bulbSideSigns = IntArray(bulbCount)
+        var previousSide = 0
+        var sameSideRun = 0
+
+        for (index in 0 until bulbCount) {
+            var side =
+                if (nextWireNoise() < 0.5f) {
+                    -1
+                } else {
+                    1
+                }
+
+            if (
+                side == previousSide &&
+                sameSideRun >= 2
+            ) {
+                side = -side
+            }
+
+            bulbSideSigns[index] = side
+
+            if (side == previousSide) {
+                sameSideRun += 1
+            } else {
+                previousSide = side
+                sameSideRun = 1
+            }
+        }
+
+        val wireAnchors =
+            Array(bulbCount) { index ->
+                val center = bulbCenters[index]
+                val inwardNormal = wireNormals[index]
+                val radialJitter =
+                    (nextWireNoise() - 0.5f) *
+                        2f *
+                        wireRadialJitterPx
+
+                Offset(
+                    center.x +
+                        inwardNormal.x *
+                        radialJitter,
+                    center.y +
+                        inwardNormal.y *
+                        radialJitter
+                )
+            }
+
+        val mountedBulbCenters =
+            Array(bulbCount) { index ->
+                val anchor = wireAnchors[index]
+                val inwardNormal = wireNormals[index]
+                val localMountOffset =
+                    bulbMountOffsetPx *
+                        (
+                            0.84f +
+                                nextWireNoise() *
+                                0.32f
+                            )
+                val signedOffset =
+                    localMountOffset *
+                        bulbSideSigns[index]
+
+                Offset(
+                    anchor.x +
+                        inwardNormal.x *
+                        signedOffset,
+                    anchor.y +
+                        inwardNormal.y *
+                        signedOffset
+                )
+            }
+
+        val cablePath = Path()
+        val wireHighlightPath = Path()
+
+        if (bulbCount > 0) {
+            cablePath.moveTo(
+                wireAnchors[0].x,
+                wireAnchors[0].y
+            )
+            wireHighlightPath.moveTo(
+                wireAnchors[0].x,
+                wireAnchors[0].y
+            )
+
+            for (index in 0 until bulbCount) {
+                val start = wireAnchors[index]
+                val end =
+                    wireAnchors[
+                        (index + 1) %
+                            bulbCount
+                    ]
+                val dx = end.x - start.x
+                val dy = end.y - start.y
+                val segmentLength =
+                    sqrt(dx * dx + dy * dy)
+
+                if (segmentLength <= 0.001f) {
+                    cablePath.lineTo(end.x, end.y)
+                    wireHighlightPath.lineTo(
+                        end.x,
+                        end.y
+                    )
+                    continue
+                }
+
+                val normalX = -dy / segmentLength
+                val normalY = dx / segmentLength
+
+                /*
+                 * At normal 11dp bulb spacing this tops out around one dp of
+                 * lateral deviation. Enough to feel hand-strung, not enough to
+                 * read as a decorative squiggle from couch distance.
+                 */
+                val bendLimit =
+                    minOf(
+                        wireMaxBendPx,
+                        segmentLength * 0.105f
+                    )
+                val bend =
+                    (
+                        nextWireNoise() -
+                            0.5f
+                        ) *
+                        2f *
+                        bendLimit
+
+                val controlX =
+                    (start.x + end.x) *
+                        0.5f +
+                        normalX * bend
+                val controlY =
+                    (start.y + end.y) *
+                        0.5f +
+                        normalY * bend
+
+                cablePath.quadraticBezierTo(
+                    controlX,
+                    controlY,
+                    end.x,
+                    end.y
+                )
+                wireHighlightPath
+                    .quadraticBezierTo(
+                        controlX,
+                        controlY,
+                        end.x,
+                        end.y
+                    )
+            }
+
+            /*
+             * Real miniature-light sockets stand a little proud of the cord.
+             * Add all stems to the same cached cable path so they cost no extra
+             * per-bulb draw calls. The glowing sprites are rendered afterward
+             * and naturally hide each stem/cord junction.
+             */
+            mountedBulbCenters.forEachIndexed { index, center ->
+                val anchor = wireAnchors[index]
+                cablePath.moveTo(
+                    anchor.x,
+                    anchor.y
+                )
+                cablePath.lineTo(
+                    center.x,
+                    center.y
+                )
+            }
+        }
+
+        val wireShadowStyle =
+            Stroke(
+                width = wireShadowWidthPx,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        val wireStyle =
+            Stroke(
+                width = wireWidthPx,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round
+            )
+        val wireHighlightStyle =
+            Stroke(
+                width = wireHighlightWidthPx,
+                cap = StrokeCap.Round,
+                join = StrokeJoin.Round,
+                pathEffect =
+                    PathEffect.dashPathEffect(
+                        floatArrayOf(
+                            twistDashOnPx,
+                            twistDashOffPx
+                        )
+                    )
+            )
+
         onDrawWithContent {
             drawContent()
 
-            bulbCenters.forEachIndexed { index, center ->
+            /*
+             * Three path draws total regardless of bulb count:
+             * shadow/bundle depth -> green insulation -> broken highlight.
+             * The highlight's short repeating glints suggest the alternating
+             * exposed ridge of twisted conductors without animating or drawing
+             * a costly literal helix.
+             */
+            drawPath(
+                path = cablePath,
+                color = HOLIDAY_WIRE_SHADOW,
+                style = wireShadowStyle
+            )
+            drawPath(
+                path = cablePath,
+                color = HOLIDAY_WIRE_BASE,
+                style = wireStyle
+            )
+            drawPath(
+                path = wireHighlightPath,
+                color = HOLIDAY_WIRE_HIGHLIGHT,
+                style = wireHighlightStyle
+            )
+
+            mountedBulbCenters.forEachIndexed { index, center ->
                 val colorIndex =
                     index % HOLIDAY_BULB_COLOR_COUNT
 
