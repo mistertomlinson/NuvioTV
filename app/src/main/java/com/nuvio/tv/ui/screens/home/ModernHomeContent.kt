@@ -3354,8 +3354,6 @@ fun ModernHomeContent(
         val heroGhostCapturedTick = remember { java.util.concurrent.atomic.AtomicInteger(0) }
         val catalogGhostCapturedTick = remember { java.util.concurrent.atomic.AtomicInteger(0) }
         var ghostVisible by remember { mutableStateOf(false) }
-        var heroGhostBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
-        var catalogGhostBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
         val ghostAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
         val ghostOffset = remember { androidx.compose.animation.core.Animatable(0f) }
         val ghostParallax = remember { androidx.compose.animation.core.Animatable(0f) }
@@ -3435,25 +3433,17 @@ fun ModernHomeContent(
                         // While the ghost is showing, it fully REPLACES the live content
                         // in this node — drawing both stacked double-composites any
                         // semi-transparent pixels for a frame (visible brightness pop).
-                        if (!(ghostVisible && heroGhostBitmap != null)) drawContent()
+                        if (!ghostVisible) drawContent()
                         if (ghostCaptureTick != heroGhostCapturedTick.get()) {
                             heroGhostLayer.record { this@drawWithContent.drawContent() }
                             heroGhostCapturedTick.set(ghostCaptureTick)
                         }
-                        val hBmp = heroGhostBitmap
-                        if (ghostVisible && hBmp != null) {
-                            // Full alpha: fading each ghost layer independently
-                            // weakens the scrim's dimming mid-fade (a*g instead of g)
-                            // and brightens the gradient region. Instead both ghosts
-                            // stay pixel-correct and a black overlay in the catalog
-                            // node (topmost) performs the fade-to-black.
-                            drawImage(
-                                image = hBmp,
-                                dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostParallax.value), 0),
-                                dstSize = androidx.compose.ui.unit.IntSize(hBmp.width, hBmp.height),
-                                alpha = 1f,
-                                filterQuality = androidx.compose.ui.graphics.FilterQuality.None
-                            )
+                        if (ghostVisible) {
+                            // Keep the captured outgoing hero entirely on the GPU.
+                            // Avoid GraphicsLayer.toImageBitmap(), which forces a
+                            // synchronous GPU readback on the navigation path.
+                            heroGhostLayer.translationX = ghostParallax.value
+                            drawLayer(heroGhostLayer)
                         }
                     }
                     .graphicsLayer {
@@ -3549,12 +3539,7 @@ fun ModernHomeContent(
                         )
                         .fillMaxHeight()
                         .drawWithContent {
-                            if (
-                                !(
-                                    ghostVisible &&
-                                        heroGhostBitmap != null
-                                )
-                            ) {
+                            if (!ghostVisible) {
                                 drawContent()
                             }
 
@@ -3570,30 +3555,10 @@ fun ModernHomeContent(
                                 )
                             }
 
-                            val hBmp = heroGhostBitmap
-
-                            if (
-                                ghostVisible &&
-                                    hBmp != null
-                            ) {
-                                drawImage(
-                                    image = hBmp,
-                                    dstOffset =
-                                        androidx.compose.ui.unit.IntOffset(
-                                            Math.round(
-                                                ghostParallax.value
-                                            ),
-                                            0
-                                        ),
-                                    dstSize =
-                                        androidx.compose.ui.unit.IntSize(
-                                            hBmp.width,
-                                            hBmp.height
-                                        ),
-                                    alpha = 1f,
-                                    filterQuality =
-                                        androidx.compose.ui.graphics.FilterQuality.None
-                                )
+                            if (ghostVisible) {
+                                heroGhostLayer.translationX =
+                                    ghostParallax.value
+                                drawLayer(heroGhostLayer)
                             }
                         }
                         .graphicsLayer {
@@ -4118,8 +4083,9 @@ fun ModernHomeContent(
                 ghostCaptureTick += 1
                 withFrameNanos {}
                 withFrameNanos {}
-                heroGhostBitmap = heroGhostLayer.toImageBitmap()
-                catalogGhostBitmap = catalogGhostLayer.toImageBitmap()
+                // The two recorded GraphicsLayers are now the snapshots. Do not
+                // read them back into ImageBitmaps; direct drawLayer() keeps this
+                // handoff GPU-only and avoids blocking the selector animation.
                 ghostAlpha.snapTo(1f)
                 ghostOffset.snapTo(0f)
                 ghostParallax.snapTo(0f)
@@ -4229,8 +4195,6 @@ fun ModernHomeContent(
                 }
             } finally {
                 ghostVisible = false
-                heroGhostBitmap = null
-                catalogGhostBitmap = null
                 isPlatformTransitioning = false
             }
 
@@ -4438,20 +4402,16 @@ fun ModernHomeContent(
                     }
                 }
                 .drawWithContent {
-                    if (!(ghostVisible && catalogGhostBitmap != null)) drawContent()
+                    if (!ghostVisible) drawContent()
                     if (ghostCaptureTick != catalogGhostCapturedTick.get()) {
                         catalogGhostLayer.record { this@drawWithContent.drawContent() }
                         catalogGhostCapturedTick.set(ghostCaptureTick)
                     }
-                    val cBmp = catalogGhostBitmap
-                    if (ghostVisible && cBmp != null) {
-                        drawImage(
-                            image = cBmp,
-                            dstOffset = androidx.compose.ui.unit.IntOffset(Math.round(ghostOffset.value), 0),
-                            dstSize = androidx.compose.ui.unit.IntSize(cBmp.width, cBmp.height),
-                            alpha = 1f,
-                            filterQuality = androidx.compose.ui.graphics.FilterQuality.None
-                        )
+                    if (ghostVisible) {
+                        // Draw the recorded catalog layer directly. This preserves
+                        // the exact outgoing pixels without a GPU -> CPU bitmap copy.
+                        catalogGhostLayer.translationX = ghostOffset.value
+                        drawLayer(catalogGhostLayer)
                         // Fade-to-black overlay: (1-f) * correct composite, no
                         // mid-fade brightening. Icon row sits above this node.
                         val fade = 1f - ghostAlpha.value
