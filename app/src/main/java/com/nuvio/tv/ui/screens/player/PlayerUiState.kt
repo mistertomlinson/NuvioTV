@@ -155,17 +155,32 @@ data class PlayerUiState(
     val showPlayerBlackout: Boolean = false,
     val pendingRating: Int? = null,
     val ratingOverlayDestination: RatingOverlayDestination? = null,
-    val creditRatingPromptHandled: Boolean = false
+    val creditRatingPromptHandled: Boolean = false,
+    val naturalEndRatingCheckPending: Boolean = false,
+    val postPlayRevealPending: Boolean = false
 ) {
     val postPlayRecommendation: PostPlayRecommendation?
         get() = postPlayRecommendations.getOrNull(postPlayRecommendationIndex)
 
     val blocksNaturalCompletion: Boolean
-        get() = isPostPlayRecommendationVisible ||
-            isPostPlayRecommendationLoading ||
-            creditTiming.status == CreditTimingStatus.RUNNING ||
-            showRatingOverlay ||
-            ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
+        get() =
+            isPostPlayRecommendationVisible ||
+                showRatingOverlay ||
+                ratingOverlayDestination == RatingOverlayDestination.POST_PLAY ||
+                naturalEndRatingCheckPending ||
+                postPlayRevealPending ||
+                (
+                    playbackEnded &&
+                        manualEndActionRequested &&
+                        isPostPlayRecommendationLoading
+                    ) ||
+                (
+                    !playbackEnded &&
+                        (
+                            isPostPlayRecommendationLoading ||
+                                creditTiming.status == CreditTimingStatus.RUNNING
+                            )
+                    )
 
     val blocksEndActionForRating: Boolean
         get() = ratingOverlayDestination == RatingOverlayDestination.POST_PLAY

@@ -13,6 +13,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val AUDIO_AMPLIFICATION_MIN_DB = 0
 internal const val AUDIO_AMPLIFICATION_MAX_DB = 10
@@ -1140,43 +1141,59 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
                         }
                     }
                 }
+
+                /*
+                 * Rating's icons/text have already completed their designed
+                 * reverse-stagger. Keep the existing full-screen black cover
+                 * opaque while More Like This takes ownership underneath.
+                 */
                 _uiState.update {
                     it.copy(
                         showRatingOverlay = false,
-                        showPlayerBlackout = false,
-                        pendingRating = null
+                        showPlayerBlackout = true,
+                        pendingRating = null,
+                        ratingOverlayDestination = null,
+                        creditRatingPromptHandled = true,
+                        postPlayRevealPending = true
                     )
                 }
+
                 ratingTransitionJob?.cancel()
                 ratingTransitionJob = scope.launch {
-                    delay(750)
+                    preparePostPlayRecommendationsForManualEndAction()
 
-                    if (
-                        _uiState.value.ratingOverlayDestination !=
-                            RatingOverlayDestination.POST_PLAY
-                    ) {
-                        return@launch
+                    /*
+                     * Recommendations are normally preloaded long before EOF.
+                     * Give a slower completion at most the same 750ms budget the
+                     * old implementation spent waiting before post-play. Never
+                     * turn this visual polish into another black-screen hang.
+                     */
+                    val postPlayReady =
+                        withTimeoutOrNull(750L) {
+                            while (isActive) {
+                                if (_uiState.value.isPostPlayRecommendationVisible) {
+                                    return@withTimeoutOrNull true
+                                }
+                                delay(16L)
+                            }
+                            false
+                        } == true
+
+                    if (postPlayReady) {
+                        // Commit at least one frame of More Like This beneath black.
+                        delay(32L)
                     }
 
-                    _uiState.update {
-                        if (
-                            it.ratingOverlayDestination !=
-                                RatingOverlayDestination.POST_PLAY
-                        ) {
-                            it
+                    _uiState.update { current ->
+                        if (!current.postPlayRevealPending) {
+                            current
                         } else {
-                            it.copy(
-                                ratingOverlayDestination = null,
-                                creditRatingPromptHandled = true
+                            current.copy(
+                                showPlayerBlackout = false,
+                                postPlayRevealPending = false
                             )
                         }
                     }
-
-                    // Rating submission and Dismiss both complete the rating
-                    // step. If this prompt belongs to the end-of-playback flow,
-                    // continue directly into post-play instead of exposing the
-                    // paused player and requiring a second Back press.
-                    preparePostPlayRecommendationsForManualEndAction()
                 }
             } else if (rating != null && media != null) {
                 scope.launch {

@@ -23,6 +23,22 @@ import kotlinx.coroutines.withTimeoutOrNull
 private const val CREDIT_JOB_POLL_INTERVAL_MS = 5_000L
 private const val MOVIE_FALLBACK_THRESHOLD = 0.95
 
+/**
+ * A completed analyzer result does not require a final-credits timestamp.
+ *
+ * Some titles end inside their final post-credit scene, so there is no later
+ * block of final credits to timestamp. Such a result is still exact analyzer
+ * data when it contains another usable timing signal.
+ */
+internal fun hasUsableCompletedCreditAnalysisTiming(
+    creditsStartMs: Long?,
+    finalCreditsStartMs: Long?,
+    postCreditSceneCount: Int
+): Boolean =
+    creditsStartMs?.takeIf { it >= 0L } != null ||
+        finalCreditsStartMs?.takeIf { it >= 0L } != null ||
+        postCreditSceneCount > 0
+
 internal fun PlayerRuntimeController.evaluateCreditTiming(
     positionMs: Long,
     durationMs: Long
@@ -206,13 +222,14 @@ private fun PlayerRuntimeController.applyCreditAnalyzerResult(
 ) {
     if (creditAnalysisIdentity != expectedIdentity) return
     val result = job.result
-    if (job.status != "complete" || result?.detected != true || result.finalCreditsStartMs == null) {
+    if (job.status != "complete" || result?.detected != true) {
         if (!job.error.isNullOrBlank()) {
             Log.w(PlayerRuntimeController.TAG, "Credit analyzer failed: ${job.error}")
         }
         useCreditTimingFallback()
         return
     }
+
     val postCreditScenes = result.postCreditScenes
         .asSequence()
         .filter { it.startMs >= 0L && it.endMs > it.startMs }
@@ -225,12 +242,37 @@ private fun PlayerRuntimeController.applyCreditAnalyzerResult(
         }
         .toList()
 
+    val creditsStartMs = result.creditsStartMs?.takeIf { it >= 0L }
+    val finalCreditsStartMs = result.finalCreditsStartMs?.takeIf { it >= 0L }
+
+    if (!hasUsableCompletedCreditAnalysisTiming(
+            creditsStartMs = creditsStartMs,
+            finalCreditsStartMs = finalCreditsStartMs,
+            postCreditSceneCount = postCreditScenes.size
+        )
+    ) {
+        Log.w(
+            PlayerRuntimeController.TAG,
+            "Credit analyzer completed without usable timing; using fallback"
+        )
+        useCreditTimingFallback()
+        return
+    }
+
+    Log.i(
+        PlayerRuntimeController.TAG,
+        "Credit analyzer exact result ready: " +
+            "creditsStartMs=$creditsStartMs, " +
+            "finalCreditsStartMs=$finalCreditsStartMs, " +
+            "postCreditScenes=${postCreditScenes.size}"
+    )
+
     _uiState.update {
         it.copy(
             creditTiming = CreditTimingUiState(
                 status = CreditTimingStatus.COMPLETE,
-                creditsStartMs = result.creditsStartMs,
-                finalCreditsStartMs = result.finalCreditsStartMs,
+                creditsStartMs = creditsStartMs,
+                finalCreditsStartMs = finalCreditsStartMs,
                 hasPostCreditScenes = postCreditScenes.isNotEmpty(),
                 postCreditScenes = postCreditScenes,
                 confidence = result.confidence
@@ -288,7 +330,9 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
             showPlayerBlackout = false,
             pendingRating = null,
             ratingOverlayDestination = null,
-            creditRatingPromptHandled = false
+            creditRatingPromptHandled = false,
+            naturalEndRatingCheckPending = false,
+            postPlayRevealPending = false
         )
     }
 }
@@ -389,6 +433,12 @@ internal fun PlayerRuntimeController.preparePostPlayRecommendationsForManualEndA
                         showNextEpisodeCard = false
                     )
                 }
+            }
+            if (
+                _uiState.value.playbackEnded &&
+                _uiState.value.isPostPlayRecommendationVisible
+            ) {
+                schedulePostPlayTrailerAfterPlaybackEnded()
             }
         }
         return

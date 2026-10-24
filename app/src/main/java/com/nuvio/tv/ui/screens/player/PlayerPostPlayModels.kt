@@ -7,7 +7,9 @@ import com.nuvio.tv.domain.model.Video
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
 internal const val MANUAL_END_ACTION_THRESHOLD = 0.85
 internal const val CREDIT_COMPLETION_EXIT_GRACE_MS = 2 * 60_000L
-internal const val POST_CREDIT_SCENE_CONTINUITY_GAP_MS = 10_000L
+internal const val SKIP_CREDITS_TIMEOUT_MS = 10_000L
+internal const val POST_CREDIT_SCENE_CONTINUITY_GAP_MS =
+    SKIP_CREDITS_TIMEOUT_MS
 
 enum class CreditTimingStatus {
     NOT_STARTED,
@@ -37,7 +39,13 @@ data class CreditTimingUiState(
     val confidence: Double? = null
 ) {
     val isAuthoritative: Boolean
-        get() = status == CreditTimingStatus.COMPLETE && finalCreditsStartMs != null
+        get() =
+            status == CreditTimingStatus.COMPLETE &&
+                (
+                    creditsStartMs != null ||
+                        finalCreditsStartMs != null ||
+                        postCreditScenes.isNotEmpty()
+                    )
 }
 
 
@@ -45,15 +53,17 @@ data class CreditTimingUiState(
  * Returns the next post-credit scene that should be offered as a Skip Credits
  * target at the current playback position.
  *
- * The first post-credit scene always gets a skip opportunity once credits
- * begin. Later scenes are treated as part of the same continuous post-credit
- * cluster when they begin within 10 seconds of the previous scene ending.
+ * A button is useful only when the upcoming scene is farther away than the
+ * button's own countdown lifetime. Gaps at or below that threshold flow
+ * directly into the scene with no transient Skip Credits prompt. Later scenes
+ * also preserve the existing continuity-gap rule.
  */
 internal fun postCreditSkipTarget(
     timing: CreditTimingUiState,
     positionMs: Long,
     skippedSceneStarts: Set<Long> = emptySet(),
-    continuityGapMs: Long = POST_CREDIT_SCENE_CONTINUITY_GAP_MS
+    continuityGapMs: Long = POST_CREDIT_SCENE_CONTINUITY_GAP_MS,
+    minimumOfferLeadTimeMs: Long = SKIP_CREDITS_TIMEOUT_MS
 ): PostCreditSceneTiming? {
     if (positionMs < 0L) return null
 
@@ -83,17 +93,26 @@ internal fun postCreditSkipTarget(
             return@forEachIndexed
         }
 
+        val minimumLeadMs = minimumOfferLeadTimeMs.coerceAtLeast(0L)
+        val remainingMs = scene.startMs - positionMs
+
         if (index == 0) {
             val creditsStartMs = timing.creditsStartMs ?: return null
-            return scene.takeIf { positionMs >= creditsStartMs }
+            val structuralGapMs = scene.startMs - creditsStartMs
+            return scene.takeIf {
+                positionMs >= creditsStartMs &&
+                    structuralGapMs > minimumLeadMs &&
+                    remainingMs > minimumLeadMs
+            }
         }
 
         val previousScene = scenes[index - 1]
         if (positionMs < previousScene.endMs) return null
 
-        val gapMs = scene.startMs - previousScene.endMs
+        val structuralGapMs = scene.startMs - previousScene.endMs
         return scene.takeIf {
-            gapMs > continuityGapMs.coerceAtLeast(0L)
+            structuralGapMs > continuityGapMs.coerceAtLeast(0L) &&
+                remainingMs > minimumLeadMs
         }
     }
 
@@ -221,7 +240,7 @@ internal fun isRatingPromptEligibleContent(
     episodes: List<Video>
 ): Boolean {
     return when (contentType?.trim()?.lowercase()) {
-        "movie" -> true
+        "movie", "film" -> true
         "series", "tv" -> {
             if (currentSeason == null || currentEpisode == null || episodes.isEmpty()) {
                 false
@@ -271,6 +290,34 @@ internal fun shouldShowCreditRatingPrompt(
     val finalCreditsStartMs = state.creditTiming.finalCreditsStartMs ?: return false
     return positionMs >= finalCreditsStartMs
 }
+
+/**
+ * Returns whether terminal EOF should reserve the player for a rating check.
+ *
+ * Provider availability is deliberately NOT part of this pure decision. The
+ * provider is rechecked at EOF while this reservation blocks natural teardown,
+ * preventing More Like This (or Home) from winning a one-frame race.
+ */
+internal fun shouldReserveNaturalEndRatingPrompt(
+    state: PlayerUiState
+): Boolean {
+    if (!state.playbackEnded || state.error != null) return false
+    if (state.creditRatingPromptHandled) return false
+    if (state.ratingOverlayDestination != null || state.showRatingOverlay) return false
+
+    return isRatingPromptEligibleContent(
+        contentType = state.contentType,
+        currentSeason = state.currentSeason,
+        currentEpisode = state.currentEpisode,
+        episodes = state.episodesAll
+    )
+}
+
+internal fun shouldShowNaturalEndRatingPrompt(
+    state: PlayerUiState
+): Boolean =
+    state.isRatingProviderConnected &&
+        shouldReserveNaturalEndRatingPrompt(state)
 
 internal fun shouldStartManualEndAction(
     state: PlayerUiState,

@@ -413,4 +413,41 @@ class CreditTimingDecisionTest {
         )
     }
 
+    @Test
+    fun `complete analyzer accepts post credit scene reaching eof without final credits`() {
+        assertTrue(
+            hasUsableCompletedCreditAnalysisTiming(
+                creditsStartMs = 100_000L,
+                finalCreditsStartMs = null,
+                postCreditSceneCount = 1
+            )
+        )
+
+        val timing = CreditTimingUiState(
+            status = CreditTimingStatus.COMPLETE,
+            creditsStartMs = 100_000L,
+            finalCreditsStartMs = null,
+            hasPostCreditScenes = true,
+            postCreditScenes = listOf(
+                PostCreditSceneTiming(
+                    startMs = 140_000L,
+                    endMs = 180_000L
+                )
+            )
+        )
+
+        assertTrue(timing.isAuthoritative)
+    }
+
+    @Test
+    fun `complete analyzer rejects detected payload with no usable timing`() {
+        assertFalse(
+            hasUsableCompletedCreditAnalysisTiming(
+                creditsStartMs = null,
+                finalCreditsStartMs = null,
+                postCreditSceneCount = 0
+            )
+        )
+    }
+
 }

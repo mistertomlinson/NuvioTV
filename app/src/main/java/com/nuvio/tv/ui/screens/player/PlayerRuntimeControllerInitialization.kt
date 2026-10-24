@@ -318,11 +318,40 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                             lastKnownDuration = playerDuration
                         }
                         val isBuffering = playbackState == Player.STATE_BUFFERING
-                        _uiState.update { 
-                            it.copy(
+                        val playbackEndedNow = playbackState == Player.STATE_ENDED
+                        _uiState.update { state ->
+                            val endedState = if (playbackEndedNow) {
+                                state.copy(playbackEnded = true)
+                            } else {
+                                state
+                            }
+                            val reserveNaturalEndRating =
+                                playbackEndedNow &&
+                                    shouldReserveNaturalEndRatingPrompt(endedState)
+
+                            state.copy(
                                 isBuffering = isBuffering,
-                                playbackEnded = playbackState == Player.STATE_ENDED,
-                                duration = playerDuration.coerceAtLeast(0L)
+                                playbackEnded = playbackEndedNow,
+                                duration = playerDuration.coerceAtLeast(0L),
+                                naturalEndRatingCheckPending = reserveNaturalEndRating,
+                                manualEndActionRequested =
+                                    if (reserveNaturalEndRating) true
+                                    else state.manualEndActionRequested,
+                                isPostPlayRecommendationVisible =
+                                    if (reserveNaturalEndRating) false
+                                    else state.isPostPlayRecommendationVisible,
+                                showNextEpisodeCard =
+                                    if (reserveNaturalEndRating) false
+                                    else state.showNextEpisodeCard,
+                                nextEpisodeAutoPlaySearching =
+                                    if (reserveNaturalEndRating) false
+                                    else state.nextEpisodeAutoPlaySearching,
+                                nextEpisodeAutoPlaySourceName =
+                                    if (reserveNaturalEndRating) null
+                                    else state.nextEpisodeAutoPlaySourceName,
+                                nextEpisodeAutoPlayCountdownSec =
+                                    if (reserveNaturalEndRating) null
+                                    else state.nextEpisodeAutoPlayCountdownSec
                             )
                         }
 
@@ -367,6 +396,15 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                             emitCompletionScrobbleStop(progressPercent = 99.5f)
                             saveWatchProgress()
                             resetNextEpisodeCardState(clearEpisode = false)
+
+                            /*
+                             * The progress loop stops at EOF, so this is the
+                             * last authoritative chance to enter the rating
+                             * flow when the analyzer never emitted final-credit
+                             * timing. Keep the ended player as the rating
+                             * backdrop instead of releasing it first.
+                             */
+                            evaluateNaturalEndRatingPrompt()
                             schedulePostPlayTrailerAfterPlaybackEnded()
                         }
                     }

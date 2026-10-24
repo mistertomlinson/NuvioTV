@@ -220,6 +220,108 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
+    fun `terminal eof offers rating after complete post credit scene with no final credits`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            naturalEndRatingCheckPending = true,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE,
+                creditsStartMs = 100_000L,
+                finalCreditsStartMs = null,
+                hasPostCreditScenes = true,
+                postCreditScenes = listOf(
+                    PostCreditSceneTiming(
+                        startMs = 140_000L,
+                        endMs = 180_000L
+                    )
+                )
+            )
+        )
+
+        assertTrue(shouldShowNaturalEndRatingPrompt(state))
+        assertTrue(state.blocksNaturalCompletion)
+    }
+
+    @Test
+    fun `terminal eof does not repeat an already handled rating prompt`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            creditRatingPromptHandled = true
+        )
+
+        assertFalse(shouldShowNaturalEndRatingPrompt(state))
+    }
+
+    @Test
+    fun `terminal eof waits only for intentional post play preload after rating`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            creditRatingPromptHandled = true,
+            manualEndActionRequested = true,
+            isPostPlayRecommendationLoading = true
+        )
+
+        assertTrue(state.blocksNaturalCompletion)
+    }
+
+    @Test
+    fun `terminal eof releases when intentional post play preload is no longer active`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            creditRatingPromptHandled = true,
+            manualEndActionRequested = true,
+            isPostPlayRecommendationLoading = false,
+            isPostPlayRecommendationVisible = false
+        )
+
+        assertFalse(state.blocksNaturalCompletion)
+    }
+
+    @Test
+    fun `true eof ignores transient background completion blockers`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            isPostPlayRecommendationLoading = true,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING
+            )
+        )
+
+        assertFalse(state.blocksNaturalCompletion)
+    }
+
+    @Test
+    fun `transient completion blockers still block before eof`() {
+        val state = PlayerUiState(
+            playbackEnded = false,
+            isPostPlayRecommendationLoading = true,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING
+            )
+        )
+
+        assertTrue(state.blocksNaturalCompletion)
+    }
+
+    @Test
+    fun `visible post play still owns screen at eof`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            isPostPlayRecommendationVisible = true
+        )
+
+        assertTrue(state.blocksNaturalCompletion)
+    }
+
+    @Test
     fun `manual near end exit starts post play for a movie`() {
         val state = PlayerUiState(contentType = "movie")
 
@@ -504,4 +606,50 @@ class PlayerPostPlayModelsTest {
         episode = number,
         overview = null
     )
+    @Test
+    fun `terminal eof reserves rating before provider recheck`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            contentType = "movie",
+            isRatingProviderConnected = false,
+            creditRatingPromptHandled = false
+        )
+
+        assertTrue(shouldReserveNaturalEndRatingPrompt(state))
+        assertFalse(shouldShowNaturalEndRatingPrompt(state))
+    }
+
+    @Test
+    fun `terminal rating pending state blocks natural completion`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            contentType = "movie",
+            naturalEndRatingCheckPending = true
+        )
+
+        assertTrue(state.blocksNaturalCompletion)
+    }
+
+    @Test
+    fun `film alias is eligible for terminal movie rating`() {
+        assertTrue(
+            isRatingPromptEligibleContent(
+                contentType = "film",
+                currentSeason = null,
+                currentEpisode = null,
+                episodes = emptyList()
+            )
+        )
+    }
+
+    @Test
+    fun `post play reveal pending owns ended player until dissolve starts`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            postPlayRevealPending = true
+        )
+
+        assertTrue(state.blocksNaturalCompletion)
+    }
+
 }

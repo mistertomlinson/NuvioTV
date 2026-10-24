@@ -983,20 +983,65 @@ internal fun ModernRowSection(
         val retainedRealFocusIndex =
             uiCaches.lastActuallyFocusedIndexByRow[row.key]
 
+        /*
+         * A player return can structurally remove the focused CW title while
+         * Home is still behind its opaque return curtain. In that case the
+         * numeric focus target alone is not enough: an existing LazyListState
+         * can still carry the old positive pixel offset and leave item 0
+         * partially offscreen.
+         *
+         * Seed a newly-created state at the exact target with offset 0, and
+         * perform the same non-animated snap for an already-existing state.
+         * The Home return curtain remains opaque through the following frame,
+         * so the user never sees this correction.
+         */
+        val forcedContinueWatchingViewportIndex =
+            if (
+                row.key == "continue_watching" &&
+                forceContinueWatchingRestoreToStart &&
+                row.items.isNotEmpty()
+            ) {
+                continueWatchingRestoreTargetIndex.coerceIn(
+                    0,
+                    row.items.lastIndex
+                )
+            } else {
+                null
+            }
+
         val rowListState = rowListStates.getOrPut(row.key) {
             LazyListState(
                 firstVisibleItemIndex =
-                    retainedRealFocusIndex
+                    forcedContinueWatchingViewportIndex
+                        ?: retainedRealFocusIndex
                         ?: focusStateCatalogRowScrollStates[row.key]
                         ?: 0,
                 firstVisibleItemScrollOffset =
-                    if (retainedRealFocusIndex != null) {
+                    if (
+                        forcedContinueWatchingViewportIndex != null ||
+                        retainedRealFocusIndex != null
+                    ) {
                         0
                     } else {
                         focusStateCatalogRowScrollStates[
                             "${row.key}::offset"
                         ] ?: 0
                     }
+            )
+        }
+
+        LaunchedEffect(
+            forceContinueWatchingRestoreToStart,
+            forcedContinueWatchingViewportIndex,
+            rowListState
+        ) {
+            val targetIndex =
+                forcedContinueWatchingViewportIndex
+                    ?: return@LaunchedEffect
+
+            rowListState.scrollToItem(
+                targetIndex,
+                0
             )
         }
 

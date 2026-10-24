@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 internal fun PlayerRuntimeController.evaluateCreditRatingPrompt(positionMs: Long) {
     val state = _uiState.value
@@ -28,6 +29,113 @@ internal fun PlayerRuntimeController.evaluateCreditRatingPrompt(positionMs: Long
             nextEpisodeAutoPlaySourceName = null,
             nextEpisodeAutoPlayCountdownSec = null
         )
+    }
+}
+
+internal fun PlayerRuntimeController.evaluateNaturalEndRatingPrompt() {
+    val state = _uiState.value
+    if (!shouldReserveNaturalEndRatingPrompt(state)) {
+        if (state.naturalEndRatingCheckPending) {
+            _uiState.update {
+                it.copy(naturalEndRatingCheckPending = false)
+            }
+        }
+        return
+    }
+
+    nextEpisodeAutoPlayJob?.cancel()
+    nextEpisodeAutoPlayJob = null
+    creditAnalysisJob?.cancel()
+    creditAnalysisJob = null
+
+    val cachedAvailability = state.isRatingProviderConnected
+    scope.launch {
+        val available = runCatching {
+            trackingRatingCoordinator.isAvailable()
+        }.getOrDefault(cachedAvailability)
+
+        val current = _uiState.value
+        val stillReserved =
+            current.naturalEndRatingCheckPending &&
+                shouldReserveNaturalEndRatingPrompt(current)
+
+        Log.i(
+            PlayerRuntimeController.TAG,
+            "Terminal EOF rating check: " +
+                "available=$available, " +
+                "cachedAvailability=$cachedAvailability, " +
+                "stillReserved=$stillReserved, " +
+                "contentType=${current.contentType}, " +
+                "handled=${current.creditRatingPromptHandled}, " +
+                "timingStatus=${current.creditTiming.status}, " +
+                "finalCreditsStartMs=${current.creditTiming.finalCreditsStartMs}, " +
+                "postCreditScenes=${current.creditTiming.postCreditScenes.size}"
+        )
+
+        if (!stillReserved) {
+            _uiState.update {
+                it.copy(
+                    isRatingProviderConnected = available,
+                    naturalEndRatingCheckPending = false
+                )
+            }
+            return@launch
+        }
+
+        if (available) {
+            _uiState.update { latest ->
+                if (!shouldReserveNaturalEndRatingPrompt(latest)) {
+                    latest.copy(naturalEndRatingCheckPending = false)
+                } else {
+                    latest.copy(
+                        isRatingProviderConnected = true,
+                        naturalEndRatingCheckPending = false,
+                        manualEndActionRequested = true,
+                        showRatingOverlay = true,
+                        showControls = false,
+                        showPauseOverlay = false,
+                        showPlayerBlackout = false,
+                        ratingSubmitted = false,
+                        pendingRating = null,
+                        ratingOverlayDestination = RatingOverlayDestination.POST_PLAY,
+                        creditRatingPromptHandled = false,
+                        isPostPlayRecommendationVisible = false,
+                        showNextEpisodeCard = false,
+                        nextEpisodeAutoPlaySearching = false,
+                        nextEpisodeAutoPlaySourceName = null,
+                        nextEpisodeAutoPlayCountdownSec = null
+                    )
+                }
+            }
+
+            if (_uiState.value.showRatingOverlay) {
+                Log.i(
+                    PlayerRuntimeController.TAG,
+                    "Showing rating overlay at terminal playback EOF"
+                )
+                preparePostPlayRecommendationsForManualEndAction()
+            }
+            return@launch
+        }
+
+        /*
+         * No selected/connected rating provider: preserve the normal EOF ->
+         * More Like This flow. Keep the pending reservation until post-play is
+         * visible or loading so natural completion cannot slip through between
+         * these state updates.
+         */
+        _uiState.update {
+            it.copy(
+                isRatingProviderConnected = false,
+                creditRatingPromptHandled = true,
+                manualEndActionRequested = true
+            )
+        }
+        preparePostPlayRecommendationsForManualEndAction()
+        _uiState.update {
+            it.copy(naturalEndRatingCheckPending = false)
+        }
+        schedulePostPlayTrailerAfterPlaybackEnded()
     }
 }
 

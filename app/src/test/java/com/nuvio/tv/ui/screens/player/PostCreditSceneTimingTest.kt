@@ -17,7 +17,7 @@ class PostCreditSceneTimingTest {
     )
 
     @Test
-    fun `first post credit scene always gets skip opportunity`() {
+    fun `first post credit scene gets skip opportunity when more than timeout away`() {
         val first = PostCreditSceneTiming(
             startMs = 140_000L,
             endMs = 160_000L
@@ -28,6 +28,52 @@ class PostCreditSceneTimingTest {
             postCreditSkipTarget(
                 timing = timing(first),
                 positionMs = 110_000L
+            )
+        )
+    }
+
+    @Test
+    fun `first post credit scene inside timeout never gets skip opportunity`() {
+        val first = PostCreditSceneTiming(
+            startMs = 109_999L,
+            endMs = 130_000L
+        )
+
+        assertNull(
+            postCreditSkipTarget(
+                timing = timing(first),
+                positionMs = 100_000L
+            )
+        )
+    }
+
+    @Test
+    fun `first post credit scene exactly one timeout away never gets skip opportunity`() {
+        val first = PostCreditSceneTiming(
+            startMs = 110_000L,
+            endMs = 130_000L
+        )
+
+        assertNull(
+            postCreditSkipTarget(
+                timing = timing(first),
+                positionMs = 100_000L
+            )
+        )
+    }
+
+    @Test
+    fun `first post credit scene one millisecond beyond timeout gets skip opportunity`() {
+        val first = PostCreditSceneTiming(
+            startMs = 110_001L,
+            endMs = 130_000L
+        )
+
+        assertEquals(
+            first,
+            postCreditSkipTarget(
+                timing = timing(first),
+                positionMs = 100_000L
             )
         )
     }
@@ -96,7 +142,7 @@ class PostCreditSceneTimingTest {
             second,
             postCreditSkipTarget(
                 timing = timing(first, second),
-                positionMs = 165_000L
+                positionMs = 160_000L
             )
         )
     }
@@ -121,4 +167,77 @@ class PostCreditSceneTimingTest {
             )
         )
     }
+    @Test
+    fun `cached timing is suppressed once playback is inside final ten seconds`() {
+        val scene = PostCreditSceneTiming(
+            startMs = 140_000L,
+            endMs = 160_000L
+        )
+
+        val state = CreditTimingUiState(
+            status = CreditTimingStatus.COMPLETE,
+            creditsStartMs = 100_000L,
+            hasPostCreditScenes = true,
+            postCreditScenes = listOf(scene)
+        )
+
+        // The full analyzer gap is forty seconds, but a cached result can be
+        // consumed late. At exactly ten seconds remaining there must be no UI.
+        assertNull(
+            postCreditSkipTarget(
+                timing = state,
+                positionMs = 130_000L
+            )
+        )
+
+        assertNull(
+            postCreditSkipTarget(
+                timing = state,
+                positionMs = 130_001L
+            )
+        )
+
+        assertEquals(
+            scene,
+            postCreditSkipTarget(
+                timing = state,
+                positionMs = 129_999L
+            )
+        )
+    }
+
+    @Test
+    fun `later separated scene still requires more than ten seconds remaining`() {
+        val first = PostCreditSceneTiming(
+            startMs = 120_000L,
+            endMs = 130_000L
+        )
+        val second = PostCreditSceneTiming(
+            startMs = 160_000L,
+            endMs = 175_000L
+        )
+        val state = CreditTimingUiState(
+            status = CreditTimingStatus.COMPLETE,
+            creditsStartMs = 100_000L,
+            hasPostCreditScenes = true,
+            postCreditScenes = listOf(first, second)
+        )
+
+        assertNull(
+            postCreditSkipTarget(
+                timing = state,
+                positionMs = 150_000L,
+                skippedSceneStarts = setOf(first.startMs)
+            )
+        )
+        assertEquals(
+            second,
+            postCreditSkipTarget(
+                timing = state,
+                positionMs = 149_999L,
+                skippedSceneStarts = setOf(first.startMs)
+            )
+        )
+    }
+
 }

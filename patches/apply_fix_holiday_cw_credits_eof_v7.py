@@ -146,24 +146,58 @@ def main() -> None:
         label="add reveal alpha to dedicated snow surface signature",
     )
 
-    # Two bind call sites share the same argument tail.
+    # Patch the two bind() call sites by their complete call prefix so the
+    # deeper-indented AndroidView call cannot be mistaken for the factory call.
     text = snow.read_text(encoding="utf-8")
-    bind_old = '''                state = snowState,\n                visible = visible,\n                appInForeground = appInForeground'''
-    bind_new = '''                state = snowState,\n                visible = visible,\n                revealAlphaOverride = revealAlphaOverride,\n                appInForeground = appInForeground'''
-    if bind_new in text:
-        print("[already applied] bind exact reveal alpha to snow producer")
-    else:
-        count = text.count(bind_old)
-        if count != 2:
+    bind_variants = [
+        (
+            """            bind(
+                config = config,
+                state = snowState,
+                visible = visible,
+                appInForeground = appInForeground""",
+            """            bind(
+                config = config,
+                state = snowState,
+                visible = visible,
+                revealAlphaOverride = revealAlphaOverride,
+                appInForeground = appInForeground""",
+        ),
+        (
+            """                it.bind(
+                    config = config,
+                    state = snowState,
+                    visible = visible,
+                    appInForeground = appInForeground""",
+            """                it.bind(
+                    config = config,
+                    state = snowState,
+                    visible = visible,
+                    revealAlphaOverride = revealAlphaOverride,
+                    appInForeground = appInForeground""",
+        ),
+    ]
+
+    changed = False
+    for bind_old, bind_new in bind_variants:
+        if bind_new in text:
+            continue
+        if text.count(bind_old) != 1:
             raise SystemExit(
                 "bind exact reveal alpha to snow producer: "
-                f"expected exactly two bind fragments in {snow}, found {count}"
+                "expected one exact bind call variant"
             )
+        text = text.replace(bind_old, bind_new, 1)
+        changed = True
+
+    if changed:
         write_if_changed(
             snow,
-            text.replace(bind_old, bind_new),
+            text,
             label="bind exact reveal alpha to snow producer",
         )
+    else:
+        print("[already applied] bind exact reveal alpha to snow producer")
 
     replace_exact(
         snow,
