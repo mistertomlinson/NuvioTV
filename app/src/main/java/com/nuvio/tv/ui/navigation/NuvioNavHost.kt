@@ -579,6 +579,25 @@ fun NuvioNavHost(
                     detailReturnSnowReveal.value
                 )
 
+    /*
+     * The snow Popup is a separate Android window, so Navigation/Compose alpha
+     * cannot fade it automatically. During Details -> Home, drive the snow
+     * producer from the exact inverse alpha of the retained Details frame.
+     */
+    val seasonalOverlayRevealAlphaOverride =
+        if (
+            seasonalOverlayRoute == Screen.Home.route &&
+            showDetailReturnOverlay.value
+        ) {
+            if (detailReturnSnowReveal.value) {
+                (1f - detailReturnOverlayAlpha.value).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
+        } else {
+            null
+        }
+
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -2071,6 +2090,7 @@ fun NuvioNavHost(
         SeasonalEffectsOverlayHost(
             visible = seasonalOverlayTargetVisible,
             keepAlive = seasonalOverlayKeepAlive,
+            revealAlphaOverride = seasonalOverlayRevealAlphaOverride,
             /*
              * Home still waits for its loader/reveal gate. Other supported
              * root/settings routes must not inherit a stale Home-only

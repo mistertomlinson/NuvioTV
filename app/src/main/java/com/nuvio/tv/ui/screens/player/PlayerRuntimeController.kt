@@ -164,11 +164,29 @@ class PlayerRuntimeController(
     fun getCurrentStreamUrl(): String = currentStreamUrl
     fun getCurrentHeaders(): Map<String, String> = currentHeaders
 
+    private fun cancelTerminalPlaybackWork() {
+        /*
+         * These jobs belong to the playback session rather than to a single
+         * ExoPlayer instance. Internal decoder/source rebuilds call
+         * releasePlayer() directly and must NOT cancel them. Terminal exits,
+         * including natural EOF, do cancel them so late analyzer/recommendation
+         * results cannot mutate stale Player state after navigation.
+         */
+        creditAnalysisJob?.cancel()
+        creditAnalysisJob = null
+        recommendationLoadJob?.cancel()
+        recommendationLoadJob = null
+        recommendationMetadataJob?.cancel()
+        recommendationMetadataJob = null
+    }
+
     fun stopAndRelease() {
+        cancelTerminalPlaybackWork()
         releasePlayer()
     }
 
     fun stopAndReleaseForUserExit() {
+        cancelTerminalPlaybackWork()
         releasePlayer(
             flushPlaybackState = true,
             creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
@@ -335,9 +353,7 @@ class PlayerRuntimeController(
     
 
     fun onCleared() {
-        creditAnalysisJob?.cancel()
-        recommendationLoadJob?.cancel()
-        recommendationMetadataJob?.cancel()
+        cancelTerminalPlaybackWork()
         releasePlayer()
         mediaSourceFactory.shutdown()
         sourceChipErrorDismissJob?.cancel()

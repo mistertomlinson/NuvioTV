@@ -118,6 +118,9 @@ private const val SNOW_MAX_MOTION_ASPECT_RATIO = 1.22f
 /* Approved accumulated-bank geometry. */
 private const val SNOW_BANK_COLUMNS = 768
 private const val SNOW_BANK_MAX_HEIGHT_DP = 7.5f
+private const val SNOW_BANK_SPLINE_CONTROL_POINTS = 25
+private const val SNOW_BANK_GROWTH_DURATION_NANOS = 150_000_000_000L
+private const val SNOW_BANK_PATH_UPDATE_INTERVAL_NANOS = 250_000_000L
 private const val SNOW_BANK_DEPOSIT_RADIUS = 16
 private const val SNOW_BANK_RENDER_SMOOTH_RADIUS = 8
 private const val SNOW_BANK_DEPOSIT_TOTAL_DP = 4.0f
@@ -472,6 +475,7 @@ internal fun SeasonalEffectsOverlayHost(
     visible: Boolean,
     keepAlive: Boolean = visible,
     requireHomeReady: Boolean = true,
+    revealAlphaOverride: Float? = null,
     viewModel: SeasonalEffectsViewModel = hiltViewModel()
 ) {
     val config by viewModel.config.collectAsStateWithLifecycle()
@@ -567,6 +571,7 @@ internal fun SeasonalEffectsOverlayHost(
             snowState = snowState,
             surfaceRecoveryGeneration = surfaceRecoveryGeneration,
             visible = visible,
+            revealAlphaOverride = revealAlphaOverride,
             appInForeground = appInForeground
         )
     }
@@ -578,6 +583,7 @@ private fun DedicatedSnowSurface(
     snowState: SeasonalSnowState,
     surfaceRecoveryGeneration: Long,
     visible: Boolean,
+    revealAlphaOverride: Float?,
     appInForeground: Boolean
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -591,6 +597,7 @@ private fun DedicatedSnowSurface(
                 config = config,
                 state = snowState,
                 visible = visible,
+                revealAlphaOverride = revealAlphaOverride,
                 appInForeground = appInForeground
             )
         }
@@ -611,6 +618,7 @@ private fun DedicatedSnowSurface(
                     config = config,
                     state = snowState,
                     visible = visible,
+                    revealAlphaOverride = revealAlphaOverride,
                     appInForeground = appInForeground
                 )
             }
@@ -634,6 +642,9 @@ private class SeasonalSnowSurfaceView(
 
     @Volatile
     private var appInForeground: Boolean = true
+
+    @Volatile
+    private var revealAlphaOverride: Float? = null
 
     /*
      * Presentation alpha belongs to the producer thread, not Compose.
@@ -696,10 +707,12 @@ private class SeasonalSnowSurfaceView(
         config: SeasonalEffectsConfig,
         state: SeasonalSnowState,
         visible: Boolean,
+        revealAlphaOverride: Float?,
         appInForeground: Boolean
     ) {
         currentConfig = config
         this.appInForeground = appInForeground
+        this.revealAlphaOverride = revealAlphaOverride?.coerceIn(0f, 1f)
 
         if (currentState !== state) {
             currentState = state
@@ -965,10 +978,13 @@ private class SeasonalSnowSurfaceView(
                     frameNow +
                         frameIntervalNanos
 
-                val alpha =
+                val internalPresentationAlpha =
                     presentationAlpha(
                         frameNow
                     )
+                val alpha =
+                    revealAlphaOverride
+                        ?: internalPresentationAlpha
 
                 val targetVisible =
                     presentationTargetVisible()
@@ -1097,19 +1113,21 @@ private class SeasonalSnowSurfaceView(
     ) {
         if (deltaNanos <= 0L) return
 
-        val beforeNanos = state.simulationNanos
-        val afterNanos = beforeNanos + deltaNanos
-        val bankChanged = depositSnowBankForInterval(
-            bankHeightsDp = state.bankHeightsDp,
-            particleCount = config.particleCount.coerceIn(1, MAX_SNOW_PARTICLES),
-            beforeSeconds = beforeNanos / NANOS_PER_SECOND,
-            afterSeconds = afterNanos / NANOS_PER_SECOND,
-            config = config
-        )
-
+        val afterNanos = state.simulationNanos + deltaNanos
         state.simulationNanos = afterNanos
-        if (bankChanged) {
-            state.bankGeneration = state.bankGeneration + 1
+
+        /*
+         * Bank geometry is a visual accumulation cue, not a collision map.
+         * Quantize only the cached Path rebuild: at 4 Hz over 150 seconds the
+         * vertical change per generation is far below a pixel, while the snow
+         * producer avoids the old per-landing 768-column deposit/search work.
+         */
+        val cappedBankNanos =
+            afterNanos.coerceAtMost(SNOW_BANK_GROWTH_DURATION_NANOS)
+        val newBankGeneration =
+            (cappedBankNanos / SNOW_BANK_PATH_UPDATE_INTERVAL_NANOS).toInt()
+        if (newBankGeneration != state.bankGeneration) {
+            state.bankGeneration = newBankGeneration
         }
     }
 
@@ -1366,60 +1384,73 @@ private class SeasonalSnowSurfaceView(
         bankTopPath.reset()
 
         val density = resources.displayMetrics.density
-        val columnWidth = if (SNOW_BANK_COLUMNS > 1) {
-            width.toFloat() / (SNOW_BANK_COLUMNS - 1)
-        } else {
-            width.toFloat()
+        val rawGrowth =
+            (
+                state.simulationNanos.toDouble() /
+                    SNOW_BANK_GROWTH_DURATION_NANOS.toDouble()
+                ).toFloat().coerceIn(0f, 1f)
+        // Smoothstep keeps the first flakes subtle and reaches full depth only
+        // after 2.5 minutes of visible snowfall.
+        val growth = rawGrowth * rawGrowth * (3f - 2f * rawGrowth)
+        val lastControl = (SNOW_BANK_SPLINE_CONTROL_POINTS - 1).coerceAtLeast(1)
+        val controlX = FloatArray(SNOW_BANK_SPLINE_CONTROL_POINTS)
+        val controlY = FloatArray(SNOW_BANK_SPLINE_CONTROL_POINTS)
+
+        for (index in 0..lastControl) {
+            val fraction = index.toFloat() / lastControl.toFloat()
+            val phase = fraction * PI.toFloat()
+
+            /*
+             * Broad deterministic drifts read as natural accumulation without
+             * exposing any discrete columns. A tiny growth-dependent component
+             * means the silhouette evolves instead of simply scaling upward.
+             */
+            val broad = sin(phase * 3.6f + 0.35f) * 0.58f
+            val secondary = sin(phase * 7.4f + 1.20f) * 0.27f
+            val fine = sin(phase * 12.6f + 2.05f) * 0.15f
+            val evolving =
+                sin(phase * 5.2f + growth * PI.toFloat() * 0.85f) * 0.035f
+            val contour = (broad + secondary + fine).coerceIn(-1f, 1f)
+            val localDepth =
+                (0.84f + ((contour + 1f) * 0.5f) * 0.16f + evolving)
+                    .coerceIn(0.80f, 1.02f)
+            val bankHeightDp = SNOW_BANK_MAX_HEIGHT_DP * growth * localDepth
+
+            controlX[index] = width * fraction
+            controlY[index] = height - bankHeightDp * density
         }
 
-        fun wrappedBankColumn(index: Int): Int {
-            val wrapped = index % SNOW_BANK_COLUMNS
-            return if (wrapped < 0) wrapped + SNOW_BANK_COLUMNS else wrapped
-        }
-
-        fun bankFillProgress(column: Int): Float {
-            val wrapped = wrappedBankColumn(column)
-            val cap = snowBankColumnCapDp[wrapped].coerceAtLeast(0.01f)
-            return (state.bankHeightsDp[wrapped] / cap).coerceIn(0f, 1f)
-        }
-
-        fun bankSurfaceY(column: Int): Float {
-            var progress = 0f
-            for (
-                offset in -SNOW_BANK_RENDER_SMOOTH_RADIUS..
-                    SNOW_BANK_RENDER_SMOOTH_RADIUS
-            ) {
-                progress += bankFillProgress(column + offset) *
-                    snowBankRenderKernel[offset + SNOW_BANK_RENDER_SMOOTH_RADIUS]
-            }
-
-            val heightDp = snowBankColumnCapDp[column] *
-                progress.coerceIn(0f, 1f)
-            return height - heightDp * density
-        }
-
-        val firstY = bankSurfaceY(0)
         bankFillPath.moveTo(0f, height.toFloat())
-        bankFillPath.lineTo(0f, firstY)
-        bankTopPath.moveTo(0f, firstY)
+        bankFillPath.lineTo(controlX[0], controlY[0])
+        bankTopPath.moveTo(controlX[0], controlY[0])
 
-        var previousX = 0f
-        var previousY = firstY
+        /*
+         * Convert a uniform Catmull-Rom spline to cubic Beziers. Only 24 cubic
+         * segments are drawn, with true tangent continuity and no cell edges.
+         */
+        for (index in 0 until lastControl) {
+            val previous = (index - 1).coerceAtLeast(0)
+            val next = index + 1
+            val following = (index + 2).coerceAtMost(lastControl)
 
-        for (column in 1 until SNOW_BANK_COLUMNS) {
-            val x = column * columnWidth
-            val y = bankSurfaceY(column)
-            val midpointX = (previousX + x) * 0.5f
-            val midpointY = (previousY + y) * 0.5f
+            val p0x = controlX[previous]
+            val p0y = controlY[previous]
+            val p1x = controlX[index]
+            val p1y = controlY[index]
+            val p2x = controlX[next]
+            val p2y = controlY[next]
+            val p3x = controlX[following]
+            val p3y = controlY[following]
 
-            bankFillPath.quadTo(previousX, previousY, midpointX, midpointY)
-            bankTopPath.quadTo(previousX, previousY, midpointX, midpointY)
-            previousX = x
-            previousY = y
+            val c1x = p1x + (p2x - p0x) / 6f
+            val c1y = p1y + (p2y - p0y) / 6f
+            val c2x = p2x - (p3x - p1x) / 6f
+            val c2y = p2y - (p3y - p1y) / 6f
+
+            bankFillPath.cubicTo(c1x, c1y, c2x, c2y, p2x, p2y)
+            bankTopPath.cubicTo(c1x, c1y, c2x, c2y, p2x, p2y)
         }
 
-        bankFillPath.quadTo(previousX, previousY, previousX, previousY)
-        bankTopPath.quadTo(previousX, previousY, previousX, previousY)
         bankFillPath.lineTo(width.toFloat(), height.toFloat())
         bankFillPath.close()
 

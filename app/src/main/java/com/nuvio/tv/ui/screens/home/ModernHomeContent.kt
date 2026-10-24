@@ -1777,8 +1777,14 @@ fun ModernHomeContent(
                 continueWatchingRow.key
             pendingRowFocus.index =
                 targetIndex
+            /*
+             * The viewport was positioned explicitly above. Re-enabling
+             * BringIntoView here can immediately reintroduce the old
+             * horizontal offset (and was the source of prior errant row
+             * scrolling). Keep it suppressed for this atomic handoff.
+             */
             pendingRowFocus.suppressBringIntoView =
-                false
+                true
             pendingRowFocus.nonce++
         }
     }

@@ -45,7 +45,6 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import com.nuvio.tv.ui.theme.NuvioColors
 
-private const val SKIP_CREDITS_TIMEOUT_MS = 10_000
 
 /**
  * Post-credit scene shortcut.
@@ -85,7 +84,8 @@ fun SkipCreditsButton(
                 targetValue = 1f,
                 animationSpec = tween(
                     durationMillis = (
-                        (1f - progress.value) * SKIP_CREDITS_TIMEOUT_MS
+                        (1f - progress.value) *
+                            SKIP_CREDITS_TIMEOUT_MS.toFloat()
                     ).toInt().coerceAtLeast(1),
                     easing = LinearEasing
                 )
