@@ -189,28 +189,15 @@ private fun resolveContinueWatchingStructuralFocusIndex(
     currentKeys: List<String>,
     previousFocusedIndex: Int
 ): Int {
-    if (currentKeys.isEmpty()) {
-        return 0
-    }
-
-    val previousFocusedKey =
-        previousKeys.getOrNull(previousFocusedIndex)
-
-    val followedIndex =
-        if (previousFocusedKey != null) {
-            currentKeys.indexOf(previousFocusedKey)
-        } else {
-            -1
-        }
-
-    return if (followedIndex >= 0) {
-        followedIndex
-    } else {
-        previousFocusedIndex.coerceIn(
-            0,
-            currentKeys.lastIndex
-        )
-    }
+    /*
+     * Structural changes observed across navigation use the canonical CW
+     * landing: slot 0. That includes natural playback completion, where the
+     * previously focused title disappears while Home is away.
+     *
+     * Explicit manual removal is handled separately by a one-shot Home-local
+     * key so it can preserve the old visual slot without changing this rule.
+     */
+    return 0
 }
 
 @Composable
@@ -370,6 +357,33 @@ fun ModernHomeContent(
                 uiState.continueWatchingItems
             )
         }
+
+    /*
+     * One-shot intent marker for an explicit CW options-menu removal.
+     *
+     * A title disappearing for any other reason (especially natural playback
+     * completion while Home is away) must not inherit the manual-remove visual
+     * anchor behavior.
+     */
+    var manualContinueWatchingRemovalKey by
+        remember {
+            mutableStateOf<String?>(null)
+        }
+
+    /*
+     * Vertical focus handoff for CW structural changes.
+     *
+     * A focused CW child can disappear before LazyColumn's parent
+     * focusRestorer has a live replacement requester. Keep the intended CW
+     * slot authoritative until that exact replacement poster confirms focus.
+     * This is event-driven and never runs on the normal D-pad path.
+     */
+    val continueWatchingRowFocusHandoffIndexState =
+        remember {
+            mutableStateOf<Int?>(null)
+        }
+    var continueWatchingRowFocusHandoffIndex by
+        continueWatchingRowFocusHandoffIndexState
 
     val carouselRows = remember(
         uiState.continueWatchingItems,
@@ -1584,6 +1598,28 @@ fun ModernHomeContent(
 
             if (continueWatchingChangedSinceSave) {
                 /*
+                 * Hold the parent LazyColumn on CW until the requested poster
+                 * has really regained Compose focus. Without this, the removed
+                 * pre-playback child can make focusRestorer fall through to the
+                 * row below before pendingRowFocus gets its turn.
+                 */
+                continueWatchingRowFocusHandoffIndex =
+                    resolvedIndex
+
+                val cwVerticalRestoreOffset =
+                    if (
+                        verticalRowListState.firstVisibleItemIndex == 0
+                    ) {
+                        verticalRowListState.firstVisibleItemScrollOffset
+                    } else {
+                        0
+                    }
+                verticalRowListState.requestScrollToItem(
+                    0,
+                    cwVerticalRestoreOffset
+                )
+
+                /*
                  * The row-level focusRestorer gives the last real focused
                  * index higher priority than the general focus cache.
                  * A CW reorder is explicitly position-semantic, so discard
@@ -1674,6 +1710,10 @@ fun ModernHomeContent(
             previousKeys.isEmpty() ||
             currentContinueWatchingOrderKeys.isEmpty()
         ) {
+            if (currentContinueWatchingOrderKeys.isEmpty()) {
+                manualContinueWatchingRemovalKey = null
+                continueWatchingRowFocusHandoffIndex = null
+            }
             lastHandledContinueWatchingOrderKeys =
                 currentContinueWatchingOrderKeys
             return@LaunchedEffect
@@ -1703,29 +1743,90 @@ fun ModernHomeContent(
                 continueWatchingRow.key &&
                 !isCarouselFocused
 
+        /*
+         * Saved CW focus can be in-flight while the platform/carousel still
+         * owns real Compose focus for a frame. pendingRowFocus is cleared only
+         * after ModernHomeRows confirms the requested poster actually focused,
+         * so it is the authoritative transient ownership signal here.
+         */
+        val continueWatchingRestorePending =
+            continueWatchingRestoreTargetIndex != null ||
+                (
+                    savedFocusTargetsContinueWatching &&
+                        pendingRowFocus.key ==
+                            continueWatchingRow.key &&
+                        pendingRowFocus.index != null
+                )
+
+        val continueWatchingOwnsReturnTarget =
+            continueWatchingOwnsFocus ||
+                continueWatchingRestorePending
+
         val previousFocusedIndex =
             (
-                if (continueWatchingOwnsFocus) {
-                    focusHolder.activeItemIndex
-                } else {
-                    uiCaches
-                        .lastActuallyFocusedIndexByRow[
-                            continueWatchingRow.key
-                        ]
-                        ?: focusedItemByRow[
-                            continueWatchingRow.key
-                        ]
-                        ?: 0
+                when {
+                    continueWatchingRestoreTargetIndex != null ->
+                        focusState.focusedItemIndex
+
+                    continueWatchingRestorePending ->
+                        pendingRowFocus.index
+                            ?: focusState.focusedItemIndex
+
+                    continueWatchingOwnsFocus ->
+                        focusHolder.activeItemIndex
+
+                    else ->
+                        uiCaches
+                            .lastActuallyFocusedIndexByRow[
+                                continueWatchingRow.key
+                            ]
+                            ?: focusedItemByRow[
+                                continueWatchingRow.key
+                            ]
+                            ?: 0
                 }
             ).coerceAtLeast(0)
 
+        val focusedKeyBeforeChange =
+            previousKeys.getOrNull(previousFocusedIndex)
+
+        val manualRemovalKey =
+            manualContinueWatchingRemovalKey
+
+        val preserveManualRemovalSlot =
+            manualRemovalKey != null &&
+                focusedKeyBeforeChange == manualRemovalKey &&
+                manualRemovalKey !in
+                    currentContinueWatchingOrderKeys
+
+        /*
+         * Consume the explicit intent only after that exact title has actually
+         * disappeared. If an unrelated reorder arrives first, keep the marker
+         * armed for the eventual removal rather than misclassifying the reorder.
+         */
+        if (
+            manualRemovalKey != null &&
+            manualRemovalKey !in
+                currentContinueWatchingOrderKeys
+        ) {
+            manualContinueWatchingRemovalKey = null
+        }
+
         val targetIndex =
-            if (continueWatchingOwnsFocus) {
+            if (preserveManualRemovalSlot) {
                 /*
-                 * CW owns focus:
-                 *
-                 * - a surviving title follows its identity through a reorder
-                 * - a removed title leaves focus on the same numeric slot
+                 * Manual remove: keep the old numeric slot and therefore the
+                 * current left-aligned viewport. The next poster slides into
+                 * the removed poster's place.
+                 */
+                previousFocusedIndex.coerceIn(
+                    0,
+                    currentContinueWatchingOrderKeys.lastIndex
+                )
+            } else {
+                /*
+                 * Completion, reorder, insertion, and every non-manual
+                 * structural change land on the newest CW card.
                  */
                 resolveContinueWatchingStructuralFocusIndex(
                     previousKeys = previousKeys,
@@ -1734,18 +1835,35 @@ fun ModernHomeContent(
                     previousFocusedIndex =
                         previousFocusedIndex
                 )
-            } else {
-                /*
-                 * CW is inactive.
-                 *
-                 * A fresh playback can insert a new title at the head while
-                 * the user actually belongs to another Home row. Do not carry
-                 * an old remembered CW title forward in that situation.
-                 *
-                 * Prepare CW at its newest item without requesting focus.
-                 */
-                0
             }
+
+        /*
+         * Manual removal may have already caused real focus to fall into the
+         * next row before this effect runs. The explicit manual-removal intent
+         * still means CW owns the handoff, so reclaim row ownership as well as
+         * preserving its horizontal slot.
+         */
+        val continueWatchingHandoffOwnsRow =
+            continueWatchingOwnsReturnTarget ||
+                preserveManualRemovalSlot
+
+        if (continueWatchingHandoffOwnsRow) {
+            continueWatchingRowFocusHandoffIndex =
+                targetIndex
+
+            val cwVerticalHandoffOffset =
+                if (
+                    verticalRowListState.firstVisibleItemIndex == 0
+                ) {
+                    verticalRowListState.firstVisibleItemScrollOffset
+                } else {
+                    0
+                }
+            verticalRowListState.requestScrollToItem(
+                0,
+                cwVerticalHandoffOffset
+            )
+        }
 
         uiCaches.lastActuallyFocusedIndexByRow.remove(
             continueWatchingRow.key
@@ -1758,7 +1876,7 @@ fun ModernHomeContent(
             continueWatchingRow.key
         ]?.scrollToItem(targetIndex, 0)
 
-        if (continueWatchingOwnsFocus) {
+        if (continueWatchingHandoffOwnsRow) {
             focusHolder.activeItemIndex =
                 targetIndex
             activeItemIndex =
@@ -3164,14 +3282,44 @@ fun ModernHomeContent(
             carouselRows,
             uiCaches,
             forceContinueWatchingRestoreToStart,
-            continueWatchingRestoreTargetIndex
+            continueWatchingRestoreTargetIndex,
+            continueWatchingRowFocusHandoffIndex
         ) {
             derivedStateOf {
-                val rowKey = activeRowKey
+                val cwHandoffIndex =
+                    continueWatchingRowFocusHandoffIndex
+                val cwRowAvailable =
+                    carouselRows.any {
+                        it.key == "continue_watching"
+                    }
+                val rowKey =
+                    if (
+                        cwHandoffIndex != null &&
+                        cwRowAvailable
+                    ) {
+                        "continue_watching"
+                    } else if (
+                        forceContinueWatchingRestoreToStart &&
+                        cwRowAvailable
+                    ) {
+                        /*
+                         * Saved Player returns must choose the CW row itself,
+                         * not merely index 0 inside whichever row happened to
+                         * receive transient fallback focus first.
+                         */
+                        "continue_watching"
+                    } else {
+                        activeRowKey
+                    }
                 if (rowKey != null) {
                     val row = carouselRows.firstOrNull { it.key == rowKey }
                     val focusedIndex =
                         if (
+                            rowKey == "continue_watching" &&
+                            cwHandoffIndex != null
+                        ) {
+                            cwHandoffIndex
+                        } else if (
                             rowKey == "continue_watching" &&
                             forceContinueWatchingRestoreToStart
                         ) {
@@ -3187,7 +3335,31 @@ fun ModernHomeContent(
                     if (itemKey != null) {
                         val requester =
                             uiCaches.itemFocusRequesters[rowKey]?.get(itemKey)
-                                ?: FocusRequester.Default
+                                ?: if (
+                                    rowKey == "continue_watching" &&
+                                    (
+                                        cwHandoffIndex != null ||
+                                            forceContinueWatchingRestoreToStart
+                                    )
+                                ) {
+                                    /*
+                                     * Create the same requester the CW item will
+                                     * attach during this composition. This must
+                                     * also happen on the FIRST saved Player-return
+                                     * restore pass, before V12's later handoff
+                                     * effect has had a chance to publish state.
+                                     *
+                                     * Returning FocusRequester.Default here was
+                                     * the remaining path that let Compose choose
+                                     * the row below CW on playback completion.
+                                     */
+                                    uiCaches.requesterFor(
+                                        rowKey,
+                                        itemKey
+                                    )
+                                } else {
+                                    FocusRequester.Default
+                                }
 
                         requester
                     } else FocusRequester.Default
@@ -4683,6 +4855,8 @@ fun ModernHomeContent(
                     carouselFocusRequester,
                 uiCaches =
                     uiCaches,
+                continueWatchingRowFocusHandoffIndexState =
+                    continueWatchingRowFocusHandoffIndexState,
                 pendingRowFocus =
                     pendingRowFocus,
                 rowFocusRestorerState =
@@ -4720,6 +4894,23 @@ fun ModernHomeContent(
             item = selectedOptionsItem,
             onDismiss = { optionsItem = null },
             onRemove = {
+                val selectedRemovalIndex =
+                    uiState.continueWatchingItems
+                        .indexOf(selectedOptionsItem)
+
+                manualContinueWatchingRemovalKey =
+                    currentContinueWatchingOrderKeys
+                        .getOrNull(selectedRemovalIndex)
+
+                /*
+                 * Arm row ownership before the dialog closes/removal publishes.
+                 * The structural effect will clamp this to the final target
+                 * after the item disappears.
+                 */
+                continueWatchingRowFocusHandoffIndex =
+                    selectedRemovalIndex
+                        .takeIf { it >= 0 }
+
                 onRemoveContinueWatching(
                     selectedOptionsItem.contentId(),
                     selectedOptionsItem.season(),
@@ -4857,6 +5048,8 @@ private fun EnhancedModernHomeRowsListBoundary(
     focusRestorerRequester: FocusRequester,
     carouselFocusRequester: FocusRequester,
     uiCaches: ModernHomeUiCaches,
+    continueWatchingRowFocusHandoffIndexState:
+        androidx.compose.runtime.MutableState<Int?>,
     pendingRowFocus: PendingRowFocusHolder,
     rowFocusRestorerState:
         androidx.compose.runtime.MutableState<FocusRequester>,
@@ -5960,6 +6153,24 @@ private fun EnhancedModernHomeRowsListBoundary(
                         activeRowKey = rowKey
                         activeItemIndex = index
                     }
+
+                    /*
+                     * Keep the parent pinned to CW until BOTH real Compose focus
+                     * and the authoritative active-row state agree on the
+                     * destination. Releasing before activeRowKey was committed
+                     * left a brief race where focusRestorer could fall through
+                     * to the previously active row below CW.
+                     */
+                    if (
+                        confirmedFocus &&
+                        isContinueWatchingRow &&
+                        continueWatchingRowFocusHandoffIndexState.value ==
+                            index
+                    ) {
+                        continueWatchingRowFocusHandoffIndexState.value =
+                            null
+                    }
+
                     if (uiCaches.focusedItemByRow[rowKey] != index) {
                         uiCaches.focusedItemByRow[rowKey] = index
                         uiCaches.userInteractedRows.add(rowKey)

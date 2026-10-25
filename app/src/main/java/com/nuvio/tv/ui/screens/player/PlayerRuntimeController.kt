@@ -237,6 +237,7 @@ class PlayerRuntimeController(
     internal var nextEpisodeAutoPlayJob: Job? = null
     internal var creditAnalysisJob: Job? = null
     internal var recommendationLoadJob: Job? = null
+    internal var recommendationLoadGeneration: Long = 0L
     internal var recommendationMetadataJob: Job? = null
     internal var postPlayTrailerCountdownJob: Job? = null
     internal var pendingPostPlayRecommendationIndex: Int? = null

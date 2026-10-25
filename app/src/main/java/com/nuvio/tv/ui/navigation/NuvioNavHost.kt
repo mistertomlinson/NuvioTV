@@ -219,6 +219,129 @@ fun NuvioNavHost(
         }
 
     /*
+     * PLAYER_TO_HOME_SNOW_REVEAL
+     *
+     * Player intentionally tears the seasonal SurfaceView down. On a direct
+     * Player -> Home return, re-created snow must therefore start at alpha=0
+     * BEFORE Home becomes the active route. Home's own player-return curtain
+     * remains authoritative for readiness; this state only mirrors its reveal
+     * onto the independent Android snow surface.
+     */
+    val playerReturnSnowRevealActive =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    val playerReturnSnowRevealAlpha =
+        androidx.compose.runtime.remember {
+            androidx.compose.animation.core.Animatable(0f)
+        }
+
+    val playerReturnSnowRevealStarted =
+        androidx.compose.runtime.remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val playerReturnSnowGateRunning =
+        androidx.compose.runtime.remember {
+            java.util.concurrent.atomic.AtomicBoolean(false)
+        }
+
+    val playerReturnSnowScope =
+        androidx.compose.runtime.rememberCoroutineScope()
+
+    val playerReturnSnowHomeDrawSignal =
+        androidx.compose.runtime.remember {
+            kotlinx.coroutines.channels.Channel<Unit>(
+                capacity = kotlinx.coroutines.channels.Channel.CONFLATED
+            )
+        }
+
+    val playerReturnSnowAwaitingHomeDraw =
+        androidx.compose.runtime.remember {
+            androidx.compose.runtime.mutableStateOf(false)
+        }
+
+    fun revealPlayerReturnSnow() {
+        if (!playerReturnSnowRevealActive.value) return
+        if (!playerReturnSnowRevealStarted.compareAndSet(false, true)) return
+
+        playerReturnSnowScope.launch {
+            try {
+                playerReturnSnowRevealAlpha.animateTo(
+                    targetValue = 1f,
+                    animationSpec =
+                        androidx.compose.animation.core.tween(
+                            durationMillis = 350
+                        )
+                )
+            } finally {
+                playerReturnSnowAwaitingHomeDraw.value = false
+                playerReturnSnowRevealActive.value = false
+                playerReturnSnowRevealStarted.set(false)
+                playerReturnSnowGateRunning.set(false)
+            }
+        }
+    }
+
+    fun runPlayerReturnHomeSnowGate(
+        shouldWaitForPlayerReturnCurtain: () -> Boolean,
+        navigateHome: () -> Unit
+    ) {
+        if (!playerReturnSnowGateRunning.compareAndSet(false, true)) return
+
+        playerReturnSnowRevealStarted.set(false)
+        playerReturnSnowRevealActive.value = true
+
+        playerReturnSnowScope.launch {
+            try {
+                /*
+                 * The previous reveal may have finished at alpha=1. Reset while
+                 * Player is still the active route, where no seasonal window
+                 * exists, so there is no visible snap.
+                 */
+                playerReturnSnowRevealAlpha.snapTo(0f)
+
+                while (
+                    playerReturnSnowHomeDrawSignal
+                        .tryReceive()
+                        .isSuccess
+                ) {
+                    // Drain a stale one-shot signal from an earlier return.
+                }
+
+                playerReturnSnowAwaitingHomeDraw.value = true
+                navigateHome()
+
+                /*
+                 * Home's outer draw is the earliest safe reveal boundary. The
+                 * timeout is only a failsafe and matches the existing return
+                 * handshakes.
+                 */
+                kotlinx.coroutines.withTimeoutOrNull(250L) {
+                    playerReturnSnowHomeDrawSignal.receive()
+                }
+                playerReturnSnowAwaitingHomeDraw.value = false
+
+                /*
+                 * Re-check AFTER Home has drawn. A CW transaction can settle
+                 * extremely quickly; if no player-return curtain remains, do
+                 * not wait for a callback that will never fire.
+                 */
+                if (!shouldWaitForPlayerReturnCurtain()) {
+                    revealPlayerReturnSnow()
+                }
+            } catch (error: Throwable) {
+                playerReturnSnowAwaitingHomeDraw.value = false
+                playerReturnSnowRevealActive.value = false
+                playerReturnSnowRevealStarted.set(false)
+                playerReturnSnowGateRunning.set(false)
+                throw error
+            }
+        }
+    }
+
+    /*
      * DETAIL_TO_DETAIL_RETURN_FROZEN_LAYER
      *
      * Normal Navigation Compose pop transitions fade the outgoing Detail down
@@ -585,17 +708,24 @@ fun NuvioNavHost(
      * producer from the exact inverse alpha of the retained Details frame.
      */
     val seasonalOverlayRevealAlphaOverride =
-        if (
+        when {
             seasonalOverlayRoute == Screen.Home.route &&
-            showDetailReturnOverlay.value
-        ) {
-            if (detailReturnSnowReveal.value) {
-                (1f - detailReturnOverlayAlpha.value).coerceIn(0f, 1f)
-            } else {
-                0f
+                playerReturnSnowRevealActive.value -> {
+                playerReturnSnowRevealAlpha.value
+                    .coerceIn(0f, 1f)
             }
-        } else {
-            null
+
+            seasonalOverlayRoute == Screen.Home.route &&
+                showDetailReturnOverlay.value -> {
+                if (detailReturnSnowReveal.value) {
+                    (1f - detailReturnOverlayAlpha.value)
+                        .coerceIn(0f, 1f)
+                } else {
+                    0f
+                }
+            }
+
+            else -> null
         }
 
     Box(
@@ -804,7 +934,8 @@ fun NuvioNavHost(
                     skipReturnCurtain = skipHomeReturnCurtain,
                     returnFrameSignalActive =
                         detailReturnAwaitingHomeDraw.value ||
-                            sidebarRootReturnAwaitingHomeDraw.value,
+                            sidebarRootReturnAwaitingHomeDraw.value ||
+                            playerReturnSnowAwaitingHomeDraw.value,
                     onReturnFrameDrawn = {
                         if (detailReturnAwaitingHomeDraw.value) {
                             detailReturnHomeDrawSignal.trySend(Unit)
@@ -812,6 +943,12 @@ fun NuvioNavHost(
                         if (sidebarRootReturnAwaitingHomeDraw.value) {
                             sidebarRootReturnHomeDrawSignal.trySend(Unit)
                         }
+                        if (playerReturnSnowAwaitingHomeDraw.value) {
+                            playerReturnSnowHomeDrawSignal.trySend(Unit)
+                        }
+                    },
+                    onPlayerReturnCurtainRevealStart = {
+                        revealPlayerReturnSnow()
                     },
                     onNavigateToDetail = { itemId, itemType, addonBaseUrl ->
                         navController.navigate(Screen.Detail.createRoute(itemId, itemType, addonBaseUrl))
@@ -1446,6 +1583,19 @@ fun NuvioNavHost(
                     hiltViewModel(homeEntry)
                 }
 
+            fun shouldWaitForPlayerReturnCurtain(): Boolean {
+                val homeViewModel =
+                    homeViewModelForPlayerReturn
+                        ?: return false
+
+                return homeViewModel
+                        .playerReturnCwRequestedGenerationState
+                        .value >
+                        homeViewModel
+                            .playerReturnCwSettledGeneration
+                            .value
+            }
+
             PlayerScreen(
                 onBeforeNormalHomeExit = { expectFreshSave ->
                     /*
@@ -1512,13 +1662,18 @@ fun NuvioNavHost(
                 },
                 onPostPlayBackPress = {
                     backStackEntry.savedStateHandle["ratingExit"] = true
-                    val returnedHome = navController.popBackStack(
-                        Screen.Home.route,
-                        inclusive = false
-                    )
-                    if (!returnedHome) {
-                        navController.navigate(Screen.Home.route) {
-                            launchSingleTop = true
+                    runPlayerReturnHomeSnowGate(
+                        shouldWaitForPlayerReturnCurtain =
+                            ::shouldWaitForPlayerReturnCurtain
+                    ) {
+                        val returnedHome = navController.popBackStack(
+                            Screen.Home.route,
+                            inclusive = false
+                        )
+                        if (!returnedHome) {
+                            navController.navigate(Screen.Home.route) {
+                                launchSingleTop = true
+                            }
                         }
                     }
                 },
@@ -1529,7 +1684,21 @@ fun NuvioNavHost(
                     val returnToHomeOnBack2 = args2?.getString("returnToHomeOnBack")
                         ?.toBooleanStrictOrNull() == true
                     if (returnToHomeOnBack2) {
-                        navController.popBackStack(Screen.Home.route, inclusive = false)
+                        runPlayerReturnHomeSnowGate(
+                            shouldWaitForPlayerReturnCurtain =
+                                ::shouldWaitForPlayerReturnCurtain
+                        ) {
+                            val returnedHome =
+                                navController.popBackStack(
+                                    Screen.Home.route,
+                                    inclusive = false
+                                )
+                            if (!returnedHome) {
+                                navController.navigate(Screen.Home.route) {
+                                    launchSingleTop = true
+                                }
+                            }
+                        }
                     } else {
                         navController.popBackStack()
                     }
@@ -1649,7 +1818,25 @@ fun NuvioNavHost(
                                         }
                                     }
                                 } else {
-                                    navController.popBackStack()
+                                    val previousRouteForHomeReturn =
+                                        navController
+                                            .previousBackStackEntry
+                                            ?.destination
+                                            ?.route
+
+                                    if (
+                                        previousRouteForHomeReturn ==
+                                            Screen.Home.route
+                                    ) {
+                                        runPlayerReturnHomeSnowGate(
+                                            shouldWaitForPlayerReturnCurtain =
+                                                ::shouldWaitForPlayerReturnCurtain
+                                        ) {
+                                            navController.popBackStack()
+                                        }
+                                    } else {
+                                        navController.popBackStack()
+                                    }
                                 }
                             }
                         }
