@@ -302,6 +302,7 @@ private fun PlayerRuntimeController.useCreditTimingFallback() {
 internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
     creditAnalysisJob?.cancel()
     creditAnalysisJob = null
+    recommendationLoadGeneration++
     recommendationLoadJob?.cancel()
     recommendationLoadJob = null
     recommendationMetadataJob?.cancel()
@@ -450,6 +451,13 @@ internal fun PlayerRuntimeController.preparePostPlayRecommendationsForManualEndA
 }
 
 private fun PlayerRuntimeController.loadPostPlayRecommendations() {
+    /*
+     * Give loading-state ownership to this exact request before cancelling
+     * its predecessor. A stale/cancelled request must never clear a newer
+     * request's loading state, while an identity-changing request must still
+     * release the flag that it originally set.
+     */
+    val loadGeneration = ++recommendationLoadGeneration
     recommendationLoadJob?.cancel()
     val expectedIdentity = listOf(
         creditAnalysisIdentity,
@@ -549,8 +557,19 @@ private fun PlayerRuntimeController.loadPostPlayRecommendations() {
             throw error
         } catch (error: Exception) {
             Log.w(PlayerRuntimeController.TAG, "Post-play recommendations failed: ${error.message}")
-            if (recommendationIdentity() == expectedIdentity) {
-                _uiState.update { it.copy(isPostPlayRecommendationLoading = false) }
+        } finally {
+            /*
+             * Clear only if this request still owns the loading transaction.
+             *
+             * In particular, recommendationIdentity() may legitimately change
+             * while this request is resolving. The old identity guard returned
+             * without clearing isPostPlayRecommendationLoading, which could
+             * permanently block terminal EOF teardown after the rating flow.
+             */
+            if (recommendationLoadGeneration == loadGeneration) {
+                _uiState.update {
+                    it.copy(isPostPlayRecommendationLoading = false)
+                }
             }
         }
     }

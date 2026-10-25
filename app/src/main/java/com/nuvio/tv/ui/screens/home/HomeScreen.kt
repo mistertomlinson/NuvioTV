@@ -126,6 +126,7 @@ fun HomeScreen(
     skipReturnCurtain: Boolean = false,
     returnFrameSignalActive: Boolean = false,
     onReturnFrameDrawn: () -> Unit = {},
+    onPlayerReturnCurtainRevealStart: () -> Unit = {},
     onNavigateToDetail: (String, String, String) -> Unit,
     onContinueWatchingClick: (ContinueWatchingItem) -> Unit = { item ->
         onNavigateToDetail(
@@ -253,6 +254,14 @@ fun HomeScreen(
              * projection is actually committed before the dissolve begins.
              */
             androidx.compose.runtime.withFrameNanos { }
+
+            /*
+             * Snow lives in a separate Android surface above this Compose
+             * curtain. Release its external alpha on this exact boundary so
+             * both layers perform the same 350ms Home reveal.
+             */
+            onPlayerReturnCurtainRevealStart()
+
             playerReturnCurtainAlpha.animateTo(
                 targetValue = 0f,
                 animationSpec = androidx.compose.animation.core.tween(
@@ -633,6 +642,53 @@ fun HomeScreen(
                 }
 
                 if (!restoredExactItem) {
+                    runCatching {
+                        homeContentFocusRequester.requestFocus()
+                    }
+                }
+            } else {
+                /*
+                 * Destructive CW removal cannot restore the requester captured
+                 * when the popup opened because that poster is being deleted.
+                 *
+                 * V12 keeps LocalRowFocusRestorer pinned to CW and switches it
+                 * to the replacement poster as soon as the structural update is
+                 * committed. Wait for that exact requester identity change, then
+                 * perform the final focus commit AFTER the Dialog has released
+                 * its window focus. This closes the remaining row-below escape.
+                 */
+                val staleRemovedPosterRequester =
+                    homePopupReturnFocusRequester
+
+                var restoredReplacement = false
+
+                for (attempt in 0 until 8) {
+                    androidx.compose.runtime.withFrameNanos { }
+
+                    val replacementRequester =
+                        homeRowFocusRestorer.value
+                            .takeUnless {
+                                it == androidx.compose.ui.focus.FocusRequester.Default ||
+                                    it === staleRemovedPosterRequester
+                            }
+
+                    if (replacementRequester != null) {
+                        restoredReplacement =
+                            runCatching {
+                                replacementRequester.requestFocus()
+                            }.getOrDefault(false)
+
+                        if (restoredReplacement) {
+                            break
+                        }
+                    }
+                }
+
+                if (!restoredReplacement) {
+                    /*
+                     * Rare fallback: enter Home through the parent focusRestorer,
+                     * which V12 still pins to CW while its handoff is active.
+                     */
                     runCatching {
                         homeContentFocusRequester.requestFocus()
                     }
