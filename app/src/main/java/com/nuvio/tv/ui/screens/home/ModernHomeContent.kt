@@ -5754,6 +5754,31 @@ private fun EnhancedModernHomeRowsListBoundary(
                                     activeItemIndex =
                                         savedItemIndex
 
+                                    /*
+                                     * Double-Up moves the logical destination to
+                                     * the first row without giving that row real
+                                     * Compose focus before handing focus to the
+                                     * platform carousel.
+                                     *
+                                     * Pin the parent focusRestorer synchronously
+                                     * to that exact first-row card so an immediate
+                                     * Down cannot restore the stale lower-row child
+                                     * that owned focus before Double-Up.
+                                     *
+                                     * This is deliberately scoped to Double-Up and
+                                     * does not alter the CW structural-focus handoff.
+                                     */
+                                    firstRow.items
+                                        .getOrNull(savedItemIndex)
+                                        ?.key
+                                        ?.let { returnItemKey ->
+                                            rowFocusRestorerState.value =
+                                                uiCaches.requesterFor(
+                                                    firstRow.key,
+                                                    returnItemKey
+                                                )
+                                        }
+
                                     withFrameNanos { }
 
                                     if (
