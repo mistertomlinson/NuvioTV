@@ -1976,7 +1976,7 @@ fun ModernHomeContent(
      * Once that small exposure warm has started, let it finish. Cancelling it
      * when Down navigation begins can leave only part of the soon-visible row
      * in memory, producing the exact blank-poster flash this prewarm exists
-     * to prevent. New exposure work still starts only after the idle debounce.
+     * to prevent. New exposure work still starts only from an idle snapshot.
      */
     LaunchedEffect(Unit) {
         var completedExposureSignature: String? = null
@@ -2014,7 +2014,6 @@ fun ModernHomeContent(
             .filter { (_, fastScrolling, anyScrolling) ->
                 !fastScrolling && !anyScrolling
             }
-            .debounce(120L)
             .collectLatest {
                 (pair, fastScrolling, anyScrolling) ->
 
@@ -2251,36 +2250,51 @@ fun ModernHomeContent(
                 val imageLoader =
                     coil.Coil.imageLoader(context)
 
+                var allExposureImagesSucceeded =
+                    true
+
                 for (imageUrl in urls) {
                     try {
-                        imageLoader.execute(
-                            coil.request.ImageRequest
-                                .Builder(context)
-                                .data(imageUrl)
-                                .crossfade(false)
-                                .size(
-                                    width = requestWidthPx,
-                                    height = requestHeightPx
-                                )
-                                .memoryCachePolicy(
-                                    coil.request
-                                        .CachePolicy
-                                        .ENABLED
-                                )
-                                .build()
-                        )
+                        val result =
+                            imageLoader.execute(
+                                coil.request.ImageRequest
+                                    .Builder(context)
+                                    .data(imageUrl)
+                                    .crossfade(false)
+                                    .size(
+                                        width = requestWidthPx,
+                                        height = requestHeightPx
+                                    )
+                                    .memoryCachePolicy(
+                                        coil.request
+                                            .CachePolicy
+                                            .ENABLED
+                                    )
+                                    .build()
+                            )
+
+                        if (
+                            result !is
+                                coil.request.SuccessResult
+                        ) {
+                            allExposureImagesSucceeded =
+                                false
+                        }
                     } catch (
                         cancelled:
                             kotlinx.coroutines.CancellationException
                     ) {
                         throw cancelled
                     } catch (_: Throwable) {
-                        // Best-effort prewarm must never affect Home.
+                        allExposureImagesSucceeded =
+                            false
                     }
                 }
 
-                completedExposureSignature =
-                    exposureSignature
+                if (allExposureImagesSucceeded) {
+                    completedExposureSignature =
+                        exposureSignature
+                }
             }
     }
 
