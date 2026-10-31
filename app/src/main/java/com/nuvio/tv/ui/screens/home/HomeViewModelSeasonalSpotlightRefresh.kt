@@ -236,10 +236,6 @@ internal fun HomeViewModel.stagePendingSeasonalSpotlight(
                     }.awaitAll()
                 }
 
-            /*
-             * Fail closed to the currently visible Seasonal block.
-             * Never promote a partial replacement.
-             */
             if (
                 preparedRows.size !=
                     seasonalAddon.catalogs.size ||
@@ -283,14 +279,6 @@ internal fun HomeViewModel.stagePendingSeasonalSpotlight(
                                     settings =
                                         tmdbSettings
                                 ).mapIndexed { index, enriched ->
-                                    /*
-                                     * Seasonal Spotlight's English-only
-                                     * curation is an addon eligibility rule,
-                                     * not presentation metadata. Preserve the
-                                     * catalog item's original language field
-                                     * so TMDB enrichment cannot surface "EN"
-                                     * in Nuvio's Home hero for this addon.
-                                     */
                                     enriched.copy(
                                         language =
                                             visibleItems
@@ -483,6 +471,15 @@ private suspend fun HomeViewModel.prewarmSeasonalSpotlightStage(
 
 internal suspend fun HomeViewModel.applyStagedSeasonalSpotlightIfReady():
     Boolean {
+
+    /*
+     * HomeScreen already snapshots seasonalSpotlightStageReadyState at entry.
+     * SO deliberately shares that gate so either staged replacement can be
+     * committed before the return cover dissolves, without changing Compose.
+     */
+    if (applyStagedStreamingOriginalsIfReady()) {
+        return true
+    }
 
     if (
         !seasonalSpotlightStageReadyState.value
