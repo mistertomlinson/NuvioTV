@@ -83,6 +83,18 @@ class ReleaseReminderCoordinator @Inject constructor(
     private val snapshot = AtomicReference(RuntimeSnapshot())
     private val deferredAvailableReminders =
         ConcurrentHashMap<String, DeferredAvailableReminder>()
+
+    /*
+     * Removing a reminder can remove an armed/fulfilled poster badge from the
+     * currently rendered Home tree. Keep that mutation behind the same Home
+     * presentation freeze as fulfillment/My List insertion.
+     *
+     * The value is the profile that authorized the removal, so a later profile
+     * handoff cannot consume another profile's queued mutation.
+     */
+    private val deferredReminderRemovals =
+        ConcurrentHashMap<String, Int>()
+
     @Volatile private var homeVisible = false
 
     private val snapshotRequests = MutableSharedFlow<Unit>(
@@ -225,13 +237,28 @@ class ReleaseReminderCoordinator @Inject constructor(
                     return@withLock
                 }
 
+                /*
+                 * A watched title supersedes a staged fulfillment too. While
+                 * Home is active, queue the removal rather than changing the
+                 * visible reminder projection underneath the user.
+                 */
                 deferredAvailableReminders.remove(reminder.key)
-                dataStore.remove(reminder.key)
 
-                Log.i(
-                    TAG,
-                    "Removed watched release reminder ${reminder.key}"
-                )
+                if (homeVisible) {
+                    deferredReminderRemovals[reminder.key] =
+                        watchedSnapshot.profileId
+                    Log.i(
+                        TAG,
+                        "Staged watched reminder removal ${reminder.key} until Home exits"
+                    )
+                } else {
+                    deferredReminderRemovals.remove(reminder.key)
+                    dataStore.remove(reminder.key)
+                    Log.i(
+                        TAG,
+                        "Removed watched release reminder ${reminder.key}"
+                    )
+                }
             }
         }
     }
@@ -242,9 +269,9 @@ class ReleaseReminderCoordinator @Inject constructor(
 
         if (wasVisible && !visible) {
             /*
-             * Authority work may have completed while Home was frozen. Wake
-             * maintenance immediately after Home leaves so queued My List /
-             * fulfillment mutations happen off-screen, before the next entry.
+             * Authority work/removal decisions may have completed while Home
+             * was frozen. Wake maintenance immediately after Home leaves so
+             * queued mutations happen off-screen before the next entry.
              */
             snapshotRequests.tryEmit(Unit)
         }
@@ -299,6 +326,33 @@ class ReleaseReminderCoordinator @Inject constructor(
             for (stored in dataStore.reminders.first()) {
                 if (profileManager.activeProfileId.value != profileId) return@withLock
 
+                /*
+                 * Apply any removal that was authorized during the frozen Home
+                 * session. Do this before every other reminder transition so a
+                 * queued removal can never be overtaken by fulfillment/re-arming.
+                 */
+                val deferredRemovalProfile =
+                    deferredReminderRemovals[stored.key]
+
+                if (deferredRemovalProfile != null) {
+                    if (deferredRemovalProfile != profileId) {
+                        deferredReminderRemovals.remove(
+                            stored.key,
+                            deferredRemovalProfile
+                        )
+                    } else if (homeVisible) {
+                        continue
+                    } else {
+                        deferredReminderRemovals.remove(
+                            stored.key,
+                            profileId
+                        )
+                        deferredAvailableReminders.remove(stored.key)
+                        dataStore.remove(stored.key)
+                        continue
+                    }
+                }
+
                 var reminder = stored
 
                 if (reminder.status == ReleaseReminderStatus.FULFILLED) {
@@ -310,9 +364,21 @@ class ReleaseReminderCoordinator @Inject constructor(
                         runtime.continueWatchingItems.any(reminder::matchesContinueWatching)
 
                     if (expired || playbackStarted) {
-                        dataStore.remove(reminder.key)
+                        if (homeVisible) {
+                            deferredReminderRemovals[reminder.key] =
+                                profileId
+                        } else {
+                            deferredReminderRemovals.remove(reminder.key)
+                            dataStore.remove(reminder.key)
+                        }
                     } else if (!reminder.membershipConfirmed) {
-                        dataStore.markArmed(reminder.key)
+                        /*
+                         * Re-arming removes a fulfilled Available Now/New Season
+                         * badge. Defer that visible mutation until Home exits too.
+                         */
+                        if (!homeVisible) {
+                            dataStore.markArmed(reminder.key)
+                        }
                     }
                     continue
                 }
@@ -325,10 +391,6 @@ class ReleaseReminderCoordinator @Inject constructor(
                             deferred
                         )
                     } else if (homeVisible) {
-                        /*
-                         * Authority is already known for this release. Do not
-                         * repeat metadata/API checks while Home remains frozen.
-                         */
                         continue
                     } else {
                         if (
@@ -341,6 +403,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                                 reminder.key,
                                 deferred
                             )
+                            deferredReminderRemovals.remove(reminder.key)
                             dataStore.remove(reminder.key)
                             continue
                         }
@@ -474,7 +537,14 @@ class ReleaseReminderCoordinator @Inject constructor(
                     runtime.continueWatchingItems.any(reminder::matchesContinueWatching)
                 ) {
                     deferredAvailableReminders.remove(reminder.key)
-                    dataStore.remove(reminder.key)
+                    if (homeVisible) {
+                        deferredReminderRemovals[reminder.key] =
+                            profileId
+                        dataStore.upsert(checked)
+                    } else {
+                        deferredReminderRemovals.remove(reminder.key)
+                        dataStore.remove(reminder.key)
+                    }
                     continue
                 }
 
@@ -483,11 +553,6 @@ class ReleaseReminderCoordinator @Inject constructor(
                 }
 
                 if (homeVisible) {
-                    /*
-                     * Freeze Home presentation. Persist only invisible authority
-                     * bookkeeping now; the My List insertion and fulfilled badge
-                     * are applied after Home leaves.
-                     */
                     val deferredRecord = checked
                     deferredAvailableReminders[reminder.key] =
                         DeferredAvailableReminder(
@@ -538,6 +603,7 @@ class ReleaseReminderCoordinator @Inject constructor(
             }
 
             if (confirmed) {
+                deferredReminderRemovals.remove(record.key)
                 dataStore.markFulfilled(
                     record.key,
                     System.currentTimeMillis()
