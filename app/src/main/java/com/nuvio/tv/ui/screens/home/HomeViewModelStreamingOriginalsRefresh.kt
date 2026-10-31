@@ -126,10 +126,6 @@ private fun HomeViewModel.discardStaleStreamingOriginalsStage(
     state.stagedAddons = null
     state.stagedLocalDate = null
 
-    /*
-     * SO and Seasonal Spotlight staging are serialized. Therefore when an SO
-     * stage is discarded here, the shared Home-return gate belongs to SO.
-     */
     seasonalSpotlightStageReadyState.value = false
 
     Log.d(
@@ -144,11 +140,6 @@ private fun HomeViewModel.evaluateStreamingOriginalsRefreshBoundary() {
     val localTime = now.toLocalTime()
     val prefs = streamingOriginalsRefreshPrefs()
 
-    /*
-     * First run after this feature ships already has a normal fresh Home load.
-     * Treat that initial date as satisfied rather than immediately duplicating
-     * the complete SO crawl in the background.
-     */
     val lastSuccess =
         prefs.getString(
             STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
@@ -167,11 +158,6 @@ private fun HomeViewModel.evaluateStreamingOriginalsRefreshBoundary() {
             )
             .apply()
     } else if (lastSuccess != localDate) {
-        /*
-         * Local midnight is authoritative. This also catches up after process
-         * death/background time because the last successful local date is
-         * persisted independently of the ViewModel.
-         */
         discardStaleStreamingOriginalsStage(localDate)
         markStreamingOriginalsRefreshDue("local_midnight_or_resume_catchup")
     }
@@ -261,11 +247,6 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
         return
     }
 
-    /*
-     * Reuse the existing Home-return gate, but never let two independently
-     * prepared addon replacements compete for it. Seasonal Spotlight gets
-     * priority if it is already pending/preparing/ready.
-     */
     if (
         pendingSeasonalSpotlightAddons != null ||
         seasonalSpotlightStageJob?.isActive == true ||
@@ -368,9 +349,53 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 return@launch
             }
 
+            val rawPreparedRows = preparedRows.filterNotNull()
+
+            /*
+             * A 23:45 precheck that finishes after midnight is yesterday's
+             * snapshot. Never let it satisfy or overwrite the new day's due
+             * state. The midnight/recovery pass will stage again.
+             */
+            if (
+                LocalDate.now(ZoneId.systemDefault()).toString() !=
+                    stageDate
+            ) {
+                setStreamingOriginalsRefreshDue(true)
+                Log.d(
+                    HomeViewModel.TAG,
+                    "Discarded Streaming Originals stage that crossed midnight"
+                )
+                return@launch
+            }
+
+            /*
+             * Compare raw server facts before TMDB enrichment. Item identity
+             * alone is insufficient: release dates / new-season hints may
+             * change without changing row membership.
+             */
+            if (!streamingOriginalsStageDiffersFromLive(rawPreparedRows)) {
+                state.stageReady = false
+                state.stagedRows = emptyMap()
+                state.stagedAddons = null
+                state.stagedLocalDate = null
+                setStreamingOriginalsRefreshDue(false)
+                streamingOriginalsRefreshPrefs()
+                    .edit()
+                    .putString(
+                        STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
+                        stageDate
+                    )
+                    .apply()
+                Log.d(
+                    HomeViewModel.TAG,
+                    "Streaming Originals content unchanged; staged probe discarded"
+                )
+                return@launch
+            }
+
             val tmdbSettings = currentTmdbSettings
             val fullyPrepared =
-                preparedRows.filterNotNull().map { row ->
+                rawPreparedRows.map { row ->
                     val visibleItems =
                         row.items.take(
                             STREAMING_ORIGINALS_VISIBLE_WINDOW
@@ -416,22 +441,14 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 return@launch
             }
 
-            if (!streamingOriginalsStageDiffersFromLive(fullyPrepared)) {
-                state.stageReady = false
-                state.stagedRows = emptyMap()
-                state.stagedAddons = null
-                state.stagedLocalDate = null
-                setStreamingOriginalsRefreshDue(false)
-                streamingOriginalsRefreshPrefs()
-                    .edit()
-                    .putString(
-                        STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
-                        stageDate
-                    )
-                    .apply()
+            if (
+                LocalDate.now(ZoneId.systemDefault()).toString() !=
+                    stageDate
+            ) {
+                setStreamingOriginalsRefreshDue(true)
                 Log.d(
                     HomeViewModel.TAG,
-                    "Streaming Originals content unchanged; staged probe discarded"
+                    "Discarded enriched Streaming Originals stage after midnight"
                 )
                 return@launch
             }
@@ -468,11 +485,6 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 )
                 .apply()
 
-            /*
-             * HomeScreen already snapshots this gate at entry and keeps the
-             * return cover through one rendered frame after the staged swap.
-             * SO and Seasonal staging are serialized, so ownership is unambiguous.
-             */
             seasonalSpotlightStageReadyState.value = true
 
             Log.d(
@@ -485,11 +497,8 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
 private fun HomeViewModel.streamingOriginalsStageDiffersFromLive(
     rows: List<CatalogRow>
 ): Boolean {
-    fun signature(row: CatalogRow): Pair<String, List<String>> =
-        row.catalogName to
-            row.items.map { item ->
-                "${item.apiType}:${item.id}"
-            }
+    fun signature(row: CatalogRow): Pair<String, List<Int>> =
+        row.catalogName to row.items.map { item -> item.hashCode() }
 
     val staged = rows.associate { row ->
         catalogKey(
