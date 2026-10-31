@@ -291,6 +291,17 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 return@launch
             }
 
+            /*
+             * This stage is an authoritative date-boundary probe. Remove only
+             * Streaming Originals request-cache entries so a cached Success
+             * cannot hide a failed network fetch and falsely satisfy today's
+             * midnight/recovery check. Disk fallback and every other addon's
+             * cache remain untouched.
+             */
+            catalogRepository.clearAddonInMemoryCache(
+                STREAMING_ORIGINALS_REFRESH_ADDON_ID
+            )
+
             val semaphore = Semaphore(4)
             val preparedRows =
                 coroutineScope {
@@ -497,8 +508,19 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
 private fun HomeViewModel.streamingOriginalsStageDiffersFromLive(
     rows: List<CatalogRow>
 ): Boolean {
+    /*
+     * catalogSourceRows may retain these three Home/TMDB enrichment overlays
+     * across a fresh catalog response. They are not addon-source changes and
+     * must not manufacture a midnight row diff.
+     */
     fun signature(row: CatalogRow): Pair<String, List<Int>> =
-        row.catalogName to row.items.map { item -> item.hashCode() }
+        row.catalogName to row.items.map { item ->
+            item.copy(
+                ageRating = null,
+                status = null,
+                logo = null
+            ).hashCode()
+        }
 
     val staged = rows.associate { row ->
         catalogKey(
