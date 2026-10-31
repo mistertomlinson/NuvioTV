@@ -23,6 +23,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeParseException
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
@@ -60,6 +61,11 @@ private data class WatchedReminderSnapshot(
     val fullyWatchedSeriesIds: Set<String>
 )
 
+private data class DeferredAvailableReminder(
+    val profileId: Int,
+    val record: ReleaseReminderRecord
+)
+
 @Singleton
 class ReleaseReminderCoordinator @Inject constructor(
     @ApplicationContext private val appContext: Context,
@@ -75,6 +81,8 @@ class ReleaseReminderCoordinator @Inject constructor(
     private val runMutex = Mutex()
     private val started = AtomicBoolean(false)
     private val snapshot = AtomicReference(RuntimeSnapshot())
+    private val deferredAvailableReminders =
+        ConcurrentHashMap<String, DeferredAvailableReminder>()
     @Volatile private var homeVisible = false
 
     private val snapshotRequests = MutableSharedFlow<Unit>(
@@ -94,17 +102,6 @@ class ReleaseReminderCoordinator @Inject constructor(
             }
         }
 
-        /*
-         * Watched status supersedes every release-reminder state.
-         *
-         * Restart the entire reconciliation stream for each selected profile.
-         * That prevents a transient profile handoff from ever pairing one
-         * profile's watched projection with another profile's reminders.
-         *
-         * Movies use the active tracking provider's profile-gated watched
-         * projection. Series use only the durable fully-watched-series set:
-         * watching one episode must never cancel a new-season reminder.
-         */
         scope.launch {
             profileManager.activeProfileId.collectLatest { profileId ->
                 combine(
@@ -146,10 +143,6 @@ class ReleaseReminderCoordinator @Inject constructor(
         onReminderStoreChanged()
     }
 
-    /**
-     * Deterministic entry point used by regression tests and by any future
-     * explicit maintenance caller.
-     */
     internal suspend fun runWatchedReminderMaintenance() {
         val profileId =
             profileManager.activeProfileId.value
@@ -232,15 +225,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                     return@withLock
                 }
 
-                /*
-                 * Remove the record entirely, including a previously fulfilled
-                 * Available Now/New Season badge. Once the title is watched,
-                 * the watched checkmark is the only useful terminal status.
-                 *
-                 * ReleaseReminderDataStore then emits the smaller reminder
-                 * list and the existing WorkManager observer naturally
-                 * reschedules/cancels the due job.
-                 */
+                deferredAvailableReminders.remove(reminder.key)
                 dataStore.remove(reminder.key)
 
                 Log.i(
@@ -252,7 +237,17 @@ class ReleaseReminderCoordinator @Inject constructor(
     }
 
     fun setHomeVisible(visible: Boolean) {
+        val wasVisible = homeVisible
         homeVisible = visible
+
+        if (wasVisible && !visible) {
+            /*
+             * Authority work may have completed while Home was frozen. Wake
+             * maintenance immediately after Home leaves so queued My List /
+             * fulfillment mutations happen off-screen, before the next entry.
+             */
+            snapshotRequests.tryEmit(Unit)
+        }
     }
 
     fun updateHomeSnapshot(
@@ -307,6 +302,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                 var reminder = stored
 
                 if (reminder.status == ReleaseReminderStatus.FULFILLED) {
+                    deferredAvailableReminders.remove(reminder.key)
                     val fulfilledAt = reminder.fulfilledAtMillis
                     val expired = fulfilledAt == null ||
                         now - fulfilledAt >= BADGE_LIFETIME_MS
@@ -321,15 +317,51 @@ class ReleaseReminderCoordinator @Inject constructor(
                     continue
                 }
 
+                val deferred = deferredAvailableReminders[reminder.key]
+                if (deferred != null) {
+                    if (deferred.profileId != profileId) {
+                        deferredAvailableReminders.remove(
+                            reminder.key,
+                            deferred
+                        )
+                    } else if (homeVisible) {
+                        /*
+                         * Authority is already known for this release. Do not
+                         * repeat metadata/API checks while Home remains frozen.
+                         */
+                        continue
+                    } else {
+                        if (
+                            runtime.cwResolved &&
+                            runtime.continueWatchingItems.any(
+                                deferred.record::matchesContinueWatching
+                            )
+                        ) {
+                            deferredAvailableReminders.remove(
+                                reminder.key,
+                                deferred
+                            )
+                            dataStore.remove(reminder.key)
+                            continue
+                        }
+
+                        fulfillAvailableReminder(
+                            record = deferred.record,
+                            profileId = profileId
+                        )
+                        deferredAvailableReminders.remove(
+                            reminder.key,
+                            deferred
+                        )
+                        continue
+                    }
+                }
+
                 if (reminder.imdbId.isNullOrBlank() && reminder.tmdbId != null) {
                     val resolved = runCatching {
                         tmdbService.tmdbToImdb(reminder.tmdbId, reminder.itemType)
                     }.getOrNull()
 
-                    /*
-                     * Identity resolution may suspend. Never continue processing
-                     * this profile's reminder after the user changes profiles.
-                     */
                     if (profileManager.activeProfileId.value != profileId) {
                         return@withLock
                     }
@@ -386,11 +418,6 @@ class ReleaseReminderCoordinator @Inject constructor(
 
                 val fresh = resolveFreshMeta(reminder)
 
-                /*
-                 * Fresh authority resolution is a network operation. The profile
-                 * that initiated it must still be active before any reminder or
-                 * library state is mutated.
-                 */
                 if (profileManager.activeProfileId.value != profileId) {
                     return@withLock
                 }
@@ -446,56 +473,39 @@ class ReleaseReminderCoordinator @Inject constructor(
                     runtime.cwResolved &&
                     runtime.continueWatchingItems.any(reminder::matchesContinueWatching)
                 ) {
+                    deferredAvailableReminders.remove(reminder.key)
                     dataStore.remove(reminder.key)
                     continue
                 }
 
-                /*
-                 * Fulfillment is profile-sensitive. Recheck at the mutation
-                 * boundary in case processing was suspended beforehand.
-                 */
                 if (profileManager.activeProfileId.value != profileId) {
                     return@withLock
                 }
 
-                runCatching {
-                    libraryRepository.ensureInDefault(reminder.toLibraryEntryInput())
-                }.onSuccess { confirmed ->
+                if (homeVisible) {
                     /*
-                     * ensureInDefault() may itself suspend. Do not mark a
-                     * reminder fulfilled in a profile that became active while
-                     * that operation was in flight.
+                     * Freeze Home presentation. Persist only invisible authority
+                     * bookkeeping now; the My List insertion and fulfilled badge
+                     * are applied after Home leaves.
                      */
-                    if (profileManager.activeProfileId.value != profileId) {
-                        return@onSuccess
-                    }
-
-                    if (confirmed) {
-                        dataStore.markFulfilled(
-                            reminder.key,
-                            System.currentTimeMillis()
+                    val deferredRecord = checked
+                    deferredAvailableReminders[reminder.key] =
+                        DeferredAvailableReminder(
+                            profileId = profileId,
+                            record = deferredRecord
                         )
-                        Log.i(
-                            TAG,
-                            "Fulfilled ${reminder.key}" +
-                                if (homeVisible) " while Home visible" else ""
-                        )
-                    } else {
-                        dataStore.upsert(checked)
-                    }
-                }.onFailure { error ->
-                    /*
-                     * Do not write failure bookkeeping into a newly active
-                     * profile either.
-                     */
-                    if (profileManager.activeProfileId.value == profileId) {
-                        dataStore.upsert(checked)
-                        Log.w(
-                            TAG,
-                            "Fulfillment failed for ${reminder.key}: ${error.message}"
-                        )
-                    }
+                    dataStore.upsert(deferredRecord)
+                    Log.i(
+                        TAG,
+                        "Staged fulfillment ${reminder.key} until Home exits"
+                    )
+                    continue
                 }
+
+                fulfillAvailableReminder(
+                    record = checked,
+                    profileId = profileId
+                )
 
                 if (profileManager.activeProfileId.value != profileId) {
                     return@withLock
@@ -506,6 +516,51 @@ class ReleaseReminderCoordinator @Inject constructor(
                 appContext,
                 dataStore.reminders.first()
             )
+        }
+    }
+
+    private suspend fun fulfillAvailableReminder(
+        record: ReleaseReminderRecord,
+        profileId: Int
+    ): Boolean {
+        if (profileManager.activeProfileId.value != profileId) {
+            return false
+        }
+
+        return try {
+            val confirmed =
+                libraryRepository.ensureInDefault(
+                    record.toLibraryEntryInput()
+                )
+
+            if (profileManager.activeProfileId.value != profileId) {
+                return false
+            }
+
+            if (confirmed) {
+                dataStore.markFulfilled(
+                    record.key,
+                    System.currentTimeMillis()
+                )
+                Log.i(
+                    TAG,
+                    "Fulfilled ${record.key} off Home"
+                )
+                true
+            } else {
+                dataStore.upsert(record)
+                false
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            if (profileManager.activeProfileId.value == profileId) {
+                dataStore.upsert(record)
+                Log.w(
+                    TAG,
+                    "Fulfillment failed for ${record.key}: ${error.message}"
+                )
+            }
+            false
         }
     }
 
@@ -648,14 +703,6 @@ private fun ReleaseReminderRecord.matchesWatchedStateRespectingFutureSeason(
     watchedMovieIds: Set<String>,
     fullyWatchedSeriesIds: Set<String>
 ): Boolean {
-    /*
-     * A still-armed Season 2+ reminder represents future content.
-     *
-     * Fully-watched-series state describes the released episode set.
-     * It must therefore never invalidate an armed reminder for an
-     * unreleased future season, even if stale metadata temporarily
-     * describes the show as terminal.
-     */
     if (
         shouldProtectReleaseReminderFromWatchedInvalidation(
             itemType = itemType,
