@@ -24,6 +24,7 @@ enum class NumberStyle { OFF, SOLID, OUTLINE }
 internal val YEAR_REGEX = Regex("""\b(19|20)\d{2}\b""")
 internal const val MODERN_HERO_TEXT_WIDTH_FRACTION = 0.42f
 internal const val MODERN_HERO_MEDIA_WIDTH_FRACTION = 0.72f
+private const val STREAMING_ORIGINALS_ADDON_ID = "community.streaming.originals.v6"
 
 /*
  * Single source of truth for the hero backdrop request size.
@@ -436,6 +437,22 @@ private fun isReturningSeasonCatalogItem(item: MetaPreview): Boolean {
     return seasonNumber != null && seasonNumber >= 2
 }
 
+private fun streamingOriginalsAllowsNewSeasonBadge(
+    row: CatalogRow,
+    item: MetaPreview
+): Boolean {
+    if (row.addonId != STREAMING_ORIGINALS_ADDON_ID) return true
+    if (!isSeriesType(item.apiType)) return false
+
+    val catalogId = row.catalogId.trim().lowercase()
+    return (
+        isSeriesType(row.apiType) &&
+            catalogId.startsWith("latest_series_")
+        ) ||
+        catalogId.startsWith("coming_soon_") ||
+        catalogId == "coming_soon_series"
+}
+
 private fun globalComingSoonMovieStatus(
     item: MetaPreview
 ): String? {
@@ -569,6 +586,22 @@ internal fun buildCatalogItem(
         imdbText = item.imdbRating?.takeIf { it > 0f }?.let { "%.1f".format(it) }
     )
 
+    val allowsNewSeasonBadge =
+        streamingOriginalsAllowsNewSeasonBadge(
+            row = row,
+            item = item
+        )
+
+    val scopedReleaseReminderBadge =
+        if (
+            !allowsNewSeasonBadge &&
+            releaseReminderBadge == ReleaseReminderBadge.NEW_SEASON
+        ) {
+            null
+        } else {
+            releaseReminderBadge
+        }
+
     return ModernCarouselItem(
         key = "catalog_${row.key()}_${item.id}_${occurrence}",
         title = item.name,
@@ -589,8 +622,10 @@ internal fun buildCatalogItem(
             trailerApiType = item.apiType
         ),
         metaPreview = item,
-        isNewSeason = isReturningSeasonCatalogItem(item),
-        releaseReminderBadge = releaseReminderBadge,
+        isNewSeason =
+            allowsNewSeasonBadge &&
+                isReturningSeasonCatalogItem(item),
+        releaseReminderBadge = scopedReleaseReminderBadge,
         isReleaseReminderSet = isReleaseReminderSet
     )
 }
