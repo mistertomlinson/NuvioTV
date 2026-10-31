@@ -61,6 +61,14 @@ private fun HomeViewModel.ensureSeasonalSpotlightContentRefreshTicker() {
 }
 
 private fun HomeViewModel.startPendingSeasonalSpotlightStageIfNeeded() {
+    /*
+     * SO uses the same frozen Home-return gate. Never prepare two independent
+     * replacements against one live Home snapshot at the same time.
+     */
+    if (streamingOriginalsStageBusyOrReady()) {
+        return
+    }
+
     if (
         seasonalSpotlightStageReadyState.value ||
         seasonalSpotlightStageJob?.isActive == true
@@ -122,21 +130,28 @@ internal fun HomeViewModel.setHomePresentationVisible(
     visible: Boolean
 ) {
     ensureSeasonalSpotlightContentRefreshTicker()
+    ensureStreamingOriginalsRefreshTicker()
 
     homePresentationVisible = visible
 
     if (visible) {
         /*
-         * Never let background Seasonal preparation compete with an active
-         * Home session. CatalogRepository retains completed fetches, so a
-         * later staging attempt can reuse that work.
+         * Never let background replacement preparation compete with an active
+         * Home session. Completed repository fetches remain reusable later.
          */
         seasonalSpotlightStageJob?.cancel()
         seasonalSpotlightStageJob = null
+        cancelStreamingOriginalsStageForVisibleHome()
         return
     }
 
+    /*
+     * Seasonal gets first opportunity because a structural manifest rotation
+     * may already be pending. If it starts, the SO helper observes that shared
+     * staging state and defers itself until a later safe Home exit.
+     */
     startPendingSeasonalSpotlightStageIfNeeded()
+    startPendingStreamingOriginalsStageIfNeeded()
 }
 
 /**
@@ -304,14 +319,6 @@ internal fun HomeViewModel.stagePendingSeasonalSpotlight(
                         )
                     }
 
-            /*
-             * Manifest identity can stay unchanged across the addon's daily
-             * item shuffle. Compare only presentation-relevant server facts:
-             * catalog identity/name plus the ordered content IDs.
-             *
-             * Do this before image prewarming so an hourly no-change probe
-             * remains extremely cheap after the catalog response arrives.
-             */
             if (
                 !seasonalSpotlightStageDiffersFromLive(
                     fullyPrepared
@@ -340,20 +347,10 @@ internal fun HomeViewModel.stagePendingSeasonalSpotlight(
                 return@launch
             }
 
-            /*
-             * Warm the images the first Home viewport can actually display.
-             * This is deliberately off-screen and sequential: freshness is
-             * background work, not something allowed to steal resources from
-             * active Home navigation.
-             */
             prewarmSeasonalSpotlightStage(
                 fullyPrepared
             )
 
-            /*
-             * A newer manifest may have arrived while this stage was running.
-             * Never publish preparation belonging to an obsolete manifest.
-             */
             if (
                 pendingSeasonalSpotlightAddons !=
                     addons
@@ -484,12 +481,6 @@ private suspend fun HomeViewModel.prewarmSeasonalSpotlightStage(
     }
 }
 
-/**
- * Promote a completely staged Seasonal Spotlight replacement into Home.
- *
- * Only the Seasonal Spotlight block changes. The rest of Home, enrichment
- * caches, focus state and loaded catalog rows remain untouched.
- */
 internal suspend fun HomeViewModel.applyStagedSeasonalSpotlightIfReady():
     Boolean {
 
@@ -511,11 +502,6 @@ internal suspend fun HomeViewModel.applyStagedSeasonalSpotlightIfReady():
                 .toMap()
         }
 
-    /*
-     * An empty staged map is valid when no Seasonal Spotlight event/catalog
-     * is currently active. In that case applying the staged replacement means
-     * removing the old Seasonal block and inserting nothing.
-     */
     val oldSeasonalKeys =
         synchronized(catalogsMap) {
             catalogsMap.keys
@@ -549,11 +535,6 @@ internal suspend fun HomeViewModel.applyStagedSeasonalSpotlightIfReady():
                             sourceRow.hasMore
                 )
 
-            /*
-             * The staged visible items already completed the isolated TMDB
-             * preparation above. Mark them terminal so the normal row gate
-             * does not turn the atomic replacement back into skeletons.
-             */
             homeEnrichmentAttemptedIds.addAll(
                 visibleItems.map {
                     it.id
@@ -605,10 +586,6 @@ internal suspend fun HomeViewModel.applyStagedSeasonalSpotlightIfReady():
     seasonalSpotlightContentRefreshDue =
         false
 
-    /*
-     * Recompute Home synchronously before the frozen return frame is allowed
-     * to dissolve. This updates catalogRows/order as one presentation commit.
-     */
     updateCatalogRowsPipeline()
 
     android.util.Log.d(
