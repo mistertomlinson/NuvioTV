@@ -252,6 +252,19 @@ class CatalogRepositoryImpl @Inject constructor(
         return URLEncoder.encode(value, "UTF-8").replace("+", "%20")
     }
 
+    override fun clearAddonInMemoryCache(addonId: String) {
+        val normalizedAddonId = addonId.lowercase()
+        val keysToRemove = catalogCache.keys.filter { key ->
+            key.contains("_${addonId}_") ||
+                key.contains("_${normalizedAddonId}_")
+        }
+        keysToRemove.forEach(catalogCache::remove)
+        Log.d(
+            TAG,
+            "Cleared ${keysToRemove.size} in-memory cache entries for addon $addonId"
+        )
+    }
+
     override fun clearInMemoryCache() {
         catalogCache.clear()
     }
