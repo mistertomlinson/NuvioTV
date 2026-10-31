@@ -1,0 +1,521 @@
+name: Apply Streaming Originals refresh scope patch
+on:
+  push:
+    branches:
+      - fix/streaming-originals-refresh-scope
+    paths:
+      - .github/workflows/apply-streaming-originals-refresh-scope.yml
+permissions:
+  contents: write
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/streaming-originals-refresh-scope
+          fetch-depth: 0
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Apply Nuvio changes
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          models = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeModels.kt')
+          text = models.read_text()
+          marker = 'private fun isReturningSeasonCatalogItem(item: MetaPreview): Boolean {'
+          helper = '''internal const val STREAMING_ORIGINALS_ADDON_ID = "community.streaming.originals.v6"\n\ninternal fun shouldShowStreamingOriginalsNewSeasonBadge(\n    addonId: String,\n    catalogId: String,\n    itemType: String\n): Boolean {\n    if (addonId != STREAMING_ORIGINALS_ADDON_ID) return false\n    if (!isSeriesType(itemType)) return false\n\n    val normalizedCatalogId = catalogId.trim().lowercase()\n    return normalizedCatalogId.startsWith("latest_series_") ||\n        normalizedCatalogId == "coming_soon_series" ||\n        normalizedCatalogId.startsWith("coming_soon_")\n}\n\n'''
+          if helper not in text:
+              if marker not in text:
+                  raise SystemExit('returning-season helper anchor not found')
+              text = text.replace(marker, helper + marker, 1)
+          old = '        isNewSeason = isReturningSeasonCatalogItem(item),'
+          new = '''        isNewSeason =\n            isReturningSeasonCatalogItem(item) &&\n                shouldShowStreamingOriginalsNewSeasonBadge(\n                    addonId = row.addonId,\n                    catalogId = row.catalogId,\n                    itemType = item.apiType\n                ),'''
+          if old not in text:
+              raise SystemExit('isNewSeason assignment anchor not found')
+          text = text.replace(old, new, 1)
+          models.write_text(text)
+
+          seasonal = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelSeasonalSpotlightRefresh.kt')
+          text = seasonal.read_text()
+          old = '''internal fun HomeViewModel.setHomePresentationVisible(\n    visible: Boolean\n) {\n    ensureSeasonalSpotlightContentRefreshTicker()\n\n    homePresentationVisible = visible\n\n    if (visible) {'''
+          new = '''internal fun HomeViewModel.setHomePresentationVisible(\n    visible: Boolean\n) {\n    ensureSeasonalSpotlightContentRefreshTicker()\n    ensureStreamingOriginalsRefreshLifecycle()\n\n    homePresentationVisible = visible\n\n    if (visible) {'''
+          if old not in text:
+              raise SystemExit('Home visibility start anchor not found')
+          text = text.replace(old, new, 1)
+          old = '''        seasonalSpotlightStageJob?.cancel()\n        seasonalSpotlightStageJob = null\n        return\n    }\n\n    startPendingSeasonalSpotlightStageIfNeeded()\n}'''
+          new = '''        seasonalSpotlightStageJob?.cancel()\n        seasonalSpotlightStageJob = null\n        cancelStreamingOriginalsStageForVisibleHome()\n        return\n    }\n\n    startPendingSeasonalSpotlightStageIfNeeded()\n    startPendingStreamingOriginalsStageIfNeeded()\n}'''
+          if old not in text:
+              raise SystemExit('Home visibility end anchor not found')
+          text = text.replace(old, new, 1)
+          seasonal.write_text(text)
+
+          home = Path('app/src/main/java/com/nuvio/tv/ui/screens/home/HomeScreen.kt')
+          text = home.read_text()
+          old = '''    val seasonalSpotlightStageReady by\n        viewModel.seasonalSpotlightStageReady\n            .collectAsStateWithLifecycle()\n\n    /*'''
+          new = '''    val seasonalSpotlightStageReady by\n        viewModel.seasonalSpotlightStageReady\n            .collectAsStateWithLifecycle()\n\n    val streamingOriginalsStageReady by\n        viewModel.streamingOriginalsStageReadyFlow()\n            .collectAsStateWithLifecycle()\n\n    /*'''
+          if old not in text:
+              raise SystemExit('Home stage state anchor not found')
+          text = text.replace(old, new, 1)
+          old = '''    val seasonalSpotlightStageReadyAtEntry =\n        remember {\n            seasonalSpotlightStageReady\n        }'''
+          new = '''    val seasonalSpotlightStageReadyAtEntry =\n        remember {\n            seasonalSpotlightStageReady ||\n                streamingOriginalsStageReady\n        }'''
+          if old not in text:
+              raise SystemExit('Home entry ready anchor not found')
+          text = text.replace(old, new, 1)
+          old = '''            viewModel\n                .applyStagedSeasonalSpotlightIfReady()\n\n            /*'''
+          new = '''            viewModel\n                .applyStagedSeasonalSpotlightIfReady()\n            viewModel\n                .applyStagedStreamingOriginalsIfReady()\n\n            /*'''
+          if old not in text:
+              raise SystemExit('Home apply stage anchor not found')
+          text = text.replace(old, new, 1)
+          home.write_text(text)
+          PY
+
+          cat > app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelStreamingOriginalsRefresh.kt <<'EOF'
+          package com.nuvio.tv.ui.screens.home
+
+          import android.content.Context
+          import android.util.Log
+          import androidx.lifecycle.viewModelScope
+          import com.nuvio.tv.core.network.NetworkResult
+          import com.nuvio.tv.core.reminders.StreamingOriginalsRefreshWorker
+          import com.nuvio.tv.domain.model.CatalogRow
+          import com.nuvio.tv.domain.model.skipStep
+          import com.nuvio.tv.domain.model.supportsExtra
+          import java.time.LocalTime
+          import java.time.ZoneId
+          import java.time.ZonedDateTime
+          import java.util.Collections
+          import java.util.WeakHashMap
+          import kotlinx.coroutines.Dispatchers
+          import kotlinx.coroutines.Job
+          import kotlinx.coroutines.async
+          import kotlinx.coroutines.awaitAll
+          import kotlinx.coroutines.coroutineScope
+          import kotlinx.coroutines.flow.MutableStateFlow
+          import kotlinx.coroutines.flow.StateFlow
+          import kotlinx.coroutines.flow.asStateFlow
+          import kotlinx.coroutines.launch
+          import kotlinx.coroutines.sync.Semaphore
+          import kotlinx.coroutines.sync.withPermit
+
+          private const val SO_PREFS = "streaming_originals_refresh_v1"
+          private const val SO_LAST_APPLIED = "last_applied_boundary"
+          private const val SO_DUE = "due_boundary"
+          private const val SO_VISIBLE_WINDOW = 25
+          private const val SO_TICK_MS = 60_000L
+          private const val SO_STAGE_CONCURRENCY = 4
+
+          private data class StreamingOriginalsRefreshState(
+              var dueBoundary: String? = null,
+              var stagedBoundary: String? = null,
+              var stagedProfileId: Int? = null,
+              val stagedRows: MutableMap<String, CatalogRow> = LinkedHashMap(),
+              var stageJob: Job? = null,
+              var tickerJob: Job? = null,
+              val stageReady: MutableStateFlow<Boolean> = MutableStateFlow(false)
+          )
+
+          private val streamingOriginalsStates =
+              Collections.synchronizedMap(
+                  WeakHashMap<HomeViewModel, StreamingOriginalsRefreshState>()
+              )
+
+          private fun HomeViewModel.streamingOriginalsState(): StreamingOriginalsRefreshState =
+              synchronized(streamingOriginalsStates) {
+                  streamingOriginalsStates.getOrPut(this) {
+                      StreamingOriginalsRefreshState()
+                  }
+              }
+
+          internal fun streamingOriginalsBoundaryToken(now: ZonedDateTime): String {
+              val suffix = when {
+                  !now.toLocalTime().isBefore(LocalTime.of(12, 45)) -> "1245"
+                  !now.toLocalTime().isBefore(LocalTime.of(11, 45)) -> "1145"
+                  else -> "MIDNIGHT"
+              }
+              return "${now.toLocalDate()}:$suffix"
+          }
+
+          internal fun streamingOriginalsBoundaryDue(
+              lastApplied: String?,
+              now: ZonedDateTime
+          ): Boolean = lastApplied != streamingOriginalsBoundaryToken(now)
+
+          internal fun streamingOriginalsStageComplete(
+              expectedRows: Int,
+              successfulRows: Int
+          ): Boolean = expectedRows >= 0 && expectedRows == successfulRows
+
+          internal fun markStreamingOriginalsBoundaryDue(context: Context) {
+              val prefs = context.getSharedPreferences(SO_PREFS, Context.MODE_PRIVATE)
+              val latest = streamingOriginalsBoundaryToken(
+                  ZonedDateTime.now(ZoneId.systemDefault())
+              )
+              if (prefs.getString(SO_LAST_APPLIED, null) != latest) {
+                  prefs.edit().putString(SO_DUE, latest).apply()
+              }
+          }
+
+          internal fun HomeViewModel.streamingOriginalsStageReadyFlow(): StateFlow<Boolean> =
+              streamingOriginalsState().stageReady.asStateFlow()
+
+          private fun HomeViewModel.refreshStreamingOriginalsDueState() {
+              val state = streamingOriginalsState()
+              val prefs = appContext.getSharedPreferences(SO_PREFS, Context.MODE_PRIVATE)
+              val latest = streamingOriginalsBoundaryToken(
+                  ZonedDateTime.now(ZoneId.systemDefault())
+              )
+              val lastApplied = prefs.getString(SO_LAST_APPLIED, null)
+              val persistedDue = prefs.getString(SO_DUE, null)
+
+              state.dueBoundary = when {
+                  lastApplied != latest -> latest
+                  persistedDue != null && persistedDue != lastApplied -> persistedDue
+                  else -> null
+              }
+
+              if (state.dueBoundary != null) {
+                  prefs.edit().putString(SO_DUE, state.dueBoundary).apply()
+              }
+          }
+
+          internal fun HomeViewModel.ensureStreamingOriginalsRefreshLifecycle() {
+              val state = streamingOriginalsState()
+              refreshStreamingOriginalsDueState()
+              StreamingOriginalsRefreshWorker.scheduleNext(appContext)
+
+              if (state.tickerJob?.isActive != true) {
+                  state.tickerJob = viewModelScope.launch {
+                      while (true) {
+                          kotlinx.coroutines.delay(SO_TICK_MS)
+                          refreshStreamingOriginalsDueState()
+                          if (!homePresentationVisible) {
+                              startPendingStreamingOriginalsStageIfNeeded()
+                          }
+                      }
+                  }
+              }
+
+              if (!homePresentationVisible) {
+                  startPendingStreamingOriginalsStageIfNeeded()
+              }
+          }
+
+          internal fun HomeViewModel.cancelStreamingOriginalsStageForVisibleHome() {
+              val state = streamingOriginalsState()
+              state.stageJob?.cancel()
+              state.stageJob = null
+          }
+
+          private fun CatalogRow.streamingOriginalsSignature(): Pair<String, List<Int>> =
+              catalogName to items.map { it.hashCode() }
+
+          private fun HomeViewModel.streamingOriginalsStageDiffersFromLive(
+              rows: List<CatalogRow>
+          ): Boolean {
+              val staged = rows.associate { row ->
+                  catalogKey(row.addonId, row.apiType, row.catalogId) to
+                      row.streamingOriginalsSignature()
+              }
+              val live = synchronized(catalogSourceRows) {
+                  catalogSourceRows
+                      .filterValues { it.addonId == STREAMING_ORIGINALS_ADDON_ID }
+                      .mapValues { (_, row) -> row.streamingOriginalsSignature() }
+              }
+              return staged != live
+          }
+
+          private fun HomeViewModel.markStreamingOriginalsBoundaryApplied(boundary: String) {
+              val state = streamingOriginalsState()
+              val prefs = appContext.getSharedPreferences(SO_PREFS, Context.MODE_PRIVATE)
+              prefs.edit().putString(SO_LAST_APPLIED, boundary).apply()
+
+              refreshStreamingOriginalsDueState()
+              if (state.dueBoundary == null || state.dueBoundary == boundary) {
+                  prefs.edit().remove(SO_DUE).apply()
+                  state.dueBoundary = null
+              }
+          }
+
+          internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
+              val state = streamingOriginalsState()
+              refreshStreamingOriginalsDueState()
+
+              if (
+                  homePresentationVisible ||
+                  state.stageReady.value ||
+                  state.stageJob?.isActive == true
+              ) return
+
+              val boundary = state.dueBoundary ?: return
+              val profileId = profileManager.activeProfileId.value
+              val addon = addonsCache.firstOrNull {
+                  it.id == STREAMING_ORIGINALS_ADDON_ID
+              } ?: run {
+                  markStreamingOriginalsBoundaryApplied(boundary)
+                  return
+              }
+
+              state.stageJob = viewModelScope.launch(Dispatchers.IO) {
+                  val gate = Semaphore(SO_STAGE_CONCURRENCY)
+                  val prepared = coroutineScope {
+                      addon.catalogs.map { catalog ->
+                          async {
+                              gate.withPermit {
+                                  var latestRow: CatalogRow? = null
+                                  var hardFailure = false
+                                  catalogRepository.getCatalog(
+                                      addonBaseUrl = addon.baseUrl,
+                                      addonId = addon.id,
+                                      addonName = addon.displayName,
+                                      catalogId = catalog.id,
+                                      catalogName = catalog.name,
+                                      type = catalog.apiType,
+                                      skip = 0,
+                                      skipStep = catalog.skipStep(),
+                                      supportsSkip = catalog.supportsExtra("skip")
+                                  ).collect { result ->
+                                      when (result) {
+                                          is NetworkResult.Success -> {
+                                              latestRow = result.data.withCatalogDisplayMetadata(
+                                                  addonName = addon.displayName,
+                                                  addonBaseUrl = addon.baseUrl,
+                                                  catalogName = catalog.name
+                                              )
+                                          }
+                                          is NetworkResult.Error -> if (latestRow == null) {
+                                              hardFailure = true
+                                          }
+                                          NetworkResult.Loading -> Unit
+                                      }
+                                  }
+                                  if (hardFailure) null else latestRow
+                              }
+                          }
+                      }.awaitAll()
+                  }
+
+                  if (!streamingOriginalsStageComplete(addon.catalogs.size, prepared.count { it != null })) {
+                      Log.w(HomeViewModel.TAG, "Streaming Originals stage incomplete; keeping current Home rows")
+                      return@launch
+                  }
+
+                  val rows = prepared.filterNotNull()
+                  if (!streamingOriginalsStageDiffersFromLive(rows)) {
+                      markStreamingOriginalsBoundaryApplied(boundary)
+                      return@launch
+                  }
+
+                  val settings = currentTmdbSettings
+                  val fullyPrepared = rows.map { row ->
+                      val visible = row.items.take(SO_VISIBLE_WINDOW)
+                      val enriched = if (
+                          visible.isNotEmpty() && settings.enabled &&
+                          (settings.useArtwork || settings.useBasicInfo || settings.useDetails)
+                      ) {
+                          enrichHeroItemsPipeline(visible, settings)
+                      } else {
+                          visible
+                      }
+                      val byId = enriched.associateBy { "${it.apiType}:${it.id}" }
+                      row.copy(
+                          items = row.items.map { item ->
+                              byId["${item.apiType}:${item.id}"] ?: item
+                          },
+                          isLoading = false
+                      )
+                  }
+
+                  if (homePresentationVisible || profileManager.activeProfileId.value != profileId) {
+                      return@launch
+                  }
+
+                  refreshStreamingOriginalsDueState()
+                  if (state.dueBoundary != boundary) {
+                      return@launch
+                  }
+
+                  synchronized(state.stagedRows) {
+                      state.stagedRows.clear()
+                      fullyPrepared.forEach { row ->
+                          state.stagedRows[catalogKey(row.addonId, row.apiType, row.catalogId)] = row
+                      }
+                  }
+                  state.stagedBoundary = boundary
+                  state.stagedProfileId = profileId
+                  state.stageReady.value = true
+                  Log.d(HomeViewModel.TAG, "Streaming Originals replacement staged: ${fullyPrepared.size} rows at $boundary")
+              }
+          }
+
+          internal suspend fun HomeViewModel.applyStagedStreamingOriginalsIfReady(): Boolean {
+              val state = streamingOriginalsState()
+              if (!state.stageReady.value) return false
+
+              val boundary = state.stagedBoundary ?: return false
+              val profileId = state.stagedProfileId ?: return false
+              if (profileManager.activeProfileId.value != profileId) {
+                  state.stageReady.value = false
+                  state.stagedRows.clear()
+                  return false
+              }
+
+              val staged = synchronized(state.stagedRows) { state.stagedRows.toMap() }
+              val oldKeys = synchronized(catalogSourceRows) {
+                  catalogSourceRows.filterValues {
+                      it.addonId == STREAMING_ORIGINALS_ADDON_ID
+                  }.keys.toList()
+              }
+
+              synchronized(catalogsMap) {
+                  oldKeys.forEach(catalogsMap::remove)
+                  staged.forEach { (key, sourceRow) ->
+                      val visible = sourceRow.items.take(SO_VISIBLE_WINDOW)
+                      catalogsMap[key] = sourceRow.copy(
+                          items = visible,
+                          isLoading = false,
+                          hasMore = sourceRow.items.size > visible.size || sourceRow.hasMore
+                      )
+                      homeEnrichmentAttemptedIds.addAll(visible.map { it.id })
+                  }
+              }
+
+              synchronized(catalogSourceRows) {
+                  oldKeys.forEach(catalogSourceRows::remove)
+                  staged.forEach { (key, sourceRow) -> catalogSourceRows[key] = sourceRow }
+              }
+
+              rebuildCatalogOrder(addonsCache)
+              updateCatalogRowsPipeline()
+
+              state.stagedRows.clear()
+              state.stagedBoundary = null
+              state.stagedProfileId = null
+              state.stageReady.value = false
+              markStreamingOriginalsBoundaryApplied(boundary)
+
+              Log.d(HomeViewModel.TAG, "Applied staged Streaming Originals replacement at $boundary")
+              return true
+          }
+          EOF
+
+          cat > app/src/main/java/com/nuvio/tv/core/reminders/StreamingOriginalsRefreshWorker.kt <<'EOF'
+          package com.nuvio.tv.core.reminders
+
+          import android.content.Context
+          import androidx.work.CoroutineWorker
+          import androidx.work.ExistingWorkPolicy
+          import androidx.work.OneTimeWorkRequestBuilder
+          import androidx.work.WorkManager
+          import androidx.work.WorkerParameters
+          import com.nuvio.tv.ui.screens.home.markStreamingOriginalsBoundaryDue
+          import java.time.Duration
+          import java.time.LocalTime
+          import java.time.ZoneId
+          import java.time.ZonedDateTime
+          import java.util.concurrent.TimeUnit
+
+          private const val SO_BOUNDARY_WORK = "streaming_originals_boundary_v1"
+
+          class StreamingOriginalsRefreshWorker(
+              context: Context,
+              workerParams: WorkerParameters
+          ) : CoroutineWorker(context, workerParams) {
+              override suspend fun doWork(): Result = runCatching {
+                  markStreamingOriginalsBoundaryDue(applicationContext)
+                  scheduleNext(applicationContext)
+              }.fold(
+                  onSuccess = { Result.success() },
+                  onFailure = { Result.retry() }
+              )
+
+              companion object {
+                  fun scheduleNext(context: Context) {
+                      val zone = ZoneId.systemDefault()
+                      val now = ZonedDateTime.now(zone)
+                      val today = now.toLocalDate()
+                      val candidates = listOf(
+                          today.atTime(LocalTime.of(11, 45)).atZone(zone),
+                          today.atTime(LocalTime.of(12, 45)).atZone(zone),
+                          today.plusDays(1).atStartOfDay(zone)
+                      )
+                      val target = candidates.first { it.isAfter(now) }
+                      val delayMs = Duration.between(now, target).toMillis().coerceAtLeast(1_000L)
+                      val request = OneTimeWorkRequestBuilder<StreamingOriginalsRefreshWorker>()
+                          .setInitialDelay(delayMs, TimeUnit.MILLISECONDS)
+                          .build()
+                      WorkManager.getInstance(context).enqueueUniqueWork(
+                          SO_BOUNDARY_WORK,
+                          ExistingWorkPolicy.REPLACE,
+                          request
+                      )
+                  }
+              }
+          }
+          EOF
+
+          mkdir -p app/src/test/java/com/nuvio/tv/ui/screens/home
+          cat > app/src/test/java/com/nuvio/tv/ui/screens/home/StreamingOriginalsPolicyTest.kt <<'EOF'
+          package com.nuvio.tv.ui.screens.home
+
+          import java.time.ZoneId
+          import java.time.ZonedDateTime
+          import org.junit.Assert.assertFalse
+          import org.junit.Assert.assertTrue
+          import org.junit.Assert.assertEquals
+          import org.junit.Test
+
+          class StreamingOriginalsPolicyTest {
+              private val zone = ZoneId.of("America/Los_Angeles")
+
+              @Test
+              fun newSeasonBadgeOnlyAllowedForStreamingOriginalsLatestAndComingSoonSeries() {
+                  assertTrue(shouldShowStreamingOriginalsNewSeasonBadge(STREAMING_ORIGINALS_ADDON_ID, "latest_series_hbo", "series"))
+                  assertTrue(shouldShowStreamingOriginalsNewSeasonBadge(STREAMING_ORIGINALS_ADDON_ID, "coming_soon_hbo", "series"))
+                  assertTrue(shouldShowStreamingOriginalsNewSeasonBadge(STREAMING_ORIGINALS_ADDON_ID, "coming_soon_series", "series"))
+                  assertFalse(shouldShowStreamingOriginalsNewSeasonBadge(STREAMING_ORIGINALS_ADDON_ID, "popular_series_hbo", "series"))
+                  assertFalse(shouldShowStreamingOriginalsNewSeasonBadge(STREAMING_ORIGINALS_ADDON_ID, "top10_series_hbo", "series"))
+                  assertFalse(shouldShowStreamingOriginalsNewSeasonBadge("other.addon", "latest_series_hbo", "series"))
+                  assertFalse(shouldShowStreamingOriginalsNewSeasonBadge(STREAMING_ORIGINALS_ADDON_ID, "coming_soon_hbo", "movie"))
+              }
+
+              @Test
+              fun localRefreshBoundariesAreMidnight1145And1245() {
+                  assertEquals("2026-10-31:MIDNIGHT", streamingOriginalsBoundaryToken(ZonedDateTime.of(2026, 10, 31, 0, 0, 0, 0, zone)))
+                  assertEquals("2026-10-31:MIDNIGHT", streamingOriginalsBoundaryToken(ZonedDateTime.of(2026, 10, 31, 11, 44, 59, 0, zone)))
+                  assertEquals("2026-10-31:1145", streamingOriginalsBoundaryToken(ZonedDateTime.of(2026, 10, 31, 11, 45, 0, 0, zone)))
+                  assertEquals("2026-10-31:1245", streamingOriginalsBoundaryToken(ZonedDateTime.of(2026, 10, 31, 12, 45, 0, 0, zone)))
+              }
+
+              @Test
+              fun missedBoundariesCoalesceToLatestCrossedBoundary() {
+                  val now = ZonedDateTime.of(2026, 10, 31, 13, 30, 0, 0, zone)
+                  assertTrue(streamingOriginalsBoundaryDue("2026-10-30:1245", now))
+                  assertFalse(streamingOriginalsBoundaryDue("2026-10-31:1245", now))
+              }
+
+              @Test
+              fun partialStageCanNeverPromote() {
+                  assertTrue(streamingOriginalsStageComplete(58, 58))
+                  assertFalse(streamingOriginalsStageComplete(58, 57))
+              }
+          }
+          EOF
+      - name: Run unit tests and Kotlin compile
+        shell: bash
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testFullPortDebugUnitTest :app:compileFullPortDebugKotlin --stacktrace
+      - name: Commit tested patch
+        shell: bash
+        run: |
+          git config user.name "OpenAI Codex"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/nuvio/tv/ui/screens/home/ModernHomeModels.kt app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelSeasonalSpotlightRefresh.kt app/src/main/java/com/nuvio/tv/ui/screens/home/HomeViewModelStreamingOriginalsRefresh.kt app/src/main/java/com/nuvio/tv/ui/screens/home/HomeScreen.kt app/src/main/java/com/nuvio/tv/core/reminders/StreamingOriginalsRefreshWorker.kt app/src/test/java/com/nuvio/tv/ui/screens/home/StreamingOriginalsPolicyTest.kt
+          git diff --cached --check
+          git commit -m "Stage Streaming Originals refreshes safely"
+          git push origin HEAD:fix/streaming-originals-refresh-scope
