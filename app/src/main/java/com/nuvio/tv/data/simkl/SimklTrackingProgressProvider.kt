@@ -761,6 +761,14 @@ class SimklTrackingProgressProvider @Inject constructor(
         optimisticPlaybackProgress.value = emptyMap()
     }
 
+    override fun normalizeParentContentId(
+        parentContentId: String,
+        videoId: String?
+    ): String = normalizeSimklParentContentId(
+        snapshot = syncRepository.state.value.snapshot,
+        parentContentId = parentContentId
+    )
+
     override fun isHiddenFromProgress(contentId: String): Boolean =
         syncRepository.projection.value.isHidden(contentId)
 
@@ -768,6 +776,22 @@ class SimklTrackingProgressProvider @Inject constructor(
         syncRepository.projection.value.isWatchedByVideoId(videoId, episode)
 
     override suspend fun prepareNextUpSeed(progress: WatchProgress): WatchProgress = progress
+}
+
+internal fun normalizeSimklParentContentId(
+    snapshot: SimklSyncSnapshot,
+    parentContentId: String
+): String {
+    val candidate = parentContentId.trim()
+    if (candidate.isBlank()) return parentContentId
+
+    return snapshot.entries
+        .firstOrNull { entry ->
+            entry.matchesSimklContentId(candidate)
+        }
+        ?.media
+        ?.canonicalContentId()
+        ?: parentContentId
 }
 
 internal data class SimklOptimisticEpisodeKey(
