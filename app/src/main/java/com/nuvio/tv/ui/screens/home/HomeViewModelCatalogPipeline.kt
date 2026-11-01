@@ -1626,19 +1626,18 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                     enrichmentCache.toMap()
                 }
 
-            val releaseVerificationAttempts =
-                synchronized(
-                    homeAvailabilityVerificationAttemptedIds
-                ) {
-                    homeAvailabilityVerificationAttemptedIds
-                        .toSet()
-                }
 
             rawRows.map { row ->
                 /*
                  * Coming Soon intentionally contains future titles.
                  */
-                if (row.catalogId.startsWith("coming_soon_")) {
+                if (
+                    row.catalogId.startsWith("coming_soon_") ||
+                    (
+                        row.addonId == "community.streaming.originals.v6" &&
+                        row.catalogId.startsWith("top10_")
+                    )
+                ) {
                     row
                 } else {
                     val releaseAwareRow =
@@ -1689,16 +1688,8 @@ internal suspend fun HomeViewModel.updateCatalogRowsPipeline() {
                                 ]
 
                             cached
-                                ?.homeAvailabilityVerified ==
-                                true ||
-                                (
-                                    item
-                                        .needsHomeAvailabilityVerification(
-                                            today
-                                        ) &&
-                                        item.id in
-                                            releaseVerificationAttempts
-                                )
+                              ?.homeAvailabilityVerified ==
+                              true
                         }
                 }
             }
