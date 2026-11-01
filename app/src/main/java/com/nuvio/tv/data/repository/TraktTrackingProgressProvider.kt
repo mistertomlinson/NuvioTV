@@ -118,7 +118,7 @@ class TraktTrackingProgressProvider @Inject constructor(
     override fun shouldUseAsNextUpSeed(progress: WatchProgress, nowEpochMs: Long): Boolean =
         shouldUseTraktNextUpSeed(progress, nowEpochMs)
 
-    override fun normalizeParentContentId(parentContentId: String, videoId: String?): String =
+    override suspend fun normalizeParentContentId(parentContentId: String, videoId: String?): String =
         resolveEffectiveContentId(parentContentId, videoId)
 
     override suspend fun prepareNextUpSeed(progress: WatchProgress): WatchProgress {
