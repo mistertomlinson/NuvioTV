@@ -1,10 +1,15 @@
 package com.nuvio.tv.core.tracking
 
+import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.domain.model.WatchProgress
 import com.nuvio.tv.domain.model.WatchedItem
+import java.util.ArrayDeque
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 
@@ -165,18 +170,154 @@ internal fun resolveProviderNextUpParentContentId(
     } ?: parentContentId
 }
 
+/**
+ * Repairs a stale provider Next Up seed from durable local episode completion.
+ *
+ * This exists specifically for process-restart recovery. The short-lived Player
+ * bridge in WatchProgressRepository still owns live/replay arbitration while the
+ * process is alive. Here we consider only completed episodes written strictly
+ * after the provider seed and strictly later in episode order. That means old
+ * watched history cannot hijack a newer rewatch seed.
+ */
+internal fun recoverProviderNextUpSeedsFromWatchedHistory(
+    providerSeeds: List<WatchProgress>,
+    watchedItems: List<WatchedItem>,
+    showIdSiblings: Map<String, Set<String>>
+): List<WatchProgress> {
+    if (providerSeeds.isEmpty() || watchedItems.isEmpty()) return providerSeeds
+
+    fun normalizedAliases(raw: String?): Set<String> {
+        val id = raw?.trim()?.lowercase()?.takeIf(String::isNotBlank)
+            ?: return emptySet()
+        return buildSet {
+            add(id)
+            if (id.startsWith("imdb:")) {
+                id.substringAfter(':').takeIf(String::isNotBlank)?.let(::add)
+            } else if (id.startsWith("tt")) {
+                add("imdb:$id")
+            }
+        }
+    }
+
+    fun aliasesFor(contentId: String): Set<String> {
+        val aliases = linkedSetOf<String>()
+        val queue = ArrayDeque<String>()
+
+        fun enqueue(raw: String?) {
+            normalizedAliases(raw).forEach { alias ->
+                if (aliases.add(alias)) queue.addLast(alias)
+            }
+        }
+
+        enqueue(contentId)
+        while (queue.isNotEmpty()) {
+            val current = queue.removeFirst()
+            showIdSiblings.forEach { (groupId, siblings) ->
+                // Ambiguous groups intentionally do not provide cross-ID authority.
+                if ("__ambiguous__" in siblings) return@forEach
+
+                val groupAliases = buildSet {
+                    addAll(normalizedAliases(groupId))
+                    siblings.forEach { sibling -> addAll(normalizedAliases(sibling)) }
+                }
+                if (current in groupAliases || groupAliases.any { it in aliases }) {
+                    groupAliases.forEach(::enqueue)
+                }
+            }
+        }
+        return aliases
+    }
+
+    return providerSeeds.map { providerSeed ->
+        val seedSeason = providerSeed.season
+        val seedEpisode = providerSeed.episode
+        val isSeries =
+            providerSeed.contentType.equals("series", ignoreCase = true) ||
+                providerSeed.contentType.equals("tv", ignoreCase = true)
+
+        if (!isSeries || seedSeason == null || seedEpisode == null || seedSeason == 0) {
+            return@map providerSeed
+        }
+
+        val aliases = aliasesFor(providerSeed.contentId)
+        val recovered = watchedItems
+            .asSequence()
+            .filter { watched ->
+                (watched.contentType.equals("series", ignoreCase = true) ||
+                    watched.contentType.equals("tv", ignoreCase = true)) &&
+                    watched.season != null &&
+                    watched.episode != null &&
+                    watched.season != 0 &&
+                    watched.watchedAt > providerSeed.lastWatched &&
+                    normalizedAliases(watched.contentId).any { it in aliases }
+            }
+            .filter { watched ->
+                val season = requireNotNull(watched.season)
+                val episode = requireNotNull(watched.episode)
+                season > seedSeason ||
+                    (season == seedSeason && episode > seedEpisode)
+            }
+            .maxWithOrNull(
+                compareBy<WatchedItem>({ it.season ?: -1 }, { it.episode ?: -1 })
+                    .thenBy(WatchedItem::watchedAt)
+            ) ?: return@map providerSeed
+
+        providerSeed.copy(
+            season = recovered.season,
+            episode = recovered.episode,
+            episodeTitle = null,
+            lastWatched = recovered.watchedAt
+        )
+    }.sortedByDescending(WatchProgress::lastWatched)
+}
+
+private class DurableNextUpRecoveryTrackingProgressProvider(
+    private val delegate: TrackingProgressProvider,
+    watchedItemsPreferences: WatchedItemsPreferences
+) : TrackingProgressProvider by delegate {
+    override val nextUpSeeds: Flow<List<WatchProgress>> =
+        combine(
+            delegate.nextUpSeeds,
+            watchedItemsPreferences.allItems
+        ) { providerSeeds, watchedItems ->
+            val siblings = try {
+                delegate.showIdSiblings()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                emptyMap()
+            }
+
+            recoverProviderNextUpSeedsFromWatchedHistory(
+                providerSeeds = providerSeeds,
+                watchedItems = watchedItems,
+                showIdSiblings = siblings
+            )
+        }.distinctUntilChanged()
+}
+
 @Singleton
 class TrackingProgressProviderRegistry @Inject constructor(
-    providers: Set<@JvmSuppressWildcards TrackingProgressProvider>
+    providers: Set<@JvmSuppressWildcards TrackingProgressProvider>,
+    watchedItemsPreferences: WatchedItemsPreferences
 ) {
-    private val providersById = providers.associateBy(TrackingProgressProvider::providerId)
+    private val rawProvidersById =
+        providers.associateBy(TrackingProgressProvider::providerId)
+
+    private val providersById =
+        rawProvidersById.mapValues { (_, provider) ->
+            DurableNextUpRecoveryTrackingProgressProvider(
+                delegate = provider,
+                watchedItemsPreferences = watchedItemsPreferences
+            )
+        }
 
     init {
-        require(providersById.size == providers.size)
+        require(rawProvidersById.size == providers.size)
     }
 
     fun providers(): List<TrackingProgressProvider> =
-        providersById.values.sortedBy { it.providerId.ordinal }
+        providersById.values.sortedBy(TrackingProgressProvider::providerId)
 
     fun provider(id: TrackingProviderId): TrackingProgressProvider? = providersById[id]
 }
