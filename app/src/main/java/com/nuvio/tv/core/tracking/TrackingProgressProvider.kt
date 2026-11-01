@@ -5,6 +5,7 @@ import com.nuvio.tv.domain.model.WatchedItem
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 
 interface TrackingProgressProvider {
@@ -80,8 +81,88 @@ interface TrackingProgressProvider {
     fun continueWatchingCutoffEpochMs(daysCap: Int, nowEpochMs: Long): Long? = null
     fun shouldUseAsNextUpSeed(progress: WatchProgress, nowEpochMs: Long): Boolean =
         progress.isCompleted()
-    fun normalizeParentContentId(parentContentId: String, videoId: String?): String = parentContentId
+
+    /*
+     * Provider-backed history may identify one show with a different external
+     * ID than the addon/player used (for example TMDB locally and IMDb in the
+     * provider projection). Resolve the parent to the ID already used by the
+     * provider's Next Up seed before optimistic completion enters the shared
+     * pipeline. Otherwise the stale provider seed and the fresh Player finale
+     * can coexist as two different shows and an old cached Next Up can survive.
+     *
+     * Providers with stronger identity rules (Trakt) may override this.
+     */
+    suspend fun normalizeParentContentId(
+        parentContentId: String,
+        videoId: String?
+    ): String {
+        val siblings = showIdSiblings()
+        if (siblings.isEmpty()) return parentContentId
+
+        val providerSeedIds = nextUpSeeds.first().map(WatchProgress::contentId)
+        return resolveProviderNextUpParentContentId(
+            parentContentId = parentContentId,
+            showIdSiblings = siblings,
+            providerSeedContentIds = providerSeedIds
+        )
+    }
+
     suspend fun prepareNextUpSeed(progress: WatchProgress): WatchProgress
+}
+
+internal fun resolveProviderNextUpParentContentId(
+    parentContentId: String,
+    showIdSiblings: Map<String, Set<String>>,
+    providerSeedContentIds: List<String>
+): String {
+    if (parentContentId.isBlank() || showIdSiblings.isEmpty()) return parentContentId
+
+    val aliases = linkedSetOf<String>()
+
+    fun addAlias(raw: String?) {
+        val normalized = raw?.trim()?.lowercase()?.takeIf(String::isNotBlank) ?: return
+        aliases.add(normalized)
+        if (normalized.startsWith("imdb:")) {
+            normalized.substringAfter(':').takeIf(String::isNotBlank)?.let(aliases::add)
+        } else if (normalized.startsWith("tt")) {
+            aliases.add("imdb:$normalized")
+        }
+    }
+
+    addAlias(parentContentId)
+
+    var changed: Boolean
+    do {
+        val before = aliases.size
+        showIdSiblings.forEach { (contentId, siblings) ->
+            val group = linkedSetOf<String>()
+
+            fun addGroupAlias(raw: String?) {
+                val normalized = raw?.trim()?.lowercase()?.takeIf(String::isNotBlank) ?: return
+                group.add(normalized)
+                if (normalized.startsWith("imdb:")) {
+                    normalized.substringAfter(':').takeIf(String::isNotBlank)?.let(group::add)
+                } else if (normalized.startsWith("tt")) {
+                    group.add("imdb:$normalized")
+                }
+            }
+
+            addGroupAlias(contentId)
+            siblings.forEach(::addGroupAlias)
+
+            if (group.any { it in aliases }) {
+                group.forEach(::addAlias)
+            }
+        }
+        changed = aliases.size != before
+    } while (changed)
+
+    return providerSeedContentIds.firstOrNull { providerContentId ->
+        val normalized = providerContentId.trim().lowercase()
+        normalized in aliases ||
+            (normalized.startsWith("imdb:") && normalized.substringAfter(':') in aliases) ||
+            (normalized.startsWith("tt") && "imdb:$normalized" in aliases)
+    } ?: parentContentId
 }
 
 @Singleton
@@ -107,7 +188,7 @@ class TrackingHistoryWriterRegistry @Inject constructor(
     private val writersById = writers.associateBy(TrackingHistoryWriter::providerId)
 
     init {
-        require(writersById.size == writers.size)
+        require(providersById.size == providers.size)
     }
 
     fun writers(): List<TrackingHistoryWriter> =
