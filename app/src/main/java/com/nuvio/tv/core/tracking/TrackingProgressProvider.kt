@@ -188,7 +188,7 @@ class TrackingHistoryWriterRegistry @Inject constructor(
     private val writersById = writers.associateBy(TrackingHistoryWriter::providerId)
 
     init {
-        require(providersById.size == providers.size)
+        require(writersById.size == writers.size)
     }
 
     fun writers(): List<TrackingHistoryWriter> =
