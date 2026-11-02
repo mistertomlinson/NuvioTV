@@ -1,6 +1,7 @@
 package com.nuvio.tv.data.trailer
 
 import android.util.Log
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.tmdb.TmdbService
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.remote.api.TmdbApi
@@ -18,6 +19,7 @@ import kotlinx.coroutines.withContext
 private const val TAG = "TrailerService"
 private const val TMDB_TRAILER_FALLBACK_LANGUAGE = "en-US"
 private const val YOUTUBE_SOURCE_CACHE_TTL_MS = 3L * 60L * 60L * 1000L
+private const val TRAILER_NEGATIVE_CACHE_TTL_MS = 2L * 60L * 1000L
 private val YOUTUBE_VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 
 @Singleton
@@ -56,13 +58,20 @@ class TrailerService @Inject constructor(
             "$title|$year|$tmdbId|$type|${normalizedNetwork?.lowercase()}"
 
         cache[cacheKey]?.let { cached ->
-            if (cached === NEGATIVE_CACHE) {
-                Log.d(TAG, "Cache hit for $cacheKey: false")
-                return@withContext null
-            }
-
             val cachedAtMs = cacheStoredAtMs[cacheKey] ?: 0L
-            if (isPlaybackSourceExpired(cached, cachedAtMs)) {
+            if (cached === NEGATIVE_CACHE) {
+                val negativeCacheFresh =
+                    cachedAtMs > 0L &&
+                        System.currentTimeMillis() - cachedAtMs <= TRAILER_NEGATIVE_CACHE_TTL_MS
+                if (negativeCacheFresh) {
+                    Log.d(TAG, "Cache hit for $cacheKey: false")
+                    return@withContext null
+                }
+
+                Log.d(TAG, "Negative cache expired for $cacheKey — re-resolving")
+                cache.remove(cacheKey)
+                cacheStoredAtMs.remove(cacheKey)
+            } else if (isPlaybackSourceExpired(cached, cachedAtMs)) {
                 Log.d(TAG, "Cache hit for $cacheKey: expired — re-resolving")
                 cache.remove(cacheKey)
                 cacheStoredAtMs.remove(cacheKey)
@@ -115,7 +124,7 @@ class TrailerService @Inject constructor(
             }
             Log.w(TAG, "YouTube search fallback also exhausted for '$title'")
             cache[cacheKey] = NEGATIVE_CACHE
-            cacheStoredAtMs.remove(cacheKey)
+            cacheStoredAtMs[cacheKey] = System.currentTimeMillis()
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
@@ -231,7 +240,15 @@ class TrailerService @Inject constructor(
                 return@withContext localSource
             }
 
-            // Fallback to remote trailer resolver if in-app extraction fails.
+            // Fallback to the remote resolver only when one is actually configured.
+            if (BuildConfig.TRAILER_API_URL.isBlank()) {
+                Log.w(
+                    TAG,
+                    "In-app extraction failed; backend trailer resolver is not configured for ${summarizeUrl(youtubeUrl)}"
+                )
+                return@withContext null
+            }
+
             Log.w(TAG, "In-app extraction failed, falling back to backend resolver for ${summarizeUrl(youtubeUrl)}")
             val response = trailerApi.getTrailer(youtubeUrl = youtubeUrl, title = title, year = year)
             if (!response.isSuccessful) {
