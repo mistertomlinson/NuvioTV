@@ -120,9 +120,11 @@ internal fun PlayerRuntimeController.evaluateNaturalEndRatingPrompt() {
 
         /*
          * No selected/connected rating provider: preserve the normal EOF ->
-         * More Like This flow. Keep the pending reservation until post-play is
-         * visible or loading so natural completion cannot slip through between
-         * these state updates.
+         * More Like This flow. Keep the reservation while post-play is first
+         * prepared so natural completion cannot escape between ownership
+         * states. Once the reservation is released, prepare once more: this
+         * exposes already-ready recommendations immediately, while an active
+         * load simply remains owned by its existing request.
          */
         _uiState.update {
             it.copy(
@@ -135,6 +137,7 @@ internal fun PlayerRuntimeController.evaluateNaturalEndRatingPrompt() {
         _uiState.update {
             it.copy(naturalEndRatingCheckPending = false)
         }
+        preparePostPlayRecommendationsForManualEndAction()
         schedulePostPlayTrailerAfterPlaybackEnded()
     }
 }

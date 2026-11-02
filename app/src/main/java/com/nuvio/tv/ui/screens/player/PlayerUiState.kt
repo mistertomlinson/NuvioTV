@@ -183,7 +183,9 @@ data class PlayerUiState(
                     )
 
     val blocksEndActionForRating: Boolean
-        get() = ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
+        get() =
+            naturalEndRatingCheckPending ||
+                ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
 }
 
 data class TrackInfo(
