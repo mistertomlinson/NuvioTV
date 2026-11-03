@@ -242,8 +242,10 @@ class ReleaseReminderHomeFreezeTest {
         val record = stored.single()
         assertEquals(ReleaseReminderStatus.ARMED, record.status)
         assertNotNull(record.lastAuthorityCheckAtMillis)
-        /* Retry timestamp is deliberately backdated so the next due run is ~1 minute away. */
-        assertTrue(record.lastAuthorityCheckAtMillis!! < before)
+        /* Confirmed availability survives the retry, and the due scheduler
+         * uses the one-minute membership retry window. */
+        assertNotNull(record.availabilityConfirmedAtMillis)
+        assertTrue(record.lastAuthorityCheckAtMillis!! >= before)
     }
 
     @Test
