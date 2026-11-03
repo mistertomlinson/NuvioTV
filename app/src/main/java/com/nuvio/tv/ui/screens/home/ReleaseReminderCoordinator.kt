@@ -368,7 +368,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                  */
                 val mayCommitHomeMutations = batchStartedOffHome
 
-                if (queuedKey in deferredReminderRemovals) {
+                if (deferredReminderRemovals.containsKey(queuedKey)) {
                     if (!mayCommitHomeMutations) {
                         continue
                     }
