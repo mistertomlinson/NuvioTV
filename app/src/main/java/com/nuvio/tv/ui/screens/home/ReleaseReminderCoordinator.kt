@@ -32,12 +32,13 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -47,8 +48,10 @@ private const val TAG = "ReleaseReminderCoordinator"
 private const val BADGE_LIFETIME_MS = 30L * 24 * 60 * 60 * 1000
 private const val DUE_RECHECK_MS = 60L * 60 * 1000
 private const val FUTURE_RECHECK_MS = 12L * 60 * 60 * 1000
+private const val FULFILLMENT_RETRY_MS = 60L * 1000
 
 private data class RuntimeSnapshot(
+    val profileId: Int? = null,
     val cwResolved: Boolean = false,
     val continueWatchingItems: List<ContinueWatchingItem> = emptyList(),
     val catalogRows: List<CatalogRow> = emptyList()
@@ -61,8 +64,12 @@ private data class WatchedReminderSnapshot(
     val fullyWatchedSeriesIds: Set<String>
 )
 
-private data class DeferredAvailableReminder(
+private data class ProfileReminderKey(
     val profileId: Int,
+    val reminderKey: String
+)
+
+private data class DeferredAvailableReminder(
     val record: ReleaseReminderRecord
 )
 
@@ -82,18 +89,15 @@ class ReleaseReminderCoordinator @Inject constructor(
     private val started = AtomicBoolean(false)
     private val snapshot = AtomicReference(RuntimeSnapshot())
     private val deferredAvailableReminders =
-        ConcurrentHashMap<String, DeferredAvailableReminder>()
+        ConcurrentHashMap<ProfileReminderKey, DeferredAvailableReminder>()
 
     /*
      * Removing a reminder can remove an armed/fulfilled poster badge from the
      * currently rendered Home tree. Keep that mutation behind the same Home
      * presentation freeze as fulfillment/My List insertion.
-     *
-     * The value is the profile that authorized the removal, so a later profile
-     * handoff cannot consume another profile's queued mutation.
      */
     private val deferredReminderRemovals =
-        ConcurrentHashMap<String, Int>()
+        ConcurrentHashMap<ProfileReminderKey, Unit>()
 
     @Volatile private var homeVisible = false
 
@@ -117,7 +121,7 @@ class ReleaseReminderCoordinator @Inject constructor(
         scope.launch {
             profileManager.activeProfileId.collectLatest { profileId ->
                 combine(
-                    dataStore.reminders,
+                    dataStore.remindersForProfile(profileId),
                     watchProgressRepository.observeWatchedMovieIds(),
                     watchedSeriesStateHolder
                         .observeFullyWatchedSeriesIds(profileId)
@@ -130,19 +134,39 @@ class ReleaseReminderCoordinator @Inject constructor(
                         profileId = profileId,
                         reminders = reminders,
                         watchedMovieIds = watchedMovieIds,
-                        fullyWatchedSeriesIds =
-                            fullyWatchedSeriesIds
+                        fullyWatchedSeriesIds = fullyWatchedSeriesIds
                     )
                 }.collect { watchedSnapshot ->
-                    invalidateWatchedReminders(
-                        watchedSnapshot
-                    )
+                    invalidateWatchedReminders(watchedSnapshot)
                 }
             }
         }
 
+        /*
+         * A profile handoff normally happens while Home is being replaced by
+         * the profile picker. Wake the newly selected profile immediately so
+         * matured reminders do not need an extra Details round-trip.
+         */
         scope.launch {
-            snapshotRequests.collectLatest {
+            profileManager.activeProfileId
+                .drop(1)
+                .collect {
+                    runMaintenance(
+                        forceFutureAuthority = false,
+                        dueWorker = false,
+                        snapshotEvent = true
+                    )
+                }
+        }
+
+        scope.launch {
+            /*
+             * collectLatest used to cancel the active maintenance pass when
+             * fulfillment itself changed My List/catalogRows. A request that
+             * arrives during a pass is now merely coalesced and handled after
+             * the current batch has completed.
+             */
+            snapshotRequests.collect {
                 delay(350L)
                 runMaintenance(
                     forceFutureAuthority = false,
@@ -156,42 +180,26 @@ class ReleaseReminderCoordinator @Inject constructor(
     }
 
     internal suspend fun runWatchedReminderMaintenance() {
-        val profileId =
-            profileManager.activeProfileId.value
+        val profileId = profileManager.activeProfileId.value
+        val reminders = dataStore.remindersForProfile(profileId).first()
 
-        val reminders =
-            dataStore.reminders.first()
-
-        if (
-            profileManager.activeProfileId.value !=
-                profileId
-        ) {
+        if (profileManager.activeProfileId.value != profileId) {
             return
         }
 
         val watchedMovieIds =
-            watchProgressRepository
-                .observeWatchedMovieIds()
-                .first()
+            watchProgressRepository.observeWatchedMovieIds().first()
 
-        if (
-            profileManager.activeProfileId.value !=
-                profileId
-        ) {
+        if (profileManager.activeProfileId.value != profileId) {
             return
         }
 
         val fullyWatchedSeriesIds =
             watchedSeriesStateHolder
-                .observeFullyWatchedSeriesIds(
-                    profileId
-                )
+                .observeFullyWatchedSeriesIds(profileId)
                 .first()
 
-        if (
-            profileManager.activeProfileId.value !=
-                profileId
-        ) {
+        if (profileManager.activeProfileId.value != profileId) {
             return
         }
 
@@ -200,8 +208,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                 profileId = profileId,
                 reminders = reminders,
                 watchedMovieIds = watchedMovieIds,
-                fullyWatchedSeriesIds =
-                    fullyWatchedSeriesIds
+                fullyWatchedSeriesIds = fullyWatchedSeriesIds
             )
         )
     }
@@ -218,14 +225,11 @@ class ReleaseReminderCoordinator @Inject constructor(
             }
 
             val watchedReminders =
-                watchedSnapshot.reminders.filter {
-                    reminder ->
+                watchedSnapshot.reminders.filter { reminder ->
                     reminder.matchesWatchedStateRespectingFutureSeason(
-                        watchedMovieIds =
-                            watchedSnapshot.watchedMovieIds,
+                        watchedMovieIds = watchedSnapshot.watchedMovieIds,
                         fullyWatchedSeriesIds =
-                            watchedSnapshot
-                                .fullyWatchedSeriesIds
+                            watchedSnapshot.fullyWatchedSeriesIds
                     )
                 }
 
@@ -237,23 +241,26 @@ class ReleaseReminderCoordinator @Inject constructor(
                     return@withLock
                 }
 
-                /*
-                 * A watched title supersedes a staged fulfillment too. While
-                 * Home is active, queue the removal rather than changing the
-                 * visible reminder projection underneath the user.
-                 */
-                deferredAvailableReminders.remove(reminder.key)
+                val queuedKey =
+                    ProfileReminderKey(
+                        watchedSnapshot.profileId,
+                        reminder.key
+                    )
+
+                deferredAvailableReminders.remove(queuedKey)
 
                 if (homeVisible) {
-                    deferredReminderRemovals[reminder.key] =
-                        watchedSnapshot.profileId
+                    deferredReminderRemovals[queuedKey] = Unit
                     Log.i(
                         TAG,
                         "Staged watched reminder removal ${reminder.key} until Home exits"
                     )
                 } else {
-                    deferredReminderRemovals.remove(reminder.key)
-                    dataStore.remove(reminder.key)
+                    deferredReminderRemovals.remove(queuedKey)
+                    dataStore.remove(
+                        reminder.key,
+                        watchedSnapshot.profileId
+                    )
                     Log.i(
                         TAG,
                         "Removed watched release reminder ${reminder.key}"
@@ -269,11 +276,17 @@ class ReleaseReminderCoordinator @Inject constructor(
 
         if (wasVisible && !visible) {
             /*
-             * Authority work/removal decisions may have completed while Home
-             * was frozen. Wake maintenance immediately after Home leaves so
-             * queued mutations happen off-screen before the next entry.
+             * Home exit is the fulfillment boundary. Do not send it through
+             * the 350 ms catalog-snapshot debounce: begin the off-screen batch
+             * immediately and let runMutex serialize it with any older pass.
              */
-            snapshotRequests.tryEmit(Unit)
+            scope.launch {
+                runMaintenance(
+                    forceFutureAuthority = false,
+                    dueWorker = false,
+                    snapshotEvent = true
+                )
+            }
         }
     }
 
@@ -284,9 +297,10 @@ class ReleaseReminderCoordinator @Inject constructor(
     ) {
         snapshot.set(
             RuntimeSnapshot(
-                cwResolved,
-                continueWatchingItems,
-                catalogRows
+                profileId = profileManager.activeProfileId.value,
+                cwResolved = cwResolved,
+                continueWatchingItems = continueWatchingItems,
+                catalogRows = catalogRows
             )
         )
         snapshotRequests.tryEmit(Unit)
@@ -312,6 +326,16 @@ class ReleaseReminderCoordinator @Inject constructor(
         )
     }
 
+    internal suspend fun scheduleDueAfterWorker() {
+        val profileId = profileManager.activeProfileId.value
+        val reminders = dataStore.remindersForProfile(profileId).first()
+        com.nuvio.tv.core.reminders.ReleaseReminderWorker
+            .scheduleDueAfterRunningWorker(
+                appContext,
+                reminders
+            )
+    }
+
     private suspend fun runMaintenance(
         forceFutureAuthority: Boolean,
         dueWorker: Boolean,
@@ -321,108 +345,101 @@ class ReleaseReminderCoordinator @Inject constructor(
             val profileId = profileManager.activeProfileId.value
             val now = System.currentTimeMillis()
             val today = localDate(now)
-            val runtime = snapshot.get()
+            val batchStartedOffHome = !homeVisible
+            val rawRuntime = snapshot.get()
+            val runtime =
+                if (rawRuntime.profileId == profileId) {
+                    rawRuntime
+                } else {
+                    RuntimeSnapshot(profileId = profileId)
+                }
 
-            for (stored in dataStore.reminders.first()) {
-                if (profileManager.activeProfileId.value != profileId) return@withLock
+            for (stored in dataStore.remindersForProfile(profileId).first()) {
+                if (profileManager.activeProfileId.value != profileId) {
+                    return@withLock
+                }
+
+                val queuedKey = ProfileReminderKey(profileId, stored.key)
 
                 /*
-                 * Apply any removal that was authorized during the frozen Home
-                 * session. Do this before every other reminder transition so a
-                 * queued removal can never be overtaken by fulfillment/re-arming.
+                 * Whether this batch may mutate visible Home state is fixed at
+                 * batch start. If Home re-enters while an off-screen batch is
+                 * running, do not split the batch after item #1.
                  */
-                val deferredRemovalProfile =
-                    deferredReminderRemovals[stored.key]
+                val mayCommitHomeMutations = batchStartedOffHome
 
-                if (deferredRemovalProfile != null) {
-                    if (deferredRemovalProfile != profileId) {
-                        deferredReminderRemovals.remove(
-                            stored.key,
-                            deferredRemovalProfile
-                        )
-                    } else if (homeVisible) {
-                        continue
-                    } else {
-                        deferredReminderRemovals.remove(
-                            stored.key,
-                            profileId
-                        )
-                        deferredAvailableReminders.remove(stored.key)
-                        dataStore.remove(stored.key)
+                if (queuedKey in deferredReminderRemovals) {
+                    if (!mayCommitHomeMutations) {
                         continue
                     }
+
+                    deferredReminderRemovals.remove(queuedKey)
+                    deferredAvailableReminders.remove(queuedKey)
+                    dataStore.remove(stored.key, profileId)
+                    continue
                 }
 
                 var reminder = stored
 
                 if (reminder.status == ReleaseReminderStatus.FULFILLED) {
-                    deferredAvailableReminders.remove(reminder.key)
+                    deferredAvailableReminders.remove(queuedKey)
                     val fulfilledAt = reminder.fulfilledAtMillis
                     val expired = fulfilledAt == null ||
                         now - fulfilledAt >= BADGE_LIFETIME_MS
                     val playbackStarted = runtime.cwResolved &&
-                        runtime.continueWatchingItems.any(reminder::matchesContinueWatching)
+                        runtime.continueWatchingItems.any(
+                            reminder::matchesContinueWatching
+                        )
 
                     if (expired || playbackStarted) {
-                        if (homeVisible) {
-                            deferredReminderRemovals[reminder.key] =
-                                profileId
+                        if (!mayCommitHomeMutations) {
+                            deferredReminderRemovals[queuedKey] = Unit
                         } else {
-                            deferredReminderRemovals.remove(reminder.key)
-                            dataStore.remove(reminder.key)
+                            deferredReminderRemovals.remove(queuedKey)
+                            dataStore.remove(reminder.key, profileId)
                         }
                     } else if (!reminder.membershipConfirmed) {
-                        /*
-                         * Re-arming removes a fulfilled Available Now/New Season
-                         * badge. Defer that visible mutation until Home exits too.
-                         */
-                        if (!homeVisible) {
-                            dataStore.markArmed(reminder.key)
+                        if (mayCommitHomeMutations) {
+                            dataStore.markArmed(reminder.key, profileId)
                         }
                     }
                     continue
                 }
 
-                val deferred = deferredAvailableReminders[reminder.key]
+                val deferred = deferredAvailableReminders[queuedKey]
                 if (deferred != null) {
-                    if (deferred.profileId != profileId) {
-                        deferredAvailableReminders.remove(
-                            reminder.key,
-                            deferred
-                        )
-                    } else if (homeVisible) {
-                        continue
-                    } else {
-                        if (
-                            runtime.cwResolved &&
-                            runtime.continueWatchingItems.any(
-                                deferred.record::matchesContinueWatching
-                            )
-                        ) {
-                            deferredAvailableReminders.remove(
-                                reminder.key,
-                                deferred
-                            )
-                            deferredReminderRemovals.remove(reminder.key)
-                            dataStore.remove(reminder.key)
-                            continue
-                        }
-
-                        fulfillAvailableReminder(
-                            record = deferred.record,
-                            profileId = profileId
-                        )
-                        deferredAvailableReminders.remove(
-                            reminder.key,
-                            deferred
-                        )
+                    if (!mayCommitHomeMutations) {
                         continue
                     }
+
+                    if (
+                        runtime.cwResolved &&
+                        runtime.continueWatchingItems.any(
+                            deferred.record::matchesContinueWatching
+                        )
+                    ) {
+                        deferredAvailableReminders.remove(queuedKey)
+                        deferredReminderRemovals.remove(queuedKey)
+                        dataStore.remove(reminder.key, profileId)
+                        continue
+                    }
+
+                    val fulfilled = fulfillAvailableReminder(
+                        record = deferred.record,
+                        profileId = profileId
+                    )
+                    if (fulfilled) {
+                        deferredAvailableReminders.remove(queuedKey)
+                    }
+                    continue
                 }
 
                 if (reminder.imdbId.isNullOrBlank() && reminder.tmdbId != null) {
                     val resolved = runCatching {
-                        tmdbService.tmdbToImdb(reminder.tmdbId, reminder.itemType)
+                        tmdbService.tmdbToImdb(
+                            reminder.tmdbId,
+                            reminder.itemType
+                        )
                     }.getOrNull()
 
                     if (profileManager.activeProfileId.value != profileId) {
@@ -431,21 +448,23 @@ class ReleaseReminderCoordinator @Inject constructor(
 
                     if (!resolved.isNullOrBlank()) {
                         reminder = reminder.copy(imdbId = resolved)
-                        dataStore.upsert(reminder)
+                        dataStore.upsert(reminder, profileId)
                     }
                 }
 
                 val comingSoon = runtime.findComingSoonMatch(reminder)
                 if (comingSoon != null) {
-                    val h = comingSoon.behaviorHints
-                    val date = h?.releaseDate?.takeIf(::isExactDate)
-                    val season = h?.upcomingSeason
-                    val platform = h?.platformId?.trim()?.takeIf { it.isNotBlank() }
-                    val badge = if ((season ?: reminder.seasonNumber ?: 0) >= 2) {
-                        ReleaseReminderBadge.NEW_SEASON
-                    } else {
-                        ReleaseReminderBadge.AVAILABLE_NOW
-                    }
+                    val hints = comingSoon.behaviorHints
+                    val date = hints?.releaseDate?.takeIf(::isExactDate)
+                    val season = hints?.upcomingSeason
+                    val platform =
+                        hints?.platformId?.trim()?.takeIf { it.isNotBlank() }
+                    val badge =
+                        if ((season ?: reminder.seasonNumber ?: 0) >= 2) {
+                            ReleaseReminderBadge.NEW_SEASON
+                        } else {
+                            ReleaseReminderBadge.AVAILABLE_NOW
+                        }
                     val updated = reminder.copy(
                         releaseDate = date ?: reminder.releaseDate,
                         seasonNumber = season ?: reminder.seasonNumber,
@@ -454,7 +473,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                     )
                     if (updated != reminder) {
                         reminder = updated
-                        dataStore.upsert(reminder)
+                        dataStore.upsert(reminder, profileId)
                     }
                 }
 
@@ -488,7 +507,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                 val checked = reminder.copy(lastAuthorityCheckAtMillis = now)
 
                 if (fresh == null) {
-                    dataStore.upsert(checked)
+                    dataStore.upsert(checked, profileId)
                     continue
                 }
 
@@ -498,12 +517,14 @@ class ReleaseReminderCoordinator @Inject constructor(
                 if (state == "coming_soon") {
                     val date = hints.releaseDate?.takeIf(::isExactDate)
                     val season = hints.upcomingSeason
-                    val platform = hints.platformId?.trim()?.takeIf { it.isNotBlank() }
-                    val badge = if ((season ?: reminder.seasonNumber ?: 0) >= 2) {
-                        ReleaseReminderBadge.NEW_SEASON
-                    } else {
-                        ReleaseReminderBadge.AVAILABLE_NOW
-                    }
+                    val platform =
+                        hints.platformId?.trim()?.takeIf { it.isNotBlank() }
+                    val badge =
+                        if ((season ?: reminder.seasonNumber ?: 0) >= 2) {
+                            ReleaseReminderBadge.NEW_SEASON
+                        } else {
+                            ReleaseReminderBadge.AVAILABLE_NOW
+                        }
 
                     dataStore.upsert(
                         checked.copy(
@@ -511,13 +532,14 @@ class ReleaseReminderCoordinator @Inject constructor(
                             seasonNumber = season ?: reminder.seasonNumber,
                             platformId = platform ?: reminder.platformId,
                             badge = badge
-                        )
+                        ),
+                        profileId
                     )
                     continue
                 }
 
                 if (state == "unknown") {
-                    dataStore.upsert(checked)
+                    dataStore.upsert(checked, profileId)
                     continue
                 }
 
@@ -528,22 +550,23 @@ class ReleaseReminderCoordinator @Inject constructor(
 
                 val available = released || (state == null && latest)
                 if (!available) {
-                    dataStore.upsert(checked)
+                    dataStore.upsert(checked, profileId)
                     continue
                 }
 
                 if (
                     runtime.cwResolved &&
-                    runtime.continueWatchingItems.any(reminder::matchesContinueWatching)
+                    runtime.continueWatchingItems.any(
+                        reminder::matchesContinueWatching
+                    )
                 ) {
-                    deferredAvailableReminders.remove(reminder.key)
-                    if (homeVisible) {
-                        deferredReminderRemovals[reminder.key] =
-                            profileId
-                        dataStore.upsert(checked)
+                    deferredAvailableReminders.remove(queuedKey)
+                    if (!mayCommitHomeMutations) {
+                        deferredReminderRemovals[queuedKey] = Unit
+                        dataStore.upsert(checked, profileId)
                     } else {
-                        deferredReminderRemovals.remove(reminder.key)
-                        dataStore.remove(reminder.key)
+                        deferredReminderRemovals.remove(queuedKey)
+                        dataStore.remove(reminder.key, profileId)
                     }
                     continue
                 }
@@ -552,14 +575,10 @@ class ReleaseReminderCoordinator @Inject constructor(
                     return@withLock
                 }
 
-                if (homeVisible) {
-                    val deferredRecord = checked
-                    deferredAvailableReminders[reminder.key] =
-                        DeferredAvailableReminder(
-                            profileId = profileId,
-                            record = deferredRecord
-                        )
-                    dataStore.upsert(deferredRecord)
+                if (!mayCommitHomeMutations) {
+                    deferredAvailableReminders[queuedKey] =
+                        DeferredAvailableReminder(checked)
+                    dataStore.upsert(checked, profileId)
                     Log.i(
                         TAG,
                         "Staged fulfillment ${reminder.key} until Home exits"
@@ -577,10 +596,12 @@ class ReleaseReminderCoordinator @Inject constructor(
                 }
             }
 
-            com.nuvio.tv.core.reminders.ReleaseReminderWorker.scheduleDue(
-                appContext,
-                dataStore.reminders.first()
-            )
+            if (profileManager.activeProfileId.value == profileId) {
+                com.nuvio.tv.core.reminders.ReleaseReminderWorker.scheduleDue(
+                    appContext,
+                    dataStore.remindersForProfile(profileId).first()
+                )
+            }
         }
     }
 
@@ -592,40 +613,45 @@ class ReleaseReminderCoordinator @Inject constructor(
             return false
         }
 
+        val retryable = record.copy(
+            lastAuthorityCheckAtMillis =
+                System.currentTimeMillis() -
+                    DUE_RECHECK_MS +
+                    FULFILLMENT_RETRY_MS
+        )
+
         return try {
-            val confirmed =
-                libraryRepository.ensureInDefault(
-                    record.toLibraryEntryInput()
-                )
+            profileManager.withActiveProfileMutation(profileId) {
+                val confirmed =
+                    libraryRepository.ensureInDefault(
+                        record.toLibraryEntryInput()
+                    )
 
-            if (profileManager.activeProfileId.value != profileId) {
-                return false
-            }
-
-            if (confirmed) {
-                deferredReminderRemovals.remove(record.key)
-                dataStore.markFulfilled(
-                    record.key,
-                    System.currentTimeMillis()
-                )
-                Log.i(
-                    TAG,
-                    "Fulfilled ${record.key} off Home"
-                )
-                true
-            } else {
-                dataStore.upsert(record)
-                false
+                if (confirmed) {
+                    val queuedKey = ProfileReminderKey(profileId, record.key)
+                    deferredReminderRemovals.remove(queuedKey)
+                    dataStore.markFulfilled(
+                        record.key,
+                        System.currentTimeMillis(),
+                        profileId
+                    )
+                    Log.i(
+                        TAG,
+                        "Fulfilled ${record.key} off Home"
+                    )
+                    true
+                } else {
+                    dataStore.upsert(retryable, profileId)
+                    false
+                }
             }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            if (profileManager.activeProfileId.value == profileId) {
-                dataStore.upsert(record)
-                Log.w(
-                    TAG,
-                    "Fulfillment failed for ${record.key}: ${error.message}"
-                )
-            }
+            dataStore.upsert(retryable, profileId)
+            Log.w(
+                TAG,
+                "Fulfillment failed for ${record.key}: ${error.message}"
+            )
             false
         }
     }
@@ -653,7 +679,10 @@ class ReleaseReminderCoordinator @Inject constructor(
         } catch (c: CancellationException) {
             throw c
         } catch (t: Throwable) {
-            Log.w(TAG, "Fresh authority failed for ${reminder.key}: ${t.message}")
+            Log.w(
+                TAG,
+                "Fresh authority failed for ${reminder.key}: ${t.message}"
+            )
             null
         }
     }
@@ -663,11 +692,21 @@ class ReleaseReminderCoordinator @Inject constructor(
         meta: Meta
     ): Boolean {
         val hints = meta.behaviorHints
-        val rp = reminder.platformId?.trim()?.takeIf { it.isNotBlank() }
-        val ap = hints?.platformId?.trim()?.takeIf { it.isNotBlank() }
-        val platformSpecific = rp != null && !rp.equals("global", true)
+        val reminderPlatform =
+            reminder.platformId?.trim()?.takeIf { it.isNotBlank() }
+        val authorityPlatform =
+            hints?.platformId?.trim()?.takeIf { it.isNotBlank() }
+        val platformSpecific =
+            reminderPlatform != null &&
+                !reminderPlatform.equals("global", true)
 
-        if (platformSpecific && (ap == null || !ap.equals(rp, true))) {
+        if (
+            platformSpecific &&
+            (
+                authorityPlatform == null ||
+                    !authorityPlatform.equals(reminderPlatform, true)
+            )
+        ) {
             return false
         }
 
@@ -680,67 +719,102 @@ class ReleaseReminderCoordinator @Inject constructor(
     }
 }
 
+private fun RuntimeSnapshot.rowsForReminder(
+    reminder: ReleaseReminderRecord
+): Sequence<CatalogRow> {
+    val base = reminder.addonBaseUrl
+        ?.trim()
+        ?.trimEnd('/')
+        ?.lowercase()
+        ?.takeIf { it.isNotBlank() }
+
+    return catalogRows.asSequence().filter { row ->
+        base == null ||
+            row.addonBaseUrl
+                .trim()
+                .trimEnd('/')
+                .lowercase() == base
+    }
+}
+
+private fun MetaPreview.matchesReminderPlatform(
+    reminder: ReleaseReminderRecord
+): Boolean {
+    val reminderPlatform =
+        reminder.platformId?.trim()?.takeIf { it.isNotBlank() }
+
+    if (
+        reminderPlatform == null ||
+        reminderPlatform.equals("global", true)
+    ) {
+        return true
+    }
+
+    val candidatePlatform =
+        behaviorHints?.platformId?.trim()?.takeIf { it.isNotBlank() }
+
+    return candidatePlatform != null &&
+        candidatePlatform.equals(reminderPlatform, true)
+}
+
 private fun RuntimeSnapshot.findComingSoonMatch(
     reminder: ReleaseReminderRecord
 ): MetaPreview? =
-    catalogRows.asSequence()
+    rowsForReminder(reminder)
         .flatMap { it.items.asSequence() }
-        .firstOrNull {
-            it.behaviorHints?.comingSoon == true &&
-                reminder.matches(it.id, it.apiType, it.imdbId)
+        .firstOrNull { item ->
+            item.behaviorHints?.comingSoon == true &&
+                item.matchesReminderPlatform(reminder) &&
+                reminder.matches(item.id, item.apiType, item.imdbId)
         }
 
 private fun RuntimeSnapshot.hasComingSoonSource(
     reminder: ReleaseReminderRecord
-): Boolean {
-    val base = reminder.addonBaseUrl
-        ?.trim()
-        ?.trimEnd('/')
-        ?.lowercase()
-        ?.takeIf { it.isNotBlank() }
-        ?: return false
-
-    return catalogRows.asSequence()
-        .filter {
-            it.addonBaseUrl.trim().trimEnd('/').lowercase() == base
-        }
+): Boolean =
+    rowsForReminder(reminder)
         .flatMap { it.items.asSequence() }
-        .any { it.behaviorHints?.comingSoon == true }
-}
+        .any { item ->
+            item.behaviorHints?.comingSoon == true &&
+                item.matchesReminderPlatform(reminder)
+        }
 
 private fun RuntimeSnapshot.hasAvailabilityConfirmation(
     reminder: ReleaseReminderRecord
-): Boolean {
-    val base = reminder.addonBaseUrl
-        ?.trim()
-        ?.trimEnd('/')
-        ?.lowercase()
-        ?.takeIf { it.isNotBlank() }
-
-    return catalogRows.asSequence()
+): Boolean =
+    rowsForReminder(reminder)
         .filter { it.catalogId.startsWith("latest_", true) }
-        .filter {
-            base == null ||
-                it.addonBaseUrl.trim().trimEnd('/').lowercase() == base
-        }
         .flatMap { it.items.asSequence() }
         .any { item ->
-            if (!reminder.matches(item.id, item.apiType, item.imdbId)) {
+            if (
+                !item.matchesReminderPlatform(reminder) ||
+                !reminder.matches(item.id, item.apiType, item.imdbId)
+            ) {
                 return@any false
             }
+
             val remindedSeason = reminder.seasonNumber ?: 0
             if (remindedSeason < 2) return@any true
-            (item.behaviorHints?.newSeasonNumber ?: return@any false) >= remindedSeason
+
+            (item.behaviorHints?.newSeasonNumber ?: return@any false) >=
+                remindedSeason
         }
-}
 
 private fun ReleaseReminderRecord.matchesContinueWatching(
     item: ContinueWatchingItem
 ): Boolean = when (item) {
     is ContinueWatchingItem.InProgress ->
-        matches(item.progress.contentId, item.progress.contentType, null)
+        matches(
+            item.progress.contentId,
+            item.progress.contentType,
+            null
+        )
+
     is ContinueWatchingItem.NextUp ->
-        matches(item.info.contentId, item.info.contentType, null)
+        matches(
+            item.info.contentId,
+            item.info.contentType,
+            null
+        )
 }
 
 private fun ReleaseReminderRecord.matches(
@@ -750,7 +824,15 @@ private fun ReleaseReminderRecord.matches(
 ): Boolean {
     if (normalizeType(itemType) != normalizeType(candidateType)) return false
     return identityTokens(itemId, imdbId, tmdbId, traktId, simklId)
-        .intersect(identityTokens(candidateId, candidateImdbId, null, null, null))
+        .intersect(
+            identityTokens(
+                candidateId,
+                candidateImdbId,
+                null,
+                null,
+                null
+            )
+        )
         .isNotEmpty()
 }
 
@@ -822,20 +904,31 @@ private fun identityTokens(
     if (raw.isNotBlank()) add("raw:$raw")
     Regex("tt\\d+", RegexOption.IGNORE_CASE)
         .find(raw)?.value?.lowercase()?.let { add("imdb:$it") }
-    imdbId?.trim()?.lowercase()?.takeIf { it.isNotBlank() }?.let { add("imdb:$it") }
+    imdbId
+        ?.trim()
+        ?.lowercase()
+        ?.takeIf { it.isNotBlank() }
+        ?.let { add("imdb:$it") }
     tmdbId?.let { add("tmdb:$it") }
     traktId?.let { add("trakt:$it") }
     simklId?.let { add("simkl:$it") }
-    if (raw.startsWith("tmdb:")) add("tmdb:${raw.removePrefix("tmdb:").substringBefore(':')}")
-    if (raw.startsWith("trakt:")) add("trakt:${raw.removePrefix("trakt:").substringBefore(':')}")
-    if (raw.startsWith("simkl:")) add("simkl:${raw.removePrefix("simkl:").substringBefore(':')}")
+    if (raw.startsWith("tmdb:")) {
+        add("tmdb:${raw.removePrefix("tmdb:").substringBefore(':')}")
+    }
+    if (raw.startsWith("trakt:")) {
+        add("trakt:${raw.removePrefix("trakt:").substringBefore(':')}")
+    }
+    if (raw.startsWith("simkl:")) {
+        add("simkl:${raw.removePrefix("simkl:").substringBefore(':')}")
+    }
 }
 
-private fun normalizeType(raw: String): String = when (raw.trim().lowercase()) {
-    "film" -> "movie"
-    "show", "tv" -> "series"
-    else -> raw.trim().lowercase()
-}
+private fun normalizeType(raw: String): String =
+    when (raw.trim().lowercase()) {
+        "film" -> "movie"
+        "show", "tv" -> "series"
+        else -> raw.trim().lowercase()
+    }
 
 private fun parseDate(raw: String?): LocalDate? {
     val value = raw?.trim()?.takeIf { it.length == 10 } ?: return null
