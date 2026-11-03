@@ -269,6 +269,37 @@ class ReleaseReminderCoordinatorDateTest {
     }
 
     @Test
+    fun confirmedReleaseSurvivesRestart_withoutASecondAuthorityResult() = runTest {
+        stored = reminder(
+            releaseDate = today().minusDays(1).toString()
+        )
+        freshMeta = authorityMeta(
+            state = "released",
+            releaseDate = null,
+            platformId = "netflix"
+        )
+
+        val beforeRestart = coordinator()
+        beforeRestart.setHomeVisible(true)
+        beforeRestart.runDueMaintenance()
+
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
+        assertNotNull(stored?.availabilityConfirmedAtMillis)
+        assertEquals(0, libraryWrites)
+
+        // A new coordinator has no in-memory deferred map. The durable record
+        // must be sufficient even if the release authority is now unavailable.
+        freshMeta = null
+        coordinator().runDueMaintenance()
+
+        assertEquals(ReleaseReminderStatus.FULFILLED, stored?.status)
+        assertEquals(1, libraryWrites)
+        verify(exactly = 1) {
+            metaRepository.getMetaFresh(any(), any(), any())
+        }
+    }
+
+    @Test
     fun matchingLatestEvidenceWithNeutralAuthority_fulfills() = runTest {
         stored = reminder(
             releaseDate = today().minusDays(1).toString()
