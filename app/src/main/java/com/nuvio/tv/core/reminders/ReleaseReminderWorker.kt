@@ -24,6 +24,10 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeParseException
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
 private const val PERIODIC_WORK = "release_reminders_periodic_v2"
 private const val DUE_WORK = "release_reminders_due_v2"
@@ -39,19 +43,48 @@ class ReleaseReminderWorker @AssistedInject constructor(
     private val coordinator: ReleaseReminderCoordinator
 ) : CoroutineWorker(context, workerParams) {
 
-    override suspend fun doWork(): Result =
-        runCatching {
-            if (inputData.getString(MODE_KEY) == MODE_DUE) {
-                coordinator.runDueMaintenance()
-            } else {
+    override suspend fun doWork(): Result {
+        val dueRun = inputData.getString(MODE_KEY) == MODE_DUE
+
+        if (!dueRun) {
+            return try {
                 coordinator.runPeriodicMaintenance()
+                Result.success()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Throwable) {
+                Result.retry()
             }
-        }.fold(
-            onSuccess = { Result.success() },
-            onFailure = { Result.retry() }
-        )
+        }
+
+        dueWorkerActive.set(true)
+        return try {
+            coordinator.runDueMaintenance()
+            Result.success()
+        } catch (cancellation: CancellationException) {
+            throw cancellation
+        } catch (_: Throwable) {
+            Result.retry()
+        } finally {
+            /*
+             * Reminder-store writes made by this due batch can emit while the
+             * worker is still running. scheduleDue() deliberately ignores
+             * those emissions so REPLACE can never cancel the active batch.
+             * Queue exactly one successor from the final persisted state.
+             */
+            withContext(NonCancellable) {
+                try {
+                    coordinator.scheduleDueAfterWorker()
+                } finally {
+                    dueWorkerActive.set(false)
+                }
+            }
+        }
+    }
 
     companion object {
+        private val dueWorkerActive = AtomicBoolean(false)
+
         fun schedulePeriodic(context: Context) {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
@@ -79,6 +112,36 @@ class ReleaseReminderWorker @AssistedInject constructor(
         fun scheduleDue(
             context: Context,
             reminders: List<ReleaseReminderRecord>
+        ) {
+            if (dueWorkerActive.get()) {
+                return
+            }
+
+            scheduleDueInternal(
+                context = context,
+                reminders = reminders,
+                policy = ExistingWorkPolicy.REPLACE,
+                cancelIfEmpty = true
+            )
+        }
+
+        internal fun scheduleDueAfterRunningWorker(
+            context: Context,
+            reminders: List<ReleaseReminderRecord>
+        ) {
+            scheduleDueInternal(
+                context = context,
+                reminders = reminders,
+                policy = ExistingWorkPolicy.APPEND_OR_REPLACE,
+                cancelIfEmpty = false
+            )
+        }
+
+        private fun scheduleDueInternal(
+            context: Context,
+            reminders: List<ReleaseReminderRecord>,
+            policy: ExistingWorkPolicy,
+            cancelIfEmpty: Boolean
         ) {
             val now = ZonedDateTime.now()
             val today = now.toLocalDate()
@@ -109,7 +172,9 @@ class ReleaseReminderWorker @AssistedInject constructor(
             val manager = WorkManager.getInstance(context)
 
             if (target == null) {
-                manager.cancelUniqueWork(DUE_WORK)
+                if (cancelIfEmpty) {
+                    manager.cancelUniqueWork(DUE_WORK)
+                }
                 return
             }
 
@@ -133,7 +198,7 @@ class ReleaseReminderWorker @AssistedInject constructor(
 
             manager.enqueueUniqueWork(
                 DUE_WORK,
-                ExistingWorkPolicy.REPLACE,
+                policy,
                 request
             )
         }
