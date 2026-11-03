@@ -18,6 +18,20 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 
+/**
+ * Provider-specific, idempotent reminder fulfillment. Simkl status keys are a
+ * single-selection group, so selecting Plan to Watch clears the other statuses
+ * without toggling Plan to Watch off when it is already selected.
+ */
+internal fun ensuredSimklPlanToWatchMembership(
+    currentMembership: Map<String, Boolean>
+): Map<String, Boolean> {
+    val planToWatchKey = simklLibraryStatusDefinitions.single {
+        it.status == SimklListStatus.PLAN_TO_WATCH
+    }.key
+    return currentMembership.mapValues { false } + (planToWatchKey to true)
+}
+
 @Singleton
 class SimklLibraryService @Inject constructor(
     private val syncRepository: SimklSyncRepository,
@@ -67,12 +81,7 @@ class SimklLibraryService @Inject constructor(
 
     override fun ensuredDefaultMembership(
         currentMembership: Map<String, Boolean>
-    ): Map<String, Boolean> {
-        val planToWatchKey = simklLibraryStatusDefinitions.single {
-            it.status == SimklListStatus.PLAN_TO_WATCH
-        }.key
-        return currentMembership.mapValues { false } + (planToWatchKey to true)
-    }
+    ): Map<String, Boolean> = ensuredSimklPlanToWatchMembership(currentMembership)
 
     override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {
         syncRepository.ensureLoaded()
