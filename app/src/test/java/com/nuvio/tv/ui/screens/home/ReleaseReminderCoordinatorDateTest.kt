@@ -144,7 +144,7 @@ class ReleaseReminderCoordinatorDateTest {
             }
         }
 
-        coEvery { dataStore.remove(any<String>(), any()) } coAnswers {
+        coEvery { dataStore.remove(any<String>(), any<Int>()) } coAnswers {
             val key = firstArg<String>()
             if (stored?.key == key) stored = null
         }
