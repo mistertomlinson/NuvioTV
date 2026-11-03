@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Disposable Stremio add-on for Nuvio release-reminder on-device QA.
 
+Round 2: after the first three titles pass, restart this server to expose Delta,
+Epsilon, and Zeta for a race test. Existing Alpha/Beta stay released by default
+after the restart. The race-release command releases Delta/Epsilon together.
+
 Runs ONLY on the Mac loopback interface. Connect the onn 4K Pro using:
     adb reverse tcp:18765 tcp:18765
 The TV can then install http://127.0.0.1:18765/manifest.json
@@ -29,7 +33,9 @@ PORT = 18765
 HOST = "127.0.0.1"
 BASE = f"http://{HOST}:{PORT}"
 LOCK = threading.Lock()
-STATE = {"released": False, "requests": 0}
+# Round 1 was already verified on the TV. Keep it released across this test-server restart.
+# The second cohort is armed separately for the deliberate Home re-entry race.
+STATE = {"released": True, "race_released": False, "requests": 0}
 
 ITEMS = (
     {"id": "qa:movie-alpha", "type": "movie", "name": "QA Movie Alpha",
@@ -38,17 +44,26 @@ ITEMS = (
      "season": 3, "color": "#8752a6", "description": "Release test: returning season three."},
     {"id": "qa:movie-gamma", "type": "movie", "name": "QA Movie Gamma",
      "season": None, "color": "#307f69", "description": "Negative control: stays in Coming Soon."},
+    {"id": "qa:movie-delta", "type": "movie", "name": "QA Movie Delta",
+     "season": None, "color": "#bb6644", "description": "Race test: first fulfillment."},
+    {"id": "qa:series-epsilon", "type": "series", "name": "QA Series Epsilon",
+     "season": 4, "color": "#67459b", "description": "Race test: second fulfillment."},
+    {"id": "qa:movie-zeta", "type": "movie", "name": "QA Movie Zeta",
+     "season": None, "color": "#468d75", "description": "Race-test negative control."},
 )
 BY_ID = {item["id"]: item for item in ITEMS}
+RACE_IDS = {"qa:movie-delta", "qa:series-epsilon", "qa:movie-zeta"}
 
 
 def release_date(item):
-    offset = 30 if item["id"] == "qa:movie-gamma" else 0
+    offset = 30 if item["id"] in ("qa:movie-gamma", "qa:movie-zeta") else 0
     return (date.today() + timedelta(days=offset)).isoformat()
 
 
 def is_released(item):
     with LOCK:
+        if item["id"] in RACE_IDS:
+            return STATE["race_released"] and item["id"] != "qa:movie-zeta"
         return STATE["released"] and item["id"] != "qa:movie-gamma"
 
 
@@ -160,12 +175,18 @@ class Handler(BaseHTTPRequestHandler):
             with LOCK:
                 status = dict(STATE)
             return self.reply(200, {"mode": "released" if status["released"] else "coming_soon",
+                                    "raceMode": "released" if status["race_released"] else "coming_soon",
                                     "requestCount": status["requests"],
                                     "localOnly": True, "port": PORT})
-        if route in ("__qa/release", "__qa/reset"):
+        if route in ("__qa/release", "__qa/reset", "__qa/race-release", "__qa/race-reset"):
             with LOCK:
-                STATE["released"] = route == "__qa/release"
-            return self.reply(200, {"mode": "released" if STATE["released"] else "coming_soon"})
+                if route in ("__qa/release", "__qa/reset"):
+                    STATE["released"] = route == "__qa/release"
+                else:
+                    STATE["race_released"] = route == "__qa/race-release"
+                status = dict(STATE)
+            return self.reply(200, {"mode": "released" if status["released"] else "coming_soon",
+                                    "raceMode": "released" if status["race_released"] else "coming_soon"})
         if len(parts) >= 3 and parts[0] == "catalog" and parts[2].endswith(".json"):
             return self.reply(200, catalog(parts[1], parts[2][:-5]))
         if len(parts) >= 3 and parts[0] == "meta" and parts[2].endswith(".json"):
@@ -184,7 +205,8 @@ class Handler(BaseHTTPRequestHandler):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("serve", "status", "release", "reset"))
+    parser.add_argument("command", choices=("serve", "status", "release", "reset",
+                                            "race-release", "race-reset"))
     args = parser.parse_args()
     if args.command == "serve":
         httpd = ThreadingHTTPServer((HOST, PORT), Handler)
