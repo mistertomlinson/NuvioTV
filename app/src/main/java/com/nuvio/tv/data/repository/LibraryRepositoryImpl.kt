@@ -19,6 +19,7 @@ import com.nuvio.tv.domain.model.ListMembershipSnapshot
 import com.nuvio.tv.domain.model.SavedLibraryItem
 import com.nuvio.tv.domain.model.TraktListPrivacy
 import com.nuvio.tv.domain.repository.LibraryRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -220,16 +221,15 @@ class LibraryRepositoryImpl @Inject constructor(
 
     override suspend fun ensureInDefault(item: LibraryEntryInput): Boolean {
         val mode = sourceMode.first()
-        val alreadyPresent = when (mode) {
-            LibrarySourceMode.SIMKL ->
-                isInLibrary(item.itemId, item.itemType).first()
 
-            LibrarySourceMode.TRAKT,
-            LibrarySourceMode.LOCAL ->
-                isInWatchlist(item.itemId, item.itemType).first()
+        /*
+         * My List is the watchlist projection for every source mode. In
+         * particular, SIMKL membership in some other list must not satisfy a
+         * release-reminder fulfillment.
+         */
+        if (isInWatchlist(item.itemId, item.itemType).first()) {
+            return true
         }
-
-        if (alreadyPresent) return true
 
         /*
          * Release reminders must be idempotent. Express the desired provider
@@ -241,38 +241,41 @@ class LibraryRepositoryImpl @Inject constructor(
             val before = provider
                 .getMembershipSnapshot(item)
                 .listMembership
-            val desired = provider.toggledDefaultMembership(before)
+            val desired = provider.ensuredDefaultMembership(before)
             val newlyEnabledKeys = desired
                 .filter { (key, enabled) -> enabled && before[key] != true }
                 .keys
 
+            /*
+             * A stale Home/watchlist projection can say "not present" while
+             * the provider's authoritative membership snapshot already has the
+             * default membership. Never toggle it back off in that case.
+             */
+            if (desired == before) return true
             if (newlyEnabledKeys.isEmpty()) return false
 
+            /* The write is the acceptance point; a projection refresh is
+             * best-effort. Never leave an ARMED reminder because a follow-up
+             * refresh or stale membership read failed after acceptance. */
             provider.applyMembershipChanges(
                 item = item,
                 changes = ListMembershipChanges(desired)
             )
-
-            /*
-             * Simkl commits the mutation remotely without changing its local
-             * projection in-place. Trakt also benefits from authoritative
-             * confirmation here. This runs only when a reminder matures.
-             */
-            provider.refresh(
-                com.nuvio.tv.core.tracking.TrackingRefreshIntent.INVALIDATED
-            )
-
-            val confirmed = provider
-                .getMembershipSnapshot(item)
-                .listMembership
-            return newlyEnabledKeys.all { key -> confirmed[key] == true }
+            try {
+                provider.refresh(TrackingRefreshIntent.INVALIDATED)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                // The accepted write remains durable; the next sync will catch up.
+            }
+            return true
         }
 
         if (mode != LibrarySourceMode.LOCAL) return false
 
         libraryPreferences.addItem(item.toSavedLibraryItem())
         triggerRemoteSync()
-        return isInLibrary(item.itemId, item.itemType).first()
+        return isInWatchlist(item.itemId, item.itemType).first()
     }
 
     override suspend fun toggleDefaultWithSignal(item: LibraryEntryInput) {

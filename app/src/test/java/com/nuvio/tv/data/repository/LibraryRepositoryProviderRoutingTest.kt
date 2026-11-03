@@ -110,6 +110,48 @@ class LibraryRepositoryProviderRoutingTest {
     }
 
     @Test
+    fun `reminder ensure is idempotent and never toggles Plan to Watch off`() = runTest {
+        val provider = FakeLibraryProvider(authenticated = true)
+        val repository = createRepository(
+            requestedSource = LibrarySourceMode.SIMKL,
+            provider = provider
+        ).first
+        val item = LibraryEntryInput(
+            itemId = "tt7654321",
+            itemType = "movie",
+            title = "Reminder Test"
+        )
+
+        assertTrue(repository.ensureInDefault(item))
+        assertTrue(repository.ensureInDefault(item))
+
+        assertEquals(1, provider.appliedChanges.size)
+        assertTrue(repository.isInWatchlist(item.itemId, item.itemType).first())
+    }
+
+    @Test
+    fun `accepted reminder mutation survives refresh failure`() = runTest {
+        val provider = FakeLibraryProvider(authenticated = true)
+        provider.refreshFailure = IllegalStateException("temporary refresh outage")
+        val repository = createRepository(
+            requestedSource = LibrarySourceMode.SIMKL,
+            provider = provider
+        ).first
+        val item = LibraryEntryInput(
+            itemId = "tt8765432",
+            itemType = "movie",
+            title = "Reminder Refresh Test"
+        )
+
+        assertTrue(repository.ensureInDefault(item))
+        assertEquals(1, provider.appliedChanges.size)
+        assertEquals(
+            listOf(TrackingRefreshIntent.INVALIDATED),
+            provider.refreshIntents
+        )
+    }
+
+    @Test
     fun `manual refresh targets selected Simkl provider`() = runTest {
         val provider = FakeLibraryProvider(authenticated = true)
         val repository = createRepository(
@@ -213,6 +255,7 @@ class LibraryRepositoryProviderRoutingTest {
         private val membership = MutableStateFlow<Set<String>>(emptySet())
         val appliedChanges = mutableListOf<ListMembershipChanges>()
         val refreshIntents = mutableListOf<TrackingRefreshIntent>()
+        var refreshFailure: RuntimeException? = null
 
         override fun recognizesListKey(key: String): Boolean =
             key == PLAN_TO_WATCH_KEY || key == WATCHING_KEY
@@ -230,6 +273,11 @@ class LibraryRepositoryProviderRoutingTest {
                     this[PLAN_TO_WATCH_KEY] = true
                 }
             }
+
+        override fun ensuredDefaultMembership(
+            currentMembership: Map<String, Boolean>
+        ): Map<String, Boolean> =
+            currentMembership.mapValues { false } + (PLAN_TO_WATCH_KEY to true)
 
         override suspend fun getMembershipSnapshot(
             item: LibraryEntryInput
@@ -256,6 +304,7 @@ class LibraryRepositoryProviderRoutingTest {
 
         override suspend fun refresh(intent: TrackingRefreshIntent) {
             refreshIntents += intent
+            refreshFailure?.let { throw it }
         }
     }
 }
