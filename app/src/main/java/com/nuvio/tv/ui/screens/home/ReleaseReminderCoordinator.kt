@@ -406,8 +406,17 @@ class ReleaseReminderCoordinator @Inject constructor(
                     continue
                 }
 
+                /* Authority confirmation is written before the My List mutation.
+                 * Rehydrate the pending fulfillment after process death, even
+                 * if the original in-memory deferred map no longer exists. */
                 val deferred = deferredAvailableReminders[queuedKey]
-                if (deferred != null) {
+                if (deferred != null || reminder.availabilityConfirmedAtMillis != null) {
+                    val availableRecord =
+                        if (reminder.availabilityConfirmedAtMillis != null) {
+                            reminder
+                        } else {
+                            checkNotNull(deferred).record
+                        }
                     if (!mayCommitHomeMutations) {
                         continue
                     }
@@ -415,7 +424,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                     if (
                         runtime.cwResolved &&
                         runtime.continueWatchingItems.any(
-                            deferred.record::matchesContinueWatching
+                            availableRecord::matchesContinueWatching
                         )
                     ) {
                         deferredAvailableReminders.remove(queuedKey)
@@ -425,7 +434,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                     }
 
                     val fulfilled = fulfillAvailableReminder(
-                        record = deferred.record,
+                        record = availableRecord,
                         profileId = profileId
                     )
                     if (fulfilled) {
@@ -554,6 +563,14 @@ class ReleaseReminderCoordinator @Inject constructor(
                     continue
                 }
 
+                /* Durable write-ahead checkpoint: if the app dies during
+                 * provider mutation, retry the confirmed release directly
+                 * instead of depending on a second availability response. */
+                val confirmedAvailable = checked.copy(
+                    availabilityConfirmedAtMillis = now
+                )
+                dataStore.upsert(confirmedAvailable, profileId)
+
                 if (
                     runtime.cwResolved &&
                     runtime.continueWatchingItems.any(
@@ -563,7 +580,6 @@ class ReleaseReminderCoordinator @Inject constructor(
                     deferredAvailableReminders.remove(queuedKey)
                     if (!mayCommitHomeMutations) {
                         deferredReminderRemovals[queuedKey] = Unit
-                        dataStore.upsert(checked, profileId)
                     } else {
                         deferredReminderRemovals.remove(queuedKey)
                         dataStore.remove(reminder.key, profileId)
@@ -577,8 +593,7 @@ class ReleaseReminderCoordinator @Inject constructor(
 
                 if (!mayCommitHomeMutations) {
                     deferredAvailableReminders[queuedKey] =
-                        DeferredAvailableReminder(checked)
-                    dataStore.upsert(checked, profileId)
+                        DeferredAvailableReminder(confirmedAvailable)
                     Log.i(
                         TAG,
                         "Staged fulfillment ${reminder.key} until Home exits"
@@ -587,7 +602,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                 }
 
                 fulfillAvailableReminder(
-                    record = checked,
+                    record = confirmedAvailable,
                     profileId = profileId
                 )
 
@@ -614,10 +629,7 @@ class ReleaseReminderCoordinator @Inject constructor(
         }
 
         val retryable = record.copy(
-            lastAuthorityCheckAtMillis =
-                System.currentTimeMillis() -
-                    DUE_RECHECK_MS +
-                    FULFILLMENT_RETRY_MS
+            lastAuthorityCheckAtMillis = System.currentTimeMillis()
         )
 
         return try {
