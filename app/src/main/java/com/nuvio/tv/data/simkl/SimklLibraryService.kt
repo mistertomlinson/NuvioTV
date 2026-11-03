@@ -65,6 +65,15 @@ class SimklLibraryService @Inject constructor(
         }
     }
 
+    override fun ensuredDefaultMembership(
+        currentMembership: Map<String, Boolean>
+    ): Map<String, Boolean> {
+        val planToWatchKey = simklLibraryStatusDefinitions.single {
+            it.status == SimklListStatus.PLAN_TO_WATCH
+        }.key
+        return currentMembership.mapValues { false } + (planToWatchKey to true)
+    }
+
     override suspend fun getMembershipSnapshot(item: LibraryEntryInput): ListMembershipSnapshot {
         syncRepository.ensureLoaded()
         val entry = syncRepository.state.value.snapshot.entries
