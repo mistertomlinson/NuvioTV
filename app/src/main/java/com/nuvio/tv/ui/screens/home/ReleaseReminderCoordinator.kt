@@ -1,7 +1,9 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.content.Context
+import android.provider.Settings
 import android.util.Log
+import com.nuvio.tv.BuildConfig
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.core.tmdb.TmdbService
@@ -672,6 +674,7 @@ class ReleaseReminderCoordinator @Inject constructor(
                         TAG,
                         "Fulfilled ${record.key} off Home"
                     )
+                    pauseOnlyForSideloadRaceQa(record)
                     true
                 } else {
                     dataStore.upsert(retryable, profileId)
@@ -687,6 +690,29 @@ class ReleaseReminderCoordinator @Inject constructor(
             )
             false
         }
+    }
+
+    /**
+     * TEMPORARY QA PROBE -- remove before merging into dev.
+     *
+     * Android shell sets the global setting, allowing deterministic
+     * Home re-entry between two local-library writes on the sideload build.
+     * No production build or non-QA reminder can be delayed.
+     */
+    private suspend fun pauseOnlyForSideloadRaceQa(record: ReleaseReminderRecord) {
+        if (BuildConfig.BUILD_TYPE != "sideload") return
+        if (record.itemId !in setOf("qa:movie-delta", "qa:series-epsilon")) return
+        val pauseMs = runCatching {
+            Settings.Global.getLong(
+                appContext.contentResolver,
+                "nuvio_release_reminder_qa_pause_ms",
+                0L
+            )
+        }.getOrDefault(0L).coerceIn(0L, 15_000L)
+        if (pauseMs <= 0L) return
+        Log.i(TAG, "QA_PAUSE_BEGIN key=${record.key} ms=$pauseMs")
+        delay(pauseMs)
+        Log.i(TAG, "QA_PAUSE_END key=${record.key}")
     }
 
     private suspend fun resolveFreshMeta(
