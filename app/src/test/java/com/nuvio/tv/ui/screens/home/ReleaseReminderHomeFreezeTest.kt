@@ -126,7 +126,7 @@ class ReleaseReminderHomeFreezeTest {
             }
         }
 
-        coEvery { dataStore.remove(any<String>(), any()) } coAnswers {
+        coEvery { dataStore.remove(any<String>(), any<Int>()) } coAnswers {
             val key = firstArg<String>()
             stored.removeAll { it.key == key }
         }
