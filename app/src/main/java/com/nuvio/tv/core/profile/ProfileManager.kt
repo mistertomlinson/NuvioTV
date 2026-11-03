@@ -15,6 +15,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.io.File
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -26,6 +28,7 @@ class ProfileManager @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val activeProfileMutationMutex = Mutex()
 
     val activeProfileId: StateFlow<Int> = profileDataStore.activeProfileId
         .stateIn(scope, SharingStarted.Eagerly, 1)
@@ -49,9 +52,30 @@ class ProfileManager @Inject constructor(
         get() = profiles.value.size < 4
 
     suspend fun setActiveProfile(id: Int) {
-        val exists = profiles.value.any { it.id == id }
-        if (exists) {
-            profileDataStore.setActiveProfile(id)
+        activeProfileMutationMutex.withLock {
+            val exists = profiles.value.any { it.id == id }
+            if (exists) {
+                profileDataStore.setActiveProfile(id)
+            }
+        }
+    }
+
+    /**
+     * Run a mutation that is only valid for the currently selected profile.
+     *
+     * Profile switching uses the same mutex, so a caller can safely perform a
+     * short multi-store commit (for example My List + reminder state) without
+     * the active profile changing between those writes. Long read-only work
+     * should happen before entering this block.
+     */
+    suspend fun withActiveProfileMutation(
+        expectedProfileId: Int,
+        block: suspend () -> Boolean
+    ): Boolean = activeProfileMutationMutex.withLock {
+        if (activeProfileId.value != expectedProfileId) {
+            false
+        } else {
+            block()
         }
     }
 
@@ -115,8 +139,4 @@ class ProfileManager @Inject constructor(
             pluginCodeDir.deleteRecursively()
         }
     }
-
-
 }
-
-
