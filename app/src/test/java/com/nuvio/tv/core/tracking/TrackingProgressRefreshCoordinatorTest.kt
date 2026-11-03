@@ -96,7 +96,10 @@ class TrackingProgressRefreshCoordinatorTest {
         } returns flowOf(source)
 
         return TrackingProgressRefreshCoordinator(
-            providers = TrackingProgressProviderRegistry(providers),
+            providers = TrackingProgressProviderRegistry(
+                providers = providers,
+                watchedItemsPreferences = mockk(relaxed = true)
+            ),
             settingsDataStore = settingsDataStore
         )
     }
