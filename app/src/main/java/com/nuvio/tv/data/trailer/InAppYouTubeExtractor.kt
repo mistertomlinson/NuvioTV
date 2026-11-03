@@ -154,8 +154,20 @@ private val CLIENTS = listOf(
 class InAppYouTubeExtractor @Inject constructor() {
     private val gson = Gson()
 
+    // Allows deterministic network tests without altering production requests.
+    private var testHttpClient: OkHttpClient? = null
+    private var testUrlResolver: (suspend (String) -> String?)? = null
+
+    internal constructor(
+        httpClient: OkHttpClient,
+        urlResolver: suspend (String) -> String? = { it }
+    ) : this() {
+        testHttpClient = httpClient
+        testUrlResolver = urlResolver
+    }
+
     private val httpClient by lazy {
-        OkHttpClient.Builder()
+        testHttpClient ?: OkHttpClient.Builder()
             .dns(com.nuvio.tv.core.network.IPv4FirstDns())
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
@@ -327,19 +339,29 @@ class InAppYouTubeExtractor @Inject constructor() {
     ): TrailerPlaybackSource? {
         val videoId = extractVideoId(youtubeUrl) ?: return null
 
-        // Use cached config instead of fetching watch page every time
         val config = ensureWatchConfig(forceRefresh = forceRefreshConfig)
-        Log.d(TAG, "Using config: apiKey=${config.apiKey.take(10)}... visitor=${!config.visitorData.isNullOrBlank()}")
+        Log.d(
+            TAG,
+            "Using config: apiKey=${config.apiKey.take(10)}... visitor=${!config.visitorData.isNullOrBlank()}"
+        )
 
         val progressive = mutableListOf<StreamCandidate>()
         val adaptiveVideo = mutableListOf<StreamCandidate>()
         val adaptiveAudio = mutableListOf<StreamCandidate>()
         val manifestUrls = mutableListOf<Triple<String, Int, String>>()
+        val failedAdaptiveVideoUrls = mutableSetOf<String>()
+        val failedAdaptiveAudioUrls = mutableSetOf<String>()
+        val pendingClients = CLIENTS.iterator()
+
         var loginRequiredCount = 0
         var botCheckCount = 0
+        var queriedClientCount = 0
 
-        for (client in CLIENTS) {
+        suspend fun queryNextClient() {
             kotlinx.coroutines.yield()
+            val client = pendingClients.next()
+            queriedClientCount++
+
             try {
                 val playerResponse = fetchPlayerResponse(
                     apiKey = config.apiKey,
@@ -358,37 +380,46 @@ class InAppYouTubeExtractor @Inject constructor() {
                             botCheckCount++
                             Log.w(TAG, "Client ${client.key}: bot check ($reason)")
                         }
+
                         AGE_CHECK_REGEX.containsMatchIn(reason) ->
                             Log.d(TAG, "Client ${client.key}: age restricted")
+
                         else -> {
                             loginRequiredCount++
-                            Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED (visitor may be stale)")
+                            Log.w(
+                                TAG,
+                                "Client ${client.key}: LOGIN_REQUIRED (visitor may be stale)"
+                            )
                         }
                     }
-                    continue
-                }
-                if (status != null && status != "OK") {
-                    continue
+                    return
                 }
 
-                val streamingData = playerResponse.mapValue("streamingData") ?: continue
-                val hlsManifestUrl = streamingData.stringValue("hlsManifestUrl")
-                if (!hlsManifestUrl.isNullOrBlank()) {
-                    manifestUrls += Triple(client.key, client.priority, hlsManifestUrl)
-                }
+                if (status != null && status != "OK") return
+
+                val streamingData = playerResponse.mapValue("streamingData") ?: return
+
+                // Record HLS URLs, but do NOT download manifests here.
+                // Adaptive playback gets the first chance.
+                streamingData.stringValue("hlsManifestUrl")
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { manifestUrls += Triple(client.key, client.priority, it) }
 
                 for (format in streamingData.listMapValue("formats")) {
                     val url = format.stringValue("url") ?: continue
                     val mimeType = format.stringValue("mimeType").orEmpty()
                     if (!mimeType.contains("video/") && mimeType.isNotBlank()) continue
 
-                    val height = (format.numberValue("height")
-                        ?: parseQualityLabel(format.stringValue("qualityLabel"))?.toDouble()
-                        ?: 0.0).toInt()
+                    val height = (
+                        format.numberValue("height")
+                            ?: parseQualityLabel(format.stringValue("qualityLabel"))?.toDouble()
+                            ?: 0.0
+                        ).toInt()
                     val fps = (format.numberValue("fps") ?: 0.0).toInt()
-                    val bitrate = format.numberValue("bitrate")
-                        ?: format.numberValue("averageBitrate")
-                        ?: 0.0
+                    val bitrate =
+                        format.numberValue("bitrate")
+                            ?: format.numberValue("averageBitrate")
+                            ?: 0.0
 
                     progressive += StreamCandidate(
                         client = client.key,
@@ -408,16 +439,20 @@ class InAppYouTubeExtractor @Inject constructor() {
                     val url = format.stringValue("url") ?: continue
                     val mimeType = format.stringValue("mimeType").orEmpty()
                     val hasVideo = mimeType.contains("video/")
-                    val hasAudio = mimeType.contains("audio/") || mimeType.startsWith("audio/")
+                    val hasAudio =
+                        mimeType.contains("audio/") || mimeType.startsWith("audio/")
 
                     if (hasVideo) {
-                        val height = (format.numberValue("height")
-                            ?: parseQualityLabel(format.stringValue("qualityLabel"))?.toDouble()
-                            ?: 0.0).toInt()
+                        val height = (
+                            format.numberValue("height")
+                                ?: parseQualityLabel(format.stringValue("qualityLabel"))?.toDouble()
+                                ?: 0.0
+                            ).toInt()
                         val fps = (format.numberValue("fps") ?: 0.0).toInt()
-                        val bitrate = format.numberValue("bitrate")
-                            ?: format.numberValue("averageBitrate")
-                            ?: 0.0
+                        val bitrate =
+                            format.numberValue("bitrate")
+                                ?: format.numberValue("averageBitrate")
+                                ?: 0.0
 
                         adaptiveVideo += StreamCandidate(
                             client = client.key,
@@ -432,13 +467,14 @@ class InAppYouTubeExtractor @Inject constructor() {
                             codecs = parseCodecs(mimeType)
                         )
                     } else if (hasAudio) {
-                        val bitrate = format.numberValue("bitrate")
-                            ?: format.numberValue("averageBitrate")
-                            ?: 0.0
+                        val bitrate =
+                            format.numberValue("bitrate")
+                                ?: format.numberValue("averageBitrate")
+                                ?: 0.0
                         val asr = format.numberValue("audioSampleRate") ?: 0.0
-
-                        val isDefaultAudioTrack = format.mapValue("audioTrack")
-                            ?.booleanValue("audioIsDefault") ?: true
+                        val isDefaultAudioTrack =
+                            format.mapValue("audioTrack")
+                                ?.booleanValue("audioIsDefault") ?: true
 
                         adaptiveAudio += StreamCandidate(
                             client = client.key,
@@ -461,43 +497,191 @@ class InAppYouTubeExtractor @Inject constructor() {
                     Log.w(TAG, "Client ${client.key} failed: ${error.message}")
                 }
             }
+        }
 
-            // Preserve the user's high-level AVC compatibility fallback: if the
-            // preferred client returned high-level AVC, keep querying so an equivalent
-            // non-AVC stream can still replace it. Otherwise one complete adaptive pair
-            // is enough and extra client calls only increase rate-limit pressure.
-            val clientVideo = adaptiveVideo.filter {
-                it.client == client.key && isDecodableByDevice(it.codecs)
+        fun selectableVideoCandidates(): List<StreamCandidate> {
+            val remaining = adaptiveVideo.filter { it.url !in failedAdaptiveVideoUrls }
+            val decodable = remaining.filter { isDecodableByDevice(it.codecs) }
+
+            if (decodable.size != remaining.size) {
+                Log.d(
+                    TAG,
+                    "Dropped ${remaining.size - decodable.size} undecodable video candidates of ${remaining.size}"
+                )
             }
-            val clientAudio = adaptiveAudio.any { it.client == client.key }
-            val hasHighLevelAvc = clientVideo.any {
-                (it.codecs.startsWith("avc1") || it.codecs.startsWith("avc3")) &&
-                    ((avcLevelConstant(it.codecs) ?: 0) >= 16384)
+
+            return decodable.ifEmpty { remaining }
+        }
+
+        fun chooseBestVideo(): StreamCandidate? {
+            val selectableVideo = selectableVideoCandidates()
+            val preferred =
+                pickBestForClient(
+                    selectableVideo,
+                    PREFERRED_SEPARATE_CLIENT
+                ) ?: return null
+
+            val highLevelAvc =
+                (preferred.codecs.startsWith("avc1") ||
+                    preferred.codecs.startsWith("avc3")) &&
+                    ((avcLevelConstant(preferred.codecs) ?: 0) >= 16384)
+
+            if (!highLevelAvc) return preferred
+
+            val equivalentNonAvc =
+                sortCandidates(selectableVideo)
+                    .firstOrNull { candidate ->
+                        candidate.height == preferred.height &&
+                            candidate.fps >= preferred.fps &&
+                            !candidate.codecs.startsWith("avc1") &&
+                            !candidate.codecs.startsWith("avc3")
+                    }
+
+            if (equivalentNonAvc != null) {
+                Log.d(
+                    TAG,
+                    "COMPAT_EQUIVALENT replacing " +
+                        "client=${preferred.client} itag=${preferred.itag} " +
+                        "h=${preferred.height} fps=${preferred.fps} " +
+                        "codecs=${preferred.codecs} with " +
+                        "client=${equivalentNonAvc.client} " +
+                        "itag=${equivalentNonAvc.itag} " +
+                        "h=${equivalentNonAvc.height} " +
+                        "fps=${equivalentNonAvc.fps} " +
+                        "codecs=${equivalentNonAvc.codecs}"
+                )
+                return equivalentNonAvc
             }
-            if (clientVideo.isNotEmpty() && clientAudio && !hasHighLevelAvc) {
-                Log.d(TAG, "Client ${client.key} supplied a complete adaptive source; skipping remaining clients")
-                break
+
+            return preferred
+        }
+
+        fun shouldKeepLookingForCompatibilityAlternative(): Boolean {
+            if (!pendingClients.hasNext()) return false
+
+            val selectableVideo = selectableVideoCandidates()
+            val preferred =
+                pickBestForClient(
+                    selectableVideo,
+                    PREFERRED_SEPARATE_CLIENT
+                ) ?: return false
+
+            val highLevelAvc =
+                (preferred.codecs.startsWith("avc1") ||
+                    preferred.codecs.startsWith("avc3")) &&
+                    ((avcLevelConstant(preferred.codecs) ?: 0) >= 16384)
+
+            if (!highLevelAvc) return false
+
+            val equivalentExists =
+                selectableVideo.any { candidate ->
+                    candidate.height == preferred.height &&
+                        candidate.fps >= preferred.fps &&
+                        !candidate.codecs.startsWith("avc1") &&
+                        !candidate.codecs.startsWith("avc3")
+                }
+
+            return !equivalentExists
+        }
+
+        fun chooseBestAudio(): StreamCandidate? =
+            pickBestForClient(
+                adaptiveAudio.filter { it.url !in failedAdaptiveAudioUrls },
+                PREFERRED_SEPARATE_CLIENT
+            )
+
+        fun hasCompleteAdaptivePair(): Boolean =
+            chooseBestVideo() != null && chooseBestAudio() != null
+
+        suspend fun tryAdaptive(): TrailerPlaybackSource? {
+            // Try other already-known candidates before asking another client.
+            while (true) {
+                val bestVideo = chooseBestVideo() ?: return null
+                val bestAudio = chooseBestAudio() ?: return null
+
+                Log.d(
+                    TAG,
+                    "SELECTED video itag=${bestVideo.itag} " +
+                        "h=${bestVideo.height} codecs=${bestVideo.codecs} " +
+                        "client=${bestVideo.client} | audio itag=${bestAudio.itag}"
+                )
+
+                val resolvedVideo = resolveReachableUrl(bestVideo.url)
+                if (resolvedVideo == null) {
+                    failedAdaptiveVideoUrls += bestVideo.url
+                    continue
+                }
+
+                val resolvedAudio = resolveReachableUrl(bestAudio.url)
+                if (resolvedAudio == null) {
+                    failedAdaptiveAudioUrls += bestAudio.url
+                    continue
+                }
+
+                return TrailerPlaybackSource(
+                    videoUrl = resolvedVideo,
+                    audioUrl = resolvedAudio
+                )
             }
+        }
+
+        /*
+         * Query clients lazily in priority order:
+         * visionOS -> Android -> iOS.
+         *
+         * The common path stops after visionOS if it provides a usable adaptive
+         * pair. Android/iOS are queried only if the preferred source is absent,
+         * unreachable, or we need the existing non-AVC compatibility escape hatch.
+         */
+        while (pendingClients.hasNext()) {
+            queryNextClient()
+
+            if (!hasCompleteAdaptivePair()) continue
+
+            if (shouldKeepLookingForCompatibilityAlternative()) {
+                Log.d(
+                    TAG,
+                    "Preferred stream is high-level AVC; checking next client for equivalent non-AVC"
+                )
+                continue
+            }
+
+            tryAdaptive()?.let { return it }
         }
 
         val noStreams =
-            manifestUrls.isEmpty() && progressive.isEmpty() &&
-                adaptiveVideo.isEmpty() && adaptiveAudio.isEmpty()
+            manifestUrls.isEmpty() &&
+                progressive.isEmpty() &&
+                adaptiveVideo.isEmpty() &&
+                adaptiveAudio.isEmpty()
+
         if (noStreams && botCheckCount > 0) {
-            throw RateLimitedException("$botCheckCount of ${CLIENTS.size} clients hit the bot check")
+            throw RateLimitedException(
+                "$botCheckCount of $queriedClientCount queried clients hit the bot check"
+            )
         }
 
-        // Only this condition justifies refreshing visitor_data and trying once more.
-        if (loginRequiredCount == CLIENTS.size) {
-            Log.w(TAG, "All ${CLIENTS.size} clients returned LOGIN_REQUIRED, invalidating config")
+        if (
+            queriedClientCount == CLIENTS.size &&
+            loginRequiredCount == CLIENTS.size
+        ) {
+            Log.w(
+                TAG,
+                "All ${CLIENTS.size} clients returned LOGIN_REQUIRED, invalidating config"
+            )
             invalidateConfig()
             throw StaleConfigException()
         }
 
-        if (noStreams) {
-            return null
-        }
+        if (noStreams) return null
 
+        // One final adaptive attempt after all useful clients have been queried.
+        tryAdaptive()?.let { return it }
+
+        /*
+         * Adaptive failed. Only now download HLS manifests.
+         * This removes an unnecessary network request from the normal autoplay path.
+         */
         var bestManifest: ManifestCandidate? = null
         for ((clientKey, priority, manifestUrl) in manifestUrls) {
             try {
@@ -510,13 +694,19 @@ class InAppYouTubeExtractor @Inject constructor() {
                     height = variant.height,
                     bandwidth = variant.bandwidth
                 )
+
                 if (
                     bestManifest == null ||
                     candidate.height > bestManifest.height ||
-                    (candidate.height == bestManifest.height && candidate.bandwidth > bestManifest.bandwidth)
+                    (
+                        candidate.height == bestManifest.height &&
+                            candidate.bandwidth > bestManifest.bandwidth
+                        )
                 ) {
                     bestManifest = candidate
                 }
+            } catch (e: RateLimitedException) {
+                throw e
             } catch (error: Exception) {
                 if (BuildConfig.DEBUG) {
                     Log.w(TAG, "Manifest parse failed: ${error.message}")
@@ -524,100 +714,30 @@ class InAppYouTubeExtractor @Inject constructor() {
             }
         }
 
-        val bestProgressive = sortCandidates(
-            progressive.filter { isDecodableByDevice(it.codecs) }.ifEmpty { progressive }
-        ).firstOrNull()
-        val decodableVideo = adaptiveVideo.filter { isDecodableByDevice(it.codecs) }
-        if (decodableVideo.size != adaptiveVideo.size) {
-            Log.d(TAG, "Dropped " + (adaptiveVideo.size - decodableVideo.size) +
-                " undecodable video candidates of " + adaptiveVideo.size)
-        }
-
-        val selectableVideo =
-            decodableVideo.ifEmpty { adaptiveVideo }
-
-        val preferredVideo =
-            pickBestForClient(
-                selectableVideo,
-                PREFERRED_SEPARATE_CLIENT
-            )
-
-        /*
-         * Preserve the preferred high-quality client, including 4K.
-         *
-         * Exception: some Android hardware decoders advertise support for
-         * high-level AVC streams but silently fail to render them. When the
-         * preferred candidate is AVC Level 5.0+ and another already-decodable
-         * stream exists at the SAME resolution and at least the SAME frame
-         * rate using a different codec, use that equivalent instead.
-         *
-         * This is stream/capability based — no device or chipset exceptions.
-         */
-        val bestVideo =
-            preferredVideo?.let { preferred ->
-                val highLevelAvc =
-                    (preferred.codecs.startsWith("avc1") ||
-                        preferred.codecs.startsWith("avc3")) &&
-                        ((avcLevelConstant(preferred.codecs) ?: 0) >= 16384)
-
-                if (highLevelAvc) {
-                    val equivalentNonAvc =
-                        sortCandidates(selectableVideo)
-                            .firstOrNull { candidate ->
-                                candidate.height == preferred.height &&
-                                    candidate.fps >= preferred.fps &&
-                                    !candidate.codecs.startsWith("avc1") &&
-                                    !candidate.codecs.startsWith("avc3")
-                            }
-
-                    if (equivalentNonAvc != null) {
-                        Log.d(
-                            TAG,
-                            "COMPAT_EQUIVALENT replacing " +
-                                "client=${preferred.client} itag=${preferred.itag} " +
-                                "h=${preferred.height} fps=${preferred.fps} " +
-                                "codecs=${preferred.codecs} with " +
-                                "client=${equivalentNonAvc.client} " +
-                                "itag=${equivalentNonAvc.itag} " +
-                                "h=${equivalentNonAvc.height} " +
-                                "fps=${equivalentNonAvc.fps} " +
-                                "codecs=${equivalentNonAvc.codecs}"
-                        )
-                        equivalentNonAvc
-                    } else {
-                        preferred
-                    }
-                } else {
-                    preferred
-                }
-            }
-        val bestAudio = pickBestForClient(adaptiveAudio, PREFERRED_SEPARATE_CLIENT)
-        Log.d(TAG, "SELECTED video itag=" + (bestVideo?.itag ?: "none") +
-            " h=" + (bestVideo?.height ?: -1) + " codecs=" + (bestVideo?.codecs ?: "none") +
-            " client=" + (bestVideo?.client ?: "none") +
-            " | audio itag=" + (bestAudio?.itag ?: "none"))
-
-        // Try adaptive video + audio first (best quality, separate streams)
-        kotlinx.coroutines.yield()
-        val resolvedVideo = bestVideo?.url?.let { resolveReachableUrl(it) }
-        val resolvedAudio = if (resolvedVideo != null) bestAudio?.url?.let { resolveReachableUrl(it) } else null
-
-        if (resolvedVideo != null) {
-            return TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
-        }
-
-        // Adaptive failed (403) — fall back to HLS manifest (1080p, always works for COPPA/kids content)
         if (bestManifest != null) {
-            return TrailerPlaybackSource(videoUrl = bestManifest.manifestUrl, audioUrl = null)
+            return TrailerPlaybackSource(
+                videoUrl = bestManifest.manifestUrl,
+                audioUrl = null
+            )
         }
 
-        // No HLS available — try progressive (combined video+audio, usually low quality)
-        val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
-        if (resolvedProgressive != null) {
-            return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
-        }
+        // Last resort: combined progressive source.
+        val bestProgressive =
+            sortCandidates(
+                progressive
+                    .filter { isDecodableByDevice(it.codecs) }
+                    .ifEmpty { progressive }
+            ).firstOrNull()
 
-        return null
+        val resolvedProgressive =
+            bestProgressive?.url?.let { resolveReachableUrl(it) }
+
+        return resolvedProgressive?.let {
+            TrailerPlaybackSource(
+                videoUrl = it,
+                audioUrl = null
+            )
+        }
     }
 
     private fun extractVideoId(input: String): String? {
@@ -717,6 +837,9 @@ class InAppYouTubeExtractor @Inject constructor() {
             method = "GET",
             headers = DEFAULT_HEADERS
         )
+        if (response.status == HTTP_TOO_MANY_REQUESTS) {
+            throw RateLimitedException("HLS manifest returned 429")
+        }
         if (!response.ok) {
             throw IllegalStateException("Failed to fetch HLS manifest (${response.status})")
         }
@@ -957,6 +1080,7 @@ class InAppYouTubeExtractor @Inject constructor() {
      * Returns null if no CDN node responds successfully (all return 403/timeout).
      */
     private suspend fun resolveReachableUrl(url: String): String? {
+        testUrlResolver?.let { return it(url) }
         if (!url.contains("googlevideo.com")) return url
         val uri = Uri.parse(url)
         val mnParam = uri.getQueryParameter("mn") ?: return url
