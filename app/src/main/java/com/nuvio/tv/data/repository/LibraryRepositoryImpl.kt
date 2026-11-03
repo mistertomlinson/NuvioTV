@@ -220,16 +220,15 @@ class LibraryRepositoryImpl @Inject constructor(
 
     override suspend fun ensureInDefault(item: LibraryEntryInput): Boolean {
         val mode = sourceMode.first()
-        val alreadyPresent = when (mode) {
-            LibrarySourceMode.SIMKL ->
-                isInLibrary(item.itemId, item.itemType).first()
 
-            LibrarySourceMode.TRAKT,
-            LibrarySourceMode.LOCAL ->
-                isInWatchlist(item.itemId, item.itemType).first()
+        /*
+         * My List is the watchlist projection for every source mode. In
+         * particular, SIMKL membership in some other list must not satisfy a
+         * release-reminder fulfillment.
+         */
+        if (isInWatchlist(item.itemId, item.itemType).first()) {
+            return true
         }
-
-        if (alreadyPresent) return true
 
         /*
          * Release reminders must be idempotent. Express the desired provider
@@ -246,7 +245,12 @@ class LibraryRepositoryImpl @Inject constructor(
                 .filter { (key, enabled) -> enabled && before[key] != true }
                 .keys
 
-            if (newlyEnabledKeys.isEmpty()) return false
+            /*
+             * A stale Home/watchlist projection can say "not present" while
+             * the provider's authoritative membership snapshot already has the
+             * default membership. Never toggle it back off in that case.
+             */
+            if (newlyEnabledKeys.isEmpty()) return true
 
             provider.applyMembershipChanges(
                 item = item,
@@ -258,21 +262,32 @@ class LibraryRepositoryImpl @Inject constructor(
              * projection in-place. Trakt also benefits from authoritative
              * confirmation here. This runs only when a reminder matures.
              */
-            provider.refresh(
-                com.nuvio.tv.core.tracking.TrackingRefreshIntent.INVALIDATED
-            )
+            provider.refresh(TrackingRefreshIntent.INVALIDATED)
 
             val confirmed = provider
                 .getMembershipSnapshot(item)
                 .listMembership
-            return newlyEnabledKeys.all { key -> confirmed[key] == true }
+
+            if (newlyEnabledKeys.all { key -> confirmed[key] == true }) {
+                return true
+            }
+
+            /*
+             * applyMembershipChanges returning normally is the provider's
+             * durable acceptance point. Some providers can expose the old
+             * projection for a short period even after the subsequent refresh.
+             * Treat an accepted idempotent add as fulfilled rather than leaving
+             * an ARMED bell attached to a title that is already arriving in My
+             * List. Exceptions still propagate and remain retryable.
+             */
+            return true
         }
 
         if (mode != LibrarySourceMode.LOCAL) return false
 
         libraryPreferences.addItem(item.toSavedLibraryItem())
         triggerRemoteSync()
-        return isInLibrary(item.itemId, item.itemType).first()
+        return isInWatchlist(item.itemId, item.itemType).first()
     }
 
     override suspend fun toggleDefaultWithSignal(item: LibraryEntryInput) {
