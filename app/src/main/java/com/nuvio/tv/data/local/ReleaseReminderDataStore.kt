@@ -48,7 +48,9 @@ data class ReleaseReminderRecord(
     val status: ReleaseReminderStatus = ReleaseReminderStatus.ARMED,
     val fulfilledAtMillis: Long? = null,
     val membershipConfirmed: Boolean = false,
-    val lastAuthorityCheckAtMillis: Long? = null
+    val lastAuthorityCheckAtMillis: Long? = null,
+    /** Durable release confirmation until My List mutation commits, including after process death. */
+    val availabilityConfirmedAtMillis: Long? = null
 ) {
     val key: String
         get() = checkNotNull(releaseReminderKey(itemId, itemType))
@@ -233,7 +235,8 @@ class ReleaseReminderDataStore @Inject constructor(
                     record.copy(
                         status = ReleaseReminderStatus.ARMED,
                         fulfilledAtMillis = null,
-                        membershipConfirmed = false
+                        membershipConfirmed = false,
+                        availabilityConfirmedAtMillis = null
                     )
                 } else {
                     record
@@ -304,6 +307,7 @@ class ReleaseReminderDataStore @Inject constructor(
             putNullable("fulfilledAtMillis", record.fulfilledAtMillis)
             put("membershipConfirmed", record.membershipConfirmed)
             putNullable("lastAuthorityCheckAtMillis", record.lastAuthorityCheckAtMillis)
+            putNullable("availabilityConfirmedAtMillis", record.availabilityConfirmedAtMillis)
         }.toString()
 
     private fun decodeRecord(raw: String): ReleaseReminderRecord? = runCatching {
@@ -346,7 +350,8 @@ class ReleaseReminderDataStore @Inject constructor(
             ),
             fulfilledAtMillis = json.longOrNull("fulfilledAtMillis"),
             membershipConfirmed = json.optBoolean("membershipConfirmed", false),
-            lastAuthorityCheckAtMillis = json.longOrNull("lastAuthorityCheckAtMillis")
+            lastAuthorityCheckAtMillis = json.longOrNull("lastAuthorityCheckAtMillis"),
+            availabilityConfirmedAtMillis = json.longOrNull("availabilityConfirmedAtMillis")
         )
     }.getOrNull()
 
