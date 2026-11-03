@@ -82,31 +82,32 @@ class ReleaseReminderDataStore @Inject constructor(
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
         factory.get(profileId, FEATURE)
 
-    val reminders: Flow<List<ReleaseReminderRecord>> =
-        profileManager.activeProfileId.flatMapLatest { profileId ->
-            factory.get(profileId, FEATURE).data.map { preferences ->
-                val records = preferences[reminderRecords]
-                    .orEmpty()
-                    .mapNotNull(::decodeRecord)
+    fun remindersForProfile(profileId: Int): Flow<List<ReleaseReminderRecord>> =
+        store(profileId).data.map { preferences ->
+            val records = preferences[reminderRecords]
+                .orEmpty()
+                .mapNotNull(::decodeRecord)
 
-                val existingKeys = records
-                    .mapTo(mutableSetOf()) { it.key }
+            val existingKeys = records
+                .mapTo(mutableSetOf()) { it.key }
 
-                val legacyRecords = preferences[reminderKeys]
-                    .orEmpty()
-                    .mapNotNull(::legacyRecord)
-                    .filterNot { it.key in existingKeys }
+            val legacyRecords = preferences[reminderKeys]
+                .orEmpty()
+                .mapNotNull(::legacyRecord)
+                .filterNot { it.key in existingKeys }
 
-                (records + legacyRecords)
-                    .sortedBy { it.key }
-            }
+            (records + legacyRecords)
+                .sortedBy { it.key }
         }
+
+    val reminders: Flow<List<ReleaseReminderRecord>> =
+        profileManager.activeProfileId.flatMapLatest(::remindersForProfile)
 
     fun isReminderSet(itemId: String, itemType: String): Flow<Boolean> {
         val key = releaseReminderKey(itemId, itemType) ?: return flowOf(false)
 
         return profileManager.activeProfileId.flatMapLatest { profileId ->
-            factory.get(profileId, FEATURE).data.map { preferences ->
+            store(profileId).data.map { preferences ->
                 val legacyMatch =
                     key in preferences[reminderKeys].orEmpty()
 
@@ -152,7 +153,19 @@ class ReleaseReminderDataStore @Inject constructor(
     }
 
     suspend fun setReminder(record: ReleaseReminderRecord, enabled: Boolean) {
-        store().edit { preferences ->
+        setReminder(
+            record = record,
+            enabled = enabled,
+            profileId = profileManager.activeProfileId.value
+        )
+    }
+
+    suspend fun setReminder(
+        record: ReleaseReminderRecord,
+        enabled: Boolean,
+        profileId: Int
+    ) {
+        store(profileId).edit { preferences ->
             val current = decodeRecords(preferences[reminderRecords].orEmpty())
                 .filterNot { it.key == record.key }
                 .toMutableList()
@@ -181,12 +194,19 @@ class ReleaseReminderDataStore @Inject constructor(
         }
     }
 
-    suspend fun upsert(record: ReleaseReminderRecord) {
-        setReminder(record, enabled = true)
+    suspend fun upsert(
+        record: ReleaseReminderRecord,
+        profileId: Int = profileManager.activeProfileId.value
+    ) {
+        setReminder(record, enabled = true, profileId = profileId)
     }
 
-    suspend fun markFulfilled(key: String, fulfilledAtMillis: Long) {
-        store().edit { preferences ->
+    suspend fun markFulfilled(
+        key: String,
+        fulfilledAtMillis: Long,
+        profileId: Int = profileManager.activeProfileId.value
+    ) {
+        store(profileId).edit { preferences ->
             val updated = decodeRecords(preferences[reminderRecords].orEmpty()).map { record ->
                 if (record.key == key) {
                     record.copy(
@@ -203,8 +223,11 @@ class ReleaseReminderDataStore @Inject constructor(
         }
     }
 
-    suspend fun markArmed(key: String) {
-        store().edit { preferences ->
+    suspend fun markArmed(
+        key: String,
+        profileId: Int = profileManager.activeProfileId.value
+    ) {
+        store(profileId).edit { preferences ->
             val updated = decodeRecords(preferences[reminderRecords].orEmpty()).map { record ->
                 if (record.key == key) {
                     record.copy(
@@ -224,8 +247,11 @@ class ReleaseReminderDataStore @Inject constructor(
         releaseReminderKey(itemId, itemType)?.let { remove(it) }
     }
 
-    suspend fun remove(key: String) {
-        store().edit { preferences ->
+    suspend fun remove(
+        key: String,
+        profileId: Int = profileManager.activeProfileId.value
+    ) {
+        store(profileId).edit { preferences ->
             preferences[reminderKeys] = preferences[reminderKeys].orEmpty() - key
             preferences[reminderRecords] =
                 decodeRecords(preferences[reminderRecords].orEmpty())
