@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.tracking
 
 import com.nuvio.tv.data.local.TraktSettingsDataStore
+import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.WatchProgressSource
 import io.mockk.coVerify
 import io.mockk.every
@@ -95,8 +96,14 @@ class TrackingProgressRefreshCoordinatorTest {
             settingsDataStore.watchProgressSource
         } returns flowOf(source)
 
+        val watchedItemsPreferences = mockk<WatchedItemsPreferences>()
+        every { watchedItemsPreferences.allItems } returns flowOf(emptyList())
+
         return TrackingProgressRefreshCoordinator(
-            providers = TrackingProgressProviderRegistry(providers),
+            providers = TrackingProgressProviderRegistry(
+                providers = providers,
+                watchedItemsPreferences = watchedItemsPreferences
+            ),
             settingsDataStore = settingsDataStore
         )
     }
