@@ -56,6 +56,11 @@ class TraktTrackingLibraryProvider @Inject constructor(
                 (currentMembership[TraktLibraryService.WATCHLIST_KEY] != true)
         )
 
+    override fun ensuredDefaultMembership(
+        currentMembership: Map<String, Boolean>
+    ): Map<String, Boolean> =
+        currentMembership + (TraktLibraryService.WATCHLIST_KEY to true)
+
     override suspend fun getMembershipSnapshot(
         item: LibraryEntryInput
     ): ListMembershipSnapshot =
