@@ -240,7 +240,7 @@ class LibraryRepositoryImpl @Inject constructor(
             val before = provider
                 .getMembershipSnapshot(item)
                 .listMembership
-            val desired = provider.toggledDefaultMembership(before)
+            val desired = provider.ensuredDefaultMembership(before)
             val newlyEnabledKeys = desired
                 .filter { (key, enabled) -> enabled && before[key] != true }
                 .keys
@@ -250,7 +250,8 @@ class LibraryRepositoryImpl @Inject constructor(
              * the provider's authoritative membership snapshot already has the
              * default membership. Never toggle it back off in that case.
              */
-            if (newlyEnabledKeys.isEmpty()) return true
+            if (desired == before) return true
+            if (newlyEnabledKeys.isEmpty()) return false
 
             provider.applyMembershipChanges(
                 item = item,
