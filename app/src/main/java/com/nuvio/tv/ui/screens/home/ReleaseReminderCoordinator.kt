@@ -31,6 +31,8 @@ import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
@@ -100,6 +102,13 @@ class ReleaseReminderCoordinator @Inject constructor(
         ConcurrentHashMap<ProfileReminderKey, Unit>()
 
     @Volatile private var homeVisible = false
+
+    /* Test fixtures can wait for off-Home background maintenance to finish
+     * before releasing the static Worker mocks. Production keeps the
+     * coordinator alive as an application singleton. */
+    internal suspend fun stopBackgroundWorkForTests() {
+        scope.coroutineContext[Job]?.cancelAndJoin()
+    }
 
     private val snapshotRequests = MutableSharedFlow<Unit>(
         extraBufferCapacity = 1,
