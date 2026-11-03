@@ -33,6 +33,7 @@ import java.time.ZoneId
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -63,6 +64,7 @@ class ReleaseReminderCoordinatorDateTest {
     private var stored: ReleaseReminderRecord? = null
     private var freshMeta: Meta? = null
     private var libraryWrites = 0
+    private val createdCoordinators = mutableListOf<ReleaseReminderCoordinator>()
 
     @Before
     fun setUp() {
@@ -184,7 +186,13 @@ class ReleaseReminderCoordinatorDateTest {
 
     @After
     fun tearDown() {
-        unmockkAll()
+        try {
+            runBlocking {
+                createdCoordinators.forEach { it.stopBackgroundWorkForTests() }
+            }
+        } finally {
+            unmockkAll()
+        }
     }
 
     @Test
@@ -469,7 +477,7 @@ class ReleaseReminderCoordinatorDateTest {
             watchProgressRepository = watchProgressRepository,
             watchedSeriesStateHolder = watchedSeriesStateHolder,
             profileManager = profileManager
-        )
+        ).also { createdCoordinators.add(it) }
 
     private fun reminder(
         releaseDate: String,
