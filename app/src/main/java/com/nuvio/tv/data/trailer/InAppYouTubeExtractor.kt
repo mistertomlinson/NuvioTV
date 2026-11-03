@@ -30,11 +30,21 @@ private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
 private const val PREFERRED_SEPARATE_CLIENT = "visionos"
+private const val FALLBACK_API_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+private const val HTTP_TOO_MANY_REQUESTS = 429
 
 private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private val API_KEY_REGEX = Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"")
 private val VISITOR_DATA_REGEX = Regex("\"VISITOR_DATA\":\"([^\"]+)\"")
 private val QUALITY_LABEL_REGEX = Regex("(\\d{2,4})p")
+private val BOT_CHECK_REGEX = Regex("\\bbot\\b", RegexOption.IGNORE_CASE)
+private val AGE_CHECK_REGEX = Regex("\\bage\\b", RegexOption.IGNORE_CASE)
+
+/** YouTube is refusing requests from this device; see [YouTubeRateLimitGate]. */
+private class RateLimitedException(message: String) : Exception(message)
+
+/** Every queried client asked to sign in, which a fresh visitor id can fix. */
+private class StaleConfigException : Exception()
 
 private data class YouTubeClient(
     val key: String,
@@ -159,16 +169,24 @@ class InAppYouTubeExtractor @Inject constructor() {
     private data class CachedConfig(
         val apiKey: String,
         val visitorData: String?,
-        val fetchedAt: Long = System.currentTimeMillis()
+        val fetchedAt: Long = System.currentTimeMillis(),
+        val ttlMs: Long = CONFIG_TTL_MS
     )
 
     private val cachedConfig = AtomicReference<CachedConfig?>(null)
     private val configMutex = Mutex()
+    private val rateLimitGate = YouTubeRateLimitGate()
 
     companion object {
         /** How long cached visitor_data stays valid before a proactive refresh. */
         private const val CONFIG_TTL_MS = 3 * 60 * 60 * 1000L // 3 hours
+
+        /** Avoid hammering the watch page when its HTML bootstrap is unavailable. */
+        private const val FALLBACK_CONFIG_TTL_MS = 10 * 60 * 1000L // 10 minutes
     }
+
+    /** True while YouTube has asked this process to back off. */
+    fun isRateLimited(): Boolean = rateLimitGate.isBlocked()
 
     /**
      * Returns cached watch config, fetching from watch page only if:
@@ -202,18 +220,31 @@ class InAppYouTubeExtractor @Inject constructor() {
                 method = "GET",
                 headers = DEFAULT_HEADERS
             )
+            if (watchResponse.status == HTTP_TOO_MANY_REQUESTS) {
+                throw RateLimitedException("watch page returned 429")
+            }
             if (!watchResponse.ok) {
-                // If we have a stale config, prefer it over failing
+                // If we have a stale config, prefer it over failing.
                 val stale = cachedConfig.get()
                 if (stale != null) {
                     Log.w(TAG, "Watch page failed (${watchResponse.status}), using stale config")
                     return@withLock stale
                 }
-                throw IllegalStateException("Failed to fetch watch page (${watchResponse.status})")
+
+                // The player API can remain usable after the HTML watch page is challenged.
+                // Cache the public fallback key briefly so every trailer does not refetch HTML.
+                Log.w(TAG, "Watch page failed (${watchResponse.status}), using fallback key")
+                val fallback = CachedConfig(
+                    apiKey = FALLBACK_API_KEY,
+                    visitorData = null,
+                    ttlMs = FALLBACK_CONFIG_TTL_MS
+                )
+                cachedConfig.set(fallback)
+                return@withLock fallback
             }
 
             val parsed = getWatchConfig(watchResponse.body)
-            val apiKey = parsed.apiKey ?: "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8" // fallback key
+            val apiKey = parsed.apiKey ?: FALLBACK_API_KEY
             val newConfig = CachedConfig(
                 apiKey = apiKey,
                 visitorData = parsed.visitorData
@@ -225,7 +256,7 @@ class InAppYouTubeExtractor @Inject constructor() {
     }
 
     private fun isConfigStale(config: CachedConfig): Boolean {
-        return System.currentTimeMillis() - config.fetchedAt > CONFIG_TTL_MS
+        return System.currentTimeMillis() - config.fetchedAt > config.ttlMs
     }
 
     /** Invalidate cached config so next extraction re-fetches watch page. */
@@ -236,36 +267,50 @@ class InAppYouTubeExtractor @Inject constructor() {
 
     suspend fun extractPlaybackSource(youtubeUrl: String): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         if (youtubeUrl.isBlank()) return@withContext null
+        if (rateLimitGate.isBlocked()) {
+            Log.w(
+                TAG,
+                "YouTube is rate limiting, skipping extraction for another " +
+                    "${rateLimitGate.remainingMs() / 1000}s: ${summarizeUrl(youtubeUrl)}"
+            )
+            return@withContext null
+        }
 
         Log.d(TAG, "Starting Kotlin extraction for ${summarizeUrl(youtubeUrl)}")
         var source: TrailerPlaybackSource? = null
         try {
-            source = withTimeout(EXTRACTOR_TIMEOUT_MS) {
-                extractPlaybackSourceInternal(youtubeUrl, forceRefreshConfig = false)
-            }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (error: Exception) {
-            Log.w(TAG, "Kotlin extractor failed for $youtubeUrl: ${error.message}")
-        }
-
-        // Retry with fresh config if first attempt returned nothing
-        if (source == null) {
-            Log.d(TAG, "First attempt failed, retrying with fresh watch config...")
-            try {
-                source = withTimeout(EXTRACTOR_TIMEOUT_MS) {
+            source = try {
+                withTimeout(EXTRACTOR_TIMEOUT_MS) {
+                    extractPlaybackSourceInternal(youtubeUrl, forceRefreshConfig = false)
+                }
+            } catch (e: StaleConfigException) {
+                // A fresh visitor id only helps when every client explicitly asked for login.
+                // Do not blindly double every other failed extraction.
+                Log.d(TAG, "Every client asked to sign in, retrying with fresh watch config")
+                withTimeout(EXTRACTOR_TIMEOUT_MS) {
                     extractPlaybackSourceInternal(youtubeUrl, forceRefreshConfig = true)
                 }
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (error: Exception) {
-                Log.w(TAG, "Kotlin extractor retry failed for $youtubeUrl: ${error.message}")
             }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            Log.w(TAG, "Kotlin extractor timed out for $youtubeUrl")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: RateLimitedException) {
+            val cooldownMs = rateLimitGate.onRateLimited()
+            Log.w(
+                TAG,
+                "YouTube is rate limiting (${e.message}), pausing extraction for ${cooldownMs / 1000}s"
+            )
+        } catch (e: StaleConfigException) {
+            Log.w(TAG, "Every client still asks to sign in with fresh watch config for $youtubeUrl")
+        } catch (error: Exception) {
+            Log.w(TAG, "Kotlin extractor failed for $youtubeUrl: ${error.message}")
         }
 
         if (source == null) {
             Log.w(TAG, "Kotlin extraction returned no playable source for ${summarizeUrl(youtubeUrl)}")
         } else {
+            rateLimitGate.onSuccess()
             Log.d(
                 TAG,
                 "Kotlin extraction success for ${summarizeUrl(youtubeUrl)} " +
@@ -291,6 +336,7 @@ class InAppYouTubeExtractor @Inject constructor() {
         val adaptiveAudio = mutableListOf<StreamCandidate>()
         val manifestUrls = mutableListOf<Triple<String, Int, String>>()
         var loginRequiredCount = 0
+        var botCheckCount = 0
 
         for (client in CLIENTS) {
             kotlinx.coroutines.yield()
@@ -303,12 +349,22 @@ class InAppYouTubeExtractor @Inject constructor() {
                     cookieHeader = null
                 )
 
-                // Check for LOGIN_REQUIRED which means visitor_data is stale
                 val playabilityStatus = playerResponse.mapValue("playabilityStatus")
                 val status = playabilityStatus?.stringValue("status")
                 if (status == "LOGIN_REQUIRED") {
-                    loginRequiredCount++
-                    Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED (visitor may be stale)")
+                    val reason = playabilityStatus?.stringValue("reason").orEmpty()
+                    when {
+                        BOT_CHECK_REGEX.containsMatchIn(reason) -> {
+                            botCheckCount++
+                            Log.w(TAG, "Client ${client.key}: bot check ($reason)")
+                        }
+                        AGE_CHECK_REGEX.containsMatchIn(reason) ->
+                            Log.d(TAG, "Client ${client.key}: age restricted")
+                        else -> {
+                            loginRequiredCount++
+                            Log.w(TAG, "Client ${client.key}: LOGIN_REQUIRED (visitor may be stale)")
+                        }
+                    }
                     continue
                 }
                 if (status != null && status != "OK") {
@@ -398,22 +454,47 @@ class InAppYouTubeExtractor @Inject constructor() {
                         )
                     }
                 }
+            } catch (e: RateLimitedException) {
+                throw e
             } catch (error: Exception) {
                 if (BuildConfig.DEBUG) {
                     Log.w(TAG, "Client ${client.key} failed: ${error.message}")
                 }
             }
 
+            // Preserve the user's high-level AVC compatibility fallback: if the
+            // preferred client returned high-level AVC, keep querying so an equivalent
+            // non-AVC stream can still replace it. Otherwise one complete adaptive pair
+            // is enough and extra client calls only increase rate-limit pressure.
+            val clientVideo = adaptiveVideo.filter {
+                it.client == client.key && isDecodableByDevice(it.codecs)
+            }
+            val clientAudio = adaptiveAudio.any { it.client == client.key }
+            val hasHighLevelAvc = clientVideo.any {
+                (it.codecs.startsWith("avc1") || it.codecs.startsWith("avc3")) &&
+                    ((avcLevelConstant(it.codecs) ?: 0) >= 16384)
+            }
+            if (clientVideo.isNotEmpty() && clientAudio && !hasHighLevelAvc) {
+                Log.d(TAG, "Client ${client.key} supplied a complete adaptive source; skipping remaining clients")
+                break
+            }
         }
 
-        // If all clients returned LOGIN_REQUIRED, invalidate config for next attempt
+        val noStreams =
+            manifestUrls.isEmpty() && progressive.isEmpty() &&
+                adaptiveVideo.isEmpty() && adaptiveAudio.isEmpty()
+        if (noStreams && botCheckCount > 0) {
+            throw RateLimitedException("$botCheckCount of ${CLIENTS.size} clients hit the bot check")
+        }
+
+        // Only this condition justifies refreshing visitor_data and trying once more.
         if (loginRequiredCount == CLIENTS.size) {
             Log.w(TAG, "All ${CLIENTS.size} clients returned LOGIN_REQUIRED, invalidating config")
             invalidateConfig()
-            return null
+            throw StaleConfigException()
         }
 
-        if (manifestUrls.isEmpty() && progressive.isEmpty() && adaptiveVideo.isEmpty() && adaptiveAudio.isEmpty()) {
+        if (noStreams) {
             return null
         }
 
@@ -619,6 +700,9 @@ class InAppYouTubeExtractor @Inject constructor() {
             headers = headers,
             body = gson.toJson(payload)
         )
+        if (response.status == HTTP_TOO_MANY_REQUESTS) {
+            throw RateLimitedException("player API ${client.key} returned 429")
+        }
         if (!response.ok) {
             throw IllegalStateException("player API ${client.key} failed (${response.status})")
         }
@@ -1006,6 +1090,10 @@ class InAppYouTubeExtractor @Inject constructor() {
         type: String? = null,
         network: String? = null
     ): String? = withContext(Dispatchers.IO) {
+        if (rateLimitGate.isBlocked()) {
+            Log.w(TAG, "YouTube is rate limiting; skipping title-search fallback for '$title'")
+            return@withContext null
+        }
         try {
             val normalizedType = type?.trim()?.lowercase()
             val isTv =
@@ -1044,11 +1132,25 @@ class InAppYouTubeExtractor @Inject constructor() {
                 .build()
 
             val html = httpClient.newCall(request).execute().use { response ->
+                if (response.code == HTTP_TOO_MANY_REQUESTS) {
+                    val cooldownMs = rateLimitGate.onRateLimited()
+                    Log.w(TAG, "YouTube search returned 429; backing off for ${cooldownMs / 1000}s")
+                    return@withContext null
+                }
                 if (!response.isSuccessful) {
                     Log.w(TAG, "YouTube search failed (${response.code}) for: $query")
                     return@withContext null
                 }
                 response.body?.string() ?: return@withContext null
+            }
+
+            if (
+                html.contains("confirm you're not a bot", ignoreCase = true) ||
+                html.contains("unusual traffic", ignoreCase = true)
+            ) {
+                val cooldownMs = rateLimitGate.onRateLimited()
+                Log.w(TAG, "YouTube search returned a bot challenge; backing off for ${cooldownMs / 1000}s")
+                return@withContext null
             }
 
             // YouTube serves ytInitialData in one of two shapes depending on the

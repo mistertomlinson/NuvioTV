@@ -431,13 +431,19 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
             }
 
             if (trailerSource?.videoUrl.isNullOrBlank()) {
-                val fallbackSource = resolvedFallbackYtId?.let { ytId ->
-                    withContext(Dispatchers.IO) {
-                        trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
-                            youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
-                            title = title,
-                            year = extractYear(releaseInfo)
-                        )
+                // If the main resolution just tripped a YouTube cooldown, do not turn the
+                // addon/catalog trailer id into another extraction attempt.
+                val fallbackSource = if (trailerService.isRateLimited()) {
+                    null
+                } else {
+                    resolvedFallbackYtId?.let { ytId ->
+                        withContext(Dispatchers.IO) {
+                            trailerService.getTrailerPlaybackSourceFromYouTubeUrl(
+                                youtubeUrl = "https://www.youtube.com/watch?v=$ytId",
+                                title = title,
+                                year = extractYear(releaseInfo)
+                            )
+                        }
                     }
                 }
 
@@ -460,7 +466,11 @@ internal fun HomeViewModel.requestTrailerPreviewPipeline(
                         trailerPreviewAudioUrlsState[itemId] = fallbackAudio
                     }
                 } else {
-                    trailerPreviewNegativeCache.add(itemId)
+                    // A 429/bot challenge is temporary. Never pin it as "no trailer"
+                    // for the rest of this HomeViewModel session.
+                    if (!trailerService.isRateLimited()) {
+                        trailerPreviewNegativeCache.add(itemId)
+                    }
                     trailerPreviewUrlsState.remove(itemId)
                     trailerPreviewAudioUrlsState.remove(itemId)
                 }
