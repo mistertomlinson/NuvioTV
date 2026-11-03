@@ -19,6 +19,7 @@ import com.nuvio.tv.domain.model.ListMembershipSnapshot
 import com.nuvio.tv.domain.model.SavedLibraryItem
 import com.nuvio.tv.domain.model.TraktListPrivacy
 import com.nuvio.tv.domain.repository.LibraryRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -253,34 +254,20 @@ class LibraryRepositoryImpl @Inject constructor(
             if (desired == before) return true
             if (newlyEnabledKeys.isEmpty()) return false
 
+            /* The write is the acceptance point; a projection refresh is
+             * best-effort. Never leave an ARMED reminder because a follow-up
+             * refresh or stale membership read failed after acceptance. */
             provider.applyMembershipChanges(
                 item = item,
                 changes = ListMembershipChanges(desired)
             )
-
-            /*
-             * Simkl commits the mutation remotely without changing its local
-             * projection in-place. Trakt also benefits from authoritative
-             * confirmation here. This runs only when a reminder matures.
-             */
-            provider.refresh(TrackingRefreshIntent.INVALIDATED)
-
-            val confirmed = provider
-                .getMembershipSnapshot(item)
-                .listMembership
-
-            if (newlyEnabledKeys.all { key -> confirmed[key] == true }) {
-                return true
+            try {
+                provider.refresh(TrackingRefreshIntent.INVALIDATED)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: Exception) {
+                // The accepted write remains durable; the next sync will catch up.
             }
-
-            /*
-             * applyMembershipChanges returning normally is the provider's
-             * durable acceptance point. Some providers can expose the old
-             * projection for a short period even after the subsequent refresh.
-             * Treat an accepted idempotent add as fulfilled rather than leaving
-             * an ARMED bell attached to a title that is already arriving in My
-             * List. Exceptions still propagate and remain retryable.
-             */
             return true
         }
 
