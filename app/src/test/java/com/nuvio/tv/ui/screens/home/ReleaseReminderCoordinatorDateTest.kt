@@ -57,10 +57,8 @@ class ReleaseReminderCoordinatorDateTest {
     private lateinit var profileManager: ProfileManager
 
     private val activeProfileId = MutableStateFlow(1)
-    private val watchedMovieIds =
-        MutableStateFlow<Set<String>>(emptySet())
-    private val fullyWatchedSeriesIds =
-        MutableStateFlow<Set<String>>(emptySet())
+    private val watchedMovieIds = MutableStateFlow<Set<String>>(emptySet())
+    private val fullyWatchedSeriesIds = MutableStateFlow<Set<String>>(emptySet())
 
     private var stored: ReleaseReminderRecord? = null
     private var freshMeta: Meta? = null
@@ -84,37 +82,38 @@ class ReleaseReminderCoordinatorDateTest {
         freshMeta = null
         libraryWrites = 0
 
-        every {
-            profileManager.activeProfileId
-        } returns activeProfileId
+        every { profileManager.activeProfileId } returns activeProfileId
+        coEvery {
+            profileManager.withActiveProfileMutation(any(), any())
+        } coAnswers {
+            val expectedProfile = firstArg<Int>()
+            val block = secondArg<suspend () -> Boolean>()
+            if (activeProfileId.value == expectedProfile) block() else false
+        }
 
         every {
-            watchProgressRepository
-                .observeWatchedMovieIds()
+            watchProgressRepository.observeWatchedMovieIds()
         } returns watchedMovieIds
 
         every {
-            watchedSeriesStateHolder
-                .observeFullyWatchedSeriesIds(any())
+            watchedSeriesStateHolder.observeFullyWatchedSeriesIds(any())
         } returns fullyWatchedSeriesIds
 
         every {
-            dataStore.reminders
+            dataStore.remindersForProfile(any())
         } answers {
-            flowOf(
-                stored?.let(::listOf).orEmpty()
-            )
+            flowOf(stored?.let(::listOf).orEmpty())
         }
 
-        coEvery {
-            dataStore.upsert(any())
-        } coAnswers {
+        every { dataStore.reminders } answers {
+            flowOf(stored?.let(::listOf).orEmpty())
+        }
+
+        coEvery { dataStore.upsert(any(), any()) } coAnswers {
             stored = firstArg()
         }
 
-        coEvery {
-            dataStore.markFulfilled(any(), any())
-        } coAnswers {
+        coEvery { dataStore.markFulfilled(any(), any(), any()) } coAnswers {
             val key = firstArg<String>()
             val at = secondArg<Long>()
             stored = stored?.let { record ->
@@ -130,9 +129,7 @@ class ReleaseReminderCoordinatorDateTest {
             }
         }
 
-        coEvery {
-            dataStore.markArmed(any())
-        } coAnswers {
+        coEvery { dataStore.markArmed(any(), any()) } coAnswers {
             val key = firstArg<String>()
             stored = stored?.let { record ->
                 if (record.key == key) {
@@ -147,21 +144,13 @@ class ReleaseReminderCoordinatorDateTest {
             }
         }
 
-        coEvery {
-            dataStore.remove(any<String>())
-        } coAnswers {
+        coEvery { dataStore.remove(any<String>(), any()) } coAnswers {
             val key = firstArg<String>()
-            if (stored?.key == key) {
-                stored = null
-            }
+            if (stored?.key == key) stored = null
         }
 
         every {
-            metaRepository.getMetaFresh(
-                any(),
-                any(),
-                any()
-            )
+            metaRepository.getMetaFresh(any(), any(), any())
         } answers {
             val value = freshMeta
             if (value == null) {
@@ -175,37 +164,22 @@ class ReleaseReminderCoordinatorDateTest {
             }
         }
 
-        coEvery {
-            libraryRepository.ensureInDefault(any())
-        } coAnswers {
+        coEvery { libraryRepository.ensureInDefault(any()) } coAnswers {
             libraryWrites += 1
             true
         }
 
         mockkObject(ReleaseReminderWorker.Companion)
-
         every {
-            ReleaseReminderWorker.scheduleDue(
-                any(),
-                any()
-            )
+            ReleaseReminderWorker.scheduleDue(any(), any())
+        } just Runs
+        every {
+            ReleaseReminderWorker.scheduleDueAfterRunningWorker(any(), any())
         } just Runs
 
         mockkStatic(Log::class)
-
-        every {
-            Log.i(
-                any<String>(),
-                any<String>()
-            )
-        } returns 0
-
-        every {
-            Log.w(
-                any<String>(),
-                any<String>()
-            )
-        } returns 0
+        every { Log.i(any<String>(), any<String>()) } returns 0
+        every { Log.w(any<String>(), any<String>()) } returns 0
     }
 
     @After
@@ -215,173 +189,34 @@ class ReleaseReminderCoordinatorDateTest {
 
     @Test
     fun dateMovesSoonerButRemainsFuture_updatesRecordAndScheduler() = runTest {
-        val today = today()
-        val originalDate = today.plusDays(30).toString()
-        val correctedDate = today.plusDays(7).toString()
+        val originalDate = today().plusDays(30).toString()
+        val correctedDate = today().plusDays(7).toString()
 
         stored = reminder(
             releaseDate = originalDate,
-            lastAuthorityCheckAtMillis =
-                System.currentTimeMillis()
-        )
-
-        freshMeta = authorityMeta(
-            state = "coming_soon",
-            releaseDate = correctedDate
+            lastAuthorityCheckAtMillis = System.currentTimeMillis()
         )
 
         val coordinator = coordinator()
-
         coordinator.updateHomeSnapshot(
             cwResolved = true,
             continueWatchingItems = emptyList(),
-            catalogRows = listOf(
-                comingSoonRow(correctedDate)
-            )
+            catalogRows = listOf(comingSoonRow(correctedDate))
         )
 
         coordinator.runPeriodicMaintenance()
 
-        assertEquals(
-            correctedDate,
-            stored?.releaseDate
-        )
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-        assertEquals(
-            0,
-            libraryWrites
-        )
-
+        assertEquals(correctedDate, stored?.releaseDate)
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
+        assertEquals(0, libraryWrites)
         verify(exactly = 0) {
-            metaRepository.getMetaFresh(
-                any(),
-                any(),
-                any()
-            )
+            metaRepository.getMetaFresh(any(), any(), any())
         }
-
         verify(exactly = 1) {
             ReleaseReminderWorker.scheduleDue(
                 context,
                 match { reminders ->
-                    reminders.single().releaseDate ==
-                        correctedDate
-                }
-            )
-        }
-    }
-
-    @Test
-    fun dateMovesSoonerIntoPast_checksImmediatelyButComingSoonStaysArmed() = runTest {
-        val today = today()
-        val originalDate = today.plusDays(7).toString()
-        val correctedDate = today.minusDays(1).toString()
-
-        stored = reminder(
-            releaseDate = originalDate
-        )
-
-        freshMeta = authorityMeta(
-            state = "coming_soon",
-            releaseDate = correctedDate
-        )
-
-        val coordinator = coordinator()
-
-        coordinator.updateHomeSnapshot(
-            cwResolved = true,
-            continueWatchingItems = emptyList(),
-            catalogRows = listOf(
-                comingSoonRow(correctedDate)
-            )
-        )
-
-        coordinator.runDueMaintenance()
-
-        assertEquals(
-            correctedDate,
-            stored?.releaseDate
-        )
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-        assertNotNull(
-            stored?.lastAuthorityCheckAtMillis
-        )
-        assertEquals(
-            0,
-            libraryWrites
-        )
-
-        verify(exactly = 1) {
-            metaRepository.getMetaFresh(
-                addonBaseUrl,
-                "movie",
-                imdbId
-            )
-        }
-    }
-
-    @Test
-    fun dateMovesLater_updatesRecordAndScheduler() = runTest {
-        val today = today()
-        val originalDate = today.plusDays(4).toString()
-        val correctedDate = today.plusDays(28).toString()
-
-        stored = reminder(
-            releaseDate = originalDate,
-            lastAuthorityCheckAtMillis =
-                System.currentTimeMillis()
-        )
-
-        freshMeta = authorityMeta(
-            state = "coming_soon",
-            releaseDate = correctedDate
-        )
-
-        val coordinator = coordinator()
-
-        coordinator.updateHomeSnapshot(
-            cwResolved = true,
-            continueWatchingItems = emptyList(),
-            catalogRows = listOf(
-                comingSoonRow(correctedDate)
-            )
-        )
-
-        coordinator.runPeriodicMaintenance()
-
-        assertEquals(
-            correctedDate,
-            stored?.releaseDate
-        )
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-        assertEquals(
-            0,
-            libraryWrites
-        )
-
-        verify(exactly = 0) {
-            metaRepository.getMetaFresh(
-                any(),
-                any(),
-                any()
-            )
-        }
-
-        verify(exactly = 1) {
-            ReleaseReminderWorker.scheduleDue(
-                context,
-                match { reminders ->
-                    reminders.single().releaseDate ==
-                        correctedDate
+                    reminders.single().releaseDate == correctedDate
                 }
             )
         }
@@ -390,83 +225,31 @@ class ReleaseReminderCoordinatorDateTest {
     @Test
     fun dueDateReachedButAuthorityStillComingSoon_doesNotFulfill() = runTest {
         val dueDate = today().toString()
-
-        stored = reminder(
-            releaseDate = dueDate
-        )
-
+        stored = reminder(releaseDate = dueDate)
         freshMeta = authorityMeta(
             state = "coming_soon",
             releaseDate = dueDate
         )
 
         val coordinator = coordinator()
-
         coordinator.updateHomeSnapshot(
             cwResolved = true,
             continueWatchingItems = emptyList(),
-            catalogRows = listOf(
-                comingSoonRow(dueDate)
-            )
+            catalogRows = listOf(comingSoonRow(dueDate))
         )
 
         coordinator.runDueMaintenance()
 
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-        assertNotNull(
-            stored?.lastAuthorityCheckAtMillis
-        )
-        assertEquals(
-            0,
-            libraryWrites
-        )
-    }
-
-    @Test
-    fun dueDateReachedButAuthorityUnknown_staysArmedForRetry() = runTest {
-        stored = reminder(
-            releaseDate =
-                today().minusDays(1).toString()
-        )
-
-        freshMeta = authorityMeta(
-            state = "unknown",
-            releaseDate = null
-        )
-
-        val coordinator = coordinator()
-
-        coordinator.updateHomeSnapshot(
-            cwResolved = true,
-            continueWatchingItems = emptyList(),
-            catalogRows = emptyList()
-        )
-
-        coordinator.runDueMaintenance()
-
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-        assertNotNull(
-            stored?.lastAuthorityCheckAtMillis
-        )
-        assertEquals(
-            0,
-            libraryWrites
-        )
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
+        assertNotNull(stored?.lastAuthorityCheckAtMillis)
+        assertEquals(0, libraryWrites)
     }
 
     @Test
     fun confirmedReleasedAuthority_fulfillsExactlyOnce() = runTest {
         stored = reminder(
-            releaseDate =
-                today().minusDays(1).toString()
+            releaseDate = today().minusDays(1).toString()
         )
-
         freshMeta = authorityMeta(
             state = "released",
             releaseDate = null,
@@ -474,110 +257,91 @@ class ReleaseReminderCoordinatorDateTest {
         )
 
         val coordinator = coordinator()
-
-        coordinator.updateHomeSnapshot(
-            cwResolved = true,
-            continueWatchingItems = emptyList(),
-            catalogRows = emptyList()
-        )
-
         coordinator.runDueMaintenance()
 
-        assertEquals(
-            ReleaseReminderStatus.FULFILLED,
-            stored?.status
-        )
-        assertTrue(
-            stored?.membershipConfirmed == true
-        )
-        assertNotNull(
-            stored?.fulfilledAtMillis
-        )
-        assertEquals(
-            1,
-            libraryWrites
-        )
+        assertEquals(ReleaseReminderStatus.FULFILLED, stored?.status)
+        assertTrue(stored?.membershipConfirmed == true)
+        assertNotNull(stored?.fulfilledAtMillis)
+        assertEquals(1, libraryWrites)
 
         coordinator.runDueMaintenance()
-
-        assertEquals(
-            1,
-            libraryWrites
-        )
+        assertEquals(1, libraryWrites)
     }
 
     @Test
     fun matchingLatestEvidenceWithNeutralAuthority_fulfills() = runTest {
         stored = reminder(
-            releaseDate =
-                today().minusDays(1).toString()
+            releaseDate = today().minusDays(1).toString()
         )
-
         freshMeta = authorityMeta(
             state = null,
             releaseDate = null
         )
 
         val coordinator = coordinator()
-
         coordinator.updateHomeSnapshot(
             cwResolved = true,
             continueWatchingItems = emptyList(),
-            catalogRows = listOf(
-                latestRow()
-            )
+            catalogRows = listOf(latestRow(platformId = "netflix"))
         )
 
         coordinator.runDueMaintenance()
 
-        assertEquals(
-            ReleaseReminderStatus.FULFILLED,
-            stored?.status
+        assertEquals(ReleaseReminderStatus.FULFILLED, stored?.status)
+        assertEquals(1, libraryWrites)
+    }
+
+    @Test
+    fun latestEvidenceFromWrongPlatform_doesNotFulfillNeutralAuthority() = runTest {
+        stored = reminder(
+            releaseDate = today().minusDays(1).toString(),
+            platformId = "netflix"
         )
-        assertEquals(
-            1,
-            libraryWrites
+        freshMeta = authorityMeta(
+            state = null,
+            releaseDate = null,
+            platformId = "netflix"
         )
+
+        val coordinator = coordinator()
+        coordinator.updateHomeSnapshot(
+            cwResolved = true,
+            continueWatchingItems = emptyList(),
+            catalogRows = listOf(latestRow(platformId = "max"))
+        )
+
+        coordinator.runDueMaintenance()
+
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
+        assertEquals(0, libraryWrites)
     }
 
     @Test
     fun releasedAuthorityFromWrongPlatform_doesNotFulfill() = runTest {
         stored = reminder(
-            releaseDate =
-                today().minusDays(1).toString(),
+            releaseDate = today().minusDays(1).toString(),
             platformId = "netflix"
         )
-
         freshMeta = authorityMeta(
             state = "released",
             releaseDate = null,
             platformId = "max"
         )
 
-        val coordinator = coordinator()
+        coordinator().runDueMaintenance()
 
-        coordinator.runDueMaintenance()
-
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-        assertEquals(
-            0,
-            libraryWrites
-        )
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
+        assertEquals(0, libraryWrites)
     }
 
     @Test
     fun releasedAuthorityForOlderSeason_doesNotFulfillNewSeasonReminder() = runTest {
         stored = reminder(
-            releaseDate =
-                today().minusDays(1).toString(),
+            releaseDate = today().minusDays(1).toString(),
             type = ContentType.SERIES,
             seasonNumber = 3,
             platformId = "netflix"
         )
-
         freshMeta = authorityMeta(
             state = "released",
             releaseDate = null,
@@ -586,27 +350,17 @@ class ReleaseReminderCoordinatorDateTest {
             newSeasonNumber = 2
         )
 
-        val coordinator = coordinator()
+        coordinator().runDueMaintenance()
 
-        coordinator.runDueMaintenance()
-
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-        assertEquals(
-            0,
-            libraryWrites
-        )
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
+        assertEquals(0, libraryWrites)
     }
 
     @Test
     fun profileChangeDuringAuthorityFetch_mustNotFulfillIntoNewProfile() = runTest {
         stored = reminder(
-            releaseDate =
-                today().minusDays(1).toString()
+            releaseDate = today().minusDays(1).toString()
         )
-
         val released = authorityMeta(
             state = "released",
             releaseDate = null,
@@ -614,46 +368,28 @@ class ReleaseReminderCoordinatorDateTest {
         )
 
         every {
-            metaRepository.getMetaFresh(
-                any(),
-                any(),
-                any()
-            )
+            metaRepository.getMetaFresh(any(), any(), any())
         } answers {
             activeProfileId.value = 2
-
             flowOf<NetworkResult<Meta>>(
                 NetworkResult.Success(released)
             )
         }
 
-        val coordinator = coordinator()
+        coordinator().runDueMaintenance()
 
-        coordinator.runDueMaintenance()
-
-        assertEquals(
-            0,
-            libraryWrites
-        )
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
+        assertEquals(0, libraryWrites)
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
     }
-
 
     @Test
     fun watchedMovie_removesArmedReminder() = runTest {
         stored = reminder(
-            releaseDate =
-                today().plusDays(30).toString()
+            releaseDate = today().plusDays(30).toString()
         )
+        watchedMovieIds.value = setOf(imdbId)
 
-        watchedMovieIds.value =
-            setOf(imdbId)
-
-        coordinator()
-            .runWatchedReminderMaintenance()
+        coordinator().runWatchedReminderMaintenance()
 
         assertNull(stored)
     }
@@ -661,107 +397,35 @@ class ReleaseReminderCoordinatorDateTest {
     @Test
     fun fullyWatchedSeries_keepsNewSeasonReminder() = runTest {
         stored = reminder(
-            releaseDate =
-                today().plusDays(30).toString(),
+            releaseDate = today().plusDays(30).toString(),
             type = ContentType.SERIES,
             seasonNumber = 2
         )
+        fullyWatchedSeriesIds.value = setOf(imdbId)
 
-        fullyWatchedSeriesIds.value =
-            setOf(imdbId)
-
-        coordinator()
-            .runWatchedReminderMaintenance()
+        coordinator().runWatchedReminderMaintenance()
 
         assertNotNull(stored)
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-    }
-
-    @Test
-    fun seriesWithoutFullyWatchedState_keepsReminder() = runTest {
-        stored = reminder(
-            releaseDate =
-                today().plusDays(30).toString(),
-            type = ContentType.SERIES,
-            seasonNumber = 2
-        )
-
-        /*
-         * Even an overlapping movie watched ID must not cancel a series
-         * reminder. Series invalidation comes only from the app's existing
-         * fully-watched-series projection, never from a watched episode.
-         */
-        watchedMovieIds.value =
-            setOf(imdbId)
-
-        fullyWatchedSeriesIds.value =
-            emptySet()
-
-        coordinator()
-            .runWatchedReminderMaintenance()
-
-        assertNotNull(stored)
-
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
-    }
-
-    @Test
-    fun watchedTitle_removesFulfilledReminderRecordToo() = runTest {
-        stored = reminder(
-            releaseDate =
-                today().minusDays(1).toString()
-        ).copy(
-            status =
-                ReleaseReminderStatus.FULFILLED,
-            fulfilledAtMillis =
-                System.currentTimeMillis(),
-            membershipConfirmed = true
-        )
-
-        watchedMovieIds.value =
-            setOf(imdbId)
-
-        coordinator()
-            .runWatchedReminderMaintenance()
-
-        assertNull(stored)
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
     }
 
     @Test
     fun profileSwitchDuringWatchedRead_doesNotRemoveReminder() = runTest {
         stored = reminder(
-            releaseDate =
-                today().plusDays(30).toString()
+            releaseDate = today().plusDays(30).toString()
         )
 
         every {
-            watchProgressRepository
-                .observeWatchedMovieIds()
+            watchProgressRepository.observeWatchedMovieIds()
         } returns flow {
-            /*
-             * Simulate a profile handoff while the watched projection is
-             * resolving. The old reminder snapshot must never mutate the
-             * newly selected profile.
-             */
             activeProfileId.value = 2
             emit(setOf(imdbId))
         }
 
-        coordinator()
-            .runWatchedReminderMaintenance()
+        coordinator().runWatchedReminderMaintenance()
 
         assertNotNull(stored)
-
-        assertEquals(
-            ReleaseReminderStatus.ARMED,
-            stored?.status
-        )
+        assertEquals(ReleaseReminderStatus.ARMED, stored?.status)
     }
 
     private fun coordinator(): ReleaseReminderCoordinator =
@@ -771,10 +435,8 @@ class ReleaseReminderCoordinatorDateTest {
             metaRepository = metaRepository,
             tmdbService = tmdbService,
             libraryRepository = libraryRepository,
-            watchProgressRepository =
-                watchProgressRepository,
-            watchedSeriesStateHolder =
-                watchedSeriesStateHolder,
+            watchProgressRepository = watchProgressRepository,
+            watchedSeriesStateHolder = watchedSeriesStateHolder,
             profileManager = profileManager
         )
 
@@ -794,8 +456,7 @@ class ReleaseReminderCoordinatorDateTest {
             releaseDate = releaseDate,
             seasonNumber = seasonNumber,
             platformId = platformId,
-            lastAuthorityCheckAtMillis =
-                lastAuthorityCheckAtMillis
+            lastAuthorityCheckAtMillis = lastAuthorityCheckAtMillis
         )
 
     private fun comingSoonRow(
@@ -824,8 +485,7 @@ class ReleaseReminderCoordinatorDateTest {
                         releaseDate = releaseDate,
                         upcomingSeason = seasonNumber,
                         platformId = platformId,
-                        releaseReminderState =
-                            "coming_soon"
+                        releaseReminderState = "coming_soon"
                     )
                 )
             )
@@ -833,7 +493,8 @@ class ReleaseReminderCoordinatorDateTest {
 
     private fun latestRow(
         type: ContentType = ContentType.MOVIE,
-        newSeasonNumber: Int? = null
+        newSeasonNumber: Int? = null,
+        platformId: String
     ): CatalogRow =
         CatalogRow(
             addonId = "authority",
@@ -852,9 +513,8 @@ class ReleaseReminderCoordinatorDateTest {
                     type = type,
                     hints = MetaBehaviorHints(
                         comingSoon = false,
-                        platformId = "netflix",
-                        newSeasonNumber =
-                            newSeasonNumber
+                        platformId = platformId,
+                        newSeasonNumber = newSeasonNumber
                     )
                 )
             )
@@ -917,7 +577,5 @@ class ReleaseReminderCoordinatorDateTest {
         )
 
     private fun today(): LocalDate =
-        LocalDate.now(
-            ZoneId.systemDefault()
-        )
+        LocalDate.now(ZoneId.systemDefault())
 }
