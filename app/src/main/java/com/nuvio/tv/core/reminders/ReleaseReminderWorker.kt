@@ -35,6 +35,7 @@ private const val MODE_KEY = "mode"
 private const val MODE_PERIODIC = "periodic"
 private const val MODE_DUE = "due"
 private const val DUE_RECHECK_MS = 60L * 60 * 1000
+private const val FULFILLMENT_RETRY_MS = 60L * 1000
 
 @HiltWorker
 class ReleaseReminderWorker @AssistedInject constructor(
@@ -150,20 +151,30 @@ class ReleaseReminderWorker @AssistedInject constructor(
             val target = reminders.asSequence()
                 .filter { it.status == ReleaseReminderStatus.ARMED }
                 .mapNotNull { reminder ->
-                    val date = parseDate(reminder.releaseDate)
-                        ?: return@mapNotNull null
-
-                    if (date.isAfter(today)) {
-                        date.atStartOfDay(zone)
+                    val minimum = now.plusSeconds(5)
+                    if (reminder.availabilityConfirmedAtMillis != null) {
+                        /* Confirmed releases are queued for fast membership
+                         * retry, even without a usable release date. */
+                        val lastAttempt = reminder.lastAuthorityCheckAtMillis
+                            ?: reminder.availabilityConfirmedAtMillis
+                        val retryAt = Instant.ofEpochMilli(
+                            lastAttempt + FULFILLMENT_RETRY_MS
+                        ).atZone(zone)
+                        if (retryAt.isAfter(minimum)) retryAt else minimum
                     } else {
-                        val minimum = now.plusSeconds(5)
-                        val lastTarget = reminder.lastAuthorityCheckAtMillis?.let {
-                            Instant.ofEpochMilli(it + DUE_RECHECK_MS).atZone(zone)
-                        }
-                        if (lastTarget != null && lastTarget.isAfter(minimum)) {
-                            lastTarget
+                        val date = parseDate(reminder.releaseDate)
+                            ?: return@mapNotNull null
+                        if (date.isAfter(today)) {
+                            date.atStartOfDay(zone)
                         } else {
-                            minimum
+                            val lastTarget = reminder.lastAuthorityCheckAtMillis?.let {
+                                Instant.ofEpochMilli(it + DUE_RECHECK_MS).atZone(zone)
+                            }
+                            if (lastTarget != null && lastTarget.isAfter(minimum)) {
+                                lastTarget
+                            } else {
+                                minimum
+                            }
                         }
                     }
                 }
