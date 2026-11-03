@@ -418,6 +418,18 @@ class ReleaseReminderCoordinator @Inject constructor(
                             checkNotNull(deferred).record
                         }
                     if (!mayCommitHomeMutations) {
+                        /* The due worker may wake while Home is still open.
+                         * Move its next retry forward to avoid a five-second
+                         * rescheduling loop without touching visible badges. */
+                        if (
+                            now - (availableRecord.lastAuthorityCheckAtMillis ?: 0L) >=
+                                FULFILLMENT_RETRY_MS
+                        ) {
+                            dataStore.upsert(
+                                availableRecord.copy(lastAuthorityCheckAtMillis = now),
+                                profileId
+                            )
+                        }
                         continue
                     }
 
