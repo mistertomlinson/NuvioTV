@@ -90,8 +90,9 @@ def manifest():
     catalogs = []
     for kind, noun in (("movie", "Movies"), ("series", "Series")):
         for family, title in (("coming_soon", "Coming Soon"), ("latest", "Latest")):
+            plural = "movies" if kind == "movie" else "series"
             catalogs.append({
-                "type": kind, "id": f"{family}_{kind}s",
+                "type": kind, "id": f"{family}_{plural}",
                 "name": f"QA {title} - {noun}", "showInHome": True,
             })
     return {
@@ -109,7 +110,8 @@ def manifest():
 def catalog(kind, catalog_id):
     if kind not in ("movie", "series"):
         return {"metas": []}
-    if catalog_id not in (f"coming_soon_{kind}s", f"latest_{kind}s"):
+    plural = "movies" if kind == "movie" else "series"
+    if catalog_id not in (f"coming_soon_{plural}", f"latest_{plural}"):
         return {"metas": []}
     wants_released = catalog_id.startswith("latest_")
     return {
