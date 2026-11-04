@@ -365,7 +365,7 @@ class StreamingOriginalsBackgroundWorker @AssistedInject constructor(
             if (slot != null) {
                 StreamingOriginalsRefreshScheduler.noteSlotFired(applicationContext, slot)
             }
-            if (StreamingOriginalsInteractionGate.isBusy(context)) return Result.success()
+            if (StreamingOriginalsInteractionGate.isBusy(applicationContext)) return Result.success()
 
             val captured = StreamingOriginalsRefreshScheduler.pendingSnapshot(applicationContext)
             if (captured.isEmpty()) return Result.success()
