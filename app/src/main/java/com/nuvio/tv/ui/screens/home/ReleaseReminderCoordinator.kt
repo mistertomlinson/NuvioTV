@@ -102,7 +102,9 @@ class ReleaseReminderCoordinator @Inject constructor(
         ConcurrentHashMap<ProfileReminderKey, Unit>()
 
     @Volatile private var homeVisible = false
-    @Volatile private var appForeground = false
+    // Preserve Home-visible deferral before MainActivity delivers its first lifecycle event.
+    // A Worker-only process still has homeVisible=false and may commit off-screen.
+    @Volatile private var appForeground = true
     @Volatile private var coveredResumeDue = false
     @Volatile private var observedReminders: List<ReleaseReminderRecord>? = null
 
