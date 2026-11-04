@@ -632,7 +632,7 @@ private fun ModernCatalogRowItem(
         onClick = remember(payload, onNavigateToDetail) {
             {
                 onNavigateToDetail(
-                    payload.itemId,
+                    payload.detailNavigationId,
                     payload.itemType,
                     payload.addonBaseUrl
                 )
