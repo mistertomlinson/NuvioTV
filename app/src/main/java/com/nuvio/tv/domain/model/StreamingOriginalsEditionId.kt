@@ -36,6 +36,6 @@ internal object StreamingOriginalsEditionId {
 
     fun detailsId(canonicalId: String, editionDetailId: String?): String {
         val route = editionDetailId?.let(::parse)
-        return if (route?.canonicalId == canonicalId) editionDetailId else canonicalId
+        return if (route?.canonicalId == canonicalId) editionDetailId ?: canonicalId else canonicalId
     }
 }
