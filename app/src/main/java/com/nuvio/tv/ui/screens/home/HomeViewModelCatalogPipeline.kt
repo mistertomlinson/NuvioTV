@@ -221,6 +221,12 @@ internal fun HomeViewModel.observeInstalledAddonsPipeline() {
                         ) {
                             return@addonCollector
                         }
+                addons.firstOrNull { addon ->
+                    addon.id == com.nuvio.tv.core.reminders.STREAMING_ORIGINALS_ADDON_ID
+                }?.let { source ->
+                    streamingOriginalsGenerationStore.rememberSource(profileId, source)
+                }
+
                 val currentSeasonal =
                     addonsCache.firstOrNull { addon ->
                         addon.id ==
