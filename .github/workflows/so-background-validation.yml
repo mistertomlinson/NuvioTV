@@ -1,6 +1,8 @@
 name: Streaming Originals background refresh validation
 
 on:
+  push:
+    branches: ['fix/so-scheduled-background-staging']
   pull_request:
     branches: [dev]
     paths:
