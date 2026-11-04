@@ -88,7 +88,7 @@ fun CatalogRowSection(
     listState: LazyListState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
 ) {
     fun rowItemFocusKey(index: Int, item: MetaPreview): String {
-        return "${catalogRow.addonId}_${catalogRow.apiType}_${catalogRow.catalogId}_${item.id}_$index"
+        return "${catalogRow.addonId}_${catalogRow.apiType}_${catalogRow.catalogId}_${item.detailNavigationId}_$index"
     }
 
     val seeAllCardShape = RoundedCornerShape(posterCardStyle.cornerRadius)
@@ -225,8 +225,8 @@ fun CatalogRowSection(
                         }
                     }
                 }
-                val onClickItem: () -> Unit = remember(item.id, catalogRow.addonBaseUrl) {
-                    { onItemClick(item.id, item.apiType, catalogRow.addonBaseUrl) }
+                val onClickItem: () -> Unit = remember(item.detailNavigationId, catalogRow.addonBaseUrl) {
+                    { onItemClick(item.detailNavigationId, item.apiType, catalogRow.addonBaseUrl) }
                 }
                 val onLongPressItem: () -> Unit = remember(item.id, catalogRow.addonBaseUrl) {
                     { onItemLongPress(item, catalogRow.addonBaseUrl) }
