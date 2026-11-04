@@ -162,7 +162,8 @@ object StreamingOriginalsRefreshScheduler {
                 request(slot, Duration.between(now, slot.nextRun(now)).toMillis())
             )
         }
-        enqueueCatchupIfNeeded(context)
+        // Do not launch a heavyweight catch-up during a foreground cold start.
+        // MainActivity.onPause queues it once the app is inactive.
     }
 
     internal fun scheduleSuccessor(context: Context, slot: StreamingOriginalsRefreshSlot) {
