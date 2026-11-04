@@ -1,6 +1,8 @@
 name: Verified edition navigation Android tests
 
 on:
+  push:
+    branches: ['fix/verified-edition-navigation-and-language-variants']
   pull_request:
     branches: [dev]
     paths:
