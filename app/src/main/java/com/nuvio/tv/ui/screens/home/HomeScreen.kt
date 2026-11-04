@@ -278,6 +278,25 @@ fun HomeScreen(
     // URLs expire after 6 hours, causing a frozen first-frame on wake.
     val appInForegroundForTrailer = com.nuvio.tv.LocalAppInForeground.current
     val backgroundedAtMs = com.nuvio.tv.LocalBackgroundedAtMs.current
+
+    /*
+     * Background Workers can publish a complete SO generation without a Home
+     * ViewModel. Keep the actual row swap behind an opaque Home entry/resume
+     * cover; no partial platform page is ever rendered during replacement.
+     */
+    val durableSoReady = viewModel.hasDurableStreamingOriginalsGeneration()
+    var durableSoReturnSettled by remember(durableSoReady) {
+        mutableStateOf(!durableSoReady)
+    }
+    LaunchedEffect(appInForegroundForTrailer, durableSoReady) {
+        if (!appInForegroundForTrailer) return@LaunchedEffect
+        if (durableSoReady) {
+            durableSoReturnSettled = false
+            viewModel.applyDurableStreamingOriginalsIfReady()
+            androidx.compose.runtime.withFrameNanos { }
+        }
+        durableSoReturnSettled = true
+    }
     androidx.compose.runtime.LaunchedEffect(appInForegroundForTrailer) {
         if (appInForegroundForTrailer) {
             viewModel.clearTrailerUrlCacheIfStale(backgroundedAtMs)
@@ -1561,6 +1580,20 @@ fun HomeScreen(
                 }
                 .background(NuvioColors.Background)
         )
+    }
+    if (!durableSoReturnSettled) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(NuvioColors.Background),
+            contentAlignment = Alignment.Center
+        ) {
+            PulsingLogoIndicator(
+                active = true,
+                dismissRequested = false,
+                onDismissReady = {}
+            )
+        }
     }
 }
 
