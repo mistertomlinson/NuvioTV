@@ -287,8 +287,12 @@ class StreamingOriginalsGenerationStore @Inject constructor(
         profileManager.activeProfileReady.first { it }
         val profileId = profileManager.activeProfileId.value
         val localDate = LocalDate.now(ZoneId.systemDefault())
-        val current = withTimeoutOrNull(7_000L) {
-            addonRepository.getInstalledAddons().first { it.isNotEmpty() }
+        val current = withTimeoutOrNull(8_000L) {
+            // The add-on flow can first emit a partial manifest cache. Don't
+            // mistake a partial list lacking SO for SO being uninstalled.
+            addonRepository.getInstalledAddons().first { addons ->
+                addons.any { it.id == STREAMING_ORIGINALS_ADDON_ID }
+            }
         }?.firstOrNull {
             it.id == STREAMING_ORIGINALS_ADDON_ID && it.enabled
         } ?: return@withLock false
