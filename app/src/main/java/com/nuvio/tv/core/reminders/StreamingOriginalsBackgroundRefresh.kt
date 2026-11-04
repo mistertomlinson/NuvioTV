@@ -27,9 +27,12 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -66,9 +69,22 @@ internal enum class StreamingOriginalsRefreshSlot(val time: LocalTime) {
 object StreamingOriginalsInteractionGate {
     @Volatile var appInteractive: Boolean = false
         private set
+    private val activeWorker = AtomicReference<Job?>(null)
 
     fun setInteractive(value: Boolean) {
         appInteractive = value
+        // Stop in-flight network work promptly instead of waiting for every
+        // catalog request to finish while someone is scrolling.
+        if (value) activeWorker.get()?.cancel()
+    }
+
+    fun register(job: Job) {
+        activeWorker.set(job)
+        if (appInteractive) job.cancel()
+    }
+
+    fun unregister(job: Job) {
+        activeWorker.compareAndSet(job, null)
     }
 
     /** Screen-off devices may remain RESUMED on some Android TV builds. */
@@ -230,8 +246,12 @@ class StreamingOriginalsGenerationStore @Inject constructor(
 
     suspend fun clearBrokenSnapshot(profileId: Int) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            file(profileId).delete()
-            setMarker(profileId, false)
+            // A background Worker could have replaced the unreadable old file
+            // while Home was waiting for this lock.
+            if (read(profileId) == null) {
+                file(profileId).delete()
+                setMarker(profileId, false)
+            }
         }
     }
 
@@ -250,7 +270,9 @@ class StreamingOriginalsGenerationStore @Inject constructor(
      * simultaneously; abort on resumed interaction, profile changes or errors.
      */
     suspend fun prepareIfInactive(): Boolean = mutex.withLock {
-        if (StreamingOriginalsInteractionGate.isBusy(context)) return@withLock false
+        if (StreamingOriginalsInteractionGate.isBusy(context) ||
+            !StreamingOriginalsRefreshScheduler.hasPending(context)
+        ) return@withLock false
         profileManager.activeProfileReady.first { it }
         val profileId = profileManager.activeProfileId.value
         val localDate = LocalDate.now(ZoneId.systemDefault())
@@ -361,6 +383,8 @@ class StreamingOriginalsBackgroundWorker @AssistedInject constructor(
 ) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val slot = StreamingOriginalsRefreshScheduler.slotFromInput(inputData.getString("slot"))
+        val activeJob = currentCoroutineContext()[Job]
+        if (activeJob != null) StreamingOriginalsInteractionGate.register(activeJob)
         try {
             if (slot != null) {
                 StreamingOriginalsRefreshScheduler.noteSlotFired(applicationContext, slot)
@@ -382,6 +406,7 @@ class StreamingOriginalsBackgroundWorker @AssistedInject constructor(
             Log.w(TAG, "Background SO refresh failed", error)
             return Result.success()
         } finally {
+            if (activeJob != null) StreamingOriginalsInteractionGate.unregister(activeJob)
             if (slot != null) {
                 StreamingOriginalsRefreshScheduler.scheduleSuccessor(applicationContext, slot)
             }
