@@ -112,8 +112,13 @@ object StreamingOriginalsRefreshScheduler {
     private fun markDue(context: Context, slot: StreamingOriginalsRefreshSlot, date: LocalDate) =
         synchronized(lock) {
             val key = slotKey(slot, date)
-            if (!prefs(context).getBoolean("completed_" + key, false)) {
-                prefs(context).edit().putStringSet(PENDING, pending(context) + key).apply()
+            if (prefs(context).getString("completed_" + slot.name, null) != date.toString()) {
+                // Retain only the newest pending day for each slot, even when
+                // the app remains foregrounded for weeks.
+                val retained = pending(context).filterNot {
+                    it.substringAfter('|', "") == slot.name
+                }.toSet()
+                prefs(context).edit().putStringSet(PENDING, retained + key).apply()
             }
         }
 
@@ -136,7 +141,12 @@ object StreamingOriginalsRefreshScheduler {
 
     internal fun complete(context: Context, captured: Set<String>) = synchronized(lock) {
         val edit = prefs(context).edit()
-        captured.forEach { edit.putBoolean("completed_" + it, true) }
+        captured.forEach { key ->
+            edit.putString(
+                "completed_" + key.substringAfter('|'),
+                key.substringBefore('|')
+            )
+        }
         edit.putStringSet(PENDING, pending(context) - captured).apply()
     }
 
