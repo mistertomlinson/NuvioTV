@@ -27,7 +27,7 @@ import java.time.LocalTime
 import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
@@ -69,22 +69,22 @@ internal enum class StreamingOriginalsRefreshSlot(val time: LocalTime) {
 object StreamingOriginalsInteractionGate {
     @Volatile var appInteractive: Boolean = false
         private set
-    private val activeWorker = AtomicReference<Job?>(null)
+    private val activeWorkers = ConcurrentHashMap.newKeySet<Job>()
 
     fun setInteractive(value: Boolean) {
         appInteractive = value
         // Stop in-flight network work promptly instead of waiting for every
         // catalog request to finish while someone is scrolling.
-        if (value) activeWorker.get()?.cancel()
+        if (value) activeWorkers.forEach { it.cancel() }
     }
 
     fun register(job: Job) {
-        activeWorker.set(job)
+        activeWorkers.add(job)
         if (appInteractive) job.cancel()
     }
 
     fun unregister(job: Job) {
-        activeWorker.compareAndSet(job, null)
+        activeWorkers.remove(job)
     }
 
     /** Screen-off devices may remain RESUMED on some Android TV builds. */
