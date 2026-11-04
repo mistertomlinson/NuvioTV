@@ -130,7 +130,8 @@ internal fun HomeViewModel.setHomePresentationVisible(
     visible: Boolean
 ) {
     ensureSeasonalSpotlightContentRefreshTicker()
-    ensureStreamingOriginalsRefreshTicker()
+    // SO schedule/catch-up is now owned by durable WorkManager jobs. The
+    // former ViewModel ticker would duplicate catalog requests in background.
 
     homePresentationVisible = visible
 
@@ -141,7 +142,6 @@ internal fun HomeViewModel.setHomePresentationVisible(
          */
         seasonalSpotlightStageJob?.cancel()
         seasonalSpotlightStageJob = null
-        cancelStreamingOriginalsStageForVisibleHome()
         return
     }
 
@@ -151,7 +151,8 @@ internal fun HomeViewModel.setHomePresentationVisible(
      * staging state and defers itself until a later safe Home exit.
      */
     startPendingSeasonalSpotlightStageIfNeeded()
-    startPendingStreamingOriginalsStageIfNeeded()
+    // SO staging must never start an additional ViewModel-only fetch here.
+    // A Worker is responsible for preparing complete SO snapshots to disk.
 }
 
 /**
