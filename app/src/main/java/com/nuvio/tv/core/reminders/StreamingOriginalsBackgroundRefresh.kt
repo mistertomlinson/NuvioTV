@@ -3,6 +3,7 @@ package com.nuvio.tv.core.reminders
 import android.content.Context
 import android.util.AtomicFile
 import android.util.Log
+import android.os.PowerManager
 import androidx.hilt.work.HiltWorker
 import androidx.work.*
 import com.google.gson.Gson
@@ -68,6 +69,12 @@ object StreamingOriginalsInteractionGate {
 
     fun setInteractive(value: Boolean) {
         appInteractive = value
+    }
+
+    /** Screen-off devices may remain RESUMED on some Android TV builds. */
+    fun isBusy(context: Context): Boolean {
+        val power = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+        return appInteractive && power?.isInteractive != false
     }
 }
 
@@ -221,6 +228,13 @@ class StreamingOriginalsGenerationStore @Inject constructor(
             }
         }
 
+    suspend fun clearBrokenSnapshot(profileId: Int) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            file(profileId).delete()
+            setMarker(profileId, false)
+        }
+    }
+
     suspend fun clearIfCurrent(profileId: Int, createdAtMillis: Long) =
         withContext(Dispatchers.IO) {
             mutex.withLock {
@@ -236,7 +250,7 @@ class StreamingOriginalsGenerationStore @Inject constructor(
      * simultaneously; abort on resumed interaction, profile changes or errors.
      */
     suspend fun prepareIfInactive(): Boolean = mutex.withLock {
-        if (StreamingOriginalsInteractionGate.appInteractive) return@withLock false
+        if (StreamingOriginalsInteractionGate.isBusy(context)) return@withLock false
         profileManager.activeProfileReady.first { it }
         val profileId = profileManager.activeProfileId.value
         val localDate = LocalDate.now(ZoneId.systemDefault())
@@ -252,8 +266,9 @@ class StreamingOriginalsGenerationStore @Inject constructor(
             )
             else -> return@withLock false
         }
-        if (StreamingOriginalsInteractionGate.appInteractive ||
-            profileManager.activeProfileId.value != profileId
+        if (StreamingOriginalsInteractionGate.isBusy(context) ||
+            profileManager.activeProfileId.value != profileId ||
+            freshAddon.catalogs.isEmpty()
         ) return@withLock false
 
         // A cache hit is not sufficient proof of a new day's catalog.
@@ -264,7 +279,7 @@ class StreamingOriginalsGenerationStore @Inject constructor(
                 freshAddon.catalogs.map { catalog ->
                     async(Dispatchers.IO) {
                         throttle.withPermit {
-                            if (StreamingOriginalsInteractionGate.appInteractive) {
+                            if (StreamingOriginalsInteractionGate.isBusy(context)) {
                                 return@withPermit null
                             }
                             var row: CatalogRow? = null
@@ -300,7 +315,7 @@ class StreamingOriginalsGenerationStore @Inject constructor(
             return@withLock false
         }
 
-        if (StreamingOriginalsInteractionGate.appInteractive ||
+        if (StreamingOriginalsInteractionGate.isBusy(context) ||
             profileManager.activeProfileId.value != profileId ||
             LocalDate.now(ZoneId.systemDefault()) != localDate ||
             rows.size != freshAddon.catalogs.size ||
@@ -350,7 +365,7 @@ class StreamingOriginalsBackgroundWorker @AssistedInject constructor(
             if (slot != null) {
                 StreamingOriginalsRefreshScheduler.noteSlotFired(applicationContext, slot)
             }
-            if (StreamingOriginalsInteractionGate.appInteractive) return Result.success()
+            if (StreamingOriginalsInteractionGate.isBusy(context)) return Result.success()
 
             val captured = StreamingOriginalsRefreshScheduler.pendingSnapshot(applicationContext)
             if (captured.isEmpty()) return Result.success()
