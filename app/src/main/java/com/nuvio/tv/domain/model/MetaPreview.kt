@@ -32,8 +32,12 @@ data class MetaPreview(
     val links: List<MetaLink> = emptyList(),
     val behaviorHints: MetaBehaviorHints? = null,
     val trailers: List<MetaTrailer> = emptyList(),
-    val trailerYtIds: List<String> = emptyList()
+    val trailerYtIds: List<String> = emptyList(),
+    val editionDetailId: String? = null
 ) {
+    val detailNavigationId: String
+        get() = StreamingOriginalsEditionId.detailsId(id, editionDetailId)
+
     val apiType: String
         get() = type.toApiString(rawType)
 
