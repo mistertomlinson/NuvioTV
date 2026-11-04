@@ -277,6 +277,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var avatarRepository: AvatarRepository
 
+    @Inject
+    lateinit var releaseReminderCoordinator: com.nuvio.tv.ui.screens.home.ReleaseReminderCoordinator
+
     private lateinit var jankStats: JankStats
 
     @OptIn(ExperimentalTvMaterial3Api::class, ExperimentalFoundationApi::class)
@@ -720,6 +723,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         com.nuvio.tv.core.reminders.StreamingOriginalsInteractionGate.setInteractive(true)
         com.nuvio.tv.core.reminders.StreamingOriginalsRefreshScheduler.noteMissedSlots(this)
+        releaseReminderCoordinator.onApplicationForegroundChanged(true)
         _appInForeground.value = true
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
         startupSyncService.requestSyncNow()
@@ -740,6 +744,7 @@ class MainActivity : ComponentActivity() {
         super.onPause()
         com.nuvio.tv.core.reminders.StreamingOriginalsInteractionGate.setInteractive(false)
         com.nuvio.tv.core.reminders.StreamingOriginalsRefreshScheduler.enqueueCatchupIfNeeded(this)
+        releaseReminderCoordinator.onApplicationForegroundChanged(false)
         _appInForeground.value = false
         _backgroundedAtMs = System.currentTimeMillis()
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = false
