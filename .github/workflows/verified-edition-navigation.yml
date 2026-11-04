@@ -1,0 +1,32 @@
+name: Verified edition navigation Android tests
+
+on:
+  pull_request:
+    branches: [dev]
+    paths:
+      - 'app/src/main/java/com/nuvio/tv/domain/model/MetaPreview.kt'
+      - 'app/src/main/java/com/nuvio/tv/domain/model/StreamingOriginalsEditionId.kt'
+      - 'app/src/main/java/com/nuvio/tv/data/mapper/CatalogMapper.kt'
+      - 'app/src/main/java/com/nuvio/tv/data/remote/dto/CatalogResponseDto.kt'
+      - 'app/src/main/java/com/nuvio/tv/ui/components/CatalogRowSection.kt'
+      - 'app/src/main/java/com/nuvio/tv/ui/screens/**'
+      - 'app/src/test/java/com/nuvio/tv/**'
+      - '.github/workflows/verified-edition-navigation.yml'
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android 36 SDK
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Run sideload unit tests without signing or deployment
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testSideloadUnitTest --no-daemon --stacktrace
