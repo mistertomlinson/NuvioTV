@@ -11,7 +11,6 @@ data class CatalogResponseDto(
 @JsonClass(generateAdapter = true)
 data class MetaPreviewDto(
     @Json(name = "id") val id: String,
-    @Json(name = "editionDetailId") val editionDetailId: String? = null,
     @Json(name = "type") val type: String,
     @Json(name = "name") val name: String,
     @Json(name = "poster") val poster: String? = null,
@@ -36,5 +35,6 @@ data class MetaPreviewDto(
     @Json(name = "links") val links: List<MetaLinkDto>? = null,
     @Json(name = "trailers") val trailers: List<MetaTrailerDto>? = null,
     @Json(name = "behaviorHints") val behaviorHints: MetaBehaviorHintsDto? = null,
-    @Json(name = "trailerStreams") val trailerStreams: List<TrailerStreamDto>? = null
+    @Json(name = "trailerStreams") val trailerStreams: List<TrailerStreamDto>? = null,
+    @Json(name = "editionDetailId") val editionDetailId: String? = null
 )
