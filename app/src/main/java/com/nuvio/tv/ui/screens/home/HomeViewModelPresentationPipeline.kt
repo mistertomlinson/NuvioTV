@@ -913,6 +913,7 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
             wroteToMap = true
         }
     }
+    } // end synchronized
 
     enrichmentCache[itemId] = enrichment
 
