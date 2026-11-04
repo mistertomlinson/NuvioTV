@@ -9,6 +9,7 @@ import androidx.work.*
 import com.google.gson.Gson
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.data.local.AddonPreferences
 import com.nuvio.tv.domain.model.Addon
 import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.skipStep
@@ -44,7 +45,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONObject
 
 private const val TAG = "SOBackgroundRefresh"
@@ -213,6 +213,7 @@ data class StreamingOriginalsDurableGeneration(
 class StreamingOriginalsGenerationStore @Inject constructor(
     @ApplicationContext private val context: Context,
     private val addonRepository: AddonRepository,
+    private val addonPreferences: AddonPreferences,
     private val catalogRepository: CatalogRepository,
     private val profileManager: ProfileManager,
     moshi: Moshi
@@ -227,6 +228,32 @@ class StreamingOriginalsGenerationStore @Inject constructor(
         AtomicFile(File(context.filesDir, "so_staged_v1_p" + profileId + ".json"))
 
     private fun markerKey(profileId: Int) = "snapshot_profile_" + profileId
+
+    /**
+     * Home publishes the known SO URL once per profile. Workers can then
+     * fetch SO alone without asking getInstalledAddons() to crawl unrelated
+     * Watchly/Seasonal manifests in a stale-cache sweep.
+     */
+    fun rememberSource(profileId: Int, addon: Addon) {
+        if (addon.id != STREAMING_ORIGINALS_ADDON_ID) return
+        context.getSharedPreferences("so_background_source_v1", Context.MODE_PRIVATE)
+            .edit().apply {
+                if (addon.enabled) putString("url_p" + profileId, addon.baseUrl)
+                else remove("url_p" + profileId)
+            }.apply()
+    }
+
+    private fun rememberedSource(profileId: Int): String? =
+        context.getSharedPreferences("so_background_source_v1", Context.MODE_PRIVATE)
+            .getString("url_p" + profileId, null)
+            ?.trim()?.takeIf { it.isNotEmpty() }
+
+    private fun canonicalSourceUrl(raw: String): String =
+        raw.trim().trimEnd('/')
+            .removeSuffix("/manifest.json")
+            .trimEnd('/')
+            .lowercase()
+
 
     fun hasSnapshot(profileId: Int): Boolean =
         context.getSharedPreferences("so_background_snapshot_v1", Context.MODE_PRIVATE)
@@ -287,20 +314,19 @@ class StreamingOriginalsGenerationStore @Inject constructor(
         profileManager.activeProfileReady.first { it }
         val profileId = profileManager.activeProfileId.value
         val localDate = LocalDate.now(ZoneId.systemDefault())
-        val current = withTimeoutOrNull(8_000L) {
-            // The add-on flow can first emit a partial manifest cache. Don't
-            // mistake a partial list lacking SO for SO being uninstalled.
-            addonRepository.getInstalledAddons().first { addons ->
-                addons.any { it.id == STREAMING_ORIGINALS_ADDON_ID }
-            }
-        }?.firstOrNull {
-            it.id == STREAMING_ORIGINALS_ADDON_ID && it.enabled
-        } ?: return@withLock false
+        val sourceUrl = rememberedSource(profileId) ?: return@withLock false
+        // Honor uninstallation/profile addon inheritance without a manifest
+        // crawl. This DataStore lookup is background-only.
+        val installedUrls = addonPreferences.installedAddonUrls.first()
+        if (installedUrls.none {
+            canonicalSourceUrl(it) == canonicalSourceUrl(sourceUrl)
+        }) return@withLock false
 
-        val freshAddon = when (val result = addonRepository.fetchAddon(current.baseUrl)) {
-            is NetworkResult.Success -> result.data.copy(
-                enabled = current.enabled, displayName = current.displayName
-            )
+        val freshAddon = when (val result = addonRepository.fetchAddon(sourceUrl)) {
+            is NetworkResult.Success ->
+                result.data.takeIf {
+                    it.id == STREAMING_ORIGINALS_ADDON_ID
+                } ?: return@withLock false
             else -> return@withLock false
         }
         if (StreamingOriginalsInteractionGate.isBusy(context) ||
