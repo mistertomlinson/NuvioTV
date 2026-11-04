@@ -520,7 +520,12 @@ internal fun HomeViewModel.hasDurableStreamingOriginalsGeneration(): Boolean =
  */
 internal suspend fun HomeViewModel.applyDurableStreamingOriginalsIfReady(): Boolean {
     val profileId = profileManager.activeProfileId.value
-    val generation = streamingOriginalsGenerationStore.read(profileId) ?: return false
+    val generation = streamingOriginalsGenerationStore.read(profileId) ?: run {
+        // A marker without readable bytes must not trap every Home entry
+        // behind a return curtain after a corrupted or interrupted write.
+        streamingOriginalsGenerationStore.clearBrokenSnapshot(profileId)
+        return false
+    }
     val today = LocalDate.now(ZoneId.systemDefault()).toString()
 
     if (generation.localDate != today) {
