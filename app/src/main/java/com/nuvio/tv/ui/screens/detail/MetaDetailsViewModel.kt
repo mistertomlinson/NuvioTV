@@ -895,38 +895,20 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
-    private fun withVerifiedEditionPresentation(base: Meta, source: Meta?): Meta {
-        // The backend only serves editions still present in its verified
-        // chart snapshot. Also verify the canonical ID before overlaying.
-        if (editionRoute == null || source == null ||
-            source.id != itemId || source.apiType != "movie" ||
-            source.name.isBlank() || source.poster.isNullOrBlank() ||
-            source.runtime.isNullOrBlank()
-        ) return base
-
-        return base.copy(
-            name = source.name,
-            poster = source.poster,
-            logo = source.logo?.takeIf { it.isNotBlank() } ?: base.logo,
-            description = source.description?.takeIf { it.isNotBlank() } ?: base.description,
-            runtime = source.runtime,
-            background = source.background ?: base.background,
-            originalBackground = source.background ?: base.originalBackground
-        )
-    }
-
     private suspend fun applyMetaWithEnrichment(meta: Meta, editionSource: Meta? = null) {
         // Preserve the original addon backdrop before TMDB enrichment can overwrite it.
         val metaWithOriginal = meta.copy(originalBackground = meta.originalBackground ?: meta.background)
         android.util.Log.d("BackdropDebug", "name=${meta.name} originalBackground=${metaWithOriginal.originalBackground} background=${meta.background}")
         // Fire all independent async jobs immediately — they run in parallel.
         loadMoreLikeThisAsync(metaWithOriginal)
-        val enriched = withVerifiedEditionPresentation(
+        val enriched = applyVerifiedEditionPresentation(
             mergeReleaseBehaviorHints(
                 base = enrichMeta(metaWithOriginal),
                 releaseSource = metaWithOriginal
             ),
-            editionSource
+            editionSource,
+            itemId,
+            editionRoute
         )
         android.util.Log.d("BackdropDebug", "after enrichment: background=${enriched.background} detailBackdrop=${enriched.detailBackdrop} originalBackground=${enriched.originalBackground}")
         // Resolve MDBList state before Details becomes visible.
