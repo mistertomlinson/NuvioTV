@@ -80,7 +80,9 @@ object StreamingOriginalsInteractionGate {
 
     fun register(job: Job) {
         activeWorkers.add(job)
-        if (appInteractive) job.cancel()
+        // doWork checks isBusy(context) immediately. A TV may retain the
+        // Activity RESUMED while the display is off; don't cancel that job
+        // merely because the last remembered Activity state was RESUMED.
     }
 
     fun unregister(job: Job) {
