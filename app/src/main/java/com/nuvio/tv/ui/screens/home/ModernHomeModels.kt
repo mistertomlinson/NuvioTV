@@ -102,7 +102,8 @@ internal sealed class ModernPayload {
         val addonBaseUrl: String,
         val trailerTitle: String,
         val trailerReleaseInfo: String?,
-        val trailerApiType: String
+        val trailerApiType: String,
+        val detailNavigationId: String = itemId
     ) : ModernPayload()
 }
 
@@ -603,7 +604,7 @@ internal fun buildCatalogItem(
         }
 
     return ModernCarouselItem(
-        key = "catalog_${row.key()}_${item.id}_${occurrence}",
+        key = "catalog_${row.key()}_${item.detailNavigationId}_${occurrence}",
         title = item.name,
         subtitle = item.releaseInfo,
         imageUrl = if (useLandscapePosters) {
@@ -613,8 +614,9 @@ internal fun buildCatalogItem(
         },
         heroPreview = heroPreview,
         payload = ModernPayload.Catalog(
-            focusKey = "${row.key()}::${item.id}",
+            focusKey = "${row.key()}::${item.detailNavigationId}",
             itemId = item.id,
+            detailNavigationId = item.detailNavigationId,
             itemType = item.apiType,
             addonBaseUrl = row.addonBaseUrl,
             trailerTitle = item.name,
