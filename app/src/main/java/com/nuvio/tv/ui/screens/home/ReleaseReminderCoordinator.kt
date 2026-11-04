@@ -104,6 +104,27 @@ class ReleaseReminderCoordinator @Inject constructor(
     @Volatile private var homeVisible = false
     @Volatile private var appForeground = false
     @Volatile private var coveredResumeDue = false
+    @Volatile private var observedReminders: List<ReleaseReminderRecord>? = null
+
+    /**
+     * The return curtain is expensive by design: do not show it on every wake
+     * when a profile has no reminders, or only reminders for future dates.
+     * Unknown initial DataStore state is covered conservatively.
+     */
+    private fun hasResumeWork(): Boolean {
+        val reminders = observedReminders ?: return true
+        val today = localDate(System.currentTimeMillis())
+        val profileId = profileManager.activeProfileId.value
+        return reminders.any { record ->
+            val date = parseDate(record.releaseDate)
+            val due = date != null && !date.isAfter(today)
+            val expiredBadge = record.status == ReleaseReminderStatus.FULFILLED &&
+                (record.fulfilledAtMillis == null ||
+                    System.currentTimeMillis() - record.fulfilledAtMillis >= BADGE_LIFETIME_MS)
+            due || record.availabilityConfirmedAtMillis != null || expiredBadge
+        } || deferredAvailableReminders.keys.any { it.profileId == profileId } ||
+            deferredReminderRemovals.keys.any { it.profileId == profileId }
+    }
 
     /**
      * Compose remains mounted when Android TV is asleep. An Activity pause is
@@ -113,7 +134,7 @@ class ReleaseReminderCoordinator @Inject constructor(
         val wasForeground = appForeground
         appForeground = foreground
         if (foreground) {
-            coveredResumeDue = true
+            coveredResumeDue = hasResumeWork()
         } else if (wasForeground) {
             scope.launch {
                 runMaintenance(
@@ -170,6 +191,7 @@ class ReleaseReminderCoordinator @Inject constructor(
 
         scope.launch {
             dataStore.reminders.collectLatest { reminders ->
+                observedReminders = reminders
                 com.nuvio.tv.core.reminders.ReleaseReminderWorker.scheduleDue(
                     appContext,
                     reminders
