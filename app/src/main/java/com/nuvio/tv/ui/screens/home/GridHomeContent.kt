@@ -322,7 +322,7 @@ fun GridHomeContent(
                                 onFocused = { onItemFocus(gridItem.item) },
                                 onClick = {
                                     onNavigateToDetail(
-                                        gridItem.item.id,
+                                        gridItem.item.detailNavigationId,
                                         gridItem.item.apiType,
                                         gridItem.addonBaseUrl
                                     )
