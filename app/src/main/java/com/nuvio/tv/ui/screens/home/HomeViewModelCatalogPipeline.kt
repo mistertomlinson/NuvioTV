@@ -782,10 +782,10 @@ internal fun HomeViewModel.loadCatalogPipeline(
                         val mergedRow = if (existingRow != null) {
                             val enrichedById = existingRow.items
                                 .filter { it.ageRating != null || it.status != null || it.logo != null }
-                                .associateBy { it.id }
+                                .associateBy { it.detailNavigationId }
                             if (enrichedById.isNotEmpty()) {
                                 val mergedItems = result.data.items.map { freshItem ->
-                                    val enriched = enrichedById[freshItem.id]
+                                    val enriched = enrichedById[freshItem.detailNavigationId]
                                     if (enriched != null) {
                                         freshItem.copy(
                                             ageRating = enriched.ageRating ?: freshItem.ageRating,
@@ -1043,12 +1043,12 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
             sourceRow.items.size
         )
         val retainedByKey = currentRow.items.associateBy {
-            "${it.apiType}:${it.id}"
+            "${it.apiType}:${it.detailNavigationId}"
         }
         val nextVisibleItems = sourceRow.items
             .take(nextVisibleCount)
             .map { sourceItem ->
-                retainedByKey["${sourceItem.apiType}:${sourceItem.id}"]
+                retainedByKey["${sourceItem.apiType}:${sourceItem.detailNavigationId}"]
                     ?: sourceItem
             }
 
@@ -1103,11 +1103,11 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
                 is NetworkResult.Success -> {
                     val latestSource = catalogSourceRows[key] ?: sourceRow
                     val existingIds = latestSource.items.asSequence()
-                        .map { "${it.apiType}:${it.id}" }
+                        .map { "${it.apiType}:${it.detailNavigationId}" }
                         .toHashSet()
 
                     val newUniqueItems = result.data.items.filter { item ->
-                        "${item.apiType}:${item.id}" !in existingIds
+                        "${item.apiType}:${item.detailNavigationId}" !in existingIds
                     }
 
                     if (newUniqueItems.isNotEmpty()) {
@@ -1135,12 +1135,12 @@ internal fun HomeViewModel.loadMoreCatalogItemsPipeline(catalogId: String, addon
                     )
                     val retainedByKey =
                         (catalogsMap[key]?.items ?: currentRow.items)
-                            .associateBy { "${it.apiType}:${it.id}" }
+                            .associateBy { "${it.apiType}:${it.detailNavigationId}" }
                     val nextVisibleItems = mergedSource.items
                         .take(nextVisibleCount)
                         .map { sourceItem ->
                             retainedByKey[
-                                "${sourceItem.apiType}:${sourceItem.id}"
+                                "${sourceItem.apiType}:${sourceItem.detailNavigationId}"
                             ] ?: sourceItem
                         }
 
