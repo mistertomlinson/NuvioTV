@@ -131,15 +131,22 @@ class ReleaseReminderCoordinator @Inject constructor(
      * Called only while Home has an opaque resume cover. Serializes after
      * Worker batches and completes due/provider writes before Home is revealed.
      */
-    suspend fun finishCoveredResume() {
+    suspend fun finishCoveredResume(cwReady: Boolean) {
         if (!coveredResumeDue) return
         try {
-            runMaintenance(
-                forceFutureAuthority = false,
-                dueWorker = true,
-                snapshotEvent = true,
-                coveredHome = true
-            )
+            if (cwReady) {
+                runMaintenance(
+                    forceFutureAuthority = false,
+                    dueWorker = true,
+                    snapshotEvent = true,
+                    coveredHome = true
+                )
+            } else {
+                // Don't insert into My List on an unresolved CW projection.
+                // Still wait for any already-started background mutation before
+                // allowing the opaque Home cover to leave.
+                runMutex.withLock { }
+            }
         } finally {
             coveredResumeDue = false
         }
