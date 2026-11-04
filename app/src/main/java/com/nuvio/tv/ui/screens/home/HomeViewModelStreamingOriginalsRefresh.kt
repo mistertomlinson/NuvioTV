@@ -548,7 +548,9 @@ internal suspend fun HomeViewModel.applyDurableStreamingOriginalsIfReady(): Bool
     val currentAddon = addonsCache.firstOrNull {
         it.id == STREAMING_ORIGINALS_REFRESH_ADDON_ID
     } ?: return false
-    if (currentAddon.baseUrl.trimEnd('/') != generation.addon.baseUrl.trimEnd('/')) {
+    if (!currentAddon.enabled ||
+        currentAddon.baseUrl.trimEnd('/') != generation.addon.baseUrl.trimEnd('/')
+    ) {
         // Prevent an old profile/addon configuration from replacing live data.
         streamingOriginalsGenerationStore.clearIfCurrent(
             profileId, generation.createdAtMillis
