@@ -285,9 +285,17 @@ fun HomeScreen(
      * ViewModel. Keep the actual row swap behind an opaque Home entry/resume
      * cover; no partial platform page is ever rendered during replacement.
      */
-    val durableSoReady = viewModel.hasDurableStreamingOriginalsGeneration()
-    val remindersNeedCover =
+    val durableSoReady = remember(
+        appInForegroundForTrailer, uiState.homeLoadSessionId
+    ) {
+        // No preferences/disk lookup on poster-focus or scrolling recomposition.
+        viewModel.hasDurableStreamingOriginalsGeneration()
+    }
+    val remindersNeedCover = remember(
+        appInForegroundForTrailer, uiState.homeLoadSessionId
+    ) {
         viewModel.releaseReminderCoordinator.needsCoveredResume()
+    }
     var durableSoReturnSettled by remember(durableSoReady, remindersNeedCover) {
         mutableStateOf(!durableSoReady && !remindersNeedCover)
     }
