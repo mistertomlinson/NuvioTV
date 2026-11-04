@@ -285,14 +285,30 @@ fun HomeScreen(
      * cover; no partial platform page is ever rendered during replacement.
      */
     val durableSoReady = viewModel.hasDurableStreamingOriginalsGeneration()
-    var durableSoReturnSettled by remember(durableSoReady) {
-        mutableStateOf(!durableSoReady)
+    val remindersNeedCover =
+        viewModel.releaseReminderCoordinator.needsCoveredResume()
+    var durableSoReturnSettled by remember(durableSoReady, remindersNeedCover) {
+        mutableStateOf(!durableSoReady && !remindersNeedCover)
     }
-    LaunchedEffect(appInForegroundForTrailer, durableSoReady) {
+    LaunchedEffect(
+        appInForegroundForTrailer,
+        durableSoReady,
+        remindersNeedCover
+    ) {
         if (!appInForegroundForTrailer) return@LaunchedEffect
-        if (durableSoReady) {
+        if (durableSoReady || remindersNeedCover) {
             durableSoReturnSettled = false
+        }
+        if (remindersNeedCover) {
+            val cwReady = kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+                viewModel.initialCwResolved.first { it }
+            } == true
+            viewModel.releaseReminderCoordinator.finishCoveredResume(cwReady)
+        }
+        if (durableSoReady) {
             viewModel.applyDurableStreamingOriginalsIfReady()
+        }
+        if (durableSoReady || remindersNeedCover) {
             androidx.compose.runtime.withFrameNanos { }
         }
         durableSoReturnSettled = true
