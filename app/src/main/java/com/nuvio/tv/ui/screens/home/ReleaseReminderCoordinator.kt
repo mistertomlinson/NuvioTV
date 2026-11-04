@@ -102,6 +102,77 @@ class ReleaseReminderCoordinator @Inject constructor(
         ConcurrentHashMap<ProfileReminderKey, Unit>()
 
     @Volatile private var homeVisible = false
+    @Volatile private var appForeground = false
+    @Volatile private var coveredResumeDue = false
+    @Volatile private var observedReminders: List<ReleaseReminderRecord>? = null
+
+    /**
+     * The return curtain is expensive by design: do not show it on every wake
+     * when a profile has no reminders, or only reminders for future dates.
+     * Unknown initial DataStore state is covered conservatively.
+     */
+    private fun hasResumeWork(): Boolean {
+        val reminders = observedReminders ?: return true
+        val today = localDate(System.currentTimeMillis())
+        val profileId = profileManager.activeProfileId.value
+        return reminders.any { record ->
+            val date = parseDate(record.releaseDate)
+            val due = date != null && !date.isAfter(today)
+            val expiredBadge = record.status == ReleaseReminderStatus.FULFILLED &&
+                (record.fulfilledAtMillis == null ||
+                    System.currentTimeMillis() - record.fulfilledAtMillis >= BADGE_LIFETIME_MS)
+            due || record.availabilityConfirmedAtMillis != null || expiredBadge
+        } || deferredAvailableReminders.keys.any { it.profileId == profileId } ||
+            deferredReminderRemovals.keys.any { it.profileId == profileId }
+    }
+
+    /**
+     * Compose remains mounted when Android TV is asleep. An Activity pause is
+     * therefore an off-screen commitment boundary even when homeVisible=true.
+     */
+    fun onApplicationForegroundChanged(foreground: Boolean) {
+        val wasForeground = appForeground
+        appForeground = foreground
+        if (foreground) {
+            coveredResumeDue = hasResumeWork()
+        } else if (wasForeground) {
+            scope.launch {
+                runMaintenance(
+                    forceFutureAuthority = false,
+                    dueWorker = false,
+                    snapshotEvent = true
+                )
+            }
+        }
+    }
+
+    fun needsCoveredResume(): Boolean = coveredResumeDue
+
+    /**
+     * Called only while Home has an opaque resume cover. Serializes after
+     * Worker batches and completes due/provider writes before Home is revealed.
+     */
+    suspend fun finishCoveredResume(cwReady: Boolean) {
+        if (!coveredResumeDue) return
+        try {
+            if (cwReady) {
+                runMaintenance(
+                    forceFutureAuthority = false,
+                    dueWorker = true,
+                    snapshotEvent = true,
+                    coveredHome = true
+                )
+            } else {
+                // Don't insert into My List on an unresolved CW projection.
+                // Still wait for any already-started background mutation before
+                // allowing the opaque Home cover to leave.
+                runMutex.withLock { }
+            }
+        } finally {
+            coveredResumeDue = false
+        }
+    }
+
 
     /* Test fixtures can wait for off-Home background maintenance to finish
      * before releasing the static Worker mocks. Production keeps the
@@ -120,6 +191,7 @@ class ReleaseReminderCoordinator @Inject constructor(
 
         scope.launch {
             dataStore.reminders.collectLatest { reminders ->
+                observedReminders = reminders
                 com.nuvio.tv.core.reminders.ReleaseReminderWorker.scheduleDue(
                     appContext,
                     reminders
@@ -348,13 +420,14 @@ class ReleaseReminderCoordinator @Inject constructor(
     private suspend fun runMaintenance(
         forceFutureAuthority: Boolean,
         dueWorker: Boolean,
-        snapshotEvent: Boolean
+        snapshotEvent: Boolean,
+        coveredHome: Boolean = false
     ) {
         runMutex.withLock {
             val profileId = profileManager.activeProfileId.value
             val now = System.currentTimeMillis()
             val today = localDate(now)
-            val batchStartedOffHome = !homeVisible
+            val batchStartedOffHome = !homeVisible || !appForeground || coveredHome
             val rawRuntime = snapshot.get()
             val runtime =
                 if (rawRuntime.profileId == profileId) {

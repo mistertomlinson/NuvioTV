@@ -50,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.first
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -278,6 +279,49 @@ fun HomeScreen(
     // URLs expire after 6 hours, causing a frozen first-frame on wake.
     val appInForegroundForTrailer = com.nuvio.tv.LocalAppInForeground.current
     val backgroundedAtMs = com.nuvio.tv.LocalBackgroundedAtMs.current
+
+    /*
+     * Background Workers can publish a complete SO generation without a Home
+     * ViewModel. Keep the actual row swap behind an opaque Home entry/resume
+     * cover; no partial platform page is ever rendered during replacement.
+     */
+    val durableSoReady = remember(
+        appInForegroundForTrailer, uiState.homeLoadSessionId
+    ) {
+        // No preferences/disk lookup on poster-focus or scrolling recomposition.
+        viewModel.hasDurableStreamingOriginalsGeneration()
+    }
+    val remindersNeedCover = remember(
+        appInForegroundForTrailer, uiState.homeLoadSessionId
+    ) {
+        viewModel.releaseReminderCoordinator.needsCoveredResume()
+    }
+    var durableSoReturnSettled by remember(durableSoReady, remindersNeedCover) {
+        mutableStateOf(!durableSoReady && !remindersNeedCover)
+    }
+    LaunchedEffect(
+        appInForegroundForTrailer,
+        durableSoReady,
+        remindersNeedCover
+    ) {
+        if (!appInForegroundForTrailer) return@LaunchedEffect
+        if (durableSoReady || remindersNeedCover) {
+            durableSoReturnSettled = false
+        }
+        if (remindersNeedCover) {
+            val cwReady = kotlinx.coroutines.withTimeoutOrNull(2_500L) {
+                viewModel.initialCwResolved.first { it }
+            } == true
+            viewModel.releaseReminderCoordinator.finishCoveredResume(cwReady)
+        }
+        if (durableSoReady) {
+            viewModel.applyDurableStreamingOriginalsIfReady()
+        }
+        if (durableSoReady || remindersNeedCover) {
+            androidx.compose.runtime.withFrameNanos { }
+        }
+        durableSoReturnSettled = true
+    }
     androidx.compose.runtime.LaunchedEffect(appInForegroundForTrailer) {
         if (appInForegroundForTrailer) {
             viewModel.clearTrailerUrlCacheIfStale(backgroundedAtMs)
@@ -1561,6 +1605,20 @@ fun HomeScreen(
                 }
                 .background(NuvioColors.Background)
         )
+    }
+    if (!durableSoReturnSettled) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(NuvioColors.Background),
+            contentAlignment = Alignment.Center
+        ) {
+            PulsingLogoIndicator(
+                active = true,
+                dismissRequested = false,
+                onDismissReady = {}
+            )
+        }
     }
 }
 

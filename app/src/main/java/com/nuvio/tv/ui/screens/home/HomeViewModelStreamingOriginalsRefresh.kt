@@ -20,6 +20,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -503,6 +504,93 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 "Streaming Originals replacement staged: ${staged.size} rows"
             )
         }
+}
+
+/**
+ * Fast marker check for Home composition. Reading the generation itself is
+ * always dispatched to IO; no file or JSON work reaches the DPAD/scroll path.
+ */
+internal fun HomeViewModel.hasDurableStreamingOriginalsGeneration(): Boolean =
+    streamingOriginalsGenerationStore.hasSnapshot(profileManager.activeProfileId.value)
+
+/**
+ * A Worker may finish while the process is backgrounded (or after Home's
+ * ViewModel was destroyed). Consume that complete generation only behind the
+ * Home entry/resume cover. It is never applied by the Worker itself.
+ */
+internal suspend fun HomeViewModel.applyDurableStreamingOriginalsIfReady(): Boolean {
+    val profileId = profileManager.activeProfileId.value
+    val generation = streamingOriginalsGenerationStore.read(profileId) ?: run {
+        // A marker without readable bytes must not trap every Home entry
+        // behind a return curtain after a corrupted or interrupted write.
+        streamingOriginalsGenerationStore.clearBrokenSnapshot(profileId)
+        return false
+    }
+    val today = LocalDate.now(ZoneId.systemDefault()).toString()
+
+    if (generation.localDate != today) {
+        streamingOriginalsGenerationStore.clearIfCurrent(
+            profileId, generation.createdAtMillis
+        )
+        return false
+    }
+
+    // On process restart the Home pipeline must first restore its own catalog
+    // maps. Otherwise an ordinary catalog load can overwrite the staged swap.
+    kotlinx.coroutines.withTimeoutOrNull(9_000L) {
+        _uiState.first { state ->
+            state.catalogsReady ||
+                (state.error != null && !state.isLoading)
+        }
+    } ?: return false
+
+    if (profileManager.activeProfileId.value != profileId) return false
+    val currentAddon = addonsCache.firstOrNull {
+        it.id == STREAMING_ORIGINALS_REFRESH_ADDON_ID
+    } ?: return false
+    if (!currentAddon.enabled ||
+        currentAddon.baseUrl.trimEnd('/') != generation.addon.baseUrl.trimEnd('/')
+    ) {
+        // Prevent an old profile/addon configuration from replacing live data.
+        streamingOriginalsGenerationStore.clearIfCurrent(
+            profileId, generation.createdAtMillis
+        )
+        return false
+    }
+    if (!streamingOriginalsStageDiffersFromLive(generation.rows)) {
+        streamingOriginalsGenerationStore.clearIfCurrent(
+            profileId, generation.createdAtMillis
+        )
+        return false
+    }
+
+    // Avoid TMDB/image network requests here. The established Home enrichment
+    // pipeline and its row-readiness gates own those after this raw swap.
+    val state = streamingOriginalsRefreshState()
+    state.stageJob?.cancel()
+    state.stageJob = null
+    state.stagedRows = generation.rows.associateBy { row ->
+        catalogKey(
+            addonId = row.addonId,
+            type = row.apiType,
+            catalogId = row.catalogId
+        )
+    }
+    state.stagedAddons = addonsCache.map { addon ->
+        if (addon.id == STREAMING_ORIGINALS_REFRESH_ADDON_ID) {
+            generation.addon
+        } else addon
+    }
+    state.stagedLocalDate = today
+    state.stageReady = true
+
+    val applied = applyStagedStreamingOriginalsIfReady()
+    if (applied) {
+        streamingOriginalsGenerationStore.clearIfCurrent(
+            profileId, generation.createdAtMillis
+        )
+    }
+    return applied
 }
 
 private fun HomeViewModel.streamingOriginalsStageDiffersFromLive(
