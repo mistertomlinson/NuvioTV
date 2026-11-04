@@ -11,6 +11,7 @@ data class CatalogResponseDto(
 @JsonClass(generateAdapter = true)
 data class MetaPreviewDto(
     @Json(name = "id") val id: String,
+    @Json(name = "editionDetailId") val editionDetailId: String? = null,
     @Json(name = "type") val type: String,
     @Json(name = "name") val name: String,
     @Json(name = "poster") val poster: String? = null,
