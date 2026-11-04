@@ -11,6 +11,7 @@ import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import com.nuvio.tv.core.homechannel.HomeScreenChannelWorker
 import com.nuvio.tv.core.reminders.ReleaseReminderWorker
+import com.nuvio.tv.core.reminders.StreamingOriginalsRefreshScheduler
 import com.nuvio.tv.core.sync.StartupSyncService
 import com.nuvio.tv.ui.screens.home.ReleaseReminderCoordinator
 import dagger.hilt.android.HiltAndroidApp
@@ -34,6 +35,7 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
         HomeScreenChannelWorker.schedule(this)
         releaseReminderCoordinator.start()
         ReleaseReminderWorker.schedulePeriodic(this)
+        StreamingOriginalsRefreshScheduler.schedule(this)
     }
 
     override fun newImageLoader(): ImageLoader {
