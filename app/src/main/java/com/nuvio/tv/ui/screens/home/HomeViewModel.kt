@@ -103,6 +103,7 @@ class HomeViewModel @Inject constructor(
     internal val myListDiskCache: MyListDiskCache,
     internal val releaseReminderDataStore: com.nuvio.tv.data.local.ReleaseReminderDataStore,
     internal val releaseReminderCoordinator: ReleaseReminderCoordinator,
+    internal val streamingOriginalsGenerationStore: com.nuvio.tv.core.reminders.StreamingOriginalsGenerationStore,
     internal val trackingRatingCoordinator: TrackingRatingCoordinator,
     internal val homeTrailerPlayerHolder: com.nuvio.tv.ui.components.HomeTrailerPlayerHolder,
 ) : ViewModel() {
