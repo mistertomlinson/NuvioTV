@@ -718,6 +718,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        com.nuvio.tv.core.reminders.StreamingOriginalsInteractionGate.setInteractive(true)
+        com.nuvio.tv.core.reminders.StreamingOriginalsRefreshScheduler.noteMissedSlots(this)
         _appInForeground.value = true
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = true
         startupSyncService.requestSyncNow()
@@ -736,6 +738,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onPause() {
         super.onPause()
+        com.nuvio.tv.core.reminders.StreamingOriginalsInteractionGate.setInteractive(false)
+        com.nuvio.tv.core.reminders.StreamingOriginalsRefreshScheduler.enqueueCatchupIfNeeded(this)
         _appInForeground.value = false
         _backgroundedAtMs = System.currentTimeMillis()
         if (::jankStats.isInitialized) jankStats.isTrackingEnabled = false
