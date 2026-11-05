@@ -102,51 +102,21 @@ class TrailerService @Inject constructor(
                 cacheStoredAtMs[cacheKey] = System.currentTimeMillis()
                 return@withContext tmdbSource
             }
+            // Automatic YouTube title search is intentionally disabled.
+            // Only TMDB-linked candidates are attempted here. Callers still
+            // try their explicit addon-provided YouTube IDs when this returns null.
+            // Do not cache temporary 429/bot-challenge misses, or a miss before
+            // a usable TMDB ID has been resolved.
             if (inAppYouTubeExtractor.isRateLimited()) {
-                Log.w(TAG, "TMDB trailer path stopped by YouTube rate limiting; skipping search fallback for '$title'")
+                Log.w(TAG, "TMDB trailer lookup rate-limited; not caching miss for '$title'")
                 return@withContext null
             }
 
-            // Preserve the user's title/year/network YouTube search fallback for genuine
-            // TMDB misses. It is deliberately forbidden after a 429/bot check because it
-            // creates another YouTube HTML request and can also select the wrong title.
-            Log.w(TAG, "TMDB path exhausted; trying YouTube search fallback for '$title'")
-            val searchVideoId =
-                inAppYouTubeExtractor.searchForTrailerVideoId(
-                    title = title,
-                    year = year,
-                    type = type,
-                    network = normalizedNetwork
-                )
-
-            if (inAppYouTubeExtractor.isRateLimited()) {
-                Log.w(TAG, "YouTube search fallback hit rate limiting; not extracting another candidate")
-                return@withContext null
+            Log.d(TAG, "No TMDB trailer resolved for '$title'; allowing caller's explicit trailer-ID fallback")
+            if (tmdbId != null) {
+                cache[cacheKey] = NEGATIVE_CACHE
+                cacheStoredAtMs.remove(cacheKey)
             }
-
-            if (searchVideoId != null) {
-                val searchUrl = "https://www.youtube.com/watch?v=$searchVideoId"
-                val searchSource = getTrailerPlaybackSourceFromYouTubeUrl(
-                    youtubeUrl = searchUrl,
-                    title = title,
-                    year = year
-                )
-                if (searchSource != null) {
-                    Log.d(TAG, "YouTube search fallback succeeded for '$title'")
-                    cache[cacheKey] = searchSource
-                    cacheStoredAtMs[cacheKey] = System.currentTimeMillis()
-                    return@withContext searchSource
-                }
-            }
-
-            if (inAppYouTubeExtractor.isRateLimited()) {
-                Log.w(TAG, "YouTube became rate limited during fallback; not negative-caching '$title'")
-                return@withContext null
-            }
-
-            Log.w(TAG, "YouTube search fallback also exhausted for '$title'")
-            cache[cacheKey] = NEGATIVE_CACHE
-            cacheStoredAtMs.remove(cacheKey)
             null
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
