@@ -10,6 +10,20 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 
+private const val SMALL_AUDIO_CHUNK_BYTES = 64L * 1024L
+
+/** Only retry an audio request that returned 403, and only once per open. */
+internal fun shouldRetrySmallAudioChunk(
+    status: Int,
+    mime: String?,
+    alreadySmall: Boolean,
+    normalChunkSize: Long
+): Boolean =
+    status == 403 &&
+        mime?.startsWith("audio/") == true &&
+        !alreadySmall &&
+        normalChunkSize > SMALL_AUDIO_CHUNK_BYTES
+
 /**
  * A DataSource.Factory that wraps DefaultHttpDataSource and requests bounded
  * YouTube chunks with HTTP Range headers without modifying signed stream URLs.
@@ -50,6 +64,7 @@ class YoutubeChunkedDataSourceFactory(
         private var isYouTubeStream = false
         private var totalContentLength = C.LENGTH_UNSET.toLong()
         private var streamContentLength: Long? = null
+        private var useSmallAudioChunks = false
         private var currentChunkStart = 0L
         private var currentChunkEnd = 0L
         private var bytesReadInChunk = 0L
@@ -69,6 +84,7 @@ class YoutubeChunkedDataSourceFactory(
             }
 
             originalDataSpec = dataSpec
+            useSmallAudioChunks = false
             currentChunkStart = dataSpec.position
             totalContentLength = dataSpec.length
             streamContentLength = uri.getQueryParameter("clen")
@@ -80,14 +96,9 @@ class YoutubeChunkedDataSourceFactory(
 
         private fun openNextChunk(): Long {
             val spec = originalDataSpec ?: throw IllegalStateException("No DataSpec")
-            // Diagnostic-only experiment: use a 64 KiB HTTP range for itag 251
-            // to distinguish length-sensitive 403s from denied audio streams.
-            // All other audio and video formats retain their existing chunk size.
-            val effectiveChunkSize = if (spec.uri.getQueryParameter("itag") == "251") {
-                64L * 1024L
-            } else {
-                chunkSize
-            }
+            // Use the normal chunk size for working streams. After a 403 on
+            // audio, fall back to the verified 64 KiB range for this stream.
+            val effectiveChunkSize = if (useSmallAudioChunks) SMALL_AUDIO_CHUNK_BYTES else chunkSize
             val end = if (totalContentLength != C.LENGTH_UNSET.toLong()) {
                 minOf(currentChunkStart + effectiveChunkSize - 1, currentChunkStart + totalContentLength - 1)
             } else {
@@ -128,6 +139,15 @@ class YoutubeChunkedDataSourceFactory(
                     "TRAILER_PLAY_DIAG rejected itag=$itag mime=$mime response=${e.responseCode} " +
                         "start=$currentChunkStart end=$currentChunkEnd"
                 )
+                if (shouldRetrySmallAudioChunk(
+                        e.responseCode, mime, useSmallAudioChunks, chunkSize
+                    )
+                ) {
+                    Log.w(TAG, "Audio HTTP 403 on itag=$itag; retrying with 64 KiB chunks")
+                    runCatching { upstream.close() }
+                    useSmallAudioChunks = true
+                    return openNextChunk()
+                }
                 throw e
             } catch (e: Exception) {
                 Log.e(
@@ -188,6 +208,7 @@ class YoutubeChunkedDataSourceFactory(
             currentUri = null
             originalDataSpec = null
             streamContentLength = null
+            useSmallAudioChunks = false
         }
     }
 }
