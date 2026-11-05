@@ -395,7 +395,10 @@ class InAppYouTubeExtractor @Inject constructor() {
                     return
                 }
 
-                if (status != null && status != "OK") return
+                if (status != null && status != "OK") {
+                    Log.d(TAG, "TRAILER_DIAG client=${client.key} playability=${status}")
+                    return
+                }
 
                 val streamingData = playerResponse.mapValue("streamingData") ?: return
 
@@ -1101,6 +1104,11 @@ class InAppYouTubeExtractor @Inject constructor() {
             candidates += url.replace(uri.host!!, altHost)
         }
 
+        Log.d(
+            TAG,
+            "TRAILER_DIAG probe group originalHost=${uri.host} count=${candidates.size} " +
+                "mnCount=${servers.size}"
+        )
         if (candidates.size == 1) {
             // Single candidate — verify it's reachable
             return if (isUrlReachable(candidates[0])) candidates[0] else null
@@ -1115,7 +1123,11 @@ class InAppYouTubeExtractor @Inject constructor() {
             }
         }
         return try {
-            withTimeoutOrNull(2_000L) { result.await() }
+            withTimeoutOrNull(2_000L) { result.await() }.also { selected ->
+                if (selected == null) {
+                    Log.d(TAG, "TRAILER_DIAG probe group exhausted within 2000ms")
+                }
+            }
         } finally {
             probeScope.cancel()
         }
@@ -1132,6 +1144,10 @@ class InAppYouTubeExtractor @Inject constructor() {
     }
 
     private fun isUrlReachable(url: String): Boolean {
+        // Diagnostic-only: keep request and resolution behavior unchanged.
+        // Never log signed stream URLs or their query parameters.
+        val host = Uri.parse(url).host ?: "unknown"
+        val startedAtMs = android.os.SystemClock.elapsedRealtime()
         return runCatching {
             val request = Request.Builder()
                 .url(url)
@@ -1140,9 +1156,22 @@ class InAppYouTubeExtractor @Inject constructor() {
                 .headers(buildHeaders(DEFAULT_HEADERS))
                 .build()
             probeClient.newCall(request).execute().use { response ->
+                Log.d(
+                    TAG,
+                    "TRAILER_DIAG probe host=$host status=${response.code} " +
+                        "elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAtMs} " +
+                        "rangeSent=${request.header("Range") != null}"
+                )
                 response.code == 200 || response.code == 206
             }
-        }.getOrDefault(false)
+        }.getOrElse { error ->
+            Log.d(
+                TAG,
+                "TRAILER_DIAG probe host=$host error=${error.javaClass.simpleName} " +
+                    "elapsedMs=${android.os.SystemClock.elapsedRealtime() - startedAtMs}"
+            )
+            false
+        }
     }
 
     private fun absolutizeUrl(baseUrl: String, maybeRelative: String): String {
