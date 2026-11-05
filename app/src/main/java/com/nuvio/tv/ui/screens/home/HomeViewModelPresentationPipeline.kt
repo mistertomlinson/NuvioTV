@@ -831,11 +831,16 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
     if (itemId in homeEnrichmentAttemptedIds) return
 
     fun mergeItem(currentItem: MetaPreview): MetaPreview {
+        val isVerifiedEdition = currentItem.detailNavigationId != currentItem.id
         var merged = currentItem
         if (currentTmdbSettings.useBasicInfo) {
             merged = merged.copy(
-                name = enrichment.localizedTitle ?: merged.name,
-                description = enrichment.description ?: merged.description,
+                // First-party edition titles and descriptions must survive
+                // shared TMDB enrichment of their canonical movie ID.
+                name = if (isVerifiedEdition) merged.name else enrichment.localizedTitle ?: merged.name,
+                description = if (isVerifiedEdition) {
+                    merged.description ?: enrichment.description
+                } else enrichment.description ?: merged.description,
                 genres =
                     if (enrichment.genres.isNotEmpty()) {
                         enrichment.genres
@@ -856,7 +861,9 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 // When TMDB enrichment is enabled, prefer its logo.
                 // If TMDB has no logo, try metahub using the cached imdb ID (UI onError→text if 404).
                 // itemId may be "tt1234567" (imdb-style) or numeric tmdb id.
-                logo = enrichment.logo ?: enrichment.fallbackLogoUrl ?: run {
+                logo = if (isVerifiedEdition && !merged.logo.isNullOrBlank()) {
+                    merged.logo
+                } else enrichment.logo ?: enrichment.fallbackLogoUrl ?: run {
                     val imdbId = merged.imdbId
                         ?: itemId.removePrefix("tmdb:").toIntOrNull()
                             ?.let { tmdbService.getCachedImdbId(it) }
@@ -865,7 +872,9 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
                 },
                 // Prefer detailBackdrop (unique TMDB image), fall back to existing
                 // landscapePoster, then background if neither is available.
-                landscapePoster = enrichment.detailBackdrop ?: merged.landscapePoster ?: merged.background
+                landscapePoster = if (isVerifiedEdition) {
+                    merged.landscapePoster ?: merged.background ?: enrichment.detailBackdrop
+                } else enrichment.detailBackdrop ?: merged.landscapePoster ?: merged.background
             )
         } else {
             // Even with artwork disabled, set landscapePoster to background
@@ -878,7 +887,8 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
             merged = merged.copy(
                 ageRating = enrichment.ageRating ?: merged.ageRating,
                 status = enrichment.status ?: merged.status,
-                runtime = enrichment.runtimeMinutes?.toString() ?: merged.runtime,
+                runtime = if (isVerifiedEdition) merged.runtime ?: enrichment.runtimeMinutes?.toString()
+                    else enrichment.runtimeMinutes?.toString() ?: merged.runtime,
                 digitalReleaseInfo = enrichment.digitalReleaseInfo ?: merged.digitalReleaseInfo
             )
         }
@@ -893,36 +903,29 @@ internal fun HomeViewModel.updateCatalogItemWithTmdb(itemId: String, enrichment:
     } }
     var wroteToMap = false
     synchronized(catalogsMap) { catalogsMap.forEach { (key, row) ->
-        val idx = row.items.indexOfFirst { it.id == itemId }
-        if (idx >= 0) {
-            val merged = mergeItem(row.items[idx])
-            if (merged != row.items[idx]) {
-                val mutableItems = row.items.toMutableList()
-                mutableItems[idx] = merged
-                catalogsMap[key] = row.copy(items = mutableItems)
-                wroteToMap = true
-            } else {
-            }
+        // Two verified editions intentionally share the same canonical ID.
+        // Enrich every matching card, but preserve each edition's artwork.
+        val mergedItems = row.items.map { current ->
+            if (current.id == itemId) mergeItem(current) else current
+        }
+        if (mergedItems != row.items) {
+            catalogsMap[key] = row.copy(items = mergedItems)
+            wroteToMap = true
         }
     }
     } // end synchronized
+
     enrichmentCache[itemId] = enrichment
 
     _uiState.update { state ->
         var changed = false
         val updatedRows = state.catalogRows.map { row ->
-            val idx = row.items.indexOfFirst { it.id == itemId }
-            if (idx < 0) row
-            else {
-                val mergedItem = mergeItem(row.items[idx])
-                if (mergedItem == row.items[idx]) {
-                    row
-                } else {
-                    changed = true
-                    val mutableItems = row.items.toMutableList()
-                    mutableItems[idx] = mergedItem
-                    row.copy(items = mutableItems)
-                }
+            val mergedItems = row.items.map { current ->
+                if (current.id == itemId) mergeItem(current) else current
+            }
+            if (mergedItems == row.items) row else {
+                changed = true
+                row.copy(items = mergedItems)
             }
         }
         if (changed) state.copy(catalogRows = updatedRows) else state

@@ -20,6 +20,7 @@ import com.nuvio.tv.domain.model.LibraryEntryInput
 import com.nuvio.tv.domain.model.LibrarySourceMode
 import com.nuvio.tv.domain.model.ListMembershipChanges
 import com.nuvio.tv.domain.model.Meta
+import com.nuvio.tv.domain.model.StreamingOriginalsEditionId
 import com.nuvio.tv.domain.model.MetaTrailer
 import com.nuvio.tv.domain.model.NextToWatch
 import com.nuvio.tv.domain.model.TmdbSettings
@@ -166,7 +167,11 @@ class MetaDetailsViewModel @Inject constructor(
     private val trackingRatingCoordinator: TrackingRatingCoordinator,
     savedStateHandle: SavedStateHandle
 ) : ViewModel() {
-    private val itemId: String = savedStateHandle["itemId"] ?: ""
+    // Navigation may identify a verified first-party edition, but every
+    // library/playback/watch-history lookup continues to use its base movie ID.
+    private val requestedItemId: String = savedStateHandle["itemId"] ?: ""
+    private val editionRoute = StreamingOriginalsEditionId.parse(requestedItemId)
+    private val itemId: String = editionRoute?.canonicalId ?: requestedItemId
     private val itemType: String = savedStateHandle["itemType"] ?: ""
     private val preferredAddonBaseUrl: String? = savedStateHandle["addonBaseUrl"]
 
@@ -676,7 +681,7 @@ class MetaDetailsViewModel @Inject constructor(
                 async {
                     fetchPreferredMeta(
                         baseUrl = baseUrl,
-                        lookupId = itemId
+                        lookupId = requestedItemId
                     )
                 }
             }
@@ -687,6 +692,13 @@ class MetaDetailsViewModel @Inject constructor(
                     releaseSource = releaseHintsSourceDeferred?.await()
                 )
 
+            suspend fun applyPrimaryMeta(primary: Meta) {
+                val source = if (editionRoute != null) {
+                    releaseHintsSourceDeferred?.await()
+                } else null
+                applyMetaWithEnrichment(withReleaseHints(primary), source)
+            }
+
             val metaLookupId = resolveMetaLookupId(
                 itemId = itemId,
                 itemType = itemType
@@ -695,6 +707,9 @@ class MetaDetailsViewModel @Inject constructor(
                 layoutPreferenceDataStore.preferExternalMetaAddonDetail.first()
 
             suspend fun loadOriginalPreferredPrimary(): Meta? {
+                // An edition sidecar is a catalog presentation, not a full
+                // canonical metadata provider. Never promote it as primary.
+                if (editionRoute != null) return null
                 val baseUrl = preferred ?: return null
 
                 /*
@@ -728,18 +743,14 @@ class MetaDetailsViewModel @Inject constructor(
                 ).collect { result ->
                     when (result) {
                         is NetworkResult.Success -> {
-                            applyMetaWithEnrichment(
-                                withReleaseHints(result.data)
-                            )
+                            applyPrimaryMeta(result.data)
                         }
 
                         is NetworkResult.Error -> {
                             val preferredPrimary =
                                 loadOriginalPreferredPrimary()
                             if (preferredPrimary != null) {
-                                applyMetaWithEnrichment(
-                                    withReleaseHints(preferredPrimary)
-                                )
+                                applyPrimaryMeta(preferredPrimary)
                             } else {
                                 _uiState.update {
                                     it.copy(
@@ -761,9 +772,7 @@ class MetaDetailsViewModel @Inject constructor(
                 // the raw origin response remains only the release sidecar.
                 val preferredPrimary = loadOriginalPreferredPrimary()
                 if (preferredPrimary != null) {
-                    applyMetaWithEnrichment(
-                        withReleaseHints(preferredPrimary)
-                    )
+                    applyPrimaryMeta(preferredPrimary)
                 } else {
                     metaRepository.getMetaFromAllAddons(
                         type = itemType,
@@ -771,9 +780,7 @@ class MetaDetailsViewModel @Inject constructor(
                     ).collect { result ->
                         when (result) {
                             is NetworkResult.Success -> {
-                                applyMetaWithEnrichment(
-                                    withReleaseHints(result.data)
-                                )
+                                applyPrimaryMeta(result.data)
                             }
 
                             is NetworkResult.Error -> {
@@ -888,15 +895,20 @@ class MetaDetailsViewModel @Inject constructor(
         }
     }
 
-    private suspend fun applyMetaWithEnrichment(meta: Meta) {
+    private suspend fun applyMetaWithEnrichment(meta: Meta, editionSource: Meta? = null) {
         // Preserve the original addon backdrop before TMDB enrichment can overwrite it.
         val metaWithOriginal = meta.copy(originalBackground = meta.originalBackground ?: meta.background)
         android.util.Log.d("BackdropDebug", "name=${meta.name} originalBackground=${metaWithOriginal.originalBackground} background=${meta.background}")
         // Fire all independent async jobs immediately — they run in parallel.
         loadMoreLikeThisAsync(metaWithOriginal)
-        val enriched = mergeReleaseBehaviorHints(
-            base = enrichMeta(metaWithOriginal),
-            releaseSource = metaWithOriginal
+        val enriched = applyVerifiedEditionPresentation(
+            mergeReleaseBehaviorHints(
+                base = enrichMeta(metaWithOriginal),
+                releaseSource = metaWithOriginal
+            ),
+            editionSource,
+            itemId,
+            editionRoute
         )
         android.util.Log.d("BackdropDebug", "after enrichment: background=${enriched.background} detailBackdrop=${enriched.detailBackdrop} originalBackground=${enriched.originalBackground}")
         // Resolve MDBList state before Details becomes visible.

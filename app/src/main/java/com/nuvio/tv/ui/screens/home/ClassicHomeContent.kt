@@ -174,10 +174,17 @@ fun ClassicHomeContent(
                     focusRequester = if (shouldRequestInitialFocus) heroFocusRequester else null,
                     onItemFocus = onItemFocus,
                     onItemClick = { item ->
+                        val editionOrigin = if (item.detailNavigationId != item.id) {
+                            uiState.catalogRows.firstOrNull { row ->
+                                row.items.any { candidate ->
+                                    candidate.detailNavigationId == item.detailNavigationId
+                                }
+                            }?.addonBaseUrl.orEmpty()
+                        } else ""
                         onNavigateToDetail(
-                            item.id,
+                            item.detailNavigationId,
                             item.apiType,
-                            ""
+                            editionOrigin
                         )
                     }
                 )

@@ -1437,7 +1437,7 @@ fun HomeScreen(
                 isReleaseReminderSet,
             onDismiss = { posterOptionsTarget = null },
             onDetails = {
-                onNavigateToDetail(item.id, item.apiType, selectedPoster.addonBaseUrl)
+                onNavigateToDetail(item.detailNavigationId, item.apiType, selectedPoster.addonBaseUrl)
                 posterOptionsTarget = null
             },
             onToggleLibrary = {

@@ -186,7 +186,7 @@ fun CatalogSeeAllScreen(
                 ) {
                     itemsIndexed(
                         items = catalogRow.items,
-                        key = { index, item -> "${catalogRow.catalogId}_${item.id}_$index" }
+                        key = { index, item -> "${catalogRow.catalogId}_${item.detailNavigationId}_$index" }
                     ) { index, item ->
                         GridContentCard(
                             item = item,
@@ -198,7 +198,7 @@ fun CatalogSeeAllScreen(
                             },
                             onClick = {
                                 onNavigateToDetail(
-                                    item.id,
+                                    item.detailNavigationId,
                                     item.apiType,
                                     catalogRow.addonBaseUrl
                                 )

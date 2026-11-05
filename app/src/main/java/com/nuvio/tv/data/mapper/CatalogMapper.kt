@@ -8,6 +8,7 @@ import com.nuvio.tv.domain.model.PosterShape
 fun MetaPreviewDto.toDomain(): MetaPreview {
     return MetaPreview(
         id = id,
+        editionDetailId = editionDetailId,
         type = ContentType.fromString(type),
         rawType = type,
         name = name,
