@@ -80,10 +80,18 @@ class YoutubeChunkedDataSourceFactory(
 
         private fun openNextChunk(): Long {
             val spec = originalDataSpec ?: throw IllegalStateException("No DataSpec")
-            val end = if (totalContentLength != C.LENGTH_UNSET.toLong()) {
-                minOf(currentChunkStart + chunkSize - 1, currentChunkStart + totalContentLength - 1)
+            // Diagnostic-only experiment: use a 64 KiB HTTP range for itag 251
+            // to distinguish length-sensitive 403s from denied audio streams.
+            // All other audio and video formats retain their existing chunk size.
+            val effectiveChunkSize = if (spec.uri.getQueryParameter("itag") == "251") {
+                64L * 1024L
             } else {
-                currentChunkStart + chunkSize - 1
+                chunkSize
+            }
+            val end = if (totalContentLength != C.LENGTH_UNSET.toLong()) {
+                minOf(currentChunkStart + effectiveChunkSize - 1, currentChunkStart + totalContentLength - 1)
+            } else {
+                currentChunkStart + effectiveChunkSize - 1
             }
             // Some trailers have audio streams shorter than the 10 MB chunk size.
             // Do not ask Googlevideo for bytes past the stream's declared length.
