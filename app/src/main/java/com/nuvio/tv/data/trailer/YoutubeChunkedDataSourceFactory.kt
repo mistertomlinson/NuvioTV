@@ -49,6 +49,7 @@ class YoutubeChunkedDataSourceFactory(
         private var currentUri: Uri? = null
         private var isYouTubeStream = false
         private var totalContentLength = C.LENGTH_UNSET.toLong()
+        private var streamContentLength: Long? = null
         private var currentChunkStart = 0L
         private var currentChunkEnd = 0L
         private var bytesReadInChunk = 0L
@@ -70,6 +71,9 @@ class YoutubeChunkedDataSourceFactory(
             originalDataSpec = dataSpec
             currentChunkStart = dataSpec.position
             totalContentLength = dataSpec.length
+            streamContentLength = uri.getQueryParameter("clen")
+                ?.toLongOrNull()
+                ?.takeIf { it > 0 }
 
             return openNextChunk()
         }
@@ -81,7 +85,9 @@ class YoutubeChunkedDataSourceFactory(
             } else {
                 currentChunkStart + chunkSize - 1
             }
-            currentChunkEnd = end
+            // Some trailers have audio streams shorter than the 10 MB chunk size.
+            // Do not ask Googlevideo for bytes past the stream's declared length.
+            currentChunkEnd = minOf(end, streamContentLength?.minus(1) ?: end)
 
             // Keep the signed Googlevideo URL unchanged; request a bounded
             // chunk with an HTTP Range header rather than a URL query parameter.
@@ -102,7 +108,7 @@ class YoutubeChunkedDataSourceFactory(
             Log.d(
                 TAG,
                 "TRAILER_PLAY_DIAG open host=$host itag=$itag mime=$mime " +
-                    "start=$currentChunkStart end=$currentChunkEnd " +
+                    "start=$currentChunkStart end=$currentChunkEnd clen=$streamContentLength " +
                     "specPosition=${chunkedSpec.position} specLength=${chunkedSpec.length} " +
                     "hasRange=${chunkedSpec.httpRequestHeaders.containsKey("Range")}"
             )
@@ -144,6 +150,9 @@ class YoutubeChunkedDataSourceFactory(
                 }
 
                 currentChunkStart += chunkBytesReceived
+                if (streamContentLength?.let { currentChunkStart >= it } == true) {
+                    return C.RESULT_END_OF_INPUT
+                }
                 if (totalContentLength != C.LENGTH_UNSET.toLong()) {
                     totalContentLength -= chunkBytesReceived
                     if (totalContentLength <= 0) {
@@ -170,6 +179,7 @@ class YoutubeChunkedDataSourceFactory(
             upstream.close()
             currentUri = null
             originalDataSpec = null
+            streamContentLength = null
         }
     }
 }
