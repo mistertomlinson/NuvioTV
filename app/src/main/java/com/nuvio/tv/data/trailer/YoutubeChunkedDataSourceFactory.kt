@@ -7,6 +7,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 
 /**
@@ -93,7 +94,36 @@ class YoutubeChunkedDataSourceFactory(
                 .build()
 
             bytesReadInChunk = 0
-            upstream.open(chunkedSpec)
+            // Diagnostic-only: identify which stream fails without logging signed
+            // URLs, authentication tokens, or sensitive request headers.
+            val itag = spec.uri.getQueryParameter("itag") ?: "unknown"
+            val mime = spec.uri.getQueryParameter("mime") ?: "unknown"
+            val host = spec.uri.host ?: "unknown"
+            Log.d(
+                TAG,
+                "TRAILER_PLAY_DIAG open host=$host itag=$itag mime=$mime " +
+                    "start=$currentChunkStart end=$currentChunkEnd " +
+                    "specPosition=${chunkedSpec.position} specLength=${chunkedSpec.length} " +
+                    "hasRange=${chunkedSpec.httpRequestHeaders.containsKey("Range")}"
+            )
+            val openedLength = try {
+                upstream.open(chunkedSpec)
+            } catch (e: HttpDataSource.InvalidResponseCodeException) {
+                Log.e(
+                    TAG,
+                    "TRAILER_PLAY_DIAG rejected itag=$itag mime=$mime response=${e.responseCode} " +
+                        "start=$currentChunkStart end=$currentChunkEnd"
+                )
+                throw e
+            } catch (e: Exception) {
+                Log.e(
+                    TAG,
+                    "TRAILER_PLAY_DIAG failed itag=$itag mime=$mime " +
+                        "type=${e.javaClass.simpleName} start=$currentChunkStart end=$currentChunkEnd"
+                )
+                throw e
+            }
+            Log.d(TAG, "TRAILER_PLAY_DIAG opened itag=$itag mime=$mime openedLength=$openedLength")
             return if (totalContentLength != C.LENGTH_UNSET.toLong()) totalContentLength else C.LENGTH_UNSET.toLong()
         }
 
