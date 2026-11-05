@@ -10,10 +10,8 @@ import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
 
 /**
- * A DataSource.Factory that wraps DefaultHttpDataSource and appends YouTube's
- * `&range=start-end` query parameter on each request. YouTube throttles (and
- * kills) connections that try to download full adaptive streams in one shot,
- * but honours chunked range-param requests at full speed.
+ * A DataSource.Factory that wraps DefaultHttpDataSource and requests bounded
+ * YouTube chunks with HTTP Range headers without modifying signed stream URLs.
  *
  * Only activates for googlevideo.com URLs; all other URLs pass through untouched.
  */
@@ -79,14 +77,13 @@ class YoutubeChunkedDataSourceFactory(
             }
             currentChunkEnd = end
 
-            // Append &range=start-end to the URL (YouTube's own range param, not HTTP Range header)
-            val rangedUri = spec.uri.buildUpon()
-                .appendQueryParameter("range", "$currentChunkStart-$currentChunkEnd")
-                .build()
-
+            // Keep the signed Googlevideo URL unchanged; request a bounded
+            // chunk with an HTTP Range header rather than a URL query parameter.
             val chunkedSpec = spec.buildUpon()
-                .setUri(rangedUri)
-                .setPosition(0)           // position within this chunk's response
+                .setHttpRequestHeaders(
+                    spec.httpRequestHeaders + ("Range" to "bytes=$currentChunkStart-$currentChunkEnd")
+                )
+                .setPosition(0)
                 .setLength(C.LENGTH_UNSET.toLong()) // let the server decide
                 .build()
 
