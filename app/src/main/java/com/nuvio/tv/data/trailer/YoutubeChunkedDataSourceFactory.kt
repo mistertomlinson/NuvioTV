@@ -119,45 +119,21 @@ class YoutubeChunkedDataSourceFactory(
                 .build()
 
             bytesReadInChunk = 0
-            // Diagnostic-only: identify which stream fails without logging signed
-            // URLs, authentication tokens, or sensitive request headers.
-            val itag = spec.uri.getQueryParameter("itag") ?: "unknown"
-            val mime = spec.uri.getQueryParameter("mime") ?: "unknown"
-            val host = spec.uri.host ?: "unknown"
-            Log.d(
-                TAG,
-                "TRAILER_PLAY_DIAG open host=$host itag=$itag mime=$mime " +
-                    "start=$currentChunkStart end=$currentChunkEnd clen=$streamContentLength " +
-                    "specPosition=${chunkedSpec.position} specLength=${chunkedSpec.length} " +
-                    "hasRange=${chunkedSpec.httpRequestHeaders.containsKey("Range")}"
-            )
-            val openedLength = try {
+            try {
                 upstream.open(chunkedSpec)
             } catch (e: HttpDataSource.InvalidResponseCodeException) {
-                Log.e(
-                    TAG,
-                    "TRAILER_PLAY_DIAG rejected itag=$itag mime=$mime response=${e.responseCode} " +
-                        "start=$currentChunkStart end=$currentChunkEnd"
-                )
+                val mime = spec.uri.getQueryParameter("mime")
                 if (shouldRetrySmallAudioChunk(
                         e.responseCode, mime, useSmallAudioChunks, chunkSize
                     )
                 ) {
-                    Log.w(TAG, "Audio HTTP 403 on itag=$itag; retrying with 64 KiB chunks")
+                    Log.w(TAG, "Audio HTTP 403; retrying with 64 KiB chunks")
                     runCatching { upstream.close() }
                     useSmallAudioChunks = true
                     return openNextChunk()
                 }
                 throw e
-            } catch (e: Exception) {
-                Log.e(
-                    TAG,
-                    "TRAILER_PLAY_DIAG failed itag=$itag mime=$mime " +
-                        "type=${e.javaClass.simpleName} start=$currentChunkStart end=$currentChunkEnd"
-                )
-                throw e
             }
-            Log.d(TAG, "TRAILER_PLAY_DIAG opened itag=$itag mime=$mime openedLength=$openedLength")
             return if (totalContentLength != C.LENGTH_UNSET.toLong()) totalContentLength else C.LENGTH_UNSET.toLong()
         }
 
