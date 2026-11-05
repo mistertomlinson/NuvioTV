@@ -28,6 +28,11 @@ class YoutubeChunkedDataSourceFactory(
 
     override fun createDataSource(): DataSource {
         val upstream = DefaultHttpDataSource.Factory()
+            // Match the UA used by the successful extractor CDN reachability probe.
+            .setUserAgent(
+                "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 " +
+                    "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
+            )
             .setConnectTimeoutMs(15_000)
             .setReadTimeoutMs(15_000)
             .setAllowCrossProtocolRedirects(true)
