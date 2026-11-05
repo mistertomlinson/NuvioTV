@@ -90,7 +90,7 @@ class TrailerServiceRateLimitTest {
         assertNull(lookup())
 
         coVerify(exactly = 3) { extractor.extractPlaybackSource(any()) }
-        coVerify(exactly = 1) {
+        coVerify(exactly = 0) {
             extractor.searchForTrailerVideoId(any(), any(), any(), any())
         }
     }
@@ -116,17 +116,48 @@ class TrailerServiceRateLimitTest {
     }
 
     @Test
-    fun `normal tmdb miss still uses youtube title search fallback`() = runTest {
+    fun `normal TMDB miss never searches YouTube by title`() = runTest {
         coEvery { tmdbApi.getMovieVideos(any(), any(), any()) } returns
             Response.success(TmdbVideosResponse(id = 123, results = emptyList()))
-        coEvery {
-            extractor.searchForTrailerVideoId(any(), any(), any(), any())
-        } returns "dQw4w9WgXcQ"
-        coEvery { extractor.extractPlaybackSource(any()) } returns
-            TrailerPlaybackSource(videoUrl = "https://cdn.example/search-result.mp4")
 
-        assertEquals("https://cdn.example/search-result.mp4", lookup()?.videoUrl)
+        assertNull(lookup())
+        coVerify(exactly = 0) {
+            extractor.searchForTrailerVideoId(any(), any(), any(), any())
+        }
+        coVerify(exactly = 0) { extractor.extractPlaybackSource(any()) }
+        coVerify(exactly = 0) { trailerApi.getTrailer(any(), any(), any()) }
+    }
+
+    @Test
+    fun `TMDB linked trailer still uses in-app YouTube extraction`() = runTest {
+        coEvery { extractor.extractPlaybackSource(any()) } returns
+            TrailerPlaybackSource(videoUrl = "https://cdn.example/tmdb-trailer.mp4")
+
+        assertEquals("https://cdn.example/tmdb-trailer.mp4", lookup()?.videoUrl)
         coVerify(exactly = 1) {
+            extractor.extractPlaybackSource(
+                "https://www.youtube.com/watch?v=" + trailer(0).key
+            )
+        }
+        coVerify(exactly = 0) {
+            extractor.searchForTrailerVideoId(any(), any(), any(), any())
+        }
+    }
+
+    @Test
+    fun `explicit addon trailer ID still resolves without title search`() = runTest {
+        coEvery { extractor.extractPlaybackSource(VIDEO_URL) } returns
+            TrailerPlaybackSource(videoUrl = "https://cdn.example/addon-trailer.mp4")
+
+        val source = service.getTrailerPlaybackSourceFromYouTubeUrl(
+            youtubeUrl = VIDEO_URL,
+            title = "Mixtape",
+            year = "2023"
+        )
+
+        assertEquals("https://cdn.example/addon-trailer.mp4", source?.videoUrl)
+        coVerify(exactly = 1) { extractor.extractPlaybackSource(VIDEO_URL) }
+        coVerify(exactly = 0) {
             extractor.searchForTrailerVideoId(any(), any(), any(), any())
         }
     }
