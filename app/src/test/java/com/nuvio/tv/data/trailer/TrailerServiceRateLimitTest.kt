@@ -163,6 +163,25 @@ class TrailerServiceRateLimitTest {
     }
 
     @Test
+    fun `known addon ID still uses backend resolver if in-app extraction fails`() = runTest {
+        coEvery { extractor.extractPlaybackSource(VIDEO_URL) } returns null
+        coEvery { trailerApi.getTrailer(VIDEO_URL, "Mixtape", "2023") } returns
+            Response.success(TrailerResponse(url = "https://cdn.example/backend-trailer.mp4"))
+
+        val source = service.getTrailerPlaybackSourceFromYouTubeUrl(
+            youtubeUrl = VIDEO_URL,
+            title = "Mixtape",
+            year = "2023"
+        )
+
+        assertEquals("https://cdn.example/backend-trailer.mp4", source?.videoUrl)
+        coVerify(exactly = 1) { trailerApi.getTrailer(VIDEO_URL, "Mixtape", "2023") }
+        coVerify(exactly = 0) {
+            extractor.searchForTrailerVideoId(any(), any(), any(), any())
+        }
+    }
+
+    @Test
     fun `concurrent requests for same youtube id extract once`() = runTest {
         val started = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
