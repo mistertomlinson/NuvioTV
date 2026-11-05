@@ -1152,8 +1152,8 @@ class InAppYouTubeExtractor @Inject constructor() {
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .header("Range", "bytes=0-0")
                 .headers(buildHeaders(DEFAULT_HEADERS))
+                .header("Range", "bytes=0-0")
                 .build()
             probeClient.newCall(request).execute().use { response ->
                 Log.d(
