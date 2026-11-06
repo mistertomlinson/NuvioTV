@@ -129,7 +129,7 @@ private fun HomeViewModel.discardStaleStreamingOriginalsStage(
 
     Log.d(
         HomeViewModel.TAG,
-        "Discarded pre-midnight Streaming Originals stage"
+        "Discarded prior-day Streaming Originals stage"
     )
 }
 
@@ -263,11 +263,10 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
             }
 
             /*
-             * This stage is an authoritative date-boundary probe. Remove only
-             * Streaming Originals request-cache entries so a cached Success
-             * cannot hide a failed network fetch and falsely satisfy today's
-             * midnight/recovery check. Disk fallback and every other addon's
-             * cache remain untouched.
+             * Each checkpoint must revalidate the server, not reuse an older
+             * successful response from the in-memory request cache. Clear
+             * only SO entries; every other addon's cache and disk fallback
+             * remain untouched.
              */
             catalogRepository.clearAddonInMemoryCache(
                 STREAMING_ORIGINALS_REFRESH_ADDON_ID
@@ -335,9 +334,8 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
             val rawPreparedRows = preparedRows.filterNotNull()
 
             /*
-             * A 23:45 precheck that finishes after midnight is yesterday's
-             * snapshot. Never let it satisfy or overwrite the new day's due
-             * state. The midnight/recovery pass will stage again.
+             * A stage that began before midnight is yesterday's snapshot.
+             * It cannot satisfy today's release-day rollover.
              */
             if (
                 LocalDate.now(STREAMING_ORIGINALS_TIME_ZONE).toString() !=
