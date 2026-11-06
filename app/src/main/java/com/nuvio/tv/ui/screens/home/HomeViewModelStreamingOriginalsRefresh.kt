@@ -341,7 +341,9 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 LocalDate.now(STREAMING_ORIGINALS_TIME_ZONE).toString() !=
                     stageDate
             ) {
-                setStreamingOriginalsRefreshDue(true)
+                if (state.refreshGeneration == stageGeneration) {
+                    setStreamingOriginalsRefreshDue(true)
+                }
                 Log.d(
                     HomeViewModel.TAG,
                     "Discarded Streaming Originals stage that crossed midnight"
@@ -429,7 +431,9 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 LocalDate.now(STREAMING_ORIGINALS_TIME_ZONE).toString() !=
                     stageDate
             ) {
-                setStreamingOriginalsRefreshDue(true)
+                if (state.refreshGeneration == stageGeneration) {
+                    setStreamingOriginalsRefreshDue(true)
+                }
                 Log.d(
                     HomeViewModel.TAG,
                     "Discarded enriched Streaming Originals stage after midnight"
