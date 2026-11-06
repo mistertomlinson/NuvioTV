@@ -8,8 +8,6 @@ import com.nuvio.tv.domain.model.CatalogRow
 import com.nuvio.tv.domain.model.skipStep
 import com.nuvio.tv.domain.model.supportsExtra
 import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.util.Collections
 import java.util.WeakHashMap
@@ -33,19 +31,10 @@ private const val STREAMING_ORIGINALS_REFRESH_PREFS =
 private const val STREAMING_ORIGINALS_REFRESH_DUE = "refresh_due"
 private const val STREAMING_ORIGINALS_LAST_SUCCESS_DATE =
     "last_success_local_date"
-private const val STREAMING_ORIGINALS_LAST_PRECHECK_DATE =
-    "last_2345_precheck_local_date"
-private const val STREAMING_ORIGINALS_LAST_RECOVERY_DATE =
-    "last_0045_recovery_local_date"
-
-private val STREAMING_ORIGINALS_PRECHECK_TIME: LocalTime =
-    LocalTime.of(23, 45)
-private val STREAMING_ORIGINALS_RECOVERY_TIME: LocalTime =
-    LocalTime.of(0, 45)
-
 private data class StreamingOriginalsRefreshState(
     var tickerJob: Job? = null,
     var stageJob: Job? = null,
+    @Volatile var refreshGeneration: Long = 0,
     var stageReady: Boolean = false,
     var stagedRows: Map<String, CatalogRow> = emptyMap(),
     var stagedAddons: List<Addon>? = null,
@@ -72,7 +61,7 @@ private fun HomeViewModel.streamingOriginalsRefreshPrefs() =
     )
 
 private fun localNow(): ZonedDateTime =
-    ZonedDateTime.now(ZoneId.systemDefault())
+    ZonedDateTime.now(STREAMING_ORIGINALS_TIME_ZONE)
 
 private fun HomeViewModel.setStreamingOriginalsRefreshDue(
     due: Boolean
@@ -96,14 +85,24 @@ private fun HomeViewModel.isStreamingOriginalsRefreshDue(): Boolean =
 private fun HomeViewModel.markStreamingOriginalsRefreshDue(
     reason: String
 ) {
-    if (!isStreamingOriginalsRefreshDue()) {
+    val state = streamingOriginalsRefreshState()
+    synchronized(state) {
+        // A new checkpoint supersedes a staged or still-running replacement
+        // from an earlier checkpoint (e.g. 11:45 still running at 12:45).
+        state.refreshGeneration++
+        state.stageJob?.cancel()
+        state.stageJob = null
+        if (state.stageReady) {
+            state.stageReady = false
+            state.stagedRows = emptyMap()
+            state.stagedAddons = null
+            state.stagedLocalDate = null
+            seasonalSpotlightStageReadyState.value = false
+        }
         setStreamingOriginalsRefreshDue(true)
-        Log.d(
-            HomeViewModel.TAG,
-            "Streaming Originals refresh due: $reason"
-        )
     }
 
+    Log.d(HomeViewModel.TAG, "Streaming Originals refresh due: $reason")
     if (!homePresentationVisible) {
         startPendingStreamingOriginalsStageIfNeeded()
     }
@@ -137,74 +136,44 @@ private fun HomeViewModel.discardStaleStreamingOriginalsStage(
 private fun HomeViewModel.evaluateStreamingOriginalsRefreshBoundary() {
     val now = localNow()
     val localDate = now.toLocalDate().toString()
-    val localTime = now.toLocalTime()
     val prefs = streamingOriginalsRefreshPrefs()
-
-    val lastSuccess =
-        prefs.getString(
-            STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
-            null
-        )
+    val lastSuccess = prefs.getString(STREAMING_ORIGINALS_LAST_SUCCESS_DATE, null)
 
     if (lastSuccess == null) {
-        prefs.edit()
-            .putString(
-                STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
-                localDate
-            )
-            .putBoolean(
-                STREAMING_ORIGINALS_REFRESH_DUE,
-                false
-            )
-            .apply()
-    } else if (lastSuccess != localDate) {
+        // The first Home load already fetches catalogs. Record checkpoints
+        // that have passed today rather than immediately duplicating it.
+        val editor = prefs.edit()
+            .putString(STREAMING_ORIGINALS_LAST_SUCCESS_DATE, localDate)
+            .putBoolean(STREAMING_ORIGINALS_REFRESH_DUE, false)
+        StreamingOriginalsTimedCheck.entries.forEach { check ->
+            if (now.toLocalTime() >= check.at) {
+                editor.putString(check.preferenceKey, localDate)
+            }
+        }
+        editor.apply()
+        return
+    }
+
+    val priorCheckpoints = StreamingOriginalsTimedCheck.entries.associateWith {
+        prefs.getString(it.preferenceKey, null)
+    }
+    val due = dueStreamingOriginalsTimedChecks(now, priorCheckpoints)
+    if (due.isEmpty()) return
+
+    if (due.contains(StreamingOriginalsTimedCheck.MIDNIGHT)) {
         discardStaleStreamingOriginalsStage(localDate)
-        markStreamingOriginalsRefreshDue("local_midnight_or_resume_catchup")
     }
 
-    if (localTime >= STREAMING_ORIGINALS_PRECHECK_TIME) {
-        val precheckDate =
-            prefs.getString(
-                STREAMING_ORIGINALS_LAST_PRECHECK_DATE,
-                null
-            )
-
-        if (precheckDate != localDate) {
-            prefs.edit()
-                .putString(
-                    STREAMING_ORIGINALS_LAST_PRECHECK_DATE,
-                    localDate
-                )
-                .apply()
-            markStreamingOriginalsRefreshDue("23:45_local_precheck")
-        }
+    // Date-keyed markers are persisted independently. A successful 11:45
+    // stage cannot suppress the 12:45 recheck, and a resuming app coalesces
+    // all overdue checkpoints into one fresh off-screen snapshot.
+    val editor = prefs.edit()
+    due.forEach { check ->
+        editor.putString(check.preferenceKey, localDate)
     }
+    editor.apply()
 
-    if (localTime >= STREAMING_ORIGINALS_RECOVERY_TIME) {
-        val recoveryDate =
-            prefs.getString(
-                STREAMING_ORIGINALS_LAST_RECOVERY_DATE,
-                null
-            )
-        val currentLastSuccess =
-            prefs.getString(
-                STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
-                null
-            )
-
-        if (
-            recoveryDate != localDate &&
-            currentLastSuccess != localDate
-        ) {
-            prefs.edit()
-                .putString(
-                    STREAMING_ORIGINALS_LAST_RECOVERY_DATE,
-                    localDate
-                )
-                .apply()
-            markStreamingOriginalsRefreshDue("00:45_local_recovery")
-        }
-    }
+    markStreamingOriginalsRefreshDue(due.joinToString(",") { it.reason })
 }
 
 internal fun HomeViewModel.ensureStreamingOriginalsRefreshTicker() {
@@ -264,7 +233,8 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
         }
 
     val profileId = profileManager.activeProfileId.value
-    val stageDate = LocalDate.now(ZoneId.systemDefault()).toString()
+    val stageDate = LocalDate.now(STREAMING_ORIGINALS_TIME_ZONE).toString()
+    val stageGeneration = state.refreshGeneration
 
     state.stageJob =
         viewModelScope.launch(Dispatchers.IO) {
@@ -285,6 +255,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
 
             if (
                 refreshedAddon == null ||
+                state.refreshGeneration != stageGeneration ||
                 profileManager.activeProfileId.value != profileId ||
                 homePresentationVisible
             ) {
@@ -348,6 +319,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 }
 
             if (
+                state.refreshGeneration != stageGeneration ||
                 profileManager.activeProfileId.value != profileId ||
                 homePresentationVisible ||
                 preparedRows.size != refreshedAddon.catalogs.size ||
@@ -368,7 +340,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
              * state. The midnight/recovery pass will stage again.
              */
             if (
-                LocalDate.now(ZoneId.systemDefault()).toString() !=
+                LocalDate.now(STREAMING_ORIGINALS_TIME_ZONE).toString() !=
                     stageDate
             ) {
                 setStreamingOriginalsRefreshDue(true)
@@ -385,18 +357,20 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
              * change without changing row membership.
              */
             if (!streamingOriginalsStageDiffersFromLive(rawPreparedRows)) {
-                state.stageReady = false
-                state.stagedRows = emptyMap()
-                state.stagedAddons = null
-                state.stagedLocalDate = null
-                setStreamingOriginalsRefreshDue(false)
-                streamingOriginalsRefreshPrefs()
-                    .edit()
-                    .putString(
-                        STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
-                        stageDate
-                    )
-                    .apply()
+                synchronized(state) {
+                    if (state.refreshGeneration != stageGeneration) {
+                        return@launch
+                    }
+                    state.stageReady = false
+                    state.stagedRows = emptyMap()
+                    state.stagedAddons = null
+                    state.stagedLocalDate = null
+                    setStreamingOriginalsRefreshDue(false)
+                    streamingOriginalsRefreshPrefs()
+                        .edit()
+                        .putString(STREAMING_ORIGINALS_LAST_SUCCESS_DATE, stageDate)
+                        .apply()
+                }
                 Log.d(
                     HomeViewModel.TAG,
                     "Streaming Originals content unchanged; staged probe discarded"
@@ -446,6 +420,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 }
 
             if (
+                state.refreshGeneration != stageGeneration ||
                 profileManager.activeProfileId.value != profileId ||
                 homePresentationVisible
             ) {
@@ -453,7 +428,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
             }
 
             if (
-                LocalDate.now(ZoneId.systemDefault()).toString() !=
+                LocalDate.now(STREAMING_ORIGINALS_TIME_ZONE).toString() !=
                     stageDate
             ) {
                 setStreamingOriginalsRefreshDue(true)
@@ -482,21 +457,21 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                     }
                 }
 
-            state.stagedRows = staged
-            state.stagedAddons = nextAddons
-            state.stagedLocalDate = stageDate
-            state.stageReady = true
-
-            setStreamingOriginalsRefreshDue(false)
-            streamingOriginalsRefreshPrefs()
-                .edit()
-                .putString(
-                    STREAMING_ORIGINALS_LAST_SUCCESS_DATE,
-                    stageDate
-                )
-                .apply()
-
-            seasonalSpotlightStageReadyState.value = true
+            synchronized(state) {
+                if (state.refreshGeneration != stageGeneration) {
+                    return@launch
+                }
+                state.stagedRows = staged
+                state.stagedAddons = nextAddons
+                state.stagedLocalDate = stageDate
+                state.stageReady = true
+                setStreamingOriginalsRefreshDue(false)
+                streamingOriginalsRefreshPrefs()
+                    .edit()
+                    .putString(STREAMING_ORIGINALS_LAST_SUCCESS_DATE, stageDate)
+                    .apply()
+                seasonalSpotlightStageReadyState.value = true
+            }
 
             Log.d(
                 HomeViewModel.TAG,
