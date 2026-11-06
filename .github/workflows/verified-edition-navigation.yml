@@ -2,7 +2,9 @@ name: Verified edition navigation Android tests
 
 on:
   push:
-    branches: ['fix/verified-edition-navigation-and-language-variants']
+    branches:
+      - fix/verified-edition-navigation-and-language-variants
+      - fix/streaming-originals-three-daily-refresh-points
   pull_request:
     branches: [dev]
     paths:
