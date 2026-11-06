@@ -145,6 +145,19 @@ private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 400L
 private const val MODERN_HERO_NORMAL_SETTLE_MS = 450L
 private const val KEY_REPEAT_THROTTLE_MS = 140L
 
+private data class HomeExposureSnapshot(
+    val activeRowKey: String?,
+    val rows: List<HeroCarouselRow>,
+    val landscapeKeys: Set<String>,
+    val universalLandscape: Boolean,
+    val posterWidthDp: Int,
+    val posterHeightDp: Int,
+    val expandPortraitCards: Boolean,
+    val screenWidthDp: Int,
+    val savedRowScrollIndices: Map<String, Int>,
+    val scrolling: Boolean
+)
+
 internal const val HOME_DOUBLE_UP_GAP_MS = 80L
 private const val HOME_DOUBLE_UP_LEAD_ROWS = 3
 private const val HOME_DOUBLE_UP_TOP_RUNWAY_ROWS = 3
@@ -1957,345 +1970,121 @@ fun ModernHomeContent(
     val latestPosterCardWidthDp by rememberUpdatedState(uiState.posterCardWidthDp)
     val latestPosterCardHeightDp by rememberUpdatedState(uiState.posterCardHeightDp)
     val latestEffectiveExpandEnabled by rememberUpdatedState(effectiveExpandEnabled)
+    val latestCatalogRowScrollStates by rememberUpdatedState(focusState.catalogRowScrollStates)
     val latestScreenWidthDp by rememberUpdatedState(
         androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
     )
 
     /*
-     * Exposure-risk poster prewarm.
+     * Prepare complete exposed windows before their landscape bridge receives
+     * focus. Include the focused bridge itself: those images are still needed
+     * while the user is on that row. Consecutive landscape rows can expose
+     * landscape artwork too, so do not restrict targets to portrait rows.
      *
-     * A short landscape row can reveal the portrait row beneath it before
-     * focus ever reaches that portrait row. Waiting for directional prefetch
-     * is too late in that geometry, so prepare the nearest exposed portrait
-     * window directly while Home is already idle.
-     *
-     * This does not expand LazyColumn's cache window or compose off-screen
-     * rows. It warms the complete potentially-visible portrait window,
-     * sequentially, plus one safety card for clipping/rounding.
-     *
-     * Once that small exposure warm has started, let it finish. Cancelling it
-     * when Down navigation begins can leave only part of the soon-visible row
-     * in memory, producing the exact blank-poster flash this prewarm exists
-     * to prevent. New exposure work still starts only from an idle snapshot.
+     * Keep the established three-row lookahead, without composing extra rows
+     * or changing LazyColumn prefetch. At most two image requests run at once.
+     * Each window owns its job, so landing on the bridge or enriching unrelated
+     * titles cannot cancel an unchanged batch. Work starts from idle snapshots.
      */
-    LaunchedEffect(Unit) {
-        var completedExposureSignature: String? = null
+    LaunchedEffect(context, density, catalogDisplayedPlatformId) {
+        val imageLoader = coil.Coil.imageLoader(context)
+        val exposureCache = HomeExposureImageCache(context, imageLoader)
+        val prewarmer = HomeExposurePrewarmer(
+            scope = this,
+            isWarm = exposureCache::isWarm,
+            prewarm = exposureCache::prewarm
+        )
 
-        kotlinx.coroutines.flow.combine(
+        combine(
             snapshotFlow {
-                Pair(
-                    activeRowKey,
-                    latestCarouselRows
+                // Read scrolling alongside focus/content: rowListStates is a
+                // plain map, so revisit its state subscriptions as rows appear.
+                HomeExposureSnapshot(
+                    activeRowKey = activeRowKey,
+                    rows = latestCarouselRows,
+                    landscapeKeys = latestLandscapeCatalogKeys,
+                    universalLandscape = latestUseLandscapePosters,
+                    posterWidthDp = latestPosterCardWidthDp,
+                    posterHeightDp = latestPosterCardHeightDp,
+                    expandPortraitCards = latestEffectiveExpandEnabled,
+                    screenWidthDp = latestScreenWidthDp,
+                    savedRowScrollIndices = latestCatalogRowScrollStates,
+                    scrolling = verticalRowListState.isScrollInProgress ||
+                        rowListStates.values.any { it.isScrollInProgress }
                 )
             },
-            isFastScrollingRef,
-            snapshotFlow {
-                verticalRowListState.isScrollInProgress ||
-                    rowListStates.values.any {
-                        it.isScrollInProgress
-                    }
+            isFastScrollingRef
+        ) { snapshot, fastScrolling ->
+            snapshot to fastScrolling
+        }.collect { (snapshot, fastScrolling) ->
+            // Navigation does not cancel batches that have already started.
+            if (fastScrolling || snapshot.scrolling) return@collect
+
+            val rows = snapshot.rows
+            val portraitWidth = snapshot.posterWidthDp.dp
+            val portraitHeight = snapshot.posterHeightDp.dp
+            if (snapshot.universalLandscape || portraitWidth <= 0.dp || portraitHeight <= 0.dp) {
+                exposureCache.retainWindows(emptyList())
+                prewarmer.update(emptyList())
+                return@collect
             }
-        ) { pair, fastScrolling, anyScrolling ->
-            Triple(
-                pair,
-                fastScrolling,
-                anyScrolling
+
+            val targets = homeExposureRows(
+                rows = rows,
+                focusedRowIndex = rows.indexOfFirst { it.key == snapshot.activeRowKey },
+                isLandscape = { it.key in snapshot.landscapeKeys },
+                canPrewarm = { it.key != "continue_watching" && it.items.isNotEmpty() }
             )
+            val windows = targets.mapNotNull { targetRow ->
+                val rowLandscape = targetRow.key in snapshot.landscapeKeys
+                val cardWidth = if (rowLandscape) {
+                    portraitWidth * 1.24f * 1.34f
+                } else {
+                    portraitWidth * 0.84f * 1.08f
+                }
+                val cardHeight = if (rowLandscape) {
+                    cardWidth / 1.77f
+                } else {
+                    portraitHeight * 0.84f * 1.08f
+                }
+                val requestWidth = if (snapshot.expandPortraitCards && !rowLandscape) {
+                    maxOf(cardWidth, cardHeight * (16f / 9f))
+                } else {
+                    cardWidth
+                }
+                val startIndex = (
+                    rowListStates[targetRow.key]?.firstVisibleItemIndex
+                        ?: uiCaches.lastActuallyFocusedIndexByRow[targetRow.key]
+                        ?: snapshot.savedRowScrollIndices[targetRow.key]
+                        ?: 0
+                    ).coerceIn(0, targetRow.items.lastIndex)
+                // Minimum row spacing is conservative for numbered rows. Add
+                // one safety card for partial clipping and pixel rounding.
+                val availableWidthPx = with(density) {
+                    (snapshot.screenWidthDp.dp - 52.dp).roundToPx().coerceAtLeast(1)
+                }
+                val cardPitchPx = with(density) {
+                    (cardWidth + 12.dp).roundToPx().coerceAtLeast(1)
+                }
+                val count = (availableWidthPx + cardPitchPx - 1) / cardPitchPx + 1
+                val urls = targetRow.items
+                    .subList(startIndex, minOf(startIndex + count, targetRow.items.size))
+                    .mapNotNull { it.imageUrl?.takeIf(String::isNotBlank) }
+                    .distinct()
+                if (urls.isEmpty()) return@mapNotNull null
+
+                HomeExposureWindow(
+                    rowKey = targetRow.key,
+                    imageUrls = urls,
+                    requestWidthPx = with(density) { requestWidth.roundToPx() },
+                    requestHeightPx = with(density) { cardHeight.roundToPx() }
+                )
+            }
+            // No permanent "completed" signature: success is not proof that
+            // Coil still holds the decoded bitmap after later memory pressure.
+            exposureCache.retainWindows(windows)
+            prewarmer.update(windows)
         }
-            /*
-             * Scroll activity prevents NEW exposure work from starting, but
-             * must not cancel a tiny batch that already started. Filtering
-             * scrolling snapshots before collectLatest gives us that behavior.
-             *
-             * A new idle content/platform snapshot still reaches
-             * collectLatest, so stale work from the previous platform is
-             * cancelled instead of blocking the new page behind it.
-             */
-            .filter { (_, fastScrolling, anyScrolling) ->
-                !fastScrolling && !anyScrolling
-            }
-            .collectLatest {
-                (pair, fastScrolling, anyScrolling) ->
-
-                if (
-                    fastScrolling ||
-                    anyScrolling
-                ) {
-                    return@collectLatest
-                }
-
-                val (rowKey, rows) = pair
-                if (rowKey == null || rows.size < 2) {
-                    return@collectLatest
-                }
-
-                val focusedRowIndex =
-                    rows.indexOfFirst {
-                        it.key == rowKey
-                    }
-
-                if (focusedRowIndex < 0) {
-                    return@collectLatest
-                }
-
-                val portraitWidth =
-                    latestPosterCardWidthDp.dp
-                val portraitHeight =
-                    latestPosterCardHeightDp.dp
-
-                if (
-                    portraitWidth <= 0.dp ||
-                    portraitHeight <= 0.dp ||
-                    latestUseLandscapePosters
-                ) {
-                    return@collectLatest
-                }
-
-                /*
-                 * Stay narrow: only inspect the next three potential bridge
-                 * rows and choose the first landscape -> portrait transition.
-                 */
-                val firstBridgeIndex =
-                    focusedRowIndex + 1
-                val lastBridgeIndex =
-                    minOf(
-                        focusedRowIndex + 3,
-                        rows.lastIndex - 1
-                    )
-
-                if (firstBridgeIndex > lastBridgeIndex) {
-                    return@collectLatest
-                }
-
-                var exposedRow: HeroCarouselRow? = null
-
-                for (
-                    bridgeIndex in
-                        firstBridgeIndex..lastBridgeIndex
-                ) {
-                    val bridgeRow =
-                        rows[bridgeIndex]
-                    val candidateExposedRow =
-                        rows.getOrNull(
-                            bridgeIndex + 1
-                        ) ?: continue
-
-                    val bridgeIsLandscape =
-                        bridgeRow.key in
-                            latestLandscapeCatalogKeys
-                    val exposedIsLandscape =
-                        candidateExposedRow.key in
-                            latestLandscapeCatalogKeys
-
-                    if (
-                        bridgeIsLandscape &&
-                        bridgeRow.items.isNotEmpty() &&
-                        !exposedIsLandscape &&
-                        candidateExposedRow.key !=
-                            "continue_watching" &&
-                        candidateExposedRow.items.isNotEmpty()
-                    ) {
-                        exposedRow =
-                            candidateExposedRow
-                        break
-                    }
-                }
-
-                val targetRow =
-                    exposedRow
-                        ?: return@collectLatest
-
-                val startIndex =
-                    (
-                        rowListStates[
-                            targetRow.key
-                        ]?.firstVisibleItemIndex
-                            ?: uiCaches
-                                .lastActuallyFocusedIndexByRow[
-                                    targetRow.key
-                                ]
-                            ?: uiCaches
-                                .focusedItemByRow[
-                                    targetRow.key
-                                ]
-                            ?: 0
-                    ).coerceIn(
-                        0,
-                        targetRow.items.lastIndex
-                    )
-
-                /*
-                 * Warm the entire horizontal window that could become visible,
-                 * rather than assuming four posters always fill the screen.
-                 *
-                 * Use the minimum ordinary-row spacing here intentionally.
-                 * Numbered rows can have wider spacing, so this calculation
-                 * may warm an extra poster or two but can never under-warm
-                 * them because of their larger gaps.
-                 */
-                val prewarmCardWidth =
-                    portraitWidth *
-                        0.84f *
-                        1.08f
-
-                val availableWidthPx =
-                    with(density) {
-                        (
-                            latestScreenWidthDp.dp -
-                                52.dp
-                        )
-                            .roundToPx()
-                            .coerceAtLeast(1)
-                    }
-
-                val cardPitchPx =
-                    with(density) {
-                        (
-                            prewarmCardWidth +
-                                12.dp
-                        )
-                            .roundToPx()
-                            .coerceAtLeast(1)
-                    }
-
-                val visibleCapacity =
-                    (
-                        (
-                            availableWidthPx +
-                                cardPitchPx -
-                                1
-                        ) /
-                            cardPitchPx
-                    ).coerceAtLeast(1)
-
-                val prewarmCount =
-                    visibleCapacity + 1
-
-                val endExclusive =
-                    minOf(
-                        startIndex + prewarmCount,
-                        targetRow.items.size
-                    )
-
-                val urls =
-                    LinkedHashSet<String>(
-                        prewarmCount
-                    )
-
-                for (
-                    index in
-                        startIndex until endExclusive
-                ) {
-                    targetRow.items[index]
-                        .imageUrl
-                        ?.takeIf {
-                            it.isNotBlank()
-                        }
-                        ?.let(urls::add)
-                }
-
-                if (urls.isEmpty()) {
-                    return@collectLatest
-                }
-
-                val exposureSignature =
-                    buildString {
-                        append(targetRow.key)
-                        append('|')
-                        append(startIndex)
-                        urls.forEach {
-                            append('|')
-                            append(it)
-                        }
-                    }
-
-                if (
-                    exposureSignature ==
-                        completedExposureSignature
-                ) {
-                    return@collectLatest
-                }
-
-                val cardWidth =
-                    portraitWidth *
-                        0.84f *
-                        1.08f
-                val cardHeight =
-                    portraitHeight *
-                        0.84f *
-                        1.08f
-
-                val requestWidth =
-                    if (
-                        latestEffectiveExpandEnabled
-                    ) {
-                        maxOf(
-                            cardWidth,
-                            cardHeight *
-                                (16f / 9f)
-                        )
-                    } else {
-                        cardWidth
-                    }
-
-                val requestWidthPx =
-                    with(density) {
-                        requestWidth.roundToPx()
-                    }
-                val requestHeightPx =
-                    with(density) {
-                        cardHeight.roundToPx()
-                    }
-
-                val imageLoader =
-                    coil.Coil.imageLoader(context)
-
-                var allExposureImagesSucceeded =
-                    true
-
-                for (imageUrl in urls) {
-                    try {
-                        val result =
-                            imageLoader.execute(
-                                coil.request.ImageRequest
-                                    .Builder(context)
-                                    .data(imageUrl)
-                                    .crossfade(false)
-                                    .size(
-                                        width = requestWidthPx,
-                                        height = requestHeightPx
-                                    )
-                                    .memoryCachePolicy(
-                                        coil.request
-                                            .CachePolicy
-                                            .ENABLED
-                                    )
-                                    .build()
-                            )
-
-                        if (
-                            result !is
-                                coil.request.SuccessResult
-                        ) {
-                            allExposureImagesSucceeded =
-                                false
-                        }
-                    } catch (
-                        cancelled:
-                            kotlinx.coroutines.CancellationException
-                    ) {
-                        throw cancelled
-                    } catch (_: Throwable) {
-                        allExposureImagesSucceeded =
-                            false
-                    }
-                }
-
-                if (allExposureImagesSucceeded) {
-                    completedExposureSignature =
-                        exposureSignature
-                }
-            }
     }
 
     /*
@@ -2473,7 +2262,7 @@ fun ModernHomeContent(
                  */
                 val requestWidth =
                     if (
-                        latestEffectiveExpandEnabled
+                        latestEffectiveExpandEnabled && !rowLandscape
                     ) {
                         maxOf(
                             cardWidth,
@@ -2499,22 +2288,12 @@ fun ModernHomeContent(
 
                 try {
                     imageLoader.execute(
-                        coil.request.ImageRequest
-                            .Builder(context)
-                            .data(imageUrl)
-                            .crossfade(false)
-                            .size(
-                                width =
-                                    requestWidthPx,
-                                height =
-                                    requestHeightPx
-                            )
-                            .memoryCachePolicy(
-                                coil.request
-                                    .CachePolicy
-                                    .ENABLED
-                            )
-                            .build()
+                        homePosterImageRequest(
+                            context = context,
+                            imageUrl = imageUrl,
+                            widthPx = requestWidthPx,
+                            heightPx = requestHeightPx
+                        )
                     )
                 } catch (
                     cancelled:

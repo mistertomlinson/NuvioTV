@@ -2828,19 +2828,12 @@ private fun ModernCarouselCard(
     }
     val imageModel = remember(context, imageUrl, requestWidthPx, requestHeightPx) {
         imageUrl?.let {
-            ImageRequest.Builder(context)
-                .data(it)
-                .crossfade(false)
-                .size(width = requestWidthPx, height = requestHeightPx)
-                // Bridge reloads with the last cached bitmap for this URL (from
-                // any size entry) instead of a blank frame. Fixes the disk-
-                // reload blink on titles whose fallback enrichment collapses
-                // poster/backdrop/imageUrl to one file requested at multiple
-                // sizes (e.g. House: Swan Song), which fragments the auto cache
-                // key and evicts the card-size entry. Size-keyed caching and
-                // hero/backdrop rendering are unchanged.
-                .placeholderMemoryCacheKey(it)
-                .build()
+            homePosterImageRequest(
+                context = context,
+                imageUrl = it,
+                widthPx = requestWidthPx,
+                heightPx = requestHeightPx
+            )
         }
     }
     val logoHeight = remember(cardHeight) { cardHeight * 0.34f }
