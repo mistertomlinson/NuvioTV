@@ -15,6 +15,8 @@ import com.nuvio.tv.ui.util.buildCompletedSeriesEpisodeProgress
 import com.nuvio.tv.ui.util.isCaughtUpForWatchedAction
 import com.nuvio.tv.ui.util.releasedRegularEpisodesForWatchedAction
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -571,23 +573,42 @@ fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
             if (currentlyWatched) {
                 watchProgressRepository.removeFromHistory(item.id, videoId = item.imdbId)
             } else {
-                watchProgressRepository.markAsCompleted(buildCompletedMovieProgress(item))
-                // Rate only through the selected connected Trakt or Simkl account.
-                if (trackingRatingCoordinator.isAvailable()) {
-                    val parsedIds = parseContentIds(item.id)
-                    val year = Regex("(\\d{4})").find(item.releaseInfo ?: "")
-                        ?.groupValues?.getOrNull(1)?.toIntOrNull()
-                    _uiState.update { state ->
-                        state.copy(
-                            showWatchedRatingOverlay = true,
-                            watchedRatingItemId = item.id,
-                            watchedRatingItemType = item.apiType,
-                            watchedRatingTitle = item.name,
-                            watchedRatingImdbId = item.imdbId ?: parsedIds.imdb,
-                            watchedRatingYear = year
-                        )
+                /*
+                 * Rating is a Home presentation handoff, not a side-effect of
+                 * the provider history writer completing. Trakt/Simkl history
+                 * writes can take seconds. Present the prompt immediately
+                 * after confirming the selected provider can rate, while
+                 * preserving the existing authoritative watched mutation.
+                 */
+                completeMovieWithEarlyRatingHandoff(
+                    isRatingAvailable = {
+                        trackingRatingCoordinator.isAvailable()
+                    },
+                    showRatingPrompt = {
+                        val parsedIds = parseContentIds(item.id)
+                        val year = Regex("(\\d{4})").find(item.releaseInfo ?: "")
+                            ?.groupValues?.getOrNull(1)?.toIntOrNull()
+                        _uiState.update { state ->
+                            state.copy(
+                                showWatchedRatingOverlay = true,
+                                watchedRatingItemId = item.id,
+                                watchedRatingItemType = item.apiType,
+                                watchedRatingTitle = item.name,
+                                watchedRatingImdbId = item.imdbId ?: parsedIds.imdb,
+                                watchedRatingYear = year
+                            )
+                        }
+                    },
+                    persistCompletion = {
+                        // The provider writer and local durable persistence
+                        // must never compete with the Compose popup frame.
+                        withContext(Dispatchers.IO) {
+                            watchProgressRepository.markAsCompleted(
+                                buildCompletedMovieProgress(item)
+                            )
+                        }
                     }
-                }
+                )
             }
         }.onSuccess {
             _uiState.update { state ->
@@ -597,12 +618,51 @@ fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
                 )
             }
         }.onFailure { error ->
+            if (error is CancellationException) throw error
+            if (!currentlyWatched) {
+                /*
+                 * A history failure must not leave the early prompt visible
+                 * for a movie that was not successfully marked watched.
+                 * Close only the prompt belonging to this exact action.
+                 */
+                _uiState.update { state ->
+                    if (
+                        state.showWatchedRatingOverlay &&
+                        state.watchedRatingItemId == item.id &&
+                        state.watchedRatingItemType == item.apiType
+                    ) {
+                        state.copy(showWatchedRatingOverlay = false)
+                    } else {
+                        state
+                    }
+                }
+            }
             Log.w(HomeViewModel.TAG, "Failed to toggle poster watched status for ${item.id}: ${error.message}")
         }
         _uiState.update { state ->
             state.copy(movieWatchedPending = state.movieWatchedPending - statusKey)
         }
     }
+}
+
+/**
+ * Keep the Home rating prompt independent from the remote history write.
+ * Eligibility is still checked against the selected Trakt/Simkl provider; a
+ * non-cancellation eligibility failure must not block marking watched.
+ */
+internal suspend fun completeMovieWithEarlyRatingHandoff(
+    isRatingAvailable: suspend () -> Boolean,
+    showRatingPrompt: () -> Unit,
+    persistCompletion: suspend () -> Unit
+) {
+    val available = try {
+        isRatingAvailable()
+    } catch (error: Throwable) {
+        if (error is CancellationException) throw error
+        false
+    }
+    if (available) showRatingPrompt()
+    persistCompletion()
 }
 
 private fun buildCompletedMovieProgress(item: MetaPreview): WatchProgress {
