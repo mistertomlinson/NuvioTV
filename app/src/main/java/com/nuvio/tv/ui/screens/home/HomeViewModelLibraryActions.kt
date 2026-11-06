@@ -618,7 +618,6 @@ fun HomeViewModel.togglePosterMovieWatched(item: MetaPreview) {
                 )
             }
         }.onFailure { error ->
-            if (error is CancellationException) throw error
             if (!currentlyWatched) {
                 /*
                  * A history failure must not leave the early prompt visible
