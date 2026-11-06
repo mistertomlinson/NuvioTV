@@ -92,7 +92,7 @@ data class SeasonalEffectsConfig(
             val thanksgiving =
                 firstThursday.plusWeeks(3)
 
-            return thanksgiving.plusDays(1)
+            return thanksgiving
         }
     }
 }
