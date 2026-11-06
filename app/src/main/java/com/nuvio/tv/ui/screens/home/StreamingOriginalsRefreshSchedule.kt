@@ -5,22 +5,31 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 
 /**
- * Streaming Originals serves exact-date releases against the New York calendar.
- * Use the same IANA zone for all Nuvio refresh boundaries so noon and midnight
- * retain their wall-clock meanings through spring-forward and fall-back.
+ * Streaming Originals uses the New York release-day calendar. All refresh
+ * checkpoints use that same IANA timezone (EST/EDT), not a fixed UTC offset
+ * or the device's possibly different local timezone.
  */
 internal val STREAMING_ORIGINALS_TIME_ZONE: ZoneId =
     ZoneId.of("America/New_York")
 
+/**
+ * Exactly three checkpoints:
+ * 00:00 — release-day Coming Soon rollover
+ * 11:45 — normal daily Streaming Originals catalog changes
+ * 12:45 — follow-up after the addon had time to finish/recover
+ *
+ * Each checkpoint is tracked separately. A successful first daytime check
+ * cannot suppress the second one, and no 23:45/00:45 timers are scheduled.
+ */
 internal enum class StreamingOriginalsTimedCheck(
     val at: LocalTime,
     val preferenceKey: String,
     val reason: String
 ) {
-    MIDNIGHT_RECOVERY(
-        LocalTime.of(0, 45),
-        "last_0045_recovery_local_date",
-        "00:45_eastern_midnight_recovery"
+    MIDNIGHT(
+        LocalTime.MIDNIGHT,
+        "last_midnight_eastern_refresh_date",
+        "00:00_eastern_release_day_rollover"
     ),
     DAYTIME_FIRST(
         LocalTime.of(11, 45),
@@ -31,32 +40,22 @@ internal enum class StreamingOriginalsTimedCheck(
         LocalTime.of(12, 45),
         "last_1245_daytime_recovery_date",
         "12:45_eastern_daytime_recovery"
-    ),
-    PRE_MIDNIGHT(
-        LocalTime.of(23, 45),
-        "last_2345_precheck_local_date",
-        "23:45_eastern_midnight_precheck"
     )
 }
 
 /**
- * Return all as-yet-unrecorded wall-clock checkpoints for today, in order.
- * The 12:45 PM check is independent of an 11:45 AM success; the 00:45 AM
- * recovery is only needed when the new calendar day has not been serviced.
+ * Checks are local-date keyed, so repeated 1 AM on fall-back day cannot run
+ * the midnight task twice. A resumed app coalesces missed checkpoints into
+ * one fresh stage rather than fetching the whole addon three times.
  */
 internal fun dueStreamingOriginalsTimedChecks(
     instant: ZonedDateTime,
-    lastTriggeredDates: Map<StreamingOriginalsTimedCheck, String?>,
-    midnightRefreshAlreadySucceeded: Boolean
+    lastTriggeredDates: Map<StreamingOriginalsTimedCheck, String?>
 ): List<StreamingOriginalsTimedCheck> {
     val now = instant.withZoneSameInstant(STREAMING_ORIGINALS_TIME_ZONE)
     val today = now.toLocalDate().toString()
-    return StreamingOriginalsTimedCheck.entries.filter { checkpoint ->
-        now.toLocalTime() >= checkpoint.at &&
-            lastTriggeredDates[checkpoint] != today &&
-            (
-                checkpoint != StreamingOriginalsTimedCheck.MIDNIGHT_RECOVERY ||
-                    !midnightRefreshAlreadySucceeded
-            )
+    return StreamingOriginalsTimedCheck.entries.filter { check ->
+        now.toLocalTime() >= check.at &&
+            lastTriggeredDates[check] != today
     }
 }
