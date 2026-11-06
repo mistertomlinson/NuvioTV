@@ -65,11 +65,17 @@ landscape does not activate this exposure scheduler.
 - Sideload verification requires the owner's local runtime configuration,
   which is unavailable in this checkout. The debug variant was compiled for
   source validation; no installable build was produced or installed.
-- On-device validation remains pending.
+- On November 6, 2026, the owner built and installed the v7a sideload APK
+  from `28a74c54` on the onn 4K Pro at `192.168.50.83:5555`, using full
+  speed AOT followed by force-stop. The owner reported: "Success. Works great."
+  and authorized merging the fix into `dev` and deleting this task's test branches.
+  This is user-reported device verification; individual stress-test scenarios
+  were not separately recorded.
 
-On-device validation must include previously unseen poster URLs, long-session
-revisits, saved horizontal positions, consecutive landscape rows, and ordinary
-scrolling. A warm-cache-only first pass cannot establish this result. Remote
+Future regression passes should include previously unseen poster URLs,
+long-session revisits, saved horizontal positions, consecutive landscape rows,
+and ordinary scrolling. The successful device test does not establish every
+long-session or adverse-network scenario. Remote
 image failures or navigation faster than image retrieval can still outrun
 best-effort preloading; this change does not delay focus to wait for a network
 request.
