@@ -143,10 +143,25 @@ class AddonRepositoryImpl @Inject constructor(
             delay(SEASONAL_REVALIDATE_START_DELAY_MS)
 
             while (true) {
+                val startedAt = java.time.ZonedDateTime.now()
                 revalidateSeasonalSpotlightManifest()
+                val finishedAt = java.time.ZonedDateTime.now()
+
+                if (
+                    seasonalSpotlightManifestPollCrossedEasternMidnight(
+                        startedAt = startedAt,
+                        finishedAt = finishedAt
+                    )
+                ) {
+                    // The in-flight request may have read yesterday's manifest.
+                    // Make one more targeted pass after the day has changed.
+                    delay(1_000L)
+                    continue
+                }
+
                 delay(
                     seasonalSpotlightNextManifestPollDelayMs(
-                        now = java.time.ZonedDateTime.now(),
+                        now = finishedAt,
                         regularIntervalMs = SEASONAL_REVALIDATE_INTERVAL_MS
                     )
                 )
