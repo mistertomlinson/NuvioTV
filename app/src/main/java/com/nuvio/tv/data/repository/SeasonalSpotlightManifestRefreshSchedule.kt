@@ -39,3 +39,17 @@ internal fun seasonalSpotlightNextManifestPollDelayMs(
     return minOf(regularIntervalMs, toMidnightMs)
         .coerceAtLeast(1_000L)
 }
+
+/**
+ * A manifest request may start before midnight and finish after it. In that
+ * case, schedule another targeted probe immediately: the first request may
+ * have observed yesterday's backend manifest.
+ */
+internal fun seasonalSpotlightManifestPollCrossedEasternMidnight(
+    startedAt: ZonedDateTime,
+    finishedAt: ZonedDateTime
+): Boolean =
+    startedAt.withZoneSameInstant(SEASONAL_SPOTLIGHT_REFRESH_TIME_ZONE)
+        .toLocalDate() !=
+        finishedAt.withZoneSameInstant(SEASONAL_SPOTLIGHT_REFRESH_TIME_ZONE)
+            .toLocalDate()
