@@ -134,14 +134,22 @@ class AddonRepositoryImpl @Inject constructor(
 
             /*
              * Keep launch contention at zero: the persisted manifest remains
-             * the startup fast path. Once startup has settled, revalidate
-             * Seasonal Spotlight, then repeat hourly.
+             * the startup fast path. After startup, revalidate Seasonal
+             * Spotlight hourly AND at each Eastern midnight. The latter
+             * discovers holiday/event catalog activation without waiting up
+             * to another hour; it still uses the existing off-screen Home
+             * staging gate and never refreshes unrelated addon manifests.
              */
             delay(SEASONAL_REVALIDATE_START_DELAY_MS)
 
             while (true) {
                 revalidateSeasonalSpotlightManifest()
-                delay(SEASONAL_REVALIDATE_INTERVAL_MS)
+                delay(
+                    seasonalSpotlightNextManifestPollDelayMs(
+                        now = java.time.ZonedDateTime.now(),
+                        regularIntervalMs = SEASONAL_REVALIDATE_INTERVAL_MS
+                    )
+                )
             }
         }
     }
