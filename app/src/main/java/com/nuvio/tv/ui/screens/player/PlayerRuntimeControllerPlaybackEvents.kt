@@ -1090,8 +1090,18 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             requestManualEndAction()
         }
         is PlayerEvent.OnSubmitRating -> {
-            // Trigger blackout + store rating — animation drives the exit
-            _uiState.update { it.copy(showPlayerBlackout = true, pendingRating = event.rating) }
+            // Reject stray remote input after Return to Video has closed the
+            // prompt; never record a rating without an active rating destination.
+            _uiState.update { current ->
+                if (current.showRatingOverlay &&
+                    current.ratingOverlayDestination != null &&
+                    current.pendingRating == null
+                ) {
+                    current.copy(showPlayerBlackout = true, pendingRating = event.rating)
+                } else {
+                    current
+                }
+            }
         }
         PlayerEvent.OnDismissRatingOverlay -> {
             _uiState.update { it.copy(showPlayerBlackout = true, pendingRating = null) }
@@ -1099,38 +1109,16 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
         PlayerEvent.OnReturnToVideo -> {
             ratingTransitionJob?.cancel()
             ratingTransitionJob = null
-            val isCreditFlow =
-                _uiState.value.ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
-            if (isCreditFlow) {
+            if (_uiState.value.ratingOverlayDestination == RatingOverlayDestination.POST_PLAY) {
                 nextEpisodeAutoPlayJob?.cancel()
                 nextEpisodeAutoPlayJob = null
             }
-            _uiState.update {
-                it.copy(
-                    showRatingOverlay = false,
-                    showPlayerBlackout = false,
-                    pendingRating = null,
-                    ratingOverlayDestination = null,
-                    creditRatingPromptHandled = true,
-                    postPlayRecommendationDismissed =
-                        if (isCreditFlow) true else it.postPlayRecommendationDismissed,
-                    manualEndActionRequested =
-                        if (isCreditFlow) false else it.manualEndActionRequested,
-                    isPostPlayRecommendationVisible =
-                        if (isCreditFlow) false else it.isPostPlayRecommendationVisible,
-                    nextEpisodeCardDismissed =
-                        if (isCreditFlow) true else it.nextEpisodeCardDismissed,
-                    showNextEpisodeCard = if (isCreditFlow) false else it.showNextEpisodeCard,
-                    nextEpisodeAutoPlaySearching =
-                        if (isCreditFlow) false else it.nextEpisodeAutoPlaySearching,
-                    nextEpisodeAutoPlaySourceName =
-                        if (isCreditFlow) null else it.nextEpisodeAutoPlaySourceName,
-                    nextEpisodeAutoPlayCountdownSec =
-                        if (isCreditFlow) null else it.nextEpisodeAutoPlayCountdownSec
-                )
-            }
+            _uiState.update { resumePlaybackAfterRatingPrompt(it) }
         }
         PlayerEvent.OnRatingExitComplete -> {
+            // A cancelled exit animation may finish after Return to Video.
+            // Such stale callbacks must never exit the player or submit a rating.
+            if (_uiState.value.ratingOverlayDestination == null) return
             val rating = _uiState.value.pendingRating
             val media = buildScrobbleItem()
             if (_uiState.value.ratingOverlayDestination == RatingOverlayDestination.POST_PLAY) {
