@@ -3291,11 +3291,33 @@ private fun HomeViewModel.publishBadgeUpdate(
     // history is authoritative, a persisted badge whose show is absent from
     // that history is conclusively stale (for example after whole-series
     // "mark unwatched") and must be removed as well.
-    val disqualified =
-        expandedNotFullyWatched +
-            expandedNonTerminal +
-            missingFromAuthoritativeHistory
-    val merged = (current - disqualified) + expandedFullyWatched
+    /*
+     * A replayed episode is still historically watched. In particular, an
+     * incomplete provider snapshot during a replay must not revoke a
+     * previously verified ended/canceled-series checkmark. The active CW
+     * in-progress projection is a playback signal, not watched history.
+     *
+     * Limit this exception to badges that were already verified. It never
+     * grants a new badge, and an explicitly unmarked series is invalidated
+     * directly by WatchProgressRepository before this reconciliation runs.
+     */
+    val activeReplayIds = expandWatchedSeriesBadgeIds(
+        _uiState.value.continueWatchingItems
+            .asSequence()
+            .filterIsInstance<ContinueWatchingItem.InProgress>()
+            .map { it.progress }
+            .filterNot(WatchProgress::isCompleted)
+            .map(WatchProgress::contentId)
+            .toSet()
+    )
+    val merged = reconcileCompletedSeriesBadges(
+        existingBadges = current,
+        newlyVerifiedFullyWatched = expandedFullyWatched,
+        validatedMissingEpisodes = expandedNotFullyWatched,
+        validatedNonTerminal = expandedNonTerminal,
+        missingFromWatchedHistory = missingFromAuthoritativeHistory,
+        activeReplayIds = activeReplayIds
+    )
 
     /*
      * Revalidation policy:
