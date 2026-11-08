@@ -1321,7 +1321,8 @@ fun PlayerScreen(
         if (uiState.showRatingOverlay) {
             RatingOverlay(
                 visible = true,
-            logo = uiState.logo,
+                dismissRequested = uiState.showPlayerBlackout && uiState.pendingRating == null,
+                logo = uiState.logo,
             title = uiState.title,
             fallbackTitleLogoLarge = fallbackTitleLogoLarge,
             onRate = { rating ->
