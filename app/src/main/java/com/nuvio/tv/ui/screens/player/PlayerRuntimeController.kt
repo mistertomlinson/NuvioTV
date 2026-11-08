@@ -187,10 +187,7 @@ class PlayerRuntimeController(
 
     fun stopAndReleaseForUserExit() {
         cancelTerminalPlaybackWork()
-        releasePlayer(
-            flushPlaybackState = true,
-            creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
-        )
+        releasePlayer()
     }
 
     internal var currentVideoId: String? = videoId
