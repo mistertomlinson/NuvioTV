@@ -3,6 +3,9 @@ package com.nuvio.tv.ui.screens.detail
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -20,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,6 +35,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
@@ -80,6 +85,18 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.painter.Painter
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
+import kotlinx.coroutines.launch
+
+/**
+ * Movies and Coming Soon retain their existing immediately available action.
+ * Series wait for a history-backed NextToWatch result rather than showing
+ * guessed S1E1 while the actual resume/next episode resolves.
+ */
+internal fun shouldRevealHeroPlayAction(
+    isSeries: Boolean,
+    isComingSoon: Boolean,
+    hasResolvedNextToWatch: Boolean
+): Boolean = isComingSoon || !isSeries || hasResolvedNextToWatch
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -88,6 +105,7 @@ fun HeroContentSection(
     fallbackTitleLogoLarge: Boolean = true,
     nextEpisode: Video?,
     nextToWatch: NextToWatch?,
+    playActionReady: Boolean = true,
     onPlayClick: () -> Unit,
     onPlayLongPress: (() -> Unit)? = null,
     isInLibrary: Boolean,
@@ -117,6 +135,48 @@ fun HeroContentSection(
     val isSeriesApi = remember(meta.apiType) {
         meta.apiType.equals("series", ignoreCase = true) || meta.apiType.equals("tv", ignoreCase = true)
     }
+    /*
+     * The existing poster checkmark and bell entrance is a 78% scale/fade,
+     * 108% overshoot and spring back to 100%. Apply the same draw-only motion
+     * to this series Play action once, after its correct episode is available.
+     * Keep its layout geometry fixed: no focus or scroll movement from scaling.
+     *
+     * Focus restoration after Player/trailer deliberately skips reanimation.
+     */
+    val animatePlayArrival =
+        isSeriesApi && !isComingSoon && restorePlayFocusToken == 0
+    val actionAlpha = remember(meta.id) {
+        Animatable(if (animatePlayArrival) 0f else 1f)
+    }
+    val playScale = remember(meta.id) {
+        Animatable(if (animatePlayArrival) 0.78f else 1f)
+    }
+    var entrancePlayed by remember(meta.id) {
+        mutableStateOf(!animatePlayArrival)
+    }
+
+    LaunchedEffect(meta.id, playActionReady) {
+        if (!playActionReady || entrancePlayed) return@LaunchedEffect
+        entrancePlayed = true
+        actionAlpha.snapTo(0f)
+        playScale.snapTo(0.78f)
+        // Make the initial 78%-size transparent frame real before animating.
+        withFrameNanos { }
+        launch {
+            actionAlpha.animateTo(1f, tween(durationMillis = 220))
+        }
+        playScale.animateTo(
+            1.08f,
+            tween(durationMillis = 190, easing = FastOutSlowInEasing)
+        )
+        playScale.animateTo(
+            1f,
+            spring(dampingRatio = 0.58f, stiffness = 520f)
+        )
+        actionAlpha.snapTo(1f)
+        playScale.snapTo(1f)
+    }
+
     val logoModel = remember(context, meta.logo) {
         meta.logo?.let { logo ->
             ImageRequest.Builder(context)
@@ -352,12 +412,23 @@ fun HeroContentSection(
                 }
 
                 Column {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Reserve the action row's 48dp height from the first frame,
+                    // so metadata below does not jump when the action appears.
+                    Box(
+                        modifier = Modifier.heightIn(min = 48.dp),
+                        contentAlignment = Alignment.CenterStart
                     ) {
-                        PlayButton(
+                        if (playActionReady) {
+                            Row(
+                                modifier = Modifier.graphicsLayer {
+                                    alpha = actionAlpha.value
+                                },
+                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                PlayButton(
                             text = primaryActionText,
+                            entranceScale = playScale.value,
                             icon = if (isComingSoon) {
                                 if (isReleaseReminderSet) Icons.Default.Check
                                 else Icons.Default.Notifications
@@ -443,6 +514,8 @@ fun HeroContentSection(
                                 onFocused = onHeroActionFocused
                             )
                         }
+                            }
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -503,6 +576,7 @@ fun HeroContentSection(
 @Composable
 private fun PlayButton(
     text: String,
+    entranceScale: Float = 1f,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     onClick: () -> Unit,
     onLongPress: (() -> Unit)? = null,
@@ -532,6 +606,10 @@ private fun PlayButton(
             }
         },
         modifier = Modifier
+            .graphicsLayer {
+                scaleX = entranceScale
+                scaleY = entranceScale
+            }
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
             .onFocusChanged {
                 if (it.isFocused) {
