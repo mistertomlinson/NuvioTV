@@ -376,10 +376,13 @@ internal fun shouldStartManualEndAction(
     positionMs: Long,
     durationMs: Long
 ): Boolean {
+    // Returning from a premature credit prompt means the reported boundary
+    // may be wrong. The *next deliberate Back* must offer the normal rating
+    // and post-play flow, regardless of the video's current position. This
+    // never affects ordinary Back or the automatic credit trigger.
+    if (state.ratingReturnedToVideo) return true
     if (durationMs <= 0L || positionMs < 0L) return false
-    // Returning from an early rating prompt dismisses automatic post-play,
-    // not a later explicit Back when the viewer decides they are finished.
-    if (state.postPlayRecommendationDismissed && !state.ratingReturnedToVideo) return false
+    if (state.postPlayRecommendationDismissed) return false
 
     return when (state.contentType?.trim()?.lowercase()) {
         "movie" -> {
