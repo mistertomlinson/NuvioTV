@@ -156,6 +156,10 @@ data class PlayerUiState(
     val pendingRating: Int? = null,
     val ratingOverlayDestination: RatingOverlayDestination? = null,
     val creditRatingPromptHandled: Boolean = false,
+    // A credit-triggered prompt was dismissed to continue playback. Suppress
+    // automatic end actions, but permit a later manual Back or actual EOF to
+    // offer Rating -> More Like This again.
+    val ratingReturnedToVideo: Boolean = false,
     val naturalEndRatingCheckPending: Boolean = false,
     val postPlayRevealPending: Boolean = false
 ) {
