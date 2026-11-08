@@ -95,6 +95,15 @@ fun RatingOverlay(
     var selectedRating by remember { mutableIntStateOf(RATING_NONE) }
     var isExiting by remember { mutableStateOf(false) }
     var isDismissing by remember { mutableStateOf(false) }
+    var isReturningToVideo by remember { mutableStateOf(false) }
+    val canInteract = {
+        canAcceptRatingOverlayAction(
+            visible = visible,
+            exiting = isExiting,
+            dismissing = isDismissing,
+            returningToVideo = isReturningToVideo
+        )
+    }
 
     // Per-button scale
     val dislikeScale = remember { Animatable(1f) }
@@ -106,6 +115,7 @@ fun RatingOverlay(
         if (visible) {
             isExiting = false
             isDismissing = false
+            isReturningToVideo = false
             selectedRating = RATING_NONE
             exitAlpha.snapTo(1f)
             overlayAlpha.snapTo(0f)
@@ -116,6 +126,14 @@ fun RatingOverlay(
             buttonsAlpha.snapTo(0f)
             buttonsOffsetY.snapTo(12f)
             actionsAlpha.snapTo(0f)
+
+            // Claim focus on the first composed frame, rather than waiting
+            // for the entire entrance animation. Otherwise the underlying
+            // player can intercept Select/D-pad and leave focus stranded.
+            launch {
+                androidx.compose.runtime.withFrameNanos { }
+                runCatching { dismissFocusRequester.requestFocus() }
+            }
 
             overlayAlpha.animateTo(1f, tween(250))
 
@@ -132,8 +150,6 @@ fun RatingOverlay(
 
             kotlinx.coroutines.delay(60)
             actionsAlpha.animateTo(1f, tween(180))
-
-            runCatching { dismissFocusRequester.requestFocus() }
         } else {
             overlayAlpha.snapTo(0f)
         }
@@ -141,7 +157,7 @@ fun RatingOverlay(
 
     // Exit sequence — icon pulse → reverse stagger → notify complete
     LaunchedEffect(selectedRating) {
-        if (selectedRating == RATING_NONE || isExiting) return@LaunchedEffect
+        if (selectedRating == RATING_NONE || !canInteract()) return@LaunchedEffect
         isExiting = true
 
         // 1. Icon pulse
@@ -199,7 +215,7 @@ fun RatingOverlay(
         onExitAnimationComplete()
     }
 
-    if (!visible && overlayAlpha.value == 0f) return
+    if (!visible) return
 
     Box(
         modifier = modifier
@@ -211,7 +227,7 @@ fun RatingOverlay(
                 when (keyEvent.nativeKeyEvent.keyCode) {
                     AndroidKeyEvent.KEYCODE_BACK,
                     AndroidKeyEvent.KEYCODE_ESCAPE -> {
-                        if (keyEvent.type == KeyEventType.KeyUp && !isExiting && !isDismissing) {
+                        if (keyEvent.type == KeyEventType.KeyUp && canInteract()) {
                             isDismissing = true
                             onDismiss()
                         }
@@ -365,7 +381,7 @@ fun RatingOverlay(
                         nextFocusDown = dismissFocusRequester,
                         nextFocusUp = dismissFocusRequester,
                         nextFocusRight = likeFocusRequester,
-                        onClick = { if (!isExiting) selectedRating = 2 }
+                        onClick = { if (canInteract()) selectedRating = 2 }
                     )
                     RatingButton(
                         iconRes = R.raw.ic_player_rating_like,
@@ -376,7 +392,7 @@ fun RatingOverlay(
                         nextFocusUp = dismissFocusRequester,
                         nextFocusLeft = dislikeFocusRequester,
                         nextFocusRight = loveFocusRequester,
-                        onClick = { if (!isExiting) selectedRating = 7 }
+                        onClick = { if (canInteract()) selectedRating = 7 }
                     )
                     RatingButton(
                         iconRes = R.raw.ic_player_rating_love,
@@ -386,7 +402,7 @@ fun RatingOverlay(
                         nextFocusDown = dismissFocusRequester,
                         nextFocusUp = dismissFocusRequester,
                         nextFocusLeft = likeFocusRequester,
-                        onClick = { if (!isExiting) selectedRating = 10 }
+                        onClick = { if (canInteract()) selectedRating = 10 }
                     )
                 }
             }
@@ -404,7 +420,7 @@ fun RatingOverlay(
                     // Dismiss → exit or advance, depending on how the prompt opened.
                     Button(
                         onClick = {
-                        if (!isExiting && !isDismissing) {
+                        if (canInteract()) {
                             isDismissing = true
                             onDismiss()
                         }
@@ -454,7 +470,14 @@ fun RatingOverlay(
 
                     // Return to the unobstructed video.
                     Button(
-                        onClick = { if (!isExiting) onReturnToVideo() },
+                        onClick = {
+                            if (canInteract()) {
+                                // Synchronously block another Select before the
+                                // player tears down this focus subtree.
+                                isReturningToVideo = true
+                                onReturnToVideo()
+                            }
+                        },
                         modifier = Modifier
                             .focusRequester(returnFocusRequester)
                             .focusProperties {
