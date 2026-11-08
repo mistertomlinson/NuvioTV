@@ -50,4 +50,109 @@ class WatchedSeriesBadgeReconciliationTest {
             )
         )
     }
+
+    @Test
+    fun `completed ended show retains checkmark during replay despite incomplete history`() {
+        assertEquals(
+            setOf("tt-ended"),
+            reconcileCompletedSeriesBadges(
+                existingBadges = setOf("tt-ended"),
+                newlyVerifiedFullyWatched = emptySet(),
+                validatedMissingEpisodes = setOf("tt-ended"),
+                validatedNonTerminal = emptySet(),
+                missingFromWatchedHistory = emptySet(),
+                activeReplayIds = setOf("tt-ended")
+            )
+        )
+    }
+
+    @Test
+    fun `completed show replay tolerates temporarily missing provider history`() {
+        assertEquals(
+            setOf("tt-ended"),
+            reconcileCompletedSeriesBadges(
+                existingBadges = setOf("tt-ended"),
+                newlyVerifiedFullyWatched = emptySet(),
+                validatedMissingEpisodes = emptySet(),
+                validatedNonTerminal = emptySet(),
+                missingFromWatchedHistory = setOf("tt-ended"),
+                activeReplayIds = setOf("tt-ended")
+            )
+        )
+    }
+
+    @Test
+    fun `replaying an unfinished series never creates a new watched badge`() {
+        assertTrue(
+            reconcileCompletedSeriesBadges(
+                existingBadges = emptySet(),
+                newlyVerifiedFullyWatched = emptySet(),
+                validatedMissingEpisodes = setOf("tt-unfinished"),
+                validatedNonTerminal = emptySet(),
+                missingFromWatchedHistory = emptySet(),
+                activeReplayIds = setOf("tt-unfinished")
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun `a revived series still loses its badge during replay`() {
+        assertTrue(
+            reconcileCompletedSeriesBadges(
+                existingBadges = setOf("tt-revived"),
+                newlyVerifiedFullyWatched = emptySet(),
+                validatedMissingEpisodes = emptySet(),
+                validatedNonTerminal = setOf("tt-revived"),
+                missingFromWatchedHistory = emptySet(),
+                activeReplayIds = setOf("tt-revived")
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun `explicit unwatch invalidation remains authoritative`() {
+        // The repository's explicit unwatch operation already invalidated
+        // this show's persisted badge. A still-active replay cannot add it.
+        assertTrue(
+            reconcileCompletedSeriesBadges(
+                existingBadges = emptySet(),
+                newlyVerifiedFullyWatched = emptySet(),
+                validatedMissingEpisodes = setOf("tt-unwatched"),
+                validatedNonTerminal = emptySet(),
+                missingFromWatchedHistory = setOf("tt-unwatched"),
+                activeReplayIds = setOf("tt-unwatched")
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun `badge disappears when replay stops and provider history is incomplete`() {
+        assertTrue(
+            reconcileCompletedSeriesBadges(
+                existingBadges = setOf("tt-ended"),
+                newlyVerifiedFullyWatched = emptySet(),
+                validatedMissingEpisodes = setOf("tt-ended"),
+                validatedNonTerminal = emptySet(),
+                missingFromWatchedHistory = emptySet(),
+                activeReplayIds = emptySet()
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun `only actively replayed completed show is protected`() {
+        assertEquals(
+            setOf("tt-replay"),
+            reconcileCompletedSeriesBadges(
+                existingBadges = setOf("tt-replay", "tt-removed"),
+                newlyVerifiedFullyWatched = emptySet(),
+                validatedMissingEpisodes = setOf("tt-replay", "tt-removed"),
+                validatedNonTerminal = emptySet(),
+                missingFromWatchedHistory = emptySet(),
+                activeReplayIds = setOf("tt-replay")
+            )
+        )
+    }
+
+
 }
