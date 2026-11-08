@@ -110,6 +110,7 @@ import com.nuvio.tv.domain.model.PosterStatusIconStyle
 import com.nuvio.tv.ui.screens.settings.SettingsGlassBorderColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
+import com.nuvio.tv.ui.screens.home.normalizeHomeSeriesWatchedIds
 
 /** Skeleton rows shown while a search is pending, matching the two mobile renders. */
 private const val SEARCH_SKELETON_ROW_COUNT = 2
@@ -125,6 +126,9 @@ fun SearchScreen(
     val uiState by viewModel.uiState.collectAsState()
     val watchedMovieIds by viewModel.watchedMovieIds.collectAsState()
     val watchedSeriesIds by viewModel.watchedSeriesIds.collectAsState()
+    val normalizedWatchedSeriesIds = remember(watchedSeriesIds) {
+        normalizeHomeSeriesWatchedIds(watchedSeriesIds)
+    }
     val releaseReminders by
         viewModel.releaseReminders.collectAsState(
             initial = emptyList()
@@ -722,7 +726,15 @@ fun SearchScreen(
                                 listState = listState,
                                 isItemWatched = { item ->
                                     val isSeries = item.apiType.equals("series", ignoreCase = true) || item.apiType.equals("tv", ignoreCase = true)
-                                    if (isSeries) item.id in watchedSeriesIds else item.id in watchedMovieIds
+                                    if (isSeries) {
+                                        isSearchSeriesWatched(
+                                            itemId = item.id,
+                                            imdbId = item.imdbId,
+                                            normalizedWatchedSeriesIds = normalizedWatchedSeriesIds
+                                        )
+                                    } else {
+                                        item.id in watchedMovieIds
+                                    }
                                 },
                                 isItemReminderSet =
                                     isItemReminderSet,
