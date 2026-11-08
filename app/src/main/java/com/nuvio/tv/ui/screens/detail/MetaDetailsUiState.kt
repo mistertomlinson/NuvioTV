@@ -21,6 +21,9 @@ data class MetaDetailsUiState(
     val isInLibrary: Boolean = false,
     val resolvedTmdbId: Int? = null,
     val nextToWatch: NextToWatch? = null,
+    // Series hero Play is only revealed after the initial watched-history
+    // lookup and a next-to-watch calculation using that history.
+    val isNextToWatchReady: Boolean = false,
     val episodeProgressMap: Map<Pair<Int, Int>, WatchProgress> = emptyMap(),
     val trailerUrl: String? = null,
     val trailerAudioUrl: String? = null,
