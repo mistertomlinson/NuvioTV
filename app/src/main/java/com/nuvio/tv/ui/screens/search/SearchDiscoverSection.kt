@@ -75,6 +75,7 @@ import com.nuvio.tv.ui.screens.settings.SettingsGlassRowColor
 import com.nuvio.tv.ui.screens.settings.SettingsGlassRowFocusedColor
 import com.nuvio.tv.ui.util.formatAddonTypeLabel
 import com.nuvio.tv.ui.util.dpadVerticalFastScroll
+import com.nuvio.tv.ui.screens.home.normalizeHomeSeriesWatchedIds
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -491,6 +492,9 @@ private fun DiscoverGrid(
     filterKey: String = ""
 ) {
     val restoreFocusRequester = remember { FocusRequester() }
+    val normalizedWatchedSeriesIds = remember(watchedSeriesIds) {
+        normalizeHomeSeriesWatchedIds(watchedSeriesIds)
+    }
     val gridState = rememberLazyGridState()
     var pendingFocusOnNewItemIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -662,8 +666,15 @@ private fun DiscoverGrid(
                 onClick = { onItemClick(index, item) },
                 posterCardStyle = adaptiveStyle,
                 isWatched =
-                    if (isSeries) item.id in watchedSeriesIds
-                    else item.id in watchedMovieIds,
+                    if (isSeries) {
+                        isSearchSeriesWatched(
+                            itemId = item.id,
+                            imdbId = item.imdbId,
+                            normalizedWatchedSeriesIds = normalizedWatchedSeriesIds
+                        )
+                    } else {
+                        item.id in watchedMovieIds
+                    },
                 isReminderSet =
                     isItemReminderSet(item),
                 posterStatusIconStyle =
