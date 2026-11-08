@@ -304,7 +304,8 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun updateNextToWatch(nextToWatch: NextToWatch) {
         _uiState.update { state ->
-            val ready = initialWatchedHistoryResolvedForMetaId == state.meta?.id
+            val ready = state.meta != null &&
+                initialWatchedHistoryResolvedForMetaId == state.meta.id
             if (state.nextToWatch == nextToWatch &&
                 state.isNextToWatchReady == ready
             ) return@update state
@@ -587,21 +588,25 @@ class MetaDetailsViewModel @Inject constructor(
                 if (_uiState.value.meta?.id != meta.id) return
                 authoritativeWatchedEpisodes.value = watched
 
-                // The Flow observer also merges this history, but its dispatch
-                // can arrive a frame later. Install it before marking the
-                // first ready Play label so S1E1 cannot briefly win the race.
-                _uiState.update { state ->
-                    if (state.meta?.id != meta.id) return@update state
-                    val overrides = optimisticWatchedEpisodeOverrides.value
-                    val merged = (state.watchedEpisodes + watched).toMutableSet()
-                    overrides.forEach { (episode, isWatched) ->
-                        if (isWatched) merged.add(episode)
-                        else merged.remove(episode)
+                if (initialWatchedHistoryResolvedForMetaId != meta.id) {
+                    // Only the initial reveal needs this synchronous bridge.
+                    // Later history refreshes keep the original Flow-owned
+                    // reconciliation (including explicit Unwatch mutations).
+                    // Otherwise the observer can arrive a frame after we mark
+                    // Play ready and briefly show a guessed S1E1.
+                    _uiState.update { state ->
+                        if (state.meta?.id != meta.id) return@update state
+                        val overrides = optimisticWatchedEpisodeOverrides.value
+                        val merged = (state.watchedEpisodes + watched).toMutableSet()
+                        overrides.forEach { (episode, isWatched) ->
+                            if (isWatched) merged.add(episode)
+                            else merged.remove(episode)
+                        }
+                        state.copy(watchedEpisodes = merged.toSet())
                     }
-                    state.copy(watchedEpisodes = merged.toSet())
+                    initialWatchedHistoryResolvedForMetaId = meta.id
+                    calculateNextToWatch()
                 }
-                initialWatchedHistoryResolvedForMetaId = meta.id
-                calculateNextToWatch()
                 return
             }
 
