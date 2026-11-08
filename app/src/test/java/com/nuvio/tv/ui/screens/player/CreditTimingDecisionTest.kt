@@ -295,29 +295,44 @@ class CreditTimingDecisionTest {
     }
 
     @Test
-    fun `two minute grace applies only when explicitly requested`() {
+    fun `known credits must be reached before exit completion or manual end action`() {
         val timing = CreditTimingUiState(
             status = CreditTimingStatus.COMPLETE,
             creditsStartMs = 600_000L,
             finalCreditsStartMs = 660_000L
         )
 
-        assertFalse(
+        listOf(480_000L, 599_999L).forEach { position ->
+            assertFalse(
+                shouldTreatPlaybackAsCompleted(
+                    timing = timing,
+                    positionMs = position,
+                    durationMs = 700_000L,
+                    playbackEnded = false
+                )
+            )
+            assertFalse(
+                shouldStartManualEndAction(
+                    state = PlayerUiState(contentType = "movie", creditTiming = timing),
+                    positionMs = position,
+                    durationMs = 700_000L
+                )
+            )
+        }
+
+        assertTrue(
             shouldTreatPlaybackAsCompleted(
                 timing = timing,
-                positionMs = 480_000L,
+                positionMs = 600_000L,
                 durationMs = 700_000L,
                 playbackEnded = false
             )
         )
         assertTrue(
-            shouldTreatPlaybackAsCompleted(
-                timing = timing,
-                positionMs = 480_000L,
-                durationMs = 700_000L,
-                playbackEnded = false,
-                creditBoundaryGraceMs =
-                    CREDIT_COMPLETION_EXIT_GRACE_MS
+            shouldStartManualEndAction(
+                state = PlayerUiState(contentType = "movie", creditTiming = timing),
+                positionMs = 600_000L,
+                durationMs = 700_000L
             )
         )
     }
