@@ -332,6 +332,7 @@ internal fun PlayerRuntimeController.resetCreditTimingForNewPlayback() {
             pendingRating = null,
             ratingOverlayDestination = null,
             creditRatingPromptHandled = false,
+            ratingReturnedToVideo = false,
             naturalEndRatingCheckPending = false,
             postPlayRevealPending = false
         )
