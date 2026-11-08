@@ -1323,20 +1323,20 @@ fun PlayerScreen(
                 visible = true,
                 dismissRequested = uiState.showPlayerBlackout && uiState.pendingRating == null,
                 logo = uiState.logo,
-            title = uiState.title,
-            fallbackTitleLogoLarge = fallbackTitleLogoLarge,
-            onRate = { rating ->
-                viewModel.onEvent(PlayerEvent.OnSubmitRating(rating))
-            },
-            onDismiss = {
-                viewModel.onEvent(PlayerEvent.OnDismissRatingOverlay)
-            },
-            onReturnToVideo = {
-                viewModel.onEvent(PlayerEvent.OnReturnToVideo)
-            },
-            onExitAnimationComplete = {
-                viewModel.onEvent(PlayerEvent.OnRatingExitComplete)
-            },
+                title = uiState.title,
+                fallbackTitleLogoLarge = fallbackTitleLogoLarge,
+                onRate = { rating ->
+                    viewModel.onEvent(PlayerEvent.OnSubmitRating(rating))
+                },
+                onDismiss = {
+                    viewModel.onEvent(PlayerEvent.OnDismissRatingOverlay)
+                },
+                onReturnToVideo = {
+                    viewModel.onEvent(PlayerEvent.OnReturnToVideo)
+                },
+                onExitAnimationComplete = {
+                    viewModel.onEvent(PlayerEvent.OnRatingExitComplete)
+                },
                 modifier = Modifier
                     .fillMaxSize()
                     .zIndex(3f)
