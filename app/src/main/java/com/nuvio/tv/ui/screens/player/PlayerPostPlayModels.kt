@@ -291,6 +291,58 @@ internal fun shouldShowCreditRatingPrompt(
     return positionMs >= finalCreditsStartMs
 }
 
+/** Return-to-video suppresses the current automatic prompt, but Back or real EOF may reoffer it. */
+internal fun shouldOfferManualEndRating(state: PlayerUiState): Boolean =
+    (!state.creditRatingPromptHandled || state.ratingReturnedToVideo) &&
+        state.isRatingProviderConnected &&
+        isRatingPromptEligibleContent(
+            contentType = state.contentType,
+            currentSeason = state.currentSeason,
+            currentEpisode = state.currentEpisode,
+            episodes = state.episodesAll
+        )
+
+/**
+ * Keep automatic prompts and post-play hidden after returning to the video.
+ * The separate marker permits an explicit near-end Back or natural EOF to
+ * reenter the normal rating flow. Other rating destinations retain their
+ * existing behavior.
+ */
+internal fun resumePlaybackAfterRatingPrompt(state: PlayerUiState): PlayerUiState {
+    val isCreditFlow = state.ratingOverlayDestination == RatingOverlayDestination.POST_PLAY
+    return state.copy(
+        showRatingOverlay = false,
+        showPlayerBlackout = false,
+        pendingRating = null,
+        ratingOverlayDestination = null,
+        creditRatingPromptHandled = true,
+        ratingReturnedToVideo = if (isCreditFlow) true else state.ratingReturnedToVideo,
+        postPlayRecommendationDismissed =
+            if (isCreditFlow) true else state.postPlayRecommendationDismissed,
+        manualEndActionRequested =
+            if (isCreditFlow) false else state.manualEndActionRequested,
+        isPostPlayRecommendationVisible =
+            if (isCreditFlow) false else state.isPostPlayRecommendationVisible,
+        nextEpisodeCardDismissed =
+            if (isCreditFlow) true else state.nextEpisodeCardDismissed,
+        showNextEpisodeCard = if (isCreditFlow) false else state.showNextEpisodeCard,
+        nextEpisodeAutoPlaySearching =
+            if (isCreditFlow) false else state.nextEpisodeAutoPlaySearching,
+        nextEpisodeAutoPlaySourceName =
+            if (isCreditFlow) null else state.nextEpisodeAutoPlaySourceName,
+        nextEpisodeAutoPlayCountdownSec =
+            if (isCreditFlow) null else state.nextEpisodeAutoPlayCountdownSec
+    )
+}
+
+/** Ignore stale presses during dismissal, return, or rating exit animations. */
+internal fun canAcceptRatingOverlayAction(
+    visible: Boolean,
+    exiting: Boolean,
+    dismissing: Boolean,
+    returningToVideo: Boolean
+): Boolean = visible && !exiting && !dismissing && !returningToVideo
+
 /**
  * Returns whether terminal EOF should reserve the player for a rating check.
  *
@@ -302,7 +354,7 @@ internal fun shouldReserveNaturalEndRatingPrompt(
     state: PlayerUiState
 ): Boolean {
     if (!state.playbackEnded || state.error != null) return false
-    if (state.creditRatingPromptHandled) return false
+    if (state.creditRatingPromptHandled && !state.ratingReturnedToVideo) return false
     if (state.ratingOverlayDestination != null || state.showRatingOverlay) return false
 
     return isRatingPromptEligibleContent(
@@ -325,7 +377,9 @@ internal fun shouldStartManualEndAction(
     durationMs: Long
 ): Boolean {
     if (durationMs <= 0L || positionMs < 0L) return false
-    if (state.postPlayRecommendationDismissed) return false
+    // Returning from an early rating prompt dismisses automatic post-play,
+    // not a later explicit Back when the viewer decides they are finished.
+    if (state.postPlayRecommendationDismissed && !state.ratingReturnedToVideo) return false
 
     return when (state.contentType?.trim()?.lowercase()) {
         "movie" -> {
