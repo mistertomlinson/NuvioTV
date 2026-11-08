@@ -243,8 +243,8 @@ fun PlayerScreen(
                 viewModel.willPublishCwProgressOnRelease()
             )
 
-            // This path is explicitly a Back-initiated rating exit, so give
-            // completion the same small credit-boundary grace as direct Back.
+            // A Back-initiated rating exit uses the same exact credit
+            // completion boundary as ordinary Back, with no early grace.
             viewModel.stopAndReleaseForUserExit()
             val backFn = onRatingBackPress ?: onBackPress
             backFn(
