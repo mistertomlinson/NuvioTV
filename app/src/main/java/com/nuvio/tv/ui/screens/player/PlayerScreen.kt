@@ -168,7 +168,12 @@ fun PlayerScreen(
     }
 
     val handleBackPress = {
-        if (uiState.isPostPlayRecommendationVisible && uiState.isPostPlayTrailerPlaying) {
+        if (uiState.showRatingOverlay) {
+            // The root preview handler sees Back before the rating child.
+            // Dismiss through its animated rating -> post-play transition,
+            // never by navigating out of the player behind the overlay.
+            viewModel.onEvent(PlayerEvent.OnDismissRatingOverlay)
+        } else if (uiState.isPostPlayRecommendationVisible && uiState.isPostPlayTrailerPlaying) {
             viewModel.onEvent(PlayerEvent.OnStopPostPlayTrailer)
         } else if (uiState.isPostPlayRecommendationVisible) {
             if (onPostPlayBackPress != null) {
@@ -333,8 +338,11 @@ fun PlayerScreen(
         uiState.showSubtitleOverlay,
         uiState.showSpeedDialog,
         uiState.isPostPlayRecommendationVisible,
+        uiState.showRatingOverlay,
     ) {
-        if (uiState.isPostPlayRecommendationVisible) {
+        // Never let the player container or transport controls steal focus
+        // while the rating overlay owns remote input.
+        if (uiState.showRatingOverlay || uiState.isPostPlayRecommendationVisible) {
             return@LaunchedEffect
         } else if (uiState.showControls && !uiState.showEpisodesPanel && !uiState.showSourcesPanel &&
             !uiState.showAudioOverlay && !uiState.showSubtitleOverlay &&
@@ -446,6 +454,7 @@ fun PlayerScreen(
                         uiState.showSubtitleStylePanel || uiState.showSpeedDialog ||
                         uiState.showSubtitleDelayOverlay || uiState.showMoreDialog
                 if (panelOrDialogOpen) return@onKeyEvent false
+                if (uiState.showRatingOverlay) return@onKeyEvent false
                 if (uiState.isPostPlayRecommendationVisible) return@onKeyEvent false
 
                 if (keyEvent.nativeKeyEvent.action == KeyEvent.ACTION_UP) {
@@ -1307,9 +1316,11 @@ fun PlayerScreen(
             )
         }
 
-        // Post-playback rating overlay
-        RatingOverlay(
-            visible = uiState.showRatingOverlay,
+        // Mount only while active: hidden focus nodes must not consume a
+        // second Select after Return to Video.
+        if (uiState.showRatingOverlay) {
+            RatingOverlay(
+                visible = true,
             logo = uiState.logo,
             title = uiState.title,
             fallbackTitleLogoLarge = fallbackTitleLogoLarge,
@@ -1325,10 +1336,11 @@ fun PlayerScreen(
             onExitAnimationComplete = {
                 viewModel.onEvent(PlayerEvent.OnRatingExitComplete)
             },
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(3f)
-        )
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(3f)
+            )
+        }
 
     }
 }
