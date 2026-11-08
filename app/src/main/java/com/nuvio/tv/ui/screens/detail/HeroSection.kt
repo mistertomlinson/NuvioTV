@@ -335,7 +335,8 @@ fun HeroContentSection(
             ) {
                 val genericPlayText = stringResource(R.string.hero_play)
                 val episodePlayText = stringResource(
-                    R.string.hero_play_episode,
+                    // Match the resolved NextToWatch label from the first frame.
+                    R.string.detail_btn_play_episode,
                     nextEpisode?.season ?: 0,
                     nextEpisode?.episode ?: 0
                 )
