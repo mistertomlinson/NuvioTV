@@ -91,6 +91,8 @@ internal fun PlayerRuntimeController.evaluateNaturalEndRatingPrompt() {
                         isRatingProviderConnected = true,
                         naturalEndRatingCheckPending = false,
                         manualEndActionRequested = true,
+                        postPlayRecommendationDismissed = false,
+                        ratingReturnedToVideo = false,
                         showRatingOverlay = true,
                         showControls = false,
                         showPauseOverlay = false,
@@ -130,7 +132,9 @@ internal fun PlayerRuntimeController.evaluateNaturalEndRatingPrompt() {
             it.copy(
                 isRatingProviderConnected = false,
                 creditRatingPromptHandled = true,
-                manualEndActionRequested = true
+                manualEndActionRequested = true,
+                postPlayRecommendationDismissed = false,
+                ratingReturnedToVideo = false
             )
         }
         preparePostPlayRecommendationsForManualEndAction()
@@ -155,16 +159,7 @@ internal fun PlayerRuntimeController.requestManualEndAction() {
 
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
-    val ratingEligible = isRatingPromptEligibleContent(
-        contentType = state.contentType,
-        currentSeason = state.currentSeason,
-        currentEpisode = state.currentEpisode,
-        episodes = state.episodesAll
-    )
-    val showRating =
-        !state.creditRatingPromptHandled &&
-            state.isRatingProviderConnected &&
-            ratingEligible
+    val showRating = shouldOfferManualEndRating(state)
     Log.i(
         PlayerRuntimeController.TAG,
         "Manual near-end exit requested post-play positionMs=${state.currentPosition}"
@@ -172,6 +167,10 @@ internal fun PlayerRuntimeController.requestManualEndAction() {
     _uiState.update {
         it.copy(
             manualEndActionRequested = true,
+            // Manual Back explicitly reopens a flow previously suppressed by
+            // Return to Video; auto reappearance remains suppressed until then.
+            postPlayRecommendationDismissed = false,
+            ratingReturnedToVideo = false,
             showRatingOverlay = showRating,
             showControls = false,
             showPauseOverlay = false,
