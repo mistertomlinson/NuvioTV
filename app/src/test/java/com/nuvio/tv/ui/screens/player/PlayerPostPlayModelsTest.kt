@@ -383,14 +383,123 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
-    fun `manual near end exit does not reopen after return to video`() {
+    fun `return to video suppresses automatic prompt but permits later near end Back`() {
+        val initial = PlayerUiState(
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            showRatingOverlay = true,
+            ratingOverlayDestination = RatingOverlayDestination.POST_PLAY,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.RUNNING,
+                creditsStartMs = 90_000L,
+                finalCreditsStartMs = 95_000L
+            )
+        )
+        val resumed = resumePlaybackAfterRatingPrompt(initial)
+
+        assertFalse(resumed.showRatingOverlay)
+        assertNull(resumed.ratingOverlayDestination)
+        assertNull(resumed.pendingRating)
+        assertFalse(resumed.showPlayerBlackout)
+        assertTrue(resumed.creditRatingPromptHandled)
+        assertTrue(resumed.ratingReturnedToVideo)
+        assertTrue(resumed.postPlayRecommendationDismissed)
+        assertFalse(resumed.manualEndActionRequested)
+        assertFalse(shouldShowCreditRatingPrompt(resumed, 95_000L))
+        assertTrue(shouldOfferManualEndRating(resumed))
+        assertTrue(shouldStartManualEndAction(resumed, 95_000L, 100_000L))
+    }
+
+    @Test
+    fun `return to video does not turn an early Back into an end action`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            creditRatingPromptHandled = true,
+            ratingReturnedToVideo = true,
+            postPlayRecommendationDismissed = true,
+            creditTiming = CreditTimingUiState(
+                status = CreditTimingStatus.COMPLETE,
+                creditsStartMs = 600_000L,
+                finalCreditsStartMs = 650_000L
+            )
+        )
+        assertFalse(shouldStartManualEndAction(state, 200_000L, 700_000L))
+    }
+
+    @Test
+    fun `manual Back reoffers a previously returned rating only when eligible`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            creditRatingPromptHandled = true,
+            ratingReturnedToVideo = true
+        )
+        assertTrue(shouldOfferManualEndRating(state))
+        assertFalse(shouldOfferManualEndRating(state.copy(isRatingProviderConnected = false)))
+        assertFalse(shouldOfferManualEndRating(state.copy(ratingReturnedToVideo = false)))
+        assertFalse(shouldOfferManualEndRating(state.copy(
+            contentType = "series",
+            currentSeason = null,
+            currentEpisode = null
+        )))
+    }
+
+    @Test
+    fun `return to video reoffers rating at natural EOF but handled rating does not`() {
+        val state = PlayerUiState(
+            playbackEnded = true,
+            contentType = "movie",
+            isRatingProviderConnected = true,
+            creditRatingPromptHandled = true,
+            ratingReturnedToVideo = true
+        )
+        assertTrue(shouldReserveNaturalEndRatingPrompt(state))
+        assertTrue(shouldShowNaturalEndRatingPrompt(state))
+        assertFalse(shouldReserveNaturalEndRatingPrompt(
+            state.copy(ratingReturnedToVideo = false)
+        ))
+    }
+
+    @Test
+    fun `returning from exit-player rating does not enable post-play reentry`() {
+        val state = PlayerUiState(
+            contentType = "movie",
+            showRatingOverlay = true,
+            ratingOverlayDestination = RatingOverlayDestination.EXIT_PLAYER
+        )
+        val resumed = resumePlaybackAfterRatingPrompt(state)
+        assertFalse(resumed.ratingReturnedToVideo)
+        assertFalse(resumed.postPlayRecommendationDismissed)
+        assertNull(resumed.ratingOverlayDestination)
+    }
+
+    @Test
+    fun `dismissed More Like This remains final without a return-to-video marker`() {
         val state = PlayerUiState(
             contentType = "movie",
             creditRatingPromptHandled = true,
             postPlayRecommendationDismissed = true
         )
-
         assertFalse(shouldStartManualEndAction(state, 95_000L, 100_000L))
+    }
+
+    @Test
+    fun `rating buttons ignore stale presses during return or transition`() {
+        assertTrue(canAcceptRatingOverlayAction(
+            visible = true, exiting = false, dismissing = false, returningToVideo = false
+        ))
+        assertFalse(canAcceptRatingOverlayAction(
+            visible = false, exiting = false, dismissing = false, returningToVideo = false
+        ))
+        assertFalse(canAcceptRatingOverlayAction(
+            visible = true, exiting = true, dismissing = false, returningToVideo = false
+        ))
+        assertFalse(canAcceptRatingOverlayAction(
+            visible = true, exiting = false, dismissing = true, returningToVideo = false
+        ))
+        assertFalse(canAcceptRatingOverlayAction(
+            visible = true, exiting = false, dismissing = false, returningToVideo = true
+        ))
     }
 
     @Test
