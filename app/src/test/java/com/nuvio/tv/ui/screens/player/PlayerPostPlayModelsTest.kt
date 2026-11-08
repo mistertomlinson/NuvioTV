@@ -411,19 +411,39 @@ class PlayerPostPlayModelsTest {
     }
 
     @Test
-    fun `return to video does not turn an early Back into an end action`() {
+    fun `later deliberate Back after return reoffers rating regardless of position`() {
         val state = PlayerUiState(
             contentType = "movie",
             creditRatingPromptHandled = true,
             ratingReturnedToVideo = true,
             postPlayRecommendationDismissed = true,
+            isRatingProviderConnected = true,
             creditTiming = CreditTimingUiState(
                 status = CreditTimingStatus.COMPLETE,
                 creditsStartMs = 600_000L,
                 finalCreditsStartMs = 650_000L
             )
         )
-        assertFalse(shouldStartManualEndAction(state, 200_000L, 700_000L))
+
+        // The cached credit boundary may have been wrong: a deliberate exit
+        // should never strand the user without the rating -> More Like This flow.
+        assertTrue(shouldStartManualEndAction(state, 200_000L, 700_000L))
+        assertTrue(shouldStartManualEndAction(state, 0L, 700_000L))
+        assertTrue(shouldStartManualEndAction(state, 200_000L, 0L))
+        assertTrue(shouldOfferManualEndRating(state))
+
+        // Ordinary Back, including after an intentionally dismissed More Like
+        // This screen, retains the normal near-end and dismissal rules.
+        assertFalse(shouldStartManualEndAction(
+            state.copy(ratingReturnedToVideo = false, postPlayRecommendationDismissed = false),
+            200_000L,
+            700_000L
+        ))
+        assertFalse(shouldStartManualEndAction(
+            state.copy(ratingReturnedToVideo = false),
+            650_000L,
+            700_000L
+        ))
     }
 
     @Test
