@@ -211,9 +211,6 @@ class MetaDetailsViewModel @Inject constructor(
     private var commentsLoadMoreJob: Job? = null
     private var episodeRatingsJob: Job? = null
     private var nextToWatchJob: Job? = null
-    // A provisional calculation against empty cold-start history must never
-    // make the Details hero Play button appear with the wrong episode.
-    private var initialWatchedHistoryResolvedForMetaId: String? = null
     private val authoritativeWatchedEpisodes =
         MutableStateFlow<Set<Pair<Int, Int>>>(emptySet())
     private val optimisticWatchedEpisodeOverrides =
@@ -304,11 +301,7 @@ class MetaDetailsViewModel @Inject constructor(
 
     private fun updateNextToWatch(nextToWatch: NextToWatch) {
         _uiState.update { state ->
-            val ready = state.meta != null &&
-                initialWatchedHistoryResolvedForMetaId == state.meta.id
-            if (state.nextToWatch == nextToWatch &&
-                state.isNextToWatchReady == ready
-            ) return@update state
+            if (state.nextToWatch == nextToWatch) return@update state
             val nextSeason = nextToWatch.nextSeason
             val meta = state.meta
             val shouldSwitchSeason = nextSeason != null &&
@@ -318,15 +311,11 @@ class MetaDetailsViewModel @Inject constructor(
             if (shouldSwitchSeason && meta != null && nextSeason != null) {
                 state.copy(
                     nextToWatch = nextToWatch,
-                    isNextToWatchReady = ready,
                     selectedSeason = nextSeason,
                     episodesForSeason = getEpisodesForSeason(meta.videos, nextSeason)
                 )
             } else {
-                state.copy(
-                    nextToWatch = nextToWatch,
-                    isNextToWatchReady = ready
-                )
+                state.copy(nextToWatch = nextToWatch)
             }
         }
     }
@@ -585,28 +574,7 @@ class MetaDetailsViewModel @Inject constructor(
                 .toSet()
 
             if (watched.isNotEmpty() || attempt == 3) {
-                if (_uiState.value.meta?.id != meta.id) return
                 authoritativeWatchedEpisodes.value = watched
-
-                if (initialWatchedHistoryResolvedForMetaId != meta.id) {
-                    // Only the initial reveal needs this synchronous bridge.
-                    // Later history refreshes keep the original Flow-owned
-                    // reconciliation (including explicit Unwatch mutations).
-                    // Otherwise the observer can arrive a frame after we mark
-                    // Play ready and briefly show a guessed S1E1.
-                    _uiState.update { state ->
-                        if (state.meta?.id != meta.id) return@update state
-                        val overrides = optimisticWatchedEpisodeOverrides.value
-                        val merged = (state.watchedEpisodes + watched).toMutableSet()
-                        overrides.forEach { (episode, isWatched) ->
-                            if (isWatched) merged.add(episode)
-                            else merged.remove(episode)
-                        }
-                        state.copy(watchedEpisodes = merged.toSet())
-                    }
-                    initialWatchedHistoryResolvedForMetaId = meta.id
-                    calculateNextToWatch()
-                }
                 return
             }
 
@@ -884,10 +852,6 @@ class MetaDetailsViewModel @Inject constructor(
     }
 
     private fun applyMeta(meta: Meta) {
-        val previousMetaId = _uiState.value.meta?.id
-        if (previousMetaId != meta.id) {
-            initialWatchedHistoryResolvedForMetaId = null
-        }
         val seasons = meta.videos
             .mapNotNull { it.season }
             .distinct()
@@ -906,10 +870,6 @@ class MetaDetailsViewModel @Inject constructor(
             it.copy(
                 isLoading = false,
                 meta = meta,
-                nextToWatch =
-                    if (previousMetaId == meta.id) it.nextToWatch else null,
-                isNextToWatchReady =
-                    previousMetaId == meta.id && it.isNextToWatchReady,
                 seasons = seasons,
                 selectedSeason = selectedSeason,
                 episodesForSeason = episodesForSeason,
