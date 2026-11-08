@@ -6,7 +6,6 @@ import com.nuvio.tv.domain.model.Video
 
 internal const val CREDIT_ANALYZER_TRIGGER_POSITION_MS = 5 * 60_000L
 internal const val MANUAL_END_ACTION_THRESHOLD = 0.85
-internal const val CREDIT_COMPLETION_EXIT_GRACE_MS = 2 * 60_000L
 internal const val SKIP_CREDITS_TIMEOUT_MS = 10_000L
 internal const val POST_CREDIT_SCENE_CONTINUITY_GAP_MS =
     SKIP_CREDITS_TIMEOUT_MS
@@ -192,18 +191,14 @@ internal fun shouldTreatPlaybackAsCompleted(
     positionMs: Long,
     durationMs: Long,
     playbackEnded: Boolean,
-    fallbackThreshold: Double = MANUAL_END_ACTION_THRESHOLD,
-    creditBoundaryGraceMs: Long = 0L
+    fallbackThreshold: Double = MANUAL_END_ACTION_THRESHOLD
 ): Boolean {
     if (playbackEnded) return true
     if (positionMs < 0L) return false
 
     completionCreditBoundaryMs(timing)
         ?.let { creditsBoundaryMs ->
-            val triggerMs =
-                (creditsBoundaryMs - creditBoundaryGraceMs.coerceAtLeast(0L))
-                    .coerceAtLeast(0L)
-            return positionMs >= triggerMs
+            return positionMs >= creditsBoundaryMs
         }
 
     if (durationMs <= 0L) return false
@@ -333,8 +328,7 @@ internal fun shouldStartManualEndAction(
                 timing = state.creditTiming,
                 positionMs = positionMs,
                 durationMs = durationMs,
-                playbackEnded = false,
-                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+                playbackEnded = false
             )
         }
 
@@ -356,8 +350,7 @@ internal fun shouldStartManualEndAction(
                 timing = state.creditTiming,
                 positionMs = positionMs,
                 durationMs = durationMs,
-                playbackEnded = false,
-                creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
+                playbackEnded = false
             )
         }
 
