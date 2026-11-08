@@ -65,6 +65,7 @@ private const val RATING_NONE = -1
 @Composable
 fun RatingOverlay(
     visible: Boolean,
+    dismissRequested: Boolean = false,
     logo: String?,
     title: String,
     fallbackTitleLogoLarge: Boolean,
@@ -196,6 +197,15 @@ fun RatingOverlay(
 
         // 4. Signal complete — the caller exits or advances to post-play.
         onExitAnimationComplete()
+    }
+
+    // PlayerScreen's Back handler can own the first key preview before this
+    // focus subtree sees Back. Mirror that controller dismissal request into
+    // the same animated exit used by the Dismiss button.
+    LaunchedEffect(dismissRequested) {
+        if (dismissRequested && !isExiting && !isReturningToVideo) {
+            isDismissing = true
+        }
     }
 
     // Dismiss exit sequence
