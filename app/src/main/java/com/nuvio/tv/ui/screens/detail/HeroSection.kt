@@ -427,93 +427,93 @@ fun HeroContentSection(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 PlayButton(
-                            text = primaryActionText,
-                            entranceScale = playScale.value,
-                            icon = if (isComingSoon) {
-                                if (isReleaseReminderSet) Icons.Default.Check
-                                else Icons.Default.Notifications
-                            } else {
-                                null
-                            },
-                            onClick = onPlayClick,
-                            onLongPress = onPlayLongPress,
-                            focusRequester = playButtonFocusRequester,
-                            restoreFocusToken = restorePlayFocusToken,
-                            onFocusRestored = {
-                                onHeroActionFocused()
-                                onPlayFocusRestored()
-                            }
-                        )
-
-                        if (!isComingSoon) {
-                            ActionIconButton(
-                                icon = if (isInLibrary) Icons.Default.Check else null,
-                                painter = if (!isInLibrary) {
-                                    libraryAddPainter
-                                } else {
-                                    null
-                                },
-                                contentDescription = if (isInLibrary) stringResource(R.string.hero_remove_from_library) else stringResource(R.string.hero_add_to_library),
-                                onClick = onToggleLibrary,
-                                onLongPress = onLibraryLongPress,
-                                onFocused = onHeroActionFocused
-                            )
-                        }
-
-                        if (
-                            !isComingSoon &&
-                            (
-                                meta.apiType.equals(
-                                    "movie",
-                                    ignoreCase = true
-                                ) ||
-                                    isSeriesApi
+                                    text = primaryActionText,
+                                    entranceScale = playScale.value,
+                                    icon = if (isComingSoon) {
+                                        if (isReleaseReminderSet) Icons.Default.Check
+                                        else Icons.Default.Notifications
+                                    } else {
+                                        null
+                                    },
+                                    onClick = onPlayClick,
+                                    onLongPress = onPlayLongPress,
+                                    focusRequester = playButtonFocusRequester,
+                                    restoreFocusToken = restorePlayFocusToken,
+                                    onFocusRestored = {
+                                        onHeroActionFocused()
+                                        onPlayFocusRestored()
+                                    }
                                 )
-                        ) {
-                            val watched =
-                                if (isSeriesApi) {
-                                    isSeriesWatched
-                                } else {
-                                    isMovieWatched
-                                }
-                            val pending =
-                                if (isSeriesApi) {
-                                    isSeriesWatchedPending
-                                } else {
-                                    isMovieWatchedPending
-                                }
-                            ActionIconButton(
-                                icon = if (watched) {
-                                    Icons.Default.Visibility
-                                } else {
-                                    Icons.Default.VisibilityOff
-                                },
-                                contentDescription = if (watched) {
-                                    stringResource(R.string.hero_mark_unwatched)
-                                } else {
-                                    stringResource(R.string.hero_mark_watched)
-                                },
-                                onClick = if (isSeriesApi) {
-                                    onToggleSeriesWatched
-                                } else {
-                                    onToggleMovieWatched
-                                },
-                                enabled = !pending,
-                                selected = watched,
-                                selectedContainerColor = Color.White,
-                                selectedContentColor = Color.Black,
-                                onFocused = onHeroActionFocused
-                            )
-                        }
 
-                        if (trailerAvailable) {
-                            ActionIconButtonPainter(
-                                painter = trailerPainter,
-                                contentDescription = stringResource(R.string.hero_play_trailer),
-                                onClick = onTrailerClick,
-                                onFocused = onHeroActionFocused
-                            )
-                        }
+                                if (!isComingSoon) {
+                                    ActionIconButton(
+                                        icon = if (isInLibrary) Icons.Default.Check else null,
+                                        painter = if (!isInLibrary) {
+                                            libraryAddPainter
+                                        } else {
+                                            null
+                                        },
+                                        contentDescription = if (isInLibrary) stringResource(R.string.hero_remove_from_library) else stringResource(R.string.hero_add_to_library),
+                                        onClick = onToggleLibrary,
+                                        onLongPress = onLibraryLongPress,
+                                        onFocused = onHeroActionFocused
+                                    )
+                                }
+
+                                if (
+                                    !isComingSoon &&
+                                    (
+                                        meta.apiType.equals(
+                                            "movie",
+                                            ignoreCase = true
+                                        ) ||
+                                            isSeriesApi
+                                        )
+                                ) {
+                                    val watched =
+                                        if (isSeriesApi) {
+                                            isSeriesWatched
+                                        } else {
+                                            isMovieWatched
+                                        }
+                                    val pending =
+                                        if (isSeriesApi) {
+                                            isSeriesWatchedPending
+                                        } else {
+                                            isMovieWatchedPending
+                                        }
+                                    ActionIconButton(
+                                        icon = if (watched) {
+                                            Icons.Default.Visibility
+                                        } else {
+                                            Icons.Default.VisibilityOff
+                                        },
+                                        contentDescription = if (watched) {
+                                            stringResource(R.string.hero_mark_unwatched)
+                                        } else {
+                                            stringResource(R.string.hero_mark_watched)
+                                        },
+                                        onClick = if (isSeriesApi) {
+                                            onToggleSeriesWatched
+                                        } else {
+                                            onToggleMovieWatched
+                                        },
+                                        enabled = !pending,
+                                        selected = watched,
+                                        selectedContainerColor = Color.White,
+                                        selectedContentColor = Color.Black,
+                                        onFocused = onHeroActionFocused
+                                    )
+                                }
+
+                                if (trailerAvailable) {
+                                    ActionIconButtonPainter(
+                                        painter = trailerPainter,
+                                        contentDescription = stringResource(R.string.hero_play_trailer),
+                                        onClick = onTrailerClick,
+                                        onFocused = onHeroActionFocused
+                                    )
+                                }
                             }
                         }
                     }
