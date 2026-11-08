@@ -401,7 +401,6 @@ fun MetaDetailsScreen(
                     isInLibrary = uiState.isInLibrary,
                     librarySourceMode = uiState.librarySourceMode,
                     nextToWatch = uiState.nextToWatch,
-                    isNextToWatchReady = uiState.isNextToWatchReady,
                     episodeProgressMap = uiState.episodeProgressMap,
                     watchedEpisodes = uiState.watchedEpisodes,
                     episodeWatchedPendingKeys = uiState.episodeWatchedPendingKeys,
@@ -683,7 +682,6 @@ private fun MetaDetailsContent(
     isInLibrary: Boolean,
     librarySourceMode: LibrarySourceMode,
     nextToWatch: NextToWatch?,
-    isNextToWatchReady: Boolean,
     episodeProgressMap: Map<Pair<Int, Int>, WatchProgress>,
     watchedEpisodes: Set<Pair<Int, Int>>,
     episodeWatchedPendingKeys: Set<String>,
@@ -780,11 +778,6 @@ private fun MetaDetailsContent(
             )
     }
     val isComingSoon = meta.behaviorHints?.comingSoon == true
-    val heroPlayActionReady = shouldRevealHeroPlayAction(
-        isSeries = isSeries,
-        isComingSoon = isComingSoon,
-        hasResolvedNextToWatch = isNextToWatchReady && nextToWatch != null
-    )
     val defaultSeriesVideo = remember(meta.behaviorHints?.defaultVideoId, meta.videos) {
         val defaultVideoId = meta.behaviorHints?.defaultVideoId
         meta.videos.firstOrNull { it.id == defaultVideoId && it.available != false }
@@ -1354,13 +1347,8 @@ private fun MetaDetailsContent(
         pendingRestoreType,
         pendingRestoreEpisodeId,
         initialHeroFocusRequested,
-        isTrailerPlaying,
-        heroPlayActionReady
+        isTrailerPlaying
     ) {
-        // The hero Play focus requester is not mounted until a series has
-        // resolved its initial history-backed episode/action. Re-attempt focus
-        // when it becomes ready, not three times while the button is missing.
-        if (!heroPlayActionReady) return@LaunchedEffect
         if (
             !initialHeroFocusRequested &&
             pendingRestoreType == null &&
@@ -1499,7 +1487,6 @@ private fun MetaDetailsContent(
                         fallbackTitleLogoLarge = fallbackTitleLogoLarge,
                         nextEpisode = nextEpisode,
                         nextToWatch = nextToWatch,
-                        playActionReady = heroPlayActionReady,
                         onPlayClick = heroPlayClick,
                         onPlayLongPress = if (!isComingSoon && showManualPlayOption) {
                             { showHeroPlayOptionsDialog = true }
