@@ -25,6 +25,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
@@ -563,16 +564,22 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 watchProgressRepository.observeNextUpSeeds(),
                 watchProgressRepository.observeRemoteProgressLoaded(),
                 profileManager.activeProfileId,
-                rewatchSessionStore.activeSessions
-            ) { items, nextUpSeeds, hasLoadedRemoteProgress, profileId, replaySessions ->
-                ProgressSnapshot(
-                    items = items,
-                    nextUpSeeds = nextUpSeeds,
-                    hasLoadedRemoteProgress = hasLoadedRemoteProgress,
-                    profileId = profileId,
-                    replaySessions = replaySessions
-                )
-            },
+                rewatchSessionStore.activeProfileSessions
+            ) { items, nextUpSeeds, hasLoadedRemoteProgress, profileId, replaySnapshot ->
+                // Profile and replay store are separately asynchronous flows.
+                // Never pair the new profile with old profile replay sessions.
+                if (!canUseRewatchProfileSnapshot(profileId, replaySnapshot.profileId)) {
+                    null
+                } else {
+                    ProgressSnapshot(
+                        items = items,
+                        nextUpSeeds = nextUpSeeds,
+                        hasLoadedRemoteProgress = hasLoadedRemoteProgress,
+                        profileId = profileId,
+                        replaySessions = replaySnapshot.sessions
+                    )
+                }
+            }.filterNotNull(),
             combine(
                 traktSettingsDataStore.continueWatchingDaysCap,
                 traktSettingsDataStore.dismissedNextUpKeys,
