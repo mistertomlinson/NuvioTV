@@ -13,7 +13,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import android.util.Log
 import com.nuvio.tv.domain.rewatch.RewatchEpisode
 import kotlinx.coroutines.withTimeoutOrNull
 
