@@ -882,7 +882,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                         position = cached.position,
                                         duration = cached.duration,
                                         lastWatched = cached.lastWatched,
-                                        progressPercent = cached.progressPercent
+                                        progressPercent = cached.progressPercent,
+                                        source = if (cached.isRewatch) CW_REWATCH_PROGRESS_SOURCE else WatchProgress.SOURCE_LOCAL
                                     ),
                                     episodeThumbnail = cached.episodeThumbnail,
                                     episodeDescription = cached.episodeDescription,
