@@ -9,6 +9,10 @@ import com.nuvio.tv.domain.model.ContentType
 import com.nuvio.tv.domain.model.Meta
 import com.nuvio.tv.domain.model.Video
 import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.domain.rewatch.RewatchPhase
+import com.nuvio.tv.domain.rewatch.RewatchSession
+import com.nuvio.tv.domain.rewatch.resolvePendingRewatchSuccessor
+import com.nuvio.tv.ui.screens.player.verifiedRewatchCompletionCatalog
 import com.nuvio.tv.data.repository.runProtectedNextUpDismissal
 import com.nuvio.tv.domain.model.normalizeLanguageCode
 import com.nuvio.tv.domain.model.countryToLanguageCode
@@ -53,7 +57,8 @@ private data class ProgressSnapshot(
     val items: List<WatchProgress>,
     val nextUpSeeds: List<WatchProgress>,
     val hasLoadedRemoteProgress: Boolean,
-    val profileId: Int
+    val profileId: Int,
+    val replaySessions: List<RewatchSession>
 )
 
 private data class ContinueWatchingSettingsSnapshot(
@@ -65,7 +70,8 @@ private data class ContinueWatchingSettingsSnapshot(
     val watchedItemsVersion: Int,  // triggers re-evaluation when watched items change
     val latestWatchedMovieAtByContentId: Map<String, Long>,
     val hasLoadedRemoteProgress: Boolean,
-    val profileId: Int
+    val profileId: Int,
+    val replaySessions: List<RewatchSession>
 )
 
 /**
@@ -556,13 +562,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 watchProgressRepository.allProgress,
                 watchProgressRepository.observeNextUpSeeds(),
                 watchProgressRepository.observeRemoteProgressLoaded(),
-                profileManager.activeProfileId
-            ) { items, nextUpSeeds, hasLoadedRemoteProgress, profileId ->
+                profileManager.activeProfileId,
+                rewatchSessionStore.activeSessions
+            ) { items, nextUpSeeds, hasLoadedRemoteProgress, profileId, replaySessions ->
                 ProgressSnapshot(
                     items = items,
                     nextUpSeeds = nextUpSeeds,
                     hasLoadedRemoteProgress = hasLoadedRemoteProgress,
-                    profileId = profileId
+                    profileId = profileId,
+                    replaySessions = replaySessions
                 )
             },
             combine(
@@ -608,7 +616,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 latestWatchedMovieAtByContentId =
                     latestWatchedMovieAtByContentId,
                 hasLoadedRemoteProgress = hasLoadedRemoteProgress,
-                profileId = profileId
+                profileId = profileId,
+                replaySessions = progressSnapshot.replaySessions
             )
         }.debounce {
             val immediateAgeMs =
