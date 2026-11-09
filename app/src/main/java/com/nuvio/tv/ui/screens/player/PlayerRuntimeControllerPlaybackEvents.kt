@@ -61,7 +61,11 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                 )
 
                 // Periodic provider pause snapshot so progress survives a force-stop
-                if (player.isPlaying && hasRequestedScrobbleStartForCurrentItem) {
+                if (
+                    player.isPlaying &&
+                    hasRequestedScrobbleStartForCurrentItem &&
+                    !isExistingRewatchPlayback()
+                ) {
                     val nowMs = System.currentTimeMillis()
                     if (nowMs - lastPeriodicScrobbleMs >= periodicScrobbleIntervalMs) {
                         lastPeriodicScrobbleMs = nowMs
@@ -70,6 +74,9 @@ internal fun PlayerRuntimeController.startProgressUpdates() {
                             val scrobbleItem = currentScrobbleItem
                             if (scrobbleItem != null) {
                                 scope.launch {
+                                    // Playback may switch to replay between
+                                    // scheduling and dispatching this event.
+                                    if (isExistingRewatchPlayback()) return@launch
                                     trackingScrobbleCoordinator.scrobble(
                                         action = TrackingScrobbleAction.PAUSE,
                                         event = TrackingScrobbleEvent(
