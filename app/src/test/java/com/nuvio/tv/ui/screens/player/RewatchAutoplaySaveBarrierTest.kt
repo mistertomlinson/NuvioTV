@@ -73,4 +73,72 @@ class RewatchAutoplaySaveBarrierTest {
             currentEpisode = 5
         ))
     }
+
+    @Test
+    fun `known successor can begin only after the durable cursor advances`() {
+        val outgoing = activeSession()
+        val requirement = RewatchAutoplayHandoff(
+            sessionId = outgoing.sessionId,
+            successor = nextEpisode
+        )
+        assertFalse(rewatchAutoplayHandoffReady(
+            requirement, outgoing, nextEpisode
+        ))
+        val queued = outgoing.copy(
+            episode = nextEpisode,
+            phase = RewatchPhase.NEXT_UP,
+            positionMs = 0L
+        )
+        assertTrue(rewatchAutoplayHandoffReady(
+            requirement, queued, nextEpisode
+        ))
+    }
+
+    @Test
+    fun `failed or stale handoff never falls back to ordinary Simkl playback`() {
+        val requirement = RewatchAutoplayHandoff(
+            sessionId = "rewatch-session",
+            successor = nextEpisode
+        )
+        assertFalse(rewatchAutoplayHandoffReady(requirement, null, nextEpisode))
+        assertFalse(rewatchAutoplayHandoffReady(
+            requirement,
+            activeSession().copy(
+                episode = nextEpisode,
+                sessionId = "other-rewatch"
+            ),
+            nextEpisode
+        ))
+        assertFalse(rewatchAutoplayHandoffReady(
+            requirement,
+            activeSession().copy(
+                episode = nextEpisode,
+                phase = RewatchPhase.AWAITING_METADATA
+            ),
+            nextEpisode
+        ))
+        assertFalse(rewatchAutoplayHandoffReady(
+            requirement,
+            activeSession().copy(
+                episode = nextEpisode,
+                phase = RewatchPhase.FINISHED
+            ),
+            nextEpisode
+        ))
+    }
+
+    @Test
+    fun `known successor cannot approve playback of a different episode`() {
+        val requirement = RewatchAutoplayHandoff(
+            sessionId = "rewatch-session",
+            successor = nextEpisode
+        )
+        val saved = activeSession().copy(
+            episode = nextEpisode,
+            phase = RewatchPhase.NEXT_UP
+        )
+        assertFalse(rewatchAutoplayHandoffReady(
+            requirement, saved, RewatchEpisode(3, 7)
+        ))
+    }
 }
