@@ -760,7 +760,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             isNewSeasonRelease = freshIsNewSeasonRelease,
                             seedSeason = cached.seedSeason,
                             seedEpisode = cached.seedEpisode,
-                            contentLanguage = cached.contentLanguage
+                            contentLanguage = cached.contentLanguage,
+                            isRewatch = cached.isRewatch
                         )
                     }
                 }
@@ -965,7 +966,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             isReleaseAlert = freshIsReleaseAlert,
                             isNewSeasonRelease = freshIsNewSeasonRelease,
                             seedSeason = cached.seedSeason,
-                            seedEpisode = cached.seedEpisode
+                            seedEpisode = cached.seedEpisode,
+                            isRewatch = cached.isRewatch
                         )
                     )
                 }
@@ -1507,7 +1509,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 isReleaseAlert = freshIsReleaseAlert,
                                 isNewSeasonRelease = freshIsNewSeasonRelease,
                                 seedSeason = cached.seedSeason,
-                                seedEpisode = cached.seedEpisode
+                                seedEpisode = cached.seedEpisode,
+                                isRewatch = cached.isRewatch
                             )
                         )
                     }
@@ -1643,7 +1646,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             releaseInfo = info.releaseInfo, sortTimestamp = info.sortTimestamp,
                             releaseTimestamp = info.releaseTimestamp, isReleaseAlert = info.isReleaseAlert,
                             isNewSeasonRelease = info.isNewSeasonRelease, seedSeason = info.seedSeason,
-                            seedEpisode = info.seedEpisode, contentLanguage = info.contentLanguage
+                            seedEpisode = info.seedEpisode, contentLanguage = info.contentLanguage,
+                            isRewatch = info.isRewatch
                         )
                     }
                     val ipSnap = currentItems.mapNotNull { item ->
@@ -1658,7 +1662,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                             episodeThumbnail = ip.episodeThumbnail?.takeIf { it !in brokenUrls },
                             episodeDescription = ip.episodeDescription, episodeImdbRating = ip.episodeImdbRating,
                             genres = ip.genres, releaseInfo = ip.releaseInfo,
-                            contentLanguage = ip.contentLanguage
+                            contentLanguage = ip.contentLanguage,
+                            isRewatch = p.source == CW_REWATCH_PROGRESS_SOURCE
                         )
                     }
                         runCatching {
@@ -3027,7 +3032,10 @@ private fun HomeViewModel.persistLocalContinueWatchingMetadata(
     val localItems = enrichedItems.indices.mapNotNull { index ->
         val original = originalItems.getOrNull(index) as? ContinueWatchingItem.InProgress ?: return@mapNotNull null
         val enriched = enrichedItems.getOrNull(index) as? ContinueWatchingItem.InProgress ?: return@mapNotNull null
-        enriched.progress.takeIf { it != original.progress }
+        enriched.progress.takeIf {
+            it.source != CW_REWATCH_PROGRESS_SOURCE &&
+                it != original.progress
+        }
     }
 
     // Use the full UI state for cache snapshots so async-injected items are included.
@@ -3064,7 +3072,8 @@ private fun HomeViewModel.persistLocalContinueWatchingMetadata(
             isNewSeasonRelease = info.isNewSeasonRelease,
             seedSeason = info.seedSeason,
             seedEpisode = info.seedEpisode,
-            contentLanguage = info.contentLanguage
+            contentLanguage = info.contentLanguage,
+            isRewatch = info.isRewatch
         )
     }
 
@@ -3092,7 +3101,8 @@ private fun HomeViewModel.persistLocalContinueWatchingMetadata(
             episodeImdbRating = ip.episodeImdbRating,
             genres = ip.genres,
             releaseInfo = ip.releaseInfo,
-            contentLanguage = ip.contentLanguage
+            contentLanguage = ip.contentLanguage,
+            isRewatch = p.source == CW_REWATCH_PROGRESS_SOURCE
         )
     }
 
