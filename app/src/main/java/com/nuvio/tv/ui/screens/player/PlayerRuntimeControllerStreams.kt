@@ -16,6 +16,7 @@ import com.nuvio.tv.data.local.StreamAutoPlaySource
 import com.nuvio.tv.domain.model.AddonStreams
 import com.nuvio.tv.domain.model.Stream
 import com.nuvio.tv.domain.model.Video
+import com.nuvio.tv.domain.rewatch.RewatchEpisode
 import com.nuvio.tv.ui.components.SourceChipItem
 import com.nuvio.tv.ui.components.SourceChipStatus
 import com.nuvio.tv.core.debrid.DebridProviders
@@ -426,6 +427,32 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     }
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
+
+    // Capture whether this is the authoritative next episode of a replay
+    // before changing currentSeason/currentEpisode. If the outgoing
+    // completion fails to commit, the next episode must fail closed instead
+    // of becoming an ordinary Simkl watched-history update.
+    val destinationEpisode = targetVideo?.let { video ->
+        val season = video.season ?: return@let null
+        val episode = video.episode ?: return@let null
+        if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
+    }
+    val currentNext = nextEpisodeVideo?.let { video ->
+        val season = video.season ?: return@let null
+        val episode = video.episode ?: return@let null
+        if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
+    }
+    val leavingReplay = activeRewatchSession.takeIf {
+        destinationEpisode != null &&
+            destinationEpisode == currentNext &&
+            isExistingRewatchPlayback()
+    }
+    pendingRewatchHandoff = when {
+        pendingRewatchHandoff?.successor == destinationEpisode -> pendingRewatchHandoff
+        leavingReplay != null && destinationEpisode != null ->
+            RewatchAutoplayHandoff(leavingReplay.sessionId, destinationEpisode)
+        else -> null
+    }
 
     flushPlaybackSnapshotForSwitchOrExit()
 
