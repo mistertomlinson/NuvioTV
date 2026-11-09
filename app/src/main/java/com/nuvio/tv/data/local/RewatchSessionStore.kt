@@ -8,7 +8,9 @@ import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.rewatch.RewatchSession
 import javax.inject.Inject
 import javax.inject.Singleton
+import android.util.Log
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -20,6 +22,12 @@ import kotlinx.coroutines.flow.map
  * it does not read or write watched history, Simkl snapshots, or CW caches.
  * All writes capture a profile ID and are guarded against profile switches.
  */
+/** Capture the profile ID with its replay data, never as separate emissions. */
+data class ProfileRewatchSessions(
+    val profileId: Int,
+    val sessions: List<RewatchSession>
+)
+
 @Singleton
 class RewatchSessionStore @Inject constructor(
     private val factory: ProfileDataStoreFactory,
@@ -35,12 +43,25 @@ class RewatchSessionStore @Inject constructor(
 
     private fun store(profileId: Int) = factory.get(profileId, FEATURE)
 
-    val activeSessions: Flow<List<RewatchSession>> =
+    val activeProfileSessions: Flow<ProfileRewatchSessions> =
         profileManager.activeProfileId.flatMapLatest { profileId ->
             store(profileId).data.map { preferences ->
-                decodeRewatchSessions(preferences[key] ?: "[]", gson)
+                ProfileRewatchSessions(
+                    profileId = profileId,
+                    sessions = decodeRewatchSessions(preferences[key] ?: "[]", gson)
+                )
+            }.catch { error ->
+                // Never terminate Home's CW pipeline because replay-only
+                // storage is corrupt or temporarily inaccessible. Preserve
+                // the original payload: neither auto-reset nor overwrite it.
+                Log.w("RewatchSessionStore", "Cannot read profile replay state", error)
+                emit(ProfileRewatchSessions(profileId, emptyList()))
             }
         }
+
+    /** Compatibility accessor for readers not requiring an atomic profile tag. */
+    val activeSessions: Flow<List<RewatchSession>> =
+        activeProfileSessions.map { it.sessions }
 
     suspend fun load(profileId: Int): List<RewatchSession> {
         require(profileId > 0)
