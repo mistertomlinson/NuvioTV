@@ -111,3 +111,21 @@ internal fun canUseRewatchProfileSnapshot(
     requestedProfileId: Int,
     replaySnapshotProfileId: Int
 ): Boolean = requestedProfileId > 0 && requestedProfileId == replaySnapshotProfileId
+
+
+/**
+ * Cached replay cards are only a presentation cache. The durable replay cursor
+ * is authoritative for the current episode; an older cached S/E may never
+ * reappear during a new metadata lookup or after app restart.
+ */
+internal fun canReuseCachedRewatchEpisode(
+    isRewatch: Boolean,
+    contentId: String,
+    season: Int?,
+    episode: Int?,
+    replayEpisodeByContentId: Map<String, Pair<Int, Int>>
+): Boolean {
+    if (!isRewatch) return true
+    if (season == null || episode == null) return false
+    return replayEpisodeByContentId[contentId.trim().lowercase()] == (season to episode)
+}
