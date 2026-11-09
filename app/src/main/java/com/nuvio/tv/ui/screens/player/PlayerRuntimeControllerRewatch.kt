@@ -219,3 +219,35 @@ internal suspend fun PlayerRuntimeController.resolvePendingRewatchAfterMetadata(
         session = advanced
     )
 }
+
+/**
+ * Completion saves can finish after a stream switch. The old episode must
+ * never set the new episode's mutable completion flag.
+ */
+internal fun shouldMarkCurrentRewatchEpisodeCompleted(
+    activeSession: RewatchSession?,
+    capturedSessionId: String,
+    capturedEpisode: RewatchEpisode,
+    currentSeason: Int?,
+    currentEpisode: Int?
+): Boolean =
+    activeSession?.sessionId == capturedSessionId &&
+        activeSession.episode == capturedEpisode &&
+        currentSeason == capturedEpisode.season &&
+        currentEpisode == capturedEpisode.episode
+
+/**
+ * Flushes all queued replay writes before startup inspects the durable cursor.
+ * Each write joins its predecessor, so awaiting the tail also awaits earlier
+ * periodic and completion snapshots (including the outgoing stream flush).
+ */
+internal suspend fun PlayerRuntimeController.awaitPendingRewatchSaves() {
+    while (true) {
+        val pending = pendingRewatchSaveJob ?: return
+        pending.join()
+        if (pendingRewatchSaveJob === pending) {
+            pendingRewatchSaveJob = null
+            return
+        }
+    }
+}
