@@ -241,13 +241,21 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
         )
     }
 
-    scope.launch(
+    // A snapshot from the old episode may still be committing when autoplay
+    // switches episodes. Link saves in FIFO order, then wait on the tail
+    // before identifying the next episode's replay session.
+    val previousRewatchWrite =
+        if (replaySession != null && replayProfileId != null) {
+            pendingRewatchSaveJob
+        } else null
+    val playbackSaveJob = scope.launch(
         kotlinx.coroutines.NonCancellable,
         start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED
     ) {
         // An established replay never writes ordinary Simkl history or
         // playback state, even if the profile switches while saving.
         if (replaySession != null && replayProfileId != null) {
+            previousRewatchWrite?.join()
             if (!hasMarkedCurrentItemCompleted) {
                 val saved = try {
                     saveExistingRewatchPosition(
@@ -265,7 +273,17 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
                     Log.w("PlayerRewatch", "Cannot persist replay progress", error)
                     false
                 }
-                if (saved && shouldComplete) {
+                if (saved && shouldComplete &&
+                    shouldMarkCurrentRewatchEpisodeCompleted(
+                        activeSession = activeRewatchSession,
+                        capturedSessionId = replaySession.sessionId,
+                        capturedEpisode = replaySession.episode,
+                        currentSeason = currentSeason,
+                        currentEpisode = currentEpisode
+                    )
+                ) {
+                    // A late completion from S1E5 must never mark S1E6
+                    // completed after autoplay has reset this flag.
                     hasMarkedCurrentItemCompleted = true
                 }
             }
@@ -295,6 +313,9 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
                 syncRemote = syncRemote
             )
         }
+    }
+    if (replaySession != null && replayProfileId != null) {
+        pendingRewatchSaveJob = playbackSaveJob
     }
 }
 
