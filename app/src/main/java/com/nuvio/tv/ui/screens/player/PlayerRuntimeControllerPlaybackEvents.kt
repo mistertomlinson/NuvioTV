@@ -347,6 +347,11 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
     val requestGeneration = ++scrobbleStartRequestGeneration
 
     scope.launch {
+        // The coroutine may run after an autoplay/profile transition made
+        // this episode a replay. Validate right before the provider call.
+        if (requestGeneration != scrobbleStartRequestGeneration ||
+            isExistingRewatchPlayback()
+        ) return@launch
         val progressPercent = currentPlaybackProgressPercent()
         trackingScrobbleCoordinator.scrobble(
             action = TrackingScrobbleAction.START,
