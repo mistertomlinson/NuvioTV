@@ -251,3 +251,27 @@ internal suspend fun PlayerRuntimeController.awaitPendingRewatchSaves() {
         }
     }
 }
+
+
+/**
+ * Captured before switchToEpisodeStream replaces the outgoing episode.
+ * The provider must never receive an ordinary scrobble for this successor
+ * while its replay cursor still points at the previous episode.
+ */
+internal data class RewatchAutoplayHandoff(
+    val sessionId: String,
+    val successor: RewatchEpisode
+)
+
+internal fun rewatchAutoplayHandoffReady(
+    handoff: RewatchAutoplayHandoff,
+    loadedSession: RewatchSession?,
+    currentEpisode: RewatchEpisode?
+): Boolean =
+    loadedSession?.sessionId == handoff.sessionId &&
+        loadedSession.episode == handoff.successor &&
+        currentEpisode == handoff.successor &&
+        loadedSession.phase in setOf(
+            com.nuvio.tv.domain.rewatch.RewatchPhase.PLAYING,
+            com.nuvio.tv.domain.rewatch.RewatchPhase.NEXT_UP
+        )
