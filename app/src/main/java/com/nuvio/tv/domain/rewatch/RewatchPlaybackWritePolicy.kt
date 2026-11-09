@@ -43,3 +43,33 @@ fun resolveRewatchPlaybackWriteRoute(
     // previously established rewatch into an ordinary Simkl history write.
     return RewatchPlaybackWriteRoute.REWATCH_SESSION_ONLY
 }
+
+
+/**
+ * A matched rewatch session is authoritative over ordinary provider playback.
+ *
+ * null means "no replay": keep the normal resume path unchanged.
+ * 0 means "replay next episode from the beginning": do not read provider
+ * playback positions even if the episode was already watched on Simkl.
+ * Positive positions are resumed exclusively from the replay cursor.
+ */
+fun resolveRewatchResumePosition(
+    session: RewatchSession?,
+    ownerKey: String,
+    canonicalSeriesId: String,
+    episode: RewatchEpisode
+): Long? {
+    if (resolveRewatchPlaybackWriteRoute(
+            session = session,
+            ownerKey = ownerKey,
+            canonicalSeriesId = canonicalSeriesId,
+            episode = episode
+        ) != RewatchPlaybackWriteRoute.REWATCH_SESSION_ONLY
+    ) return null
+
+    return if (session?.phase == RewatchPhase.PLAYING) {
+        session.positionMs.coerceAtLeast(0L)
+    } else {
+        0L
+    }
+}
