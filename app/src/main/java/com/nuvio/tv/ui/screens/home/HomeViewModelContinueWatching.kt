@@ -1015,7 +1015,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                     episodeDescription = item.episodeDescription,
                                     episodeImdbRating = item.episodeImdbRating,
                                     genres = item.genres, releaseInfo = item.releaseInfo,
-                                    contentLanguage = item.contentLanguage
+                                    contentLanguage = item.contentLanguage,
+                                    isRewatch = item.progress.source == CW_REWATCH_PROGRESS_SOURCE
                                 )
                             }
                             runCatching { cwEnrichmentCache.saveInProgressSnapshot(ipSnap, profileId = ipSnapProfileId) }
@@ -1440,7 +1441,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                                 releaseInfo = info.releaseInfo, sortTimestamp = info.sortTimestamp,
                                                 releaseTimestamp = info.releaseTimestamp, isReleaseAlert = info.isReleaseAlert,
                                                 isNewSeasonRelease = info.isNewSeasonRelease, seedSeason = info.seedSeason,
-                                                seedEpisode = info.seedEpisode, contentLanguage = info.contentLanguage
+                                                seedEpisode = info.seedEpisode, contentLanguage = info.contentLanguage,
+                                                isRewatch = info.isRewatch
                                             )
                                         }
                                             runCatching {
