@@ -428,35 +428,6 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
 
-    // Capture whether this is the authoritative next episode of a replay
-    // before changing currentSeason/currentEpisode. If the outgoing
-    // completion fails to commit, the next episode must fail closed instead
-    // of becoming an ordinary Simkl watched-history update.
-    val destinationEpisode = targetVideo?.let { video ->
-        val season = video.season ?: return@let null
-        val episode = video.episode ?: return@let null
-        if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
-    }
-    val currentNext = nextEpisodeVideo?.let { video ->
-        val season = video.season ?: return@let null
-        val episode = video.episode ?: return@let null
-        if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
-    }
-    val leavingReplay = activeRewatchSession.takeIf {
-        shouldProtectAutomaticRewatchHandoff(
-            automaticAdvance = protectAutoplayRewatchHandoff,
-            outgoingReplayActive = isExistingRewatchPlayback(),
-            destination = destinationEpisode,
-            knownSuccessor = currentNext
-        )
-    }
-    pendingRewatchHandoff = when {
-        pendingRewatchHandoff?.successor == destinationEpisode -> pendingRewatchHandoff
-        leavingReplay != null && destinationEpisode != null ->
-            RewatchAutoplayHandoff(leavingReplay.sessionId, destinationEpisode)
-        else -> null
-    }
-
     flushPlaybackSnapshotForSwitchOrExit()
 
     val newHeaders = PlayerMediaSourceFactory.sanitizeHeaders(
@@ -864,6 +835,35 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
     }
     nextEpisodeAutoPlayJob?.cancel()
     nextEpisodeAutoPlayJob = null
+
+    // Capture whether this is the authoritative next episode of a replay
+    // before changing currentSeason/currentEpisode. If the outgoing
+    // completion fails to commit, the next episode must fail closed instead
+    // of becoming an ordinary Simkl watched-history update.
+    val destinationEpisode = targetVideo?.let { video ->
+        val season = video.season ?: return@let null
+        val episode = video.episode ?: return@let null
+        if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
+    }
+    val currentNext = nextEpisodeVideo?.let { video ->
+        val season = video.season ?: return@let null
+        val episode = video.episode ?: return@let null
+        if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
+    }
+    val leavingReplay = activeRewatchSession.takeIf {
+        shouldProtectAutomaticRewatchHandoff(
+            automaticAdvance = protectAutoplayRewatchHandoff,
+            outgoingReplayActive = isExistingRewatchPlayback(),
+            destination = destinationEpisode,
+            knownSuccessor = currentNext
+        )
+    }
+    pendingRewatchHandoff = when {
+        pendingRewatchHandoff?.successor == destinationEpisode -> pendingRewatchHandoff
+        leavingReplay != null && destinationEpisode != null ->
+            RewatchAutoplayHandoff(leavingReplay.sessionId, destinationEpisode)
+        else -> null
+    }
 
     flushPlaybackSnapshotForSwitchOrExit()
 
