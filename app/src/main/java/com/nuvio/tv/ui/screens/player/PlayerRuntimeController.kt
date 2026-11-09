@@ -202,6 +202,8 @@ class PlayerRuntimeController(
     internal var activeRewatchProfileId: Int? = null
     /** Tail of serialized NonCancellable replay writes; awaited before autoplay startup. */
     internal var pendingRewatchSaveJob: kotlinx.coroutines.Job? = null
+    /** Guard a known next-episode replay handoff against failed disk writes. */
+    internal var pendingRewatchHandoff: RewatchAutoplayHandoff? = null
 
     internal var currentVideoId: String? = videoId
     internal var currentSeason: Int? = initialSeason
