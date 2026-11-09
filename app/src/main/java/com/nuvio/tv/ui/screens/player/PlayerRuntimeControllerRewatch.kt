@@ -6,6 +6,7 @@ import com.nuvio.tv.domain.rewatch.RewatchPlaybackWriteRoute
 import com.nuvio.tv.domain.rewatch.RewatchSession
 import com.nuvio.tv.domain.rewatch.completeRewatchEpisode
 import com.nuvio.tv.domain.rewatch.recordRewatchProgress
+import com.nuvio.tv.domain.rewatch.resolvePendingRewatchSuccessor
 import com.nuvio.tv.domain.rewatch.resolveRewatchPlaybackWriteRoute
 
 /**
@@ -109,5 +110,46 @@ internal suspend fun PlayerRuntimeController.saveExistingRewatchPosition(
     return rewatchSessionStore.upsertForActiveProfile(
         expectedProfileId = profileId,
         session = updated
+    )
+}
+
+/**
+ * Repairs a completed episode whose metadata arrived after the completion
+ * callback. It does not assume that the last *known* episode is a finale.
+ */
+internal suspend fun PlayerRuntimeController.resolvePendingRewatchAfterMetadata() {
+    if (!hasResolvedMetaDetails) return
+    if (contentType?.lowercase() !in setOf("series", "tv")) return
+
+    val selectedProfile = profileManager.activeProfileId.value
+    val content = contentId?.trim()?.takeIf { it.isNotBlank() } ?: return
+    val sessions = rewatchSessionStore.load(selectedProfile)
+    if (profileManager.activeProfileId.value != selectedProfile) return
+
+    val pending = sessions.firstOrNull {
+        it.canonicalSeriesId.trim().equals(content, ignoreCase = true) &&
+            it.phase == com.nuvio.tv.domain.rewatch.RewatchPhase.AWAITING_METADATA &&
+            it.lastCompletedEpisode != null
+    } ?: return
+
+    val completed = pending.lastCompletedEpisode ?: return
+    val catalog = verifiedRewatchCompletionCatalog(
+        videos = metaVideos,
+        completed = completed,
+        detailsResolved = true,
+        seriesStatus = resolvedRewatchSeriesStatus
+    )
+    if (!catalog.metadataComplete) return
+
+    val advanced = resolvePendingRewatchSuccessor(
+        session = pending,
+        orderedPlayableEpisodes = catalog.orderedEpisodes,
+        metadataComplete = true
+    )
+    if (advanced == pending) return
+
+    rewatchSessionStore.upsertForActiveProfile(
+        expectedProfileId = selectedProfile,
+        session = advanced
     )
 }
