@@ -345,6 +345,22 @@ internal fun PlayerRuntimeController.applyMetaDetails(
     recomputeNextEpisode(
         resetVisibility = false
     )
+
+    // Late metadata can resolve a completed replay that was deliberately
+    // retained as AWAITING_METADATA. Never discard the stored cursor.
+    scope.launch {
+        try {
+            resolvePendingRewatchAfterMetadata()
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            android.util.Log.w(
+                "PlayerRewatch",
+                "Could not resolve pending replay metadata",
+                error
+            )
+        }
+    }
 }
 
 internal fun PlayerRuntimeController.resolveDescription(meta: Meta): String? {
