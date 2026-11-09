@@ -3988,3 +3988,106 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
         )
     }
 }
+
+
+/**
+ * The durable replay overlay is independent from the provider's original
+ * watched history. A verified video ID is required before a card is shown.
+ * Resolve pending completions here as well as from Player, so process death
+ * before late metadata arrives cannot permanently strand the replay.
+ */
+private suspend fun HomeViewModel.buildDurableRewatchCards(
+    sessions: List<RewatchSession>,
+    providerProgress: List<WatchProgress>,
+    profileId: Int
+): List<ContinueWatchingItem> = coroutineScope {
+    if (sessions.isEmpty()) return@coroutineScope emptyList()
+
+    val semaphore = Semaphore(2)
+    sessions.map { original ->
+        async(Dispatchers.IO) {
+            semaphore.withPermit {
+                if (profileManager.activeProfileId.value != profileId) return@withPermit null
+
+                val seed = providerProgress.firstOrNull { progress ->
+                    progress.contentId.trim().equals(
+                        original.canonicalSeriesId.trim(), ignoreCase = true
+                    )
+                } ?: WatchProgress(
+                    contentId = original.canonicalSeriesId,
+                    contentType = "series",
+                    name = original.canonicalSeriesId,
+                    poster = null,
+                    backdrop = null,
+                    logo = null,
+                    videoId = original.canonicalSeriesId,
+                    season = original.episode.season,
+                    episode = original.episode.episode,
+                    episodeTitle = null,
+                    position = 0L,
+                    duration = 0L,
+                    lastWatched = original.updatedAtEpochMs
+                )
+
+                val meta = try {
+                    withTimeoutOrNull(2_000L) {
+                        resolveMetaForProgress(seed, cwMetaCache)
+                    }
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Exception) {
+                    android.util.Log.w(
+                        HomeViewModel.TAG, "Rewatch metadata unavailable", error
+                    )
+                    null
+                } ?: return@withPermit null
+
+                val session = if (
+                    original.phase == RewatchPhase.AWAITING_METADATA &&
+                    original.lastCompletedEpisode != null
+                ) {
+                    val catalog = verifiedRewatchCompletionCatalog(
+                        videos = meta.videos.map { video ->
+                            Video(
+                                id = video.id,
+                                title = video.title.orEmpty(),
+                                released = video.released,
+                                thumbnail = video.thumbnail,
+                                season = video.season,
+                                episode = video.episode,
+                                overview = video.overview,
+                                available = video.available
+                            )
+                        },
+                        completed = original.lastCompletedEpisode,
+                        detailsResolved = true,
+                        seriesStatus = meta.status
+                    )
+                    if (catalog.metadataComplete) {
+                        val advanced = resolvePendingRewatchSuccessor(
+                            original,
+                            catalog.orderedEpisodes,
+                            metadataComplete = true
+                        )
+                        if (
+                            advanced != original &&
+                            rewatchSessionStore.upsertForActiveProfile(
+                                expectedProfileId = profileId,
+                                session = advanced
+                            )
+                        ) advanced else original
+                    } else {
+                        original
+                    }
+                } else {
+                    original
+                }
+
+                if (profileManager.activeProfileId.value != profileId) {
+                    return@withPermit null
+                }
+                projectRewatchContinueWatchingItem(session, meta, seed)
+            }
+        }
+    }.awaitAll().filterNotNull()
+}
