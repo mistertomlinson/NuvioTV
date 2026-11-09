@@ -130,6 +130,14 @@ class HomeRewatchProjectionTest {
     }
 
     @Test
+    fun `cross-profile replay snapshot is never attached to current Home cycle`() {
+        assertTrue(canUseRewatchProfileSnapshot(2, 2))
+        assertEquals(false, canUseRewatchProfileSnapshot(1, 2))
+        assertEquals(false, canUseRewatchProfileSnapshot(2, 1))
+        assertEquals(false, canUseRewatchProfileSnapshot(0, 0))
+    }
+
+    @Test
     fun `without verified replay card provider rows remain intact`() {
         val original = listOf(unrelated())
         assertEquals(original, mergeRewatchContinueWatchingCards(original, emptyList()))
