@@ -25,6 +25,8 @@ import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
+import com.nuvio.tv.data.local.RewatchSessionStore
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.repository.CreditAnalyzerRepository
 import com.nuvio.tv.data.repository.MDBListRepository
 import com.nuvio.tv.data.repository.ParentalGuideRepository
@@ -68,6 +70,8 @@ class PlayerViewModel @Inject constructor(
     private val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     private val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     private val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
+    private val rewatchSessionStore: RewatchSessionStore,
+    private val profileManager: ProfileManager,
     savedStateHandle: SavedStateHandle,
     private val directDebridResolver: DirectDebridResolver,
     private val debridSettingsDataStore: DebridSettingsDataStore
@@ -97,6 +101,8 @@ class PlayerViewModel @Inject constructor(
         streamLinkCacheDataStore = streamLinkCacheDataStore,
         layoutPreferenceDataStore = layoutPreferenceDataStore,
         watchedItemsPreferences = watchedItemsPreferences,
+        rewatchSessionStore = rewatchSessionStore,
+        profileManager = profileManager,
         savedStateHandle = savedStateHandle,
         scope = viewModelScope,
         directDebridResolver = directDebridResolver,
