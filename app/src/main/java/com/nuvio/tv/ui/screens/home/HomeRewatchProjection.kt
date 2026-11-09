@@ -104,3 +104,10 @@ internal fun mergeRewatchContinueWatchingCards(
     }
     return merged + replacementById.values
 }
+
+
+/** A profile switch cannot combine an old replay cursor with new-profile CW. */
+internal fun canUseRewatchProfileSnapshot(
+    requestedProfileId: Int,
+    replaySnapshotProfileId: Int
+): Boolean = requestedProfileId > 0 && requestedProfileId == replaySnapshotProfileId
