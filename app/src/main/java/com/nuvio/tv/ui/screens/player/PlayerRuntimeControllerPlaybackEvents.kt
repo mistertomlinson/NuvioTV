@@ -13,6 +13,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import android.util.Log
+import com.nuvio.tv.domain.rewatch.RewatchEpisode
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val AUDIO_AMPLIFICATION_MIN_DB = 0
@@ -286,6 +288,7 @@ internal fun PlayerRuntimeController.buildScrobbleItem(): TrackingMediaReference
 }
 
 internal fun PlayerRuntimeController.emitScrobbleStart() {
+    if (isExistingRewatchPlayback()) return
     val item =
         currentScrobbleItem
             ?: buildScrobbleItem().also { currentScrobbleItem = it }
@@ -320,6 +323,7 @@ internal fun PlayerRuntimeController.emitScrobbleStart() {
 internal fun PlayerRuntimeController.emitScrobbleStop(
     progressPercent: Float? = null
 ) {
+    if (isExistingRewatchPlayback()) return
     val item = currentScrobbleItem ?: return
     val provided = progressPercent
 
@@ -351,6 +355,7 @@ internal fun PlayerRuntimeController.emitPauseScrobbleStop(
     progressPercent: Float,
     allowNearEndProgress: Boolean = false
 ) {
+    if (isExistingRewatchPlayback()) return
     if (!allowNearEndProgress && progressPercent >= 80f) return
 
     val item = currentScrobbleItem ?: return
@@ -426,6 +431,7 @@ internal fun PlayerRuntimeController.flushPlaybackSnapshotForSwitchOrExit(
 internal fun PlayerRuntimeController.emitSeekScrobbleRestart(
     progressPercent: Float
 ) {
+    if (isExistingRewatchPlayback()) return
     if (progressPercent < 1f || progressPercent >= 80f) return
 
     val item = currentScrobbleItem ?: return
