@@ -232,15 +232,14 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
     val replaySession = activeRewatchSession
         .takeIf { isExistingRewatchPlayback() }
     val replayProfileId = activeRewatchProfileId
-    val replayNextEpisode = if (hasResolvedMetaDetails) {
-        nextEpisodeVideo?.let { video ->
-            val season = video.season ?: return@let null
-            val episode = video.episode ?: return@let null
-            if (season > 0 && episode > 0 &&
-                PlayerNextEpisodeRules.hasEpisodeAired(video.released)
-            ) RewatchEpisode(season, episode) else null
-        }
-    } else null
+    val replayCompletionCatalog = replaySession?.let { session ->
+        verifiedRewatchCompletionCatalog(
+            videos = metaVideos,
+            completed = session.episode,
+            detailsResolved = hasResolvedMetaDetails,
+            seriesStatus = resolvedRewatchSeriesStatus
+        )
+    }
 
     scope.launch(
         kotlinx.coroutines.NonCancellable,
@@ -259,7 +258,8 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
                         durationMs = duration,
                         completed = shouldComplete,
                         updatedAtEpochMs = progress.lastWatched,
-                        verifiedNextEpisode = replayNextEpisode
+                        verifiedCatalog = replayCompletionCatalog
+                            ?: RewatchCompletionCatalog(null, false)
                     )
                 } catch (error: Exception) {
                     Log.w("PlayerRewatch", "Cannot persist replay progress", error)
