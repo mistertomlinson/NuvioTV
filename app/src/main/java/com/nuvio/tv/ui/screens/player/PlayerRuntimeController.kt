@@ -17,6 +17,9 @@ import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
+import com.nuvio.tv.data.local.RewatchSessionStore
+import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.domain.rewatch.RewatchSession
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.data.repository.CreditAnalyzerRepository
 import com.nuvio.tv.data.repository.MDBListRepository
@@ -66,6 +69,8 @@ class PlayerRuntimeController(
     internal val streamLinkCacheDataStore: StreamLinkCacheDataStore,
     internal val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     internal val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
+    internal val rewatchSessionStore: RewatchSessionStore,
+    internal val profileManager: ProfileManager,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope,
     internal val directDebridResolver: DirectDebridResolver,
@@ -192,6 +197,9 @@ class PlayerRuntimeController(
             creditBoundaryGraceMs = CREDIT_COMPLETION_EXIT_GRACE_MS
         )
     }
+
+    internal var activeRewatchSession: RewatchSession? = null
+    internal var activeRewatchProfileId: Int? = null
 
     internal var currentVideoId: String? = videoId
     internal var currentSeason: Int? = initialSeason
