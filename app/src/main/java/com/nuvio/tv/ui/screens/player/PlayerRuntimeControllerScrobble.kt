@@ -11,6 +11,8 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
 ) {
     playbackPreparationJob?.cancel()
     playbackPreparationJob = scope.launch {
+        // Resolve any explicit replay *before* initializePlayer can scrobble.
+        prepareExistingRewatchPlayback()
         warmTraktEpisodeMappingForCurrentPlayback()
         refreshScrobbleItem()
 
