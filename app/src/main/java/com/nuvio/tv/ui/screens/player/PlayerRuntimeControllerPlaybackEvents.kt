@@ -220,10 +220,51 @@ internal fun PlayerRuntimeController.saveWatchProgressInternal(
             creditBoundaryGraceMs = creditBoundaryGraceMs
         )
 
+    // Capture the current episode before coroutine dispatch. Autoplay can
+    // replace currentSeason/currentEpisode while a final save is in flight.
+    val replaySession = activeRewatchSession
+        .takeIf { isExistingRewatchPlayback() }
+    val replayProfileId = activeRewatchProfileId
+    val replayNextEpisode = if (hasResolvedMetaDetails) {
+        nextEpisodeVideo?.let { video ->
+            val season = video.season ?: return@let null
+            val episode = video.episode ?: return@let null
+            if (season > 0 && episode > 0 &&
+                PlayerNextEpisodeRules.hasEpisodeAired(video.released)
+            ) RewatchEpisode(season, episode) else null
+        }
+    } else null
+
     scope.launch(
         kotlinx.coroutines.NonCancellable,
         start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED
     ) {
+        // An established replay never writes ordinary Simkl history or
+        // playback state, even if the profile switches while saving.
+        if (replaySession != null && replayProfileId != null) {
+            if (!hasMarkedCurrentItemCompleted) {
+                val saved = try {
+                    saveExistingRewatchPosition(
+                        profileId = replayProfileId,
+                        sessionId = replaySession.sessionId,
+                        episode = replaySession.episode,
+                        positionMs = position,
+                        durationMs = duration,
+                        completed = shouldComplete,
+                        updatedAtEpochMs = progress.lastWatched,
+                        verifiedNextEpisode = replayNextEpisode
+                    )
+                } catch (error: Exception) {
+                    Log.w("PlayerRewatch", "Cannot persist replay progress", error)
+                    false
+                }
+                if (saved && shouldComplete) {
+                    hasMarkedCurrentItemCompleted = true
+                }
+            }
+            return@launch
+        }
+
         val effectiveContentId =
             watchProgressRepository.normalizeParentContentId(
                 parentContentId = progress.contentId,
