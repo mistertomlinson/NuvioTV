@@ -134,6 +134,22 @@ class RewatchSessionPolicyTest {
     }
 
     @Test
+    fun `next up cannot be marked complete before its playback begins`() {
+        val next = completeRewatchEpisode(start(), e1, ordered, true, 2_000L)
+        val premature = completeRewatchEpisode(next, e2, ordered, true, 3_000L)
+        assertSame(next, premature)
+        assertEquals(RewatchPhase.NEXT_UP, premature.phase)
+        assertEquals(e2, premature.episode)
+    }
+
+    @Test
+    fun `metadata wait does not duplicate completion before recovery`() {
+        val pending = completeRewatchEpisode(start(), e1, null, false, 2_000L)
+        assertSame(pending, completeRewatchEpisode(pending, e1, ordered, true, 3_000L))
+        assertEquals(e2, resolvePendingRewatchSuccessor(pending, ordered, true).episode)
+    }
+
+    @Test
     fun `late older-episode progress cannot overwrite new next up`() {
         val next = completeRewatchEpisode(start(), e1, ordered, true, 2_000L)
         val stale = recordRewatchProgress(next, e1, 500_000L, 600_000L, 3_000L)
