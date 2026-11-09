@@ -269,6 +269,7 @@ class PlayerRuntimeController(
     internal var shouldEnforceAutoplayOnFirstReady = true
     internal var metaVideos: List<Video> = emptyList()
     internal var hasResolvedMetaDetails: Boolean = false
+    internal var resolvedRewatchSeriesStatus: String? = null
     internal var nextEpisodeVideo: Video? = null
     internal var userPausedManually = false
 
