@@ -443,10 +443,12 @@ internal fun PlayerRuntimeController.switchToSourceStream(
         if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
     }
     val leavingReplay = activeRewatchSession.takeIf {
-        protectAutoplayRewatchHandoff &&
-            destinationEpisode != null &&
-            destinationEpisode == currentNext &&
-            isExistingRewatchPlayback()
+        shouldProtectAutomaticRewatchHandoff(
+            automaticAdvance = protectAutoplayRewatchHandoff,
+            outgoingReplayActive = isExistingRewatchPlayback(),
+            destination = destinationEpisode,
+            knownSuccessor = currentNext
+        )
     }
     pendingRewatchHandoff = when {
         pendingRewatchHandoff?.successor == destinationEpisode -> pendingRewatchHandoff
