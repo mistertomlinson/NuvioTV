@@ -275,3 +275,19 @@ internal fun rewatchAutoplayHandoffReady(
             com.nuvio.tv.domain.rewatch.RewatchPhase.PLAYING,
             com.nuvio.tv.domain.rewatch.RewatchPhase.NEXT_UP
         )
+
+
+/**
+ * Only auto-advance has an implied completion handoff. Manual selection of a
+ * different episode does not certify that the outgoing one finished.
+ */
+internal fun shouldProtectAutomaticRewatchHandoff(
+    automaticAdvance: Boolean,
+    outgoingReplayActive: Boolean,
+    destination: RewatchEpisode?,
+    knownSuccessor: RewatchEpisode?
+): Boolean =
+    automaticAdvance &&
+        outgoingReplayActive &&
+        destination != null &&
+        destination == knownSuccessor
