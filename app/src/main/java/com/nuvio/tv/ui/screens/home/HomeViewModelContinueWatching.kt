@@ -660,6 +660,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                     .mapTo(mutableSetOf()) {
                         it.canonicalSeriesId.trim().lowercase()
                     }
+                val activeReplayEpisodeById = activeReplaySessions.associate {
+                    it.canonicalSeriesId.trim().lowercase() to
+                        (it.episode.season to it.episode.episode)
+                }
 
                 val authoritativeProfileCycle =
                     !useTrackingProvider ||
@@ -735,6 +739,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // so that fresh builds use enriched titles/thumbnails from the start.
                 if (cwEnrichedNextUpOverlay.isEmpty() && cachedNextUp.isNotEmpty()) {
                     cachedNextUp.forEach { cached ->
+                        if (!canReuseCachedRewatchEpisode(
+                                cached.isRewatch, cached.contentId,
+                                cached.season, cached.episode, activeReplayEpisodeById
+                            )
+                        ) return@forEach
                         val (
                             freshHasAired,
                             freshIsReleaseAlert,
@@ -842,8 +851,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         !snapshot.hasLoadedRemoteProgress
                     ) {
                         cachedInProgress.forEach { cached ->
-                            if (cached.isRewatch &&
-                                cached.contentId.trim().lowercase() !in activeReplayContentIds
+                            if (!canReuseCachedRewatchEpisode(
+                                    cached.isRewatch, cached.contentId,
+                                    cached.season, cached.episode,
+                                    activeReplayEpisodeById
+                                )
                             ) return@forEach
                             /*
                              * A provider can still be loading when playback has
@@ -916,8 +928,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         valueTransform = { it.season!! to it.episode!! }
                     )
                 val cachedNextUpItems = cachedNextUp.mapNotNull { cached ->
-                    if (cached.isRewatch &&
-                        cached.contentId.trim().lowercase() !in activeReplayContentIds
+                    if (!canReuseCachedRewatchEpisode(
+                            cached.isRewatch, cached.contentId,
+                            cached.season, cached.episode, activeReplayEpisodeById
+                        )
                     ) return@mapNotNull null
                     val (
                         freshHasAired,
@@ -1492,8 +1506,10 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // When seeds haven't loaded yet, keep all cached items.
                 val cachedOlderNextUp = cachedNextUp
                     .filter {
-                        (!it.isRewatch ||
-                            it.contentId.trim().lowercase() in activeReplayContentIds) &&
+                        canReuseCachedRewatchEpisode(
+                            it.isRewatch, it.contentId, it.season, it.episode,
+                            activeReplayEpisodeById
+                        ) &&
                             (!snapshot.hasLoadedRemoteProgress || it.contentId in activeSeedContentIds)
                     }
                     .map { cached ->
