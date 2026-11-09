@@ -95,6 +95,7 @@ class HomeViewModel @Inject constructor(
     internal val homeScreenChannelManager: HomeScreenChannelManager,
     internal val profileManager: ProfileManager,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
+    internal val rewatchSessionStore: com.nuvio.tv.data.local.RewatchSessionStore,
     internal val collectionsDataStore: com.nuvio.tv.data.local.CollectionsDataStore,
     internal val mdbListSettingsDataStore: com.nuvio.tv.data.local.MDBListSettingsDataStore,
     internal val mdbListRepository: com.nuvio.tv.data.repository.MDBListRepository,
