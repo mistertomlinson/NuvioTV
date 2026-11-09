@@ -1,6 +1,10 @@
 package com.nuvio.tv.ui.screens.player
 
 import android.util.Log
+import com.nuvio.tv.domain.rewatch.RewatchActivationDecision
+import com.nuvio.tv.domain.rewatch.decideRewatchActivation
+import com.nuvio.tv.domain.rewatch.startRewatchSession
+import kotlinx.coroutines.flow.first
 import com.nuvio.tv.domain.rewatch.RewatchEpisode
 import com.nuvio.tv.domain.rewatch.RewatchPlaybackWriteRoute
 import com.nuvio.tv.domain.rewatch.RewatchSession
@@ -10,9 +14,12 @@ import com.nuvio.tv.domain.rewatch.resolvePendingRewatchSuccessor
 import com.nuvio.tv.domain.rewatch.resolveRewatchPlaybackWriteRoute
 
 /**
- * Activate only an explicitly existing replay session. Do not automatically
- * infer that playing an already-watched episode should start a rewatch.
- * The identity must match before initializePlayer can send any scrobble.
+ * Resume an established replay, or begin a new one only when the active
+ * provider has positively confirmed that this exact episode was watched.
+ * Never replace an unfinished series replay with a different episode.
+ *
+ * Detection happens before initializePlayer so replayed episodes do not
+ * produce a new Simkl scrobble or mutate original watched history.
  */
 internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
     activeRewatchSession = null
@@ -22,29 +29,88 @@ internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
     val content = contentId?.trim()?.takeIf(String::isNotBlank) ?: return
     val season = currentSeason?.takeIf { it > 0 } ?: return
     val episode = currentEpisode?.takeIf { it > 0 } ?: return
+    if (!profileManager.activeProfileReady.value) return
 
     val selectedProfile = profileManager.activeProfileId.value
+    val ownerKey = "local-profile:$selectedProfile"
+    val currentEpisodeKey = RewatchEpisode(season, episode)
     val sessions = try {
         rewatchSessionStore.load(selectedProfile)
     } catch (error: Exception) {
         Log.w("PlayerRewatch", "Cannot read replay state", error)
         return
     }
-
     if (profileManager.activeProfileId.value != selectedProfile) return
 
-    val currentEpisodeKey = RewatchEpisode(season, episode)
-    val chosen = sessions.firstOrNull { session ->
-        resolveRewatchPlaybackWriteRoute(
-            session = session,
-            ownerKey = session.ownerKey,
-            canonicalSeriesId = content,
-            episode = currentEpisodeKey
-        ) == RewatchPlaybackWriteRoute.REWATCH_SESSION_ONLY
-    } ?: return
+    // Existing replay recognition never waits on a tracking provider.
+    val stored = sessions.firstOrNull { session ->
+        session.ownerKey == ownerKey &&
+            session.canonicalSeriesId.trim().equals(content, ignoreCase = true)
+    }
+    if (stored != null && stored.phase != com.nuvio.tv.domain.rewatch.RewatchPhase.FINISHED) {
+        if (stored.episode == currentEpisodeKey) {
+            activeRewatchProfileId = selectedProfile
+            activeRewatchSession = stored
+        }
+        return
+    }
 
-    activeRewatchProfileId = selectedProfile
-    activeRewatchSession = chosen
+    // A missing or not-yet-loaded watched projection must NOT be treated as
+    // an affirmative replay. Bound the lookup so ordinary first-play startup
+    // cannot be blocked indefinitely by Simkl.
+    val alreadyWatched = try {
+        kotlinx.coroutines.withTimeoutOrNull(900L) {
+            watchProgressRepository.isWatched(
+                contentId = content,
+                videoId = currentVideoId,
+                season = season,
+                episode = episode
+            ).first()
+        } == true
+    } catch (error: kotlinx.coroutines.CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.w("PlayerRewatch", "Could not verify prior watched episode", error)
+        false
+    }
+
+    if (profileManager.activeProfileId.value != selectedProfile || !alreadyWatched) return
+    if (decideRewatchActivation(
+            storedSessions = sessions,
+            ownerKey = ownerKey,
+            canonicalSeriesId = content,
+            episode = currentEpisodeKey,
+            wasAlreadyWatched = true
+        ) != RewatchActivationDecision.START_NEW
+    ) return
+
+    val started = startRewatchSession(
+        ownerKey = ownerKey,
+        canonicalSeriesId = content,
+        sessionId = java.util.UUID.randomUUID().toString(),
+        episode = currentEpisodeKey,
+        wasAlreadyWatched = true,
+        updatedAtEpochMs = System.currentTimeMillis()
+    ) ?: return
+
+    val saved = try {
+        rewatchSessionStore.upsertForActiveProfile(
+            expectedProfileId = selectedProfile,
+            session = started,
+            replaceSession = stored?.phase ==
+                com.nuvio.tv.domain.rewatch.RewatchPhase.FINISHED
+        )
+    } catch (error: kotlinx.coroutines.CancellationException) {
+        throw error
+    } catch (error: Exception) {
+        Log.w("PlayerRewatch", "Cannot begin durable rewatch session", error)
+        false
+    }
+
+    if (saved && profileManager.activeProfileId.value == selectedProfile) {
+        activeRewatchProfileId = selectedProfile
+        activeRewatchSession = started
+    }
 }
 
 /** This routing decision precedes *all* playback scrobble and progress writes. */
