@@ -443,7 +443,8 @@ internal fun PlayerRuntimeController.switchToSourceStream(
         if (season > 0 && episode > 0) RewatchEpisode(season, episode) else null
     }
     val leavingReplay = activeRewatchSession.takeIf {
-        destinationEpisode != null &&
+        protectAutoplayRewatchHandoff &&
+            destinationEpisode != null &&
             destinationEpisode == currentNext &&
             isExistingRewatchPlayback()
     }
@@ -805,7 +806,11 @@ internal fun PlayerRuntimeController.reloadEpisodeStreams() {
     }
 }
 
-internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, forcedTargetVideo: Video? = null) {
+internal fun PlayerRuntimeController.switchToEpisodeStream(
+    stream: Stream,
+    forcedTargetVideo: Video? = null,
+    protectAutoplayRewatchHandoff: Boolean = false
+) {
     val targetVideo = forcedTargetVideo
         ?: sequenceOf(
             _uiState.value.episodes.firstOrNull {
@@ -847,7 +852,8 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
                 } else {
                     switchToEpisodeStream(
                         stream = resolvedStream,
-                        forcedTargetVideo = targetVideo
+                        forcedTargetVideo = targetVideo,
+                        protectAutoplayRewatchHandoff = protectAutoplayRewatchHandoff
                     )
                 }
             }
@@ -1260,7 +1266,11 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                         nextEpisodeAutoPlayCountdownSec = null
                     )
                 }
-                switchToEpisodeStream(stream = streamToPlay, forcedTargetVideo = nextVideo)
+                switchToEpisodeStream(
+                    stream = streamToPlay,
+                    forcedTargetVideo = nextVideo,
+                    protectAutoplayRewatchHandoff = !userInitiated
+                )
             } else {
                 _uiState.update {
                     it.copy(
