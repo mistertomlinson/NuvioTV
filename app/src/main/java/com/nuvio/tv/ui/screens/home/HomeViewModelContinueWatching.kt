@@ -3783,6 +3783,63 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
     episode: Int? = null,
     isNextUp: Boolean = false
 ) {
+    val visibleReplay = _uiState.value.continueWatchingItems.firstOrNull { item ->
+        when (item) {
+            is ContinueWatchingItem.NextUp ->
+                item.info.isRewatch &&
+                    item.info.contentId.trim().equals(contentId.trim(), ignoreCase = true)
+            is ContinueWatchingItem.InProgress ->
+                item.progress.source == CW_REWATCH_PROGRESS_SOURCE &&
+                    item.progress.contentId.trim().equals(contentId.trim(), ignoreCase = true)
+        }
+    }
+    if (visibleReplay != null) {
+        // Remove only the independent replay. Never dispatch this action to
+        // Simkl/Trakt dismissNextUp, removeProgress, or watched history.
+        val selectedProfile = profileManager.activeProfileId.value
+        viewModelScope.launch {
+            try {
+                val stored = rewatchSessionStore.load(selectedProfile)
+                    .firstOrNull {
+                        it.ownerKey == "local-profile:$selectedProfile" &&
+                            it.canonicalSeriesId.trim().equals(
+                                contentId.trim(), ignoreCase = true
+                            ) && it.phase != RewatchPhase.FINISHED
+                    }
+                if (stored != null) {
+                    val finished = stored.copy(
+                        phase = RewatchPhase.FINISHED,
+                        updatedAtEpochMs = maxOf(
+                            System.currentTimeMillis(),
+                            stored.updatedAtEpochMs + 1L
+                        )
+                    )
+                    val saved = rewatchSessionStore.upsertForActiveProfile(
+                        expectedProfileId = selectedProfile,
+                        session = finished
+                    )
+                    if (saved && profileManager.activeProfileId.value == selectedProfile) {
+                        _uiState.update { state ->
+                            state.copy(
+                                continueWatchingItems = state.continueWatchingItems
+                                    .filterNot { it == visibleReplay }
+                                    .stableCwOrdered()
+                            )
+                        }
+                        cwPipelineRefreshTrigger.value += 1
+                    }
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                android.util.Log.w(
+                    HomeViewModel.TAG, "Unable to dismiss local replay", error
+                )
+            }
+        }
+        return
+    }
+
     if (isNextUp) {
         val dismissKey =
             nextUpDismissKey(
