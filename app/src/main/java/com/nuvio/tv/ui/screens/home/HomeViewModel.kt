@@ -2330,7 +2330,8 @@ class HomeViewModel @Inject constructor(
                         position = cached.position,
                         duration = cached.duration,
                         lastWatched = cached.lastWatched,
-                        progressPercent = cached.progressPercent
+                        progressPercent = cached.progressPercent,
+                        source = if (cached.isRewatch) CW_REWATCH_PROGRESS_SOURCE else com.nuvio.tv.domain.model.WatchProgress.SOURCE_LOCAL
                     ),
                     episodeThumbnail = cached.episodeThumbnail,
                     episodeDescription = cached.episodeDescription,
@@ -2361,7 +2362,8 @@ class HomeViewModel @Inject constructor(
                         lastWatched = cached.lastWatched,
                         imdbRating = cached.imdbRating,
                         genres = cached.genres,
-                        releaseInfo = cached.releaseInfo
+                        releaseInfo = cached.releaseInfo,
+                        isRewatch = cached.isRewatch
                     )
                 )
             }
