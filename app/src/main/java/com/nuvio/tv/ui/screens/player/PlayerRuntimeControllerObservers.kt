@@ -6,6 +6,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.tv.data.local.FrameRateMatchingMode
 import com.nuvio.tv.domain.model.Subtitle
+import com.nuvio.tv.domain.model.WatchProgress
+import com.nuvio.tv.domain.rewatch.RewatchEpisode
+import com.nuvio.tv.domain.rewatch.resolveRewatchResumePosition
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.update
@@ -269,6 +272,46 @@ internal suspend fun PlayerRuntimeController.loadSavedProgressSnapshotFor(
     }
 
     pendingResumeProgress = null
+
+    // An active replay owns its own resume cursor. Never allow an older
+    // Simkl/Trakt playback record to seek a rewatched episode near its end.
+    // A matched NEXT_UP or AWAITING_METADATA phase deliberately resumes
+    // from zero, without ever consulting the ordinary progress provider.
+    val activeReplay = activeRewatchSession
+    val replayPosition = if (
+        activeReplay != null &&
+        activeRewatchProfileId == profileManager.activeProfileId.value &&
+        season != null && season > 0 &&
+        episode != null && episode > 0
+    ) {
+        resolveRewatchResumePosition(
+            session = activeReplay,
+            ownerKey = activeReplay.ownerKey,
+            canonicalSeriesId = contentId,
+            episode = RewatchEpisode(season, episode)
+        )
+    } else null
+    if (replayPosition != null) {
+        if (replayPosition >= 1_000L) {
+            pendingResumeProgress = WatchProgress(
+                contentId = contentId,
+                contentType = contentType ?: "series",
+                name = contentName ?: title,
+                poster = poster,
+                backdrop = backdrop,
+                logo = logo,
+                videoId = currentVideoId ?: contentId,
+                season = season,
+                episode = episode,
+                episodeTitle = currentEpisodeTitle,
+                position = replayPosition,
+                duration = activeReplay?.durationMs ?: 0L,
+                lastWatched = activeReplay?.updatedAtEpochMs ?: 0L,
+                completionOverride = false
+            )
+        }
+        return
+    }
 
     val progress =
         if (season != null && episode != null) {
