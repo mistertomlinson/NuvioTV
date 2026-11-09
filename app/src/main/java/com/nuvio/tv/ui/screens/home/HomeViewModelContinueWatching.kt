@@ -644,6 +644,15 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 val latestWatchedMovieAtByContentId =
                     snapshot.latestWatchedMovieAtByContentId
                 val cycleProfileId = snapshot.profileId
+                val activeReplaySessions = snapshot.replaySessions.filter { session ->
+                    session.ownerKey == "local-profile:$cycleProfileId" &&
+                        session.phase != RewatchPhase.FINISHED
+                }
+                // Do not inject a stale provider Next Up over a durable replay.
+                val activeReplayContentIds = activeReplaySessions
+                    .mapTo(mutableSetOf()) {
+                        it.canonicalSeriesId.trim().lowercase()
+                    }
 
                 val authoritativeProfileCycle =
                     !useTrackingProvider ||
@@ -1388,6 +1397,7 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                             .toSet()
                                         val newItems = itemsToInject.filter {
                                             it.info.contentId !in existingContentIds &&
+                                                it.info.contentId.trim().lowercase() !in activeReplayContentIds &&
                                                 nextUpDismissKey(it.info.contentId, it.info.seedSeason, it.info.seedEpisode) !in dismissedNextUp
                                         }
                                         if (newItems.isEmpty()) return@update state
@@ -1528,8 +1538,14 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         pass
                     }
                 val allNextUpItems = nextUpItems + olderToInclude
+                val durableReplayCards = buildDurableRewatchCards(
+                    sessions = activeReplaySessions,
+                    providerProgress = recentItems + nextUpSeeds,
+                    profileId = cycleProfileId
+                )
                 val normalItems = applyContinueWatchingEnrichmentOverlay(
-                    mergeContinueWatchingItems(
+                    mergeRewatchContinueWatchingCards(
+                        normalItems = mergeContinueWatchingItems(
                         inProgressItems = inProgressOnly,
                         nextUpItems = allNextUpItems.map { nextUp ->
                             val cached = cachedEnrichmentFromNextUp[nextUp.info.contentId]
@@ -1548,6 +1564,8 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                                 ))
                             } else nextUp
                         }
+                        ),
+                        replayCards = durableReplayCards
                     )
                 )
 
