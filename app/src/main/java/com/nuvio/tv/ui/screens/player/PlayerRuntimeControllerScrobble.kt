@@ -17,6 +17,34 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
         awaitPendingRewatchSaves()
         // Resolve any replay *before* initializePlayer can scrobble.
         prepareExistingRewatchPlayback()
+
+        val handoff = pendingRewatchHandoff
+        val currentKey = if (currentSeason != null && currentEpisode != null &&
+            currentSeason!! > 0 && currentEpisode!! > 0
+        ) com.nuvio.tv.domain.rewatch.RewatchEpisode(
+            currentSeason!!, currentEpisode!!
+        ) else null
+        if (handoff != null && handoff.successor == currentKey) {
+            if (!rewatchAutoplayHandoffReady(
+                    handoff = handoff,
+                    loadedSession = activeRewatchSession,
+                    currentEpisode = currentKey
+                )
+            ) {
+                // Fail closed. Continuing as ordinary playback would write
+                // previously watched replay episodes back into Simkl history.
+                _uiState.update {
+                    it.copy(
+                        error = "Rewatch progress has not finished saving. Retry this episode.",
+                        showLoadingOverlay = false,
+                        isBuffering = false
+                    )
+                }
+                return@launch
+            }
+            pendingRewatchHandoff = null
+        }
+
         warmTraktEpisodeMappingForCurrentPlayback()
         refreshScrobbleItem()
 
