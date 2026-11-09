@@ -152,7 +152,9 @@ data class NextUpInfo(
     val isNewSeasonRelease: Boolean = false,
     val seedSeason: Int? = null,
     val seedEpisode: Int? = null,
-    val contentLanguage: String? = null
+    val contentLanguage: String? = null,
+    /** The target belongs to an independent replay, not Simkl Next Up. */
+    val isRewatch: Boolean = false
 )
 
 @Immutable
