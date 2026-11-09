@@ -63,8 +63,9 @@ internal fun PlayerRuntimeController.isExistingRewatchPlayback(): Boolean {
 
 /**
  * A replay is not an ordinary Simkl scrobble or watched-history mutation.
- * Resolve only the known immediate successor here; missing metadata is saved
- * as AWAITING_METADATA and cannot mistakenly mark a series FINISHED.
+ * Missing or partial metadata is saved as AWAITING_METADATA. A missing
+ * successor only marks FINISHED when terminal series metadata independently
+ * confirms that the current episode is the last of a complete ordered list.
  *
  * This method uses a captured episode/session identity from the caller.
  */
@@ -76,7 +77,7 @@ internal suspend fun PlayerRuntimeController.saveExistingRewatchPosition(
     durationMs: Long,
     completed: Boolean,
     updatedAtEpochMs: Long,
-    verifiedNextEpisode: RewatchEpisode?
+    verifiedCatalog: RewatchCompletionCatalog
 ): Boolean {
     if (profileManager.activeProfileId.value != profileId) return false
 
@@ -99,10 +100,8 @@ internal suspend fun PlayerRuntimeController.saveExistingRewatchPosition(
             completeRewatchEpisode(
                 session = progressed,
                 completedEpisode = episode,
-                orderedPlayableEpisodes = verifiedNextEpisode?.let {
-                    listOf(episode, it)
-                },
-                metadataComplete = verifiedNextEpisode != null,
+                orderedPlayableEpisodes = verifiedCatalog.orderedEpisodes,
+                metadataComplete = verifiedCatalog.metadataComplete,
                 updatedAtEpochMs = updatedAtEpochMs
             )
         }
