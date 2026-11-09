@@ -835,6 +835,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         !snapshot.hasLoadedRemoteProgress
                     ) {
                         cachedInProgress.forEach { cached ->
+                            if (cached.isRewatch &&
+                                cached.contentId.trim().lowercase() !in activeReplayContentIds
+                            ) return@forEach
                             /*
                              * A provider can still be loading when playback has
                              * already completed a movie locally. Do not restore
@@ -906,6 +909,9 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                         valueTransform = { it.season!! to it.episode!! }
                     )
                 val cachedNextUpItems = cachedNextUp.mapNotNull { cached ->
+                    if (cached.isRewatch &&
+                        cached.contentId.trim().lowercase() !in activeReplayContentIds
+                    ) return@mapNotNull null
                     val (
                         freshHasAired,
                         freshIsReleaseAlert,
@@ -1476,7 +1482,11 @@ internal fun HomeViewModel.loadContinueWatchingPipeline() {
                 // Drop items whose series no longer has any watched-episode seeds.
                 // When seeds haven't loaded yet, keep all cached items.
                 val cachedOlderNextUp = cachedNextUp
-                    .filter { !snapshot.hasLoadedRemoteProgress || it.contentId in activeSeedContentIds }
+                    .filter {
+                        (!it.isRewatch ||
+                            it.contentId.trim().lowercase() in activeReplayContentIds) &&
+                            (!snapshot.hasLoadedRemoteProgress || it.contentId in activeSeedContentIds)
+                    }
                     .map { cached ->
                         val (
                             freshHasAired,
@@ -3642,6 +3652,8 @@ private fun formatEpisodeAirDateLabel(releaseDate: LocalDate): String {
 private fun recalculateCachedReleaseBadge(
     cached: com.nuvio.tv.data.local.CachedNextUpItem
 ): Triple<Boolean, Boolean, Boolean> {
+    // Rewatched episodes are not newly released episodes.
+    if (cached.isRewatch) return Triple(true, false, false)
     val freshHasAired =
         hasEpisodeAired(
             raw = cached.released,
