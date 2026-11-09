@@ -97,14 +97,11 @@ fun completeRewatchEpisode(
     metadataComplete: Boolean,
     updatedAtEpochMs: Long
 ): RewatchSession {
-    if (session.phase == RewatchPhase.FINISHED ||
+    // A queued Next Up episode must actually start before it may complete.
+    // AWAITING_METADATA must resolve its previous completion, not duplicate it.
+    if (session.phase != RewatchPhase.PLAYING ||
         completedEpisode != session.episode ||
         updatedAtEpochMs < session.updatedAtEpochMs
-    ) return session
-
-    // Duplicate completion of an awaiting/advanced episode must not re-advance.
-    if (session.lastCompletedEpisode == completedEpisode &&
-        session.phase == RewatchPhase.AWAITING_METADATA
     ) return session
 
     return resolveRewatchSuccessor(
