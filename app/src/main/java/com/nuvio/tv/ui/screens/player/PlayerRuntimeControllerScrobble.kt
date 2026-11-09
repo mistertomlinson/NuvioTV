@@ -11,7 +11,11 @@ internal fun PlayerRuntimeController.preparePlaybackBeforeStart(
 ) {
     playbackPreparationJob?.cancel()
     playbackPreparationJob = scope.launch {
-        // Resolve any explicit replay *before* initializePlayer can scrobble.
+        // The old episode's completion may still be writing when autoplay
+        // requests the next stream. A fresh provider decision is not safe
+        // until the replay cursor reflects the outgoing episode.
+        awaitPendingRewatchSaves()
+        // Resolve any replay *before* initializePlayer can scrobble.
         prepareExistingRewatchPlayback()
         warmTraktEpisodeMappingForCurrentPlayback()
         refreshScrobbleItem()
