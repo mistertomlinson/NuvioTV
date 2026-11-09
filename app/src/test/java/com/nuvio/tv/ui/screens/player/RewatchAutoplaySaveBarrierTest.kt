@@ -141,4 +141,36 @@ class RewatchAutoplaySaveBarrierTest {
             requirement, saved, RewatchEpisode(3, 7)
         ))
     }
+
+    @Test
+    fun `automatic known successor requires durable handoff`() {
+        assertTrue(shouldProtectAutomaticRewatchHandoff(
+            automaticAdvance = true,
+            outgoingReplayActive = true,
+            destination = nextEpisode,
+            knownSuccessor = nextEpisode
+        ))
+    }
+
+    @Test
+    fun `manual skip and unrelated selection do not inherit autoplay barrier`() {
+        assertFalse(shouldProtectAutomaticRewatchHandoff(
+            automaticAdvance = false,
+            outgoingReplayActive = true,
+            destination = nextEpisode,
+            knownSuccessor = nextEpisode
+        ))
+        assertFalse(shouldProtectAutomaticRewatchHandoff(
+            automaticAdvance = true,
+            outgoingReplayActive = true,
+            destination = RewatchEpisode(3, 7),
+            knownSuccessor = nextEpisode
+        ))
+        assertFalse(shouldProtectAutomaticRewatchHandoff(
+            automaticAdvance = true,
+            outgoingReplayActive = false,
+            destination = nextEpisode,
+            knownSuccessor = nextEpisode
+        ))
+    }
 }
