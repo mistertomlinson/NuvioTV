@@ -138,6 +138,31 @@ class HomeRewatchProjectionTest {
     }
 
     @Test
+    fun `cached replay next up must match active episode after autoplay`() {
+        val current = mapOf("tt0386676" to (3 to 7))
+        assertEquals(false, canReuseCachedRewatchEpisode(
+            isRewatch = true, contentId = "tt0386676",
+            season = 3, episode = 6, replayEpisodeByContentId = current
+        ))
+        assertTrue(canReuseCachedRewatchEpisode(
+            isRewatch = true, contentId = " TT0386676 ",
+            season = 3, episode = 7, replayEpisodeByContentId = current
+        ))
+        assertEquals(false, canReuseCachedRewatchEpisode(
+            isRewatch = true, contentId = "tt0386676",
+            season = 3, episode = 7, replayEpisodeByContentId = emptyMap()
+        ))
+    }
+
+    @Test
+    fun `normal cached provider card remains eligible without a replay`() {
+        assertTrue(canReuseCachedRewatchEpisode(
+            isRewatch = false, contentId = "tt0386676",
+            season = 9, episode = 23, replayEpisodeByContentId = emptyMap()
+        ))
+    }
+
+    @Test
     fun `without verified replay card provider rows remain intact`() {
         val original = listOf(unrelated())
         assertEquals(original, mergeRewatchContinueWatchingCards(original, emptyList()))
