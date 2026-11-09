@@ -305,6 +305,7 @@ internal fun PlayerRuntimeController.applyMetaDetails(
     meta: Meta
 ) {
     metaVideos = meta.videos
+    resolvedRewatchSeriesStatus = meta.status
     hasResolvedMetaDetails = true
 
     val description =
