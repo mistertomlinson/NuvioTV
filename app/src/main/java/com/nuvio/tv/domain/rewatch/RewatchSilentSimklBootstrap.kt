@@ -20,6 +20,7 @@ internal data class ExistingSimklRewatchAuthorization(
 )
 
 internal data class ReplayBootstrapCredential(
+    val simklAccountId: String,
     val token: String,
     val deviceId: String,
     val expiresAtEpochMs: Long
@@ -31,6 +32,7 @@ internal enum class ReplayBootstrapOutcome {
     UNAVAILABLE,
     STALE_PROFILE_OR_AUTHORIZATION,
     INVALID_SERVER_CREDENTIAL,
+    VERIFIED_ACCOUNT_MISMATCH,
     CONNECTED
 }
 
@@ -43,7 +45,9 @@ private fun isValidReplayBootstrapCredential(
     credential: ReplayBootstrapCredential,
     nowEpochMs: Long
 ): Boolean =
-    Regex("[a-f0-9]{64}").matches(credential.token) &&
+    Regex("[1-9][0-9]{0,15}").matches(credential.simklAccountId) &&
+        (credential.simklAccountId.toLongOrNull()?.let { it > 0L } == true) &&
+        Regex("[a-f0-9]{64}").matches(credential.token) &&
         credential.deviceId.startsWith("simkl-device:") &&
         credential.deviceId.length in 20..160 &&
         credential.expiresAtEpochMs > nowEpochMs
@@ -88,6 +92,14 @@ internal class RewatchSilentSimklBootstrap(
         if (receipt == null) return ReplayBootstrapOutcome.UNAVAILABLE
         if (!isValidReplayBootstrapCredential(receipt, nowEpochMs())) {
             return ReplayBootstrapOutcome.INVALID_SERVER_CREDENTIAL
+        }
+
+        if (initial.accountId != null &&
+            receipt.simklAccountId != initial.accountId.toString()
+        ) {
+            // The server verified a different Simkl account than the one
+            // displayed by this local profile. Never bind its replay data.
+            return ReplayBootstrapOutcome.VERIFIED_ACCOUNT_MISMATCH
         }
 
         persist(initial.profileId, receipt)
