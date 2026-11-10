@@ -8,6 +8,8 @@ on:
       - 'app/src/main/java/com/nuvio/tv/domain/rewatch/RewatchSilentSimklBootstrap.kt'
       - 'app/src/main/java/com/nuvio/tv/data/simkl/RewatchExistingSimklAuthorization.kt'
       - 'app/src/test/java/com/nuvio/tv/domain/rewatch/RewatchSilentSimklBootstrapTest.kt'
+      - 'app/src/main/java/com/nuvio/tv/domain/rewatch/RewatchSyncOutbox.kt'
+      - 'app/src/test/java/com/nuvio/tv/domain/rewatch/RewatchSyncOutboxTest.kt'
       - '.github/workflows/rewatch-silent-simkl-bootstrap.yml'
 
 permissions:
@@ -30,7 +32,7 @@ jobs:
       - name: Compile and test sideload silent Simkl upgrade in isolation
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:testSideloadUnitTest --tests '*RewatchSilentSimklBootstrapTest' --no-daemon --stacktrace
+          ./gradlew :app:testSideloadUnitTest --tests '*RewatchSilentSimklBootstrapTest' --tests '*RewatchSyncOutboxTest' --no-daemon --stacktrace
       - name: Summarize Android upgrade invariant
         run: |
           {
