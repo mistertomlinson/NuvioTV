@@ -1,0 +1,40 @@
+name: Rewatch silent Simkl upgrade regression
+
+on:
+  push:
+    branches:
+      - design/persistent-simkl-rewatch-cross-device
+    paths:
+      - 'app/src/main/java/com/nuvio/tv/domain/rewatch/RewatchSilentSimklBootstrap.kt'
+      - 'app/src/test/java/com/nuvio/tv/domain/rewatch/RewatchSilentSimklBootstrapTest.kt'
+      - '.github/workflows/rewatch-silent-simkl-bootstrap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  silent-upgrade-unit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android 36 SDK
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Compile and test sideload silent Simkl upgrade in isolation
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testSideloadUnitTest --tests '*RewatchSilentSimklBootstrapTest' --no-daemon --stacktrace
+      - name: Summarize Android upgrade invariant
+        run: |
+          {
+            echo '### Existing Simkl login reuse'
+            echo 'Android sideload unit test compiled and passed.'
+            echo 'No app installation or VPS update performed.'
+            echo "HEAD=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_STEP_SUMMARY"
