@@ -6,6 +6,7 @@ on:
       - design/persistent-simkl-rewatch-cross-device
     paths:
       - 'app/src/main/java/com/nuvio/tv/domain/rewatch/RewatchSilentSimklBootstrap.kt'
+      - 'app/src/main/java/com/nuvio/tv/data/simkl/RewatchExistingSimklAuthorization.kt'
       - 'app/src/test/java/com/nuvio/tv/domain/rewatch/RewatchSilentSimklBootstrapTest.kt'
       - '.github/workflows/rewatch-silent-simkl-bootstrap.yml'
 
