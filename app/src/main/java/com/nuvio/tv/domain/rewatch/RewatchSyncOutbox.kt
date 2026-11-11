@@ -386,8 +386,19 @@ internal class RewatchSyncOutbox(
                 (checkpoint.revision == ack.revision && checkpoint.sessionId != ack.sessionId)
             ))) return@withLock false
         if (!stillCurrent(profileId, simklAccountId, deviceId)) return@withLock false
+        // The GET is an independent server confirmation: unlike a POST
+        // acknowledgment it may reflect a revision written by another TV
+        // or iPad. Keeping it alongside the clean proof allows the next
+        // local event to use that server revision after an app restart.
         storage.write(profileId, json.encodeToString(
-            envelope.copy(clean = envelope.clean + (key to cursor))
+            envelope.copy(
+                clean = envelope.clean + (key to cursor),
+                acknowledged = envelope.acknowledged + (
+                    key to RewatchAcknowledgedCheckpoint(
+                        checkpoint.revision, checkpoint.sessionId
+                    )
+                )
+            )
         ))
         true
     }
