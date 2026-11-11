@@ -191,6 +191,27 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
             ?: return RewatchOutboxDrainResult.UNAVAILABLE
         setBinding(auth, identity)
         if (currentBinding() != identity) return RewatchOutboxDrainResult.PROFILE_CHANGED
-        return transport.submitPending()
+        val touched = outbox.pendingSeriesIds(
+            identity.profileId, identity.simklAccountId, identity.deviceId
+        )
+        val result = transport.submitPending()
+        if (result == RewatchOutboxDrainResult.DRAINED &&
+            currentBinding() == identity) {
+            // An accepted POST does not itself prove that the local replay
+            // has remained unchanged. Verify the server's final cursor
+            // independently before certifying it clean.
+            for (series in touched) {
+                if (currentBinding() != identity) break
+                try {
+                    reconciler.pullSeries(series)
+                } catch (error: kotlinx.coroutines.CancellationException) {
+                    throw error
+                } catch (_: Exception) {
+                    // Keep the successfully uploaded acknowledgment. A
+                    // future GET can repair the missing clean proof.
+                }
+            }
+        }
+        return result
     }
 }
