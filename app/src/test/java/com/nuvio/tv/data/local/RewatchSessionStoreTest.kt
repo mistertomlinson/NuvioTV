@@ -4,6 +4,8 @@ import com.google.gson.Gson
 import com.nuvio.tv.domain.rewatch.RewatchEpisode
 import com.nuvio.tv.domain.rewatch.RewatchPhase
 import com.nuvio.tv.domain.rewatch.RewatchSession
+import com.nuvio.tv.domain.rewatch.RewatchRemoteCheckpoint
+import com.nuvio.tv.domain.rewatch.RewatchRemoteLookup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -109,4 +111,127 @@ class RewatchSessionStoreTest {
         assertTrue(decodeRewatchSessions("[]").isEmpty())
         assertFalse(mergeRewatchSessionUpdate(emptyList(), session()).isNullOrEmpty())
     }
+
+    private fun verifiedRemoteReplay(
+        local: RewatchSession,
+        episode: Int = 19,
+        revision: Long = 4
+    ) = RewatchRemoteLookup.Verified(
+        checkpoint = RewatchRemoteCheckpoint.Synced(revision, local.sessionId),
+        remoteSession = local.copy(
+            episode = RewatchEpisode(3, episode),
+            phase = RewatchPhase.NEXT_UP,
+            positionMs = 0L,
+            durationMs = 0L,
+            lastCompletedEpisode = RewatchEpisode(3, episode - 1),
+            updatedAtEpochMs = 0L
+        )
+    )
+
+    private fun applyRemote(
+        existing: List<RewatchSession>,
+        expected: RewatchSession?,
+        baseline: RewatchSession?,
+        remote: RewatchRemoteLookup,
+        pending: Boolean = false,
+        unpublished: Boolean = false,
+        appliedAt: Long = 3000L
+    ) = mergeVerifiedRemoteRewatchSnapshot(
+        existing = existing,
+        profileId = 2,
+        canonicalSeriesId = "imdb:tt0386676",
+        expectedLocal = expected,
+        remoteLookup = remote,
+        lastAppliedRevision = 3,
+        lastKnownCleanLocalSession = baseline,
+        hasUnacknowledgedLocalEvents = pending,
+        hasUnpublishedLocalChanges = unpublished,
+        appliedAtEpochMs = appliedAt
+    )
+
+    @Test
+    fun `verified newer iPad next up replaces only clean replay and keeps other titles`() {
+        val old = session(owner = "local-profile:2", episode = 18)
+        val another = session(owner = "local-profile:2", series = "imdb:other")
+        val result = applyRemote(
+            existing = listOf(another, old),
+            expected = old,
+            baseline = old,
+            remote = verifiedRemoteReplay(old)
+        )
+        assertEquals(another, result?.first())
+        assertEquals(RewatchEpisode(3, 19), result?.last()?.episode)
+        assertEquals(RewatchPhase.NEXT_UP, result?.last()?.phase)
+        assertEquals(3000L, result?.last()?.updatedAtEpochMs)
+    }
+
+    @Test
+    fun `intervening player progress cannot be overwritten by late remote GET`() {
+        val old = session(owner = "local-profile:2", episode = 18)
+        val changed = old.copy(positionMs = old.positionMs + 30_000, updatedAtEpochMs = 2500)
+        assertNull(applyRemote(
+            existing = listOf(changed),
+            expected = old,
+            baseline = old,
+            remote = verifiedRemoteReplay(old)
+        ))
+    }
+
+    @Test
+    fun `newer local replay session cannot be replaced by older remote session`() {
+        val old = session(owner = "local-profile:2", episode = 18)
+        val restarted = old.copy(sessionId = "new-session", updatedAtEpochMs = 2500)
+        assertNull(applyRemote(
+            existing = listOf(restarted), expected = old,
+            baseline = old, remote = verifiedRemoteReplay(old)
+        ))
+    }
+
+    @Test
+    fun `unacknowledged or unpublished edits block remote replacement`() {
+        val old = session(owner = "local-profile:2", episode = 18)
+        assertNull(applyRemote(
+            listOf(old), old, old, verifiedRemoteReplay(old),
+            pending = true
+        ))
+        assertNull(applyRemote(
+            listOf(old), old, old, verifiedRemoteReplay(old),
+            unpublished = true
+        ))
+        assertNull(applyRemote(
+            listOf(old), old, null, verifiedRemoteReplay(old)
+        ))
+    }
+
+    @Test
+    fun `fresh profile can import verified replay without original provider history`() {
+        val old = session(owner = "local-profile:2", episode = 18)
+        val result = applyRemote(
+            existing = emptyList(), expected = null, baseline = null,
+            remote = verifiedRemoteReplay(old)
+        )
+        assertEquals(1, result?.size)
+        assertEquals(RewatchEpisode(3, 19), result?.single()?.episode)
+    }
+
+    @Test
+    fun `wrong profile and invalid remote checkpoint cannot mutate replay state`() {
+        val old = session(owner = "local-profile:2", episode = 18)
+        val bad = verifiedRemoteReplay(old).copy(
+            remoteSession = old.copy(ownerKey = "local-profile:3")
+        )
+        assertNull(applyRemote(listOf(old), old, old, bad))
+        assertNull(applyRemote(
+            listOf(old), old, old, RewatchRemoteLookup.Invalid
+        ))
+    }
+
+    @Test
+    fun `stale observed empty slot cannot overwrite newly created replay`() {
+        val old = session(owner = "local-profile:2", episode = 18)
+        assertNull(applyRemote(
+            listOf(old), null, null, verifiedRemoteReplay(old)
+        ))
+    }
+
 }
