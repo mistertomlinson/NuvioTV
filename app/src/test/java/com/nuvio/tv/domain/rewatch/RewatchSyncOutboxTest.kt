@@ -465,4 +465,32 @@ class RewatchSyncOutboxTest {
         )?.revision)
     }
 
+    @Test
+    fun offlineDeviceBindingSurvivesRestartWithoutAnyBearerToken() = runBlocking {
+        val storage = FakeStorage()
+        val original = outbox(storage)
+        assertEquals(null, original.knownDeviceIdForAccount(2, "12003"))
+        assertTrue(original.enqueue(
+            2, "12003", "simkl-device:a", event("queued")
+        ))
+        val restarted = outbox(storage)
+        assertEquals("simkl-device:a",
+            restarted.knownDeviceIdForAccount(2, "12003"))
+        assertEquals(null,
+            restarted.knownDeviceIdForAccount(2, "99221"))
+        assertEquals(null,
+            restarted.knownDeviceIdForAccount(3, "12003"))
+        assertTrue(!storage.values[2]!!.contains("accessToken"))
+        assertEquals(1, restarted.pendingCount(2, "12003", "simkl-device:a"))
+    }
+
+    @Test
+    fun corruptOfflineBindingCannotExposeDeviceIdOrEraseStoredPayload() = runBlocking {
+        val storage = FakeStorage()
+        storage.values[2] = "{invalid"
+        val original = storage.values[2]
+        assertEquals(null, outbox(storage).knownDeviceIdForAccount(2, "12003"))
+        assertEquals(original, storage.values[2])
+    }
+
 }
