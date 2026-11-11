@@ -198,10 +198,7 @@ internal class RewatchSyncOutbox(
                 (cursor.completedSeason == null) == (cursor.completedEpisode == null) &&
                 (cursor.completedSeason == null || cursor.completedSeason > 0) &&
                 (cursor.completedEpisode == null || cursor.completedEpisode > 0) &&
-                RewatchPhase.entries.any { it.name == cursor.phase } &&
-                (value.acknowledged[key] == null ||
-                    value.acknowledged.getValue(key).revision <= cursor.revision ||
-                    value.acknowledged.getValue(key).sessionId == cursor.sessionId)
+                RewatchPhase.entries.any { it.name == cursor.phase }
         }) { "Corrupted clean replay baseline" }
         return value
     }
