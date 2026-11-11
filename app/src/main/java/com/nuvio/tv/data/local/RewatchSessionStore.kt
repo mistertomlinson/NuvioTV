@@ -6,6 +6,9 @@ import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.rewatch.RewatchSession
+import com.nuvio.tv.domain.rewatch.RewatchRemoteLookup
+import com.nuvio.tv.domain.rewatch.RewatchRemoteApplyDecision
+import com.nuvio.tv.domain.rewatch.decideRewatchRemoteApplication
 import javax.inject.Inject
 import javax.inject.Singleton
 import android.util.Log
@@ -76,6 +79,53 @@ class RewatchSessionStore @Inject constructor(
      * Explicit user-initiated "Start Rewatch Again" may pass replaceSession=true.
      * Returns false for a conflicting or stale update, including a profile switch.
      */
+    /**
+     * A remote replay cannot overwrite an intervening local player save.
+     *
+     * This is NOT enabled by the app yet. A future caller must supply a
+     * durably verified clean baseline and coordinate the outbox's pending
+     * state with this transaction. The expected local cursor is rechecked
+     * inside the DataStore edit, not trusted from an earlier GET.
+     */
+    internal suspend fun applyVerifiedRemoteIfUnchanged(
+        expectedProfileId: Int,
+        canonicalSeriesId: String,
+        expectedLocal: RewatchSession?,
+        remoteLookup: RewatchRemoteLookup,
+        lastAppliedRevision: Long,
+        lastKnownCleanLocalSession: RewatchSession?,
+        hasUnacknowledgedLocalEvents: Boolean,
+        hasUnpublishedLocalChanges: Boolean,
+        appliedAtEpochMs: Long
+    ): Boolean {
+        require(expectedProfileId > 0)
+        require(appliedAtEpochMs >= 0L)
+        var applied = false
+        profileManager.withActiveProfileMutation(expectedProfileId) {
+            store(expectedProfileId).edit { preferences ->
+                val existing = decodeRewatchSessions(preferences[key] ?: "[]", gson)
+                val updated = mergeVerifiedRemoteRewatchSnapshot(
+                    existing = existing,
+                    profileId = expectedProfileId,
+                    canonicalSeriesId = canonicalSeriesId,
+                    expectedLocal = expectedLocal,
+                    remoteLookup = remoteLookup,
+                    lastAppliedRevision = lastAppliedRevision,
+                    lastKnownCleanLocalSession = lastKnownCleanLocalSession,
+                    hasUnacknowledgedLocalEvents = hasUnacknowledgedLocalEvents,
+                    hasUnpublishedLocalChanges = hasUnpublishedLocalChanges,
+                    appliedAtEpochMs = appliedAtEpochMs
+                )
+                if (updated != null) {
+                    preferences[key] = gson.toJson(updated)
+                    applied = true
+                }
+            }
+            true
+        }
+        return applied
+    }
+
     suspend fun upsertForActiveProfile(
         expectedProfileId: Int,
         session: RewatchSession,
@@ -162,4 +212,56 @@ internal fun mergeRewatchSessionUpdate(
 
     // An explicit replacement intentionally starts another replay session.
     return existing.toMutableList().apply { set(index, incoming) }
+}
+
+/**
+ * A local replay must still equal the snapshot observed when the authenticated
+ * VPS response was read. Reject an intervening progress save, session restart,
+ * duplicate identity, or unproven clean baseline.
+ *
+ * The incoming remote timestamp is zero: it carries no device-clock ordering
+ * meaning. The caller supplies a local timestamp on the accepted projection.
+ * Only the isolated replay store is changed, never Simkl watched history.
+ */
+internal fun mergeVerifiedRemoteRewatchSnapshot(
+    existing: List<RewatchSession>,
+    profileId: Int,
+    canonicalSeriesId: String,
+    expectedLocal: RewatchSession?,
+    remoteLookup: RewatchRemoteLookup,
+    lastAppliedRevision: Long,
+    lastKnownCleanLocalSession: RewatchSession?,
+    hasUnacknowledgedLocalEvents: Boolean,
+    hasUnpublishedLocalChanges: Boolean,
+    appliedAtEpochMs: Long
+): List<RewatchSession>? {
+    if (profileId <= 0 || canonicalSeriesId.isBlank() || appliedAtEpochMs < 0L)
+        return null
+    fun key(s: String) = s.trim().lowercase()
+    val matches = existing.withIndex().filter {
+        key(it.value.canonicalSeriesId) == key(canonicalSeriesId)
+    }
+    if (matches.size > 1) return null
+    val actual = matches.singleOrNull()?.value
+    if (actual != expectedLocal) return null
+    val decision = decideRewatchRemoteApplication(
+        profileId = profileId,
+        canonicalSeriesId = canonicalSeriesId,
+        local = actual,
+        remoteLookup = remoteLookup,
+        lastAppliedRevision = lastAppliedRevision,
+        lastKnownCleanLocalSession = lastKnownCleanLocalSession,
+        hasUnacknowledgedLocalEvents = hasUnacknowledgedLocalEvents,
+        hasUnpublishedLocalChanges = hasUnpublishedLocalChanges
+    )
+    if (decision !is RewatchRemoteApplyDecision.ApplyRemote) return null
+    val remote = decision.session.copy(
+        updatedAtEpochMs = maxOf(
+            appliedAtEpochMs, actual?.updatedAtEpochMs ?: 0L
+        )
+    )
+    return if (matches.isEmpty()) existing + remote
+    else existing.toMutableList().apply {
+        set(matches.single().index, remote)
+    }
 }
