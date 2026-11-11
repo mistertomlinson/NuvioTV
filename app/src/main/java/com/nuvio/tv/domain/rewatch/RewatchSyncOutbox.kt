@@ -106,6 +106,68 @@ internal class RewatchSyncOutbox(
         true
     }
 
+    /**
+     * Atomically plan and append a committed replay transition under the
+     * same outbox lock. A second offline save must use the revision produced
+     * by the first pending event, not the stale authenticated GET revision.
+     *
+     * No VPS call and no cursor/history mutation occurs here. If pending
+     * events for this series do not form a contiguous chain, refuse the write
+     * instead of creating an event that would conflict or overwrite progress.
+     */
+    suspend fun enqueueCommittedTransition(
+        profileId: Int,
+        simklAccountId: String,
+        deviceId: String,
+        before: RewatchSession?,
+        after: RewatchSession,
+        checkpoint: RewatchRemoteCheckpoint,
+        eventId: String
+    ): Boolean = mutex.withLock {
+        if (!stillCurrent(profileId, simklAccountId, deviceId) ||
+            after.ownerKey != "local-profile:$profileId") return@withLock false
+        val old = readChecked(profileId, simklAccountId, deviceId)
+        if (old.pending.any { it.eventId == eventId }) return@withLock false
+        if (old.pending.size >= 1000) return@withLock false
+        val pendingForSeries = old.pending.filter {
+            it.canonicalSeriesId.trim().equals(
+                after.canonicalSeriesId.trim(), ignoreCase = true
+            )
+        }
+        val effectiveCheckpoint = if (pendingForSeries.isEmpty()) {
+            checkpoint
+        } else {
+            val first = pendingForSeries.first()
+            val startingRevision = when (checkpoint) {
+                RewatchRemoteCheckpoint.Unknown -> return@withLock false
+                RewatchRemoteCheckpoint.ConfirmedEmpty -> 0L
+                is RewatchRemoteCheckpoint.Synced -> checkpoint.revision
+            }
+            if (first.expectedRevision != startingRevision ||
+                pendingForSeries.withIndex().any { (index, item) ->
+                    item.expectedRevision != startingRevision + index.toLong() ||
+                        item.deviceId != deviceId
+                }) return@withLock false
+            val last = pendingForSeries.last()
+            RewatchRemoteCheckpoint.Synced(
+                revision = last.expectedRevision + 1,
+                sessionId = last.sessionId
+            )
+        }
+        val planned = planCommittedRewatchEvent(
+            before = before,
+            after = after,
+            checkpoint = effectiveCheckpoint,
+            eventId = eventId,
+            deviceId = deviceId
+        ) ?: return@withLock false
+        if (!stillCurrent(profileId, simklAccountId, deviceId)) return@withLock false
+        storage.write(profileId, json.encodeToString(
+            old.copy(pending = old.pending + planned)
+        ))
+        true
+    }
+
     suspend fun drain(
         profileId: Int,
         simklAccountId: String,
