@@ -426,6 +426,29 @@ internal class RewatchSyncOutbox(
             .acknowledged[seriesKey(canonicalSeriesId)]
     }
 
+    /**
+     * Recover a non-secret device binding after process restart without a
+     * network request. This is ONLY usable when the existing saved Simkl
+     * login independently confirms the identical account for this profile.
+     * A missing, different-account or corrupt outbox never creates an
+     * identity and never resets the previous payload.
+     */
+    suspend fun knownDeviceIdForAccount(
+        profileId: Int, simklAccountId: String
+    ): String? = mutex.withLock {
+        if (profileId <= 0 || !validAccount(simklAccountId)) return@withLock null
+        val raw = storage.read(profileId) ?: return@withLock null
+        val parsed = runCatching {
+            json.decodeFromString<RewatchOutboxEnvelope>(raw)
+        }.getOrNull() ?: return@withLock null
+        if (parsed.simklAccountId != simklAccountId ||
+            parsed.deviceId.isBlank()) return@withLock null
+        val verified = runCatching {
+            readChecked(profileId, simklAccountId, parsed.deviceId)
+        }.getOrNull() ?: return@withLock null
+        verified.deviceId
+    }
+
     suspend fun hasPendingForSeries(
         profileId: Int, simklAccountId: String, deviceId: String,
         canonicalSeriesId: String
