@@ -20,6 +20,8 @@ import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.RewatchSessionStore
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.rewatch.RewatchSession
+import com.nuvio.tv.domain.rewatch.RewatchCommittedSaveSink
+import com.nuvio.tv.domain.rewatch.DisabledRewatchCommittedSaveSink
 import com.nuvio.tv.data.trailer.TrailerService
 import com.nuvio.tv.data.repository.CreditAnalyzerRepository
 import com.nuvio.tv.data.repository.MDBListRepository
@@ -71,6 +73,7 @@ class PlayerRuntimeController(
     internal val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     internal val rewatchSessionStore: RewatchSessionStore,
     internal val profileManager: ProfileManager,
+    internal val rewatchCommitSink: RewatchCommittedSaveSink = DisabledRewatchCommittedSaveSink,
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope,
     internal val directDebridResolver: DirectDebridResolver,
