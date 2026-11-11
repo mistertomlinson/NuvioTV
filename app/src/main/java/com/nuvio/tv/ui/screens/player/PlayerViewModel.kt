@@ -26,6 +26,9 @@ import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.TmdbSettingsDataStore
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.RewatchSessionStore
+import com.nuvio.tv.data.local.AndroidRewatchSyncRuntime
+import com.nuvio.tv.data.local.RewatchCrossDeviceGate
+import com.nuvio.tv.domain.rewatch.DisabledRewatchCommittedSaveSink
 import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.data.repository.CreditAnalyzerRepository
 import com.nuvio.tv.data.repository.MDBListRepository
@@ -71,6 +74,7 @@ class PlayerViewModel @Inject constructor(
     private val layoutPreferenceDataStore: com.nuvio.tv.data.local.LayoutPreferenceDataStore,
     private val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     private val rewatchSessionStore: RewatchSessionStore,
+    private val rewatchSyncRuntime: dagger.Lazy<AndroidRewatchSyncRuntime>,
     private val profileManager: ProfileManager,
     savedStateHandle: SavedStateHandle,
     private val directDebridResolver: DirectDebridResolver,
@@ -103,6 +107,11 @@ class PlayerViewModel @Inject constructor(
         watchedItemsPreferences = watchedItemsPreferences,
         rewatchSessionStore = rewatchSessionStore,
         profileManager = profileManager,
+        rewatchCommitSink = if (RewatchCrossDeviceGate.ENABLED) {
+            rewatchSyncRuntime.get().committedSaveSink
+        } else {
+            DisabledRewatchCommittedSaveSink
+        },
         savedStateHandle = savedStateHandle,
         scope = viewModelScope,
         directDebridResolver = directDebridResolver,
