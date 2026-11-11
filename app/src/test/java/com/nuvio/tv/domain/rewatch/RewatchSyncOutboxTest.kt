@@ -296,4 +296,127 @@ class RewatchSyncOutboxTest {
         ))
     }
 
+    private fun cleanReplay() = requireNotNull(startRewatchSession(
+        ownerKey = "local-profile:2",
+        canonicalSeriesId = "imdb:tt0386676",
+        sessionId = "office-clean",
+        episode = RewatchEpisode(3, 18),
+        wasAlreadyWatched = true,
+        updatedAtEpochMs = 200L
+    )).copy(positionMs = 120_000L, durationMs = 1_800_000L)
+
+    private fun verifiedClean(replay: RewatchSession, revision: Long = 4L) =
+        RewatchRemoteLookup.Verified(
+            RewatchRemoteCheckpoint.Synced(revision, replay.sessionId),
+            replay.copy(updatedAtEpochMs = 0L)
+        )
+
+    @Test
+    fun authenticatedExactMatchIsDurablyStoredAcrossAppRestart() = runBlocking {
+        val storage = FakeStorage()
+        val local = cleanReplay()
+        val original = outbox(storage)
+        assertTrue(original.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local)
+        ))
+        val restored = outbox(storage).cleanBaseline(
+            2, "12003", "simkl-device:a", " IMDB:TT0386676 "
+        )
+        assertEquals(4L, restored?.revision)
+        assertTrue(restored?.matches(local) == true)
+        assertEquals(0L, restored?.toSession()?.updatedAtEpochMs)
+    }
+
+    @Test
+    fun falseRemoteMatchNeverCreatesCleanMarker() = runBlocking {
+        val storage = FakeStorage()
+        val local = cleanReplay()
+        val changed = local.copy(positionMs = local.positionMs + 30_000L)
+        assertFalse(outbox(storage).recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(changed)
+        ))
+        assertEquals(null, outbox(storage).cleanBaseline(
+            2, "12003", "simkl-device:a", local.canonicalSeriesId
+        ))
+    }
+
+    @Test
+    fun pendingReplayWritesCannotBeMarkedClean() = runBlocking {
+        val storage = FakeStorage()
+        val queue = outbox(storage)
+        val local = cleanReplay()
+        queue.enqueue(2, "12003", "simkl-device:a", event("pending"))
+        assertFalse(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local)
+        ))
+        assertEquals(null, queue.cleanBaseline(
+            2, "12003", "simkl-device:a", local.canonicalSeriesId
+        ))
+    }
+
+    @Test
+    fun unknownOrEmptyVpsResponsesCannotCertifyCleanState() = runBlocking {
+        val storage = FakeStorage()
+        val queue = outbox(storage)
+        val local = cleanReplay()
+        val inputs = listOf(
+            RewatchRemoteLookup.Invalid,
+            RewatchRemoteLookup.Verified(
+                RewatchRemoteCheckpoint.ConfirmedEmpty, null
+            ),
+            RewatchRemoteLookup.Verified(
+                RewatchRemoteCheckpoint.Synced(4, local.sessionId), null
+            )
+        )
+        for (lookup in inputs) {
+            assertFalse(queue.recordVerifiedCleanBaseline(
+                2, "12003", "simkl-device:a", local, lookup
+            ))
+        }
+    }
+
+    @Test
+    fun profileSwitchAndOlderRemoteResponseCannotReplaceBaseline() = runBlocking {
+        val storage = FakeStorage()
+        var current = 2
+        val queue = outbox(storage) { profile, _, _ -> profile == current }
+        val local = cleanReplay()
+        assertTrue(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local, 7L)
+        ))
+        assertFalse(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local, 6L)
+        ))
+        current = 3
+        assertFalse(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local, 8L)
+        ))
+        current = 2
+        assertEquals(7L, queue.cleanBaseline(
+            2, "12003", "simkl-device:a", local.canonicalSeriesId
+        )?.revision)
+    }
+
+    @Test
+    fun corruptCleanMarkerFailsWithoutDeletingOutboxData() = runBlocking {
+        val storage = FakeStorage()
+        val queue = outbox(storage)
+        val local = cleanReplay()
+        assertTrue(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local)
+        ))
+        val original = requireNotNull(storage.values[2])
+        storage.values[2] = original.replace(
+            "\"ownerKey\":\"local-profile:2\"",
+            "\"ownerKey\":\"local-profile:3\""
+        )
+        assertSuspendFails<IllegalArgumentException> {
+            queue.cleanBaseline(2, "12003", "simkl-device:a", local.canonicalSeriesId)
+        }
+        assertEquals(storage.values[2], original.replace(
+            "\"ownerKey\":\"local-profile:2\"",
+            "\"ownerKey\":\"local-profile:3\""
+        ))
+    }
+
 }
