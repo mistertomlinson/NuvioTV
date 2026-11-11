@@ -426,6 +426,17 @@ internal class RewatchSyncOutbox(
             .acknowledged[seriesKey(canonicalSeriesId)]
     }
 
+    suspend fun hasPendingForSeries(
+        profileId: Int, simklAccountId: String, deviceId: String,
+        canonicalSeriesId: String
+    ): Boolean = mutex.withLock {
+        if (!stillCurrent(profileId, simklAccountId, deviceId)) return@withLock true
+        val key = seriesKey(canonicalSeriesId)
+        if (key.isBlank()) return@withLock true
+        readChecked(profileId, simklAccountId, deviceId)
+            .pending.any { seriesKey(it.canonicalSeriesId) == key }
+    }
+
     suspend fun pendingCount(
         profileId: Int, simklAccountId: String, deviceId: String
     ): Int = mutex.withLock {
