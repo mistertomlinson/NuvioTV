@@ -1,6 +1,8 @@
 package com.nuvio.tv.domain.rewatch
 
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,4 +146,79 @@ class RewatchCommittedSaveHandoffTest {
         }
         assertEquals(1, outbox.pendingCount(2, "12003", device))
     }
+    @Test fun consecutiveOfflineSavesUseSuccessiveServerRevisions() = runBlocking {
+        val storage = MemoryStorage()
+        val outbox = RewatchSyncOutbox(storage) { _, _, _ -> true }
+        var nextEvent = 0
+        val sink = RewatchCommittedOutboxSink(
+            currentIdentity = { identity },
+            checkpoint = { _, _ -> RewatchRemoteCheckpoint.ConfirmedEmpty },
+            outbox = outbox,
+            eventId = { "offline-event-${++nextEvent}" }
+        )
+        val started = initial.copy(positionMs = 12_000, durationMs = 1_800_000)
+        val continued = started.copy(positionMs = 30_000, updatedAtEpochMs = 200)
+        val completed = continued.copy(
+            episode = RewatchEpisode(3, 18),
+            positionMs = 0, durationMs = 0,
+            lastCompletedEpisode = RewatchEpisode(3, 17),
+            phase = RewatchPhase.NEXT_UP,
+            updatedAtEpochMs = 300
+        )
+        notifyCommittedRewatchSave(sink, true, 2, { 2 }, null, initial)
+        notifyCommittedRewatchSave(sink, true, 2, { 2 }, initial, started)
+        notifyCommittedRewatchSave(sink, true, 2, { 2 }, started, continued)
+        notifyCommittedRewatchSave(sink, true, 2, { 2 }, continued, completed)
+        assertEquals(4, outbox.pendingCount(2, "12003", device))
+        val revisions = mutableListOf<Long>()
+        val types = mutableListOf<String>()
+        assertEquals(RewatchOutboxDrainResult.DRAINED,
+            outbox.drain(2, "12003", device) { event ->
+                revisions += event.expectedRevision
+                types += kotlinx.serialization.json.Json.parseToJsonElement(
+                    event.payload
+                ).jsonObject["type"]!!.jsonPrimitive.content
+                RewatchOutboxSubmitResult.Accepted(event.expectedRevision + 1L)
+            })
+        assertEquals(listOf(0L, 1L, 2L, 3L), revisions)
+        assertEquals(
+            listOf("IMPORT_SNAPSHOT", "PROGRESS", "PROGRESS", "COMPLETE_EPISODE"),
+            types
+        )
+    }
+
+    @Test fun staleCheckpointCannotAppendToAnUnrelatedRevisionChain() = runBlocking {
+        val outbox = RewatchSyncOutbox(MemoryStorage()) { _, _, _ -> true }
+        val first = initial
+        assertTrue(outbox.enqueueCommittedTransition(
+            profileId = 2, simklAccountId = "12003", deviceId = device,
+            before = null, after = first,
+            checkpoint = RewatchRemoteCheckpoint.ConfirmedEmpty,
+            eventId = "initial"
+        ))
+        val progress = first.copy(positionMs = 4000, durationMs = 900000)
+        assertTrue(!outbox.enqueueCommittedTransition(
+            profileId = 2, simklAccountId = "12003", deviceId = device,
+            before = first, after = progress,
+            checkpoint = RewatchRemoteCheckpoint.Synced(50, first.sessionId),
+            eventId = "stale"
+        ))
+        assertEquals(1, outbox.pendingCount(2, "12003", device))
+    }
+
+    @Test fun newRewatchAfterFinishedSessionCanUseStartTransition() = runBlocking {
+        val outbox = RewatchSyncOutbox(MemoryStorage()) { _, _, _ -> true }
+        val finished = initial.copy(phase = RewatchPhase.FINISHED)
+        val restarted = initial.copy(sessionId = "office-rewatch-again")
+        val planned = planCommittedRewatchEvent(
+            before = finished, after = restarted,
+            checkpoint = RewatchRemoteCheckpoint.Synced(5, finished.sessionId),
+            eventId = "again", deviceId = device
+        )
+        assertTrue(planned != null)
+        assertTrue(planned!!.payload.contains("\"START\""))
+        assertEquals(5L, planned.expectedRevision)
+    }
+
+
 }
