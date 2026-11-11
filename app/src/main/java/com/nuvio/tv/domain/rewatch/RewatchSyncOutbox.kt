@@ -26,11 +26,19 @@ internal data class RewatchQueuedEvent(
 )
 
 @Serializable
+internal data class RewatchAcknowledgedCheckpoint(
+    val revision: Long,
+    val sessionId: String
+)
+
+@Serializable
 internal data class RewatchOutboxEnvelope(
     val schemaVersion: Int = 1,
     val simklAccountId: String,
     val deviceId: String,
-    val pending: List<RewatchQueuedEvent> = emptyList()
+    val pending: List<RewatchQueuedEvent> = emptyList(),
+    // Retained even after the last event is acknowledged; survives restart.
+    val acknowledged: Map<String, RewatchAcknowledgedCheckpoint> = emptyMap()
 )
 
 internal interface RewatchOutboxStorage {
@@ -55,6 +63,33 @@ internal class RewatchSyncOutbox(
 ) {
     private val mutex = Mutex()
     private val json = Json { encodeDefaults = true; ignoreUnknownKeys = false }
+
+    private fun seriesKey(value: String): String = value.trim().lowercase()
+
+    /**
+     * The stored checkpoint is strictly an acknowledged outbound revision.
+     * A stale cached GET cannot roll it backward; a newer GET indicates a
+     * competing device and must be reconciled before another local write.
+     */
+    private fun baseline(
+        checkpoint: RewatchRemoteCheckpoint,
+        acknowledged: RewatchAcknowledgedCheckpoint?
+    ): RewatchRemoteCheckpoint? {
+        if (acknowledged == null) return checkpoint
+        return when (checkpoint) {
+            RewatchRemoteCheckpoint.Unknown ->
+                RewatchRemoteCheckpoint.Synced(
+                    acknowledged.revision, acknowledged.sessionId
+                )
+            RewatchRemoteCheckpoint.ConfirmedEmpty -> null
+            is RewatchRemoteCheckpoint.Synced ->
+                if (checkpoint.revision > acknowledged.revision ||
+                    checkpoint.sessionId != acknowledged.sessionId) null
+                else RewatchRemoteCheckpoint.Synced(
+                    acknowledged.revision, acknowledged.sessionId
+                )
+        }
+    }
 
     private fun validAccount(id: String): Boolean =
         Regex("[1-9][0-9]{0,15}").matches(id) && id.toLongOrNull() != null
@@ -86,6 +121,12 @@ internal class RewatchSyncOutbox(
         require(value.pending.map { it.eventId }.distinct().size == value.pending.size) {
             "Duplicate replay event IDs"
         }
+        require(value.acknowledged.all { (key, ack) ->
+            key.isNotBlank() && key.length <= 160 &&
+                key == seriesKey(key) &&
+                ack.revision > 0 && ack.revision < Long.MAX_VALUE &&
+                ack.sessionId.isNotBlank() && ack.sessionId.length <= 160
+        }) { "Corrupted acknowledged replay checkpoint" }
         return value
     }
 
@@ -129,24 +170,26 @@ internal class RewatchSyncOutbox(
         val old = readChecked(profileId, simklAccountId, deviceId)
         if (old.pending.any { it.eventId == eventId }) return@withLock false
         if (old.pending.size >= 1000) return@withLock false
+        val key = seriesKey(after.canonicalSeriesId)
+        val anchor = baseline(checkpoint, old.acknowledged[key])
+            ?: return@withLock false
         val pendingForSeries = old.pending.filter {
-            it.canonicalSeriesId.trim().equals(
-                after.canonicalSeriesId.trim(), ignoreCase = true
-            )
+            seriesKey(it.canonicalSeriesId) == key
         }
         val effectiveCheckpoint = if (pendingForSeries.isEmpty()) {
-            checkpoint
+            anchor
         } else {
             val first = pendingForSeries.first()
-            val startingRevision = when (checkpoint) {
+            val startingRevision = when (anchor) {
                 RewatchRemoteCheckpoint.Unknown -> return@withLock false
                 RewatchRemoteCheckpoint.ConfirmedEmpty -> 0L
-                is RewatchRemoteCheckpoint.Synced -> checkpoint.revision
+                is RewatchRemoteCheckpoint.Synced -> anchor.revision
             }
             if (first.expectedRevision != startingRevision ||
                 pendingForSeries.withIndex().any { (index, item) ->
                     item.expectedRevision != startingRevision + index.toLong() ||
-                        item.deviceId != deviceId
+                        item.deviceId != deviceId ||
+                        item.expectedRevision == Long.MAX_VALUE
                 }) return@withLock false
             val last = pendingForSeries.last()
             RewatchRemoteCheckpoint.Synced(
@@ -196,10 +239,26 @@ internal class RewatchSyncOutbox(
             }
             when (result) {
                 is RewatchOutboxSubmitResult.Accepted -> {
-                    require(result.revision > event.expectedRevision) {
-                        "Server revision must advance"
+                    require(event.expectedRevision < Long.MAX_VALUE &&
+                        result.revision == event.expectedRevision + 1L) {
+                        "Server must acknowledge exactly the next replay revision"
                     }
-                    outbox = outbox.copy(pending = outbox.pending.drop(1))
+                    val key = seriesKey(event.canonicalSeriesId)
+                    val previousAck = outbox.acknowledged[key]
+                    require(previousAck == null ||
+                        result.revision > previousAck.revision) {
+                        "Replay acknowledgment must advance persisted revision"
+                    }
+                    // Save the acknowledgment atomically with dequeue. If
+                    // storage fails, the original event remains retryable.
+                    outbox = outbox.copy(
+                        pending = outbox.pending.drop(1),
+                        acknowledged = outbox.acknowledged + (
+                            key to RewatchAcknowledgedCheckpoint(
+                                result.revision, event.sessionId
+                            )
+                        )
+                    )
                     storage.write(profileId, json.encodeToString(outbox))
                 }
                 RewatchOutboxSubmitResult.Conflict ->
@@ -211,6 +270,15 @@ internal class RewatchSyncOutbox(
             }
         }
         RewatchOutboxDrainResult.DRAINED
+    }
+
+    suspend fun acknowledgedCheckpoint(
+        profileId: Int, simklAccountId: String, deviceId: String,
+        canonicalSeriesId: String
+    ): RewatchAcknowledgedCheckpoint? = mutex.withLock {
+        require(canonicalSeriesId.isNotBlank())
+        readChecked(profileId, simklAccountId, deviceId)
+            .acknowledged[seriesKey(canonicalSeriesId)]
     }
 
     suspend fun pendingCount(
