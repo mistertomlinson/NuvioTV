@@ -11,7 +11,7 @@ import kotlinx.coroutines.CancellationException
  * profile's Simkl identity and remote revision are verified. No network is
  * performed by this boundary.
  */
-internal fun interface RewatchCommittedSaveSink {
+fun interface RewatchCommittedSaveSink {
     suspend fun committed(
         profileId: Int,
         before: RewatchSession?,
