@@ -82,6 +82,7 @@ class RewatchSessionStore @Inject constructor(
         simklAccountId: String,
         deviceId: String,
         expectedLocal: RewatchSession,
+        expectedGeneration: Long,
         remoteLookup: RewatchRemoteLookup,
         pendingOrUnpublished: Boolean,
         stillAuthenticated: () -> Boolean
@@ -95,7 +96,8 @@ class RewatchSessionStore @Inject constructor(
                 val ledger = localLedger(preferences, expectedProfileId)
                 val updated = certifyRewatchLocalClean(
                     sessions, ledger, expectedProfileId, simklAccountId,
-                    deviceId, expectedLocal, remoteLookup, pendingOrUnpublished
+                    deviceId, expectedLocal, expectedGeneration,
+                    remoteLookup, pendingOrUnpublished
                 ) ?: return@edit
                 if (!stillAuthenticated()) return@edit
                 preferences[ledgerKey] = gson.toJson(updated)
