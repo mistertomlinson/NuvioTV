@@ -192,53 +192,6 @@ class RewatchSessionStore @Inject constructor(
      * Explicit user-initiated "Start Rewatch Again" may pass replaceSession=true.
      * Returns false for a conflicting or stale update, including a profile switch.
      */
-    /**
-     * A remote replay cannot overwrite an intervening local player save.
-     *
-     * This is NOT enabled by the app yet. A future caller must supply a
-     * durably verified clean baseline and coordinate the outbox's pending
-     * state with this transaction. The expected local cursor is rechecked
-     * inside the DataStore edit, not trusted from an earlier GET.
-     */
-    internal suspend fun applyVerifiedRemoteIfUnchanged(
-        expectedProfileId: Int,
-        canonicalSeriesId: String,
-        expectedLocal: RewatchSession?,
-        remoteLookup: RewatchRemoteLookup,
-        lastAppliedRevision: Long,
-        lastKnownCleanLocalSession: RewatchSession?,
-        hasUnacknowledgedLocalEvents: Boolean,
-        hasUnpublishedLocalChanges: Boolean,
-        appliedAtEpochMs: Long
-    ): Boolean {
-        require(expectedProfileId > 0)
-        require(appliedAtEpochMs >= 0L)
-        var applied = false
-        profileManager.withActiveProfileMutation(expectedProfileId) {
-            store(expectedProfileId).edit { preferences ->
-                val existing = decodeRewatchSessions(preferences[key] ?: "[]", gson)
-                val updated = mergeVerifiedRemoteRewatchSnapshot(
-                    existing = existing,
-                    profileId = expectedProfileId,
-                    canonicalSeriesId = canonicalSeriesId,
-                    expectedLocal = expectedLocal,
-                    remoteLookup = remoteLookup,
-                    lastAppliedRevision = lastAppliedRevision,
-                    lastKnownCleanLocalSession = lastKnownCleanLocalSession,
-                    hasUnacknowledgedLocalEvents = hasUnacknowledgedLocalEvents,
-                    hasUnpublishedLocalChanges = hasUnpublishedLocalChanges,
-                    appliedAtEpochMs = appliedAtEpochMs
-                )
-                if (updated != null) {
-                    preferences[key] = gson.toJson(updated)
-                    applied = true
-                }
-            }
-            true
-        }
-        return applied
-    }
-
     suspend fun upsertForActiveProfile(
         expectedProfileId: Int,
         session: RewatchSession,
