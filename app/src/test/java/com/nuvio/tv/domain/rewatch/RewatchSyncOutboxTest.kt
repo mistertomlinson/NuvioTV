@@ -493,4 +493,23 @@ class RewatchSyncOutboxTest {
         assertEquals(original, storage.values[2])
     }
 
+    @Test
+    fun seriesRosterIsAvailableBeforeDrainAndClearsAfterAcknowledgment() = runBlocking {
+        val storage = FakeStorage()
+        val q = outbox(storage)
+        q.enqueue(2, "12003", "simkl-device:a", event("series-one"))
+        q.enqueue(2, "12003", "simkl-device:a", event("series-two").copy(
+            canonicalSeriesId = "imdb:another"
+        ))
+        assertEquals(
+            setOf("imdb:tt0386676", "imdb:another"),
+            q.pendingSeriesIds(2, "12003", "simkl-device:a")
+        )
+        assertEquals(RewatchOutboxDrainResult.DRAINED,
+            q.drain(2, "12003", "simkl-device:a") { item ->
+                RewatchOutboxSubmitResult.Accepted(item.expectedRevision + 1L)
+            })
+        assertTrue(q.pendingSeriesIds(2, "12003", "simkl-device:a").isEmpty())
+    }
+
 }
