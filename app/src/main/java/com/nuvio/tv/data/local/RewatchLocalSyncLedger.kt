@@ -86,10 +86,12 @@ internal fun certifyRewatchLocalClean(
     simklAccountId: String,
     deviceId: String,
     localSnapshot: RewatchSession,
+    expectedGeneration: Long,
     remoteLookup: RewatchRemoteLookup,
     hasPendingOrUnpublishedChanges: Boolean
 ): RewatchLocalSyncLedger? {
-    if (profileId <= 0 || hasPendingOrUnpublishedChanges ||
+    if (profileId <= 0 || old.generation != expectedGeneration ||
+        hasPendingOrUnpublishedChanges ||
         localSnapshot.ownerKey != "local-profile:$profileId" ||
         simklAccountId.isBlank() || deviceId.isBlank()) return null
     val verified = remoteLookup as? RewatchRemoteLookup.Verified ?: return null
