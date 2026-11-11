@@ -75,19 +75,15 @@ internal class RewatchCommittedOutboxSink(
         val identity = currentIdentity() ?: return
         if (identity.profileId != profileId) return
         val confirmed = checkpoint(identity, after.canonicalSeriesId)
-        val planned = planCommittedRewatchEvent(
-            before = before,
-            after = after,
-            checkpoint = confirmed,
-            eventId = eventId(),
-            deviceId = identity.deviceId
-        ) ?: return
         if (currentIdentity() != identity) return
-        outbox.enqueue(
+        outbox.enqueueCommittedTransition(
             profileId = profileId,
             simklAccountId = identity.simklAccountId,
             deviceId = identity.deviceId,
-            event = planned
+            before = before,
+            after = after,
+            checkpoint = confirmed,
+            eventId = eventId()
         )
         // No upload here. The queue is drained only by an explicit,
         // separately validated transport coordinator.
