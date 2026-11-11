@@ -50,7 +50,7 @@ class RewatchLocalSyncLedgerTest {
         val previous = RewatchLocalSyncLedger(generation = generation)
         return requireNotNull(certifyRewatchLocalClean(
             listOf(local), previous, 2, account, device,
-            local, remote, false
+            local, generation, remote, false
         ))
     }
 
@@ -138,11 +138,11 @@ class RewatchLocalSyncLedgerTest {
         val ledger = RewatchLocalSyncLedger(generation = 3)
         assertNull(certifyRewatchLocalClean(
             listOf(original), ledger, 2, account, device, original,
-            verified(original.copy(positionMs = 88_000)), false
+            ledger.generation, verified(original.copy(positionMs = 88_000)), false
         ))
         assertNull(certifyRewatchLocalClean(
             listOf(original), ledger, 2, account, device, original,
-            verified(), true
+            ledger.generation, verified(), true
         ))
     }
 
