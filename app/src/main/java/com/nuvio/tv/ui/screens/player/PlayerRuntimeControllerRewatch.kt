@@ -12,6 +12,7 @@ import com.nuvio.tv.domain.rewatch.completeRewatchEpisode
 import com.nuvio.tv.domain.rewatch.recordRewatchProgress
 import com.nuvio.tv.domain.rewatch.resolvePendingRewatchSuccessor
 import com.nuvio.tv.domain.rewatch.resolveRewatchPlaybackWriteRoute
+import com.nuvio.tv.domain.rewatch.notifyCommittedRewatchSave
 
 /**
  * Resume an established replay, or begin a new one only when the active
@@ -111,6 +112,14 @@ internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
         activeRewatchProfileId = selectedProfile
         activeRewatchSession = started
     }
+    notifyCommittedRewatchSave(
+        sink = rewatchCommitSink,
+        accepted = saved,
+        profileId = selectedProfile,
+        activeProfileId = { profileManager.activeProfileId.value },
+        before = stored,
+        after = started
+    )
 }
 
 /** This routing decision precedes *all* playback scrobble and progress writes. */
@@ -173,10 +182,20 @@ internal suspend fun PlayerRuntimeController.saveExistingRewatchPosition(
             )
         }
 
-    return rewatchSessionStore.upsertForActiveProfile(
+    if (updated == session) return false
+    val saved = rewatchSessionStore.upsertForActiveProfile(
         expectedProfileId = profileId,
         session = updated
     )
+    notifyCommittedRewatchSave(
+        sink = rewatchCommitSink,
+        accepted = saved,
+        profileId = profileId,
+        activeProfileId = { profileManager.activeProfileId.value },
+        before = session,
+        after = updated
+    )
+    return saved
 }
 
 /**
@@ -214,9 +233,17 @@ internal suspend fun PlayerRuntimeController.resolvePendingRewatchAfterMetadata(
     )
     if (advanced == pending) return
 
-    rewatchSessionStore.upsertForActiveProfile(
+    val saved = rewatchSessionStore.upsertForActiveProfile(
         expectedProfileId = selectedProfile,
         session = advanced
+    )
+    notifyCommittedRewatchSave(
+        sink = rewatchCommitSink,
+        accepted = saved,
+        profileId = selectedProfile,
+        activeProfileId = { profileManager.activeProfileId.value },
+        before = pending,
+        after = advanced
     )
 }
 
