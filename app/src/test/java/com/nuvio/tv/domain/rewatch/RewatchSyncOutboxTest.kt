@@ -151,4 +151,149 @@ class RewatchSyncOutboxTest {
             })
         assertEquals(1, queue.pendingCount(2, "12003", "simkl-device:a"))
     }
+
+    @Test
+    fun acknowledgedRevisionSurvivesRestartAndSeedsNextOfflineProgress() = runBlocking {
+        val storage = FakeStorage()
+        val initial = requireNotNull(startRewatchSession(
+            ownerKey = "local-profile:2",
+            canonicalSeriesId = "imdb:tt0386676",
+            sessionId = "office-session",
+            episode = RewatchEpisode(3, 17),
+            wasAlreadyWatched = true,
+            updatedAtEpochMs = 1
+        ))
+        val first = outbox(storage)
+        assertTrue(first.enqueueCommittedTransition(
+            2, "12003", "simkl-device:a",
+            before = null,
+            after = initial,
+            checkpoint = RewatchRemoteCheckpoint.ConfirmedEmpty,
+            eventId = "initial-import"
+        ))
+        assertEquals(RewatchOutboxDrainResult.DRAINED,
+            first.drain(2, "12003", "simkl-device:a") { event ->
+                RewatchOutboxSubmitResult.Accepted(event.expectedRevision + 1)
+            })
+        assertEquals(RewatchAcknowledgedCheckpoint(1, "office-session"),
+            outbox(storage).acknowledgedCheckpoint(
+                2, "12003", "simkl-device:a", "IMDB:tt0386676"
+            ))
+        val progressed = initial.copy(
+            positionMs = 15_000, durationMs = 1_000_000,
+            updatedAtEpochMs = 2
+        )
+        val restarted = outbox(storage)
+        // Authenticated remote data can be unavailable after process restart.
+        // A persisted acknowledgment remains valid as the local lower bound.
+        assertTrue(restarted.enqueueCommittedTransition(
+            2, "12003", "simkl-device:a",
+            before = initial,
+            after = progressed,
+            checkpoint = RewatchRemoteCheckpoint.Unknown,
+            eventId = "second-progress"
+        ))
+        assertEquals(1, restarted.pendingCount(2, "12003", "simkl-device:a"))
+        assertEquals(RewatchOutboxDrainResult.UNAVAILABLE,
+            restarted.drain(2, "12003", "simkl-device:a") { item ->
+                assertEquals(1L, item.expectedRevision)
+                RewatchOutboxSubmitResult.Unavailable
+            })
+    }
+
+    @Test
+    fun remoteRevisionAheadOrDifferentSessionStopsNewLocalEvents() = runBlocking {
+        val storage = FakeStorage()
+        val q = outbox(storage)
+        q.enqueue(2, "12003", "simkl-device:a", event("seed"))
+        assertEquals(RewatchOutboxDrainResult.DRAINED,
+            q.drain(2, "12003", "simkl-device:a") {
+                RewatchOutboxSubmitResult.Accepted(1)
+            })
+        val initial = requireNotNull(startRewatchSession(
+            ownerKey = "local-profile:2", canonicalSeriesId = "imdb:tt0386676",
+            sessionId = "office-session", episode = RewatchEpisode(3, 17),
+            wasAlreadyWatched = true, updatedAtEpochMs = 1
+        ))
+        val progress = initial.copy(positionMs = 6000, updatedAtEpochMs = 2)
+        val checkpoints = listOf(
+            RewatchRemoteCheckpoint.Synced(2, initial.sessionId),
+            RewatchRemoteCheckpoint.Synced(1, "different-session"),
+            RewatchRemoteCheckpoint.ConfirmedEmpty
+        )
+        for ((index, checkpoint) in checkpoints.withIndex()) {
+            assertFalse(q.enqueueCommittedTransition(
+                2, "12003", "simkl-device:a", initial, progress,
+                checkpoint, "blocked-$index"
+            ))
+        }
+        assertEquals(0, q.pendingCount(2, "12003", "simkl-device:a"))
+    }
+
+    @Test
+    fun staleSameSessionServerGetCannotRewindAcknowledgedRevision() = runBlocking {
+        val storage = FakeStorage()
+        val q = outbox(storage)
+        q.enqueue(2, "12003", "simkl-device:a", event("seed", revision = 0))
+        assertEquals(RewatchOutboxDrainResult.DRAINED,
+            q.drain(2, "12003", "simkl-device:a") {
+                RewatchOutboxSubmitResult.Accepted(1)
+            })
+        val initial = requireNotNull(startRewatchSession(
+            ownerKey = "local-profile:2", canonicalSeriesId = "imdb:tt0386676",
+            sessionId = "office-session", episode = RewatchEpisode(3, 17),
+            wasAlreadyWatched = true, updatedAtEpochMs = 1
+        ))
+        val progress = initial.copy(positionMs = 6000, updatedAtEpochMs = 2)
+        assertTrue(q.enqueueCommittedTransition(
+            2, "12003", "simkl-device:a", initial, progress,
+            RewatchRemoteCheckpoint.Synced(1, "office-session"),
+            "next-progress"
+        ))
+        assertEquals(RewatchOutboxDrainResult.UNAVAILABLE,
+            q.drain(2, "12003", "simkl-device:a") { item ->
+                assertEquals(1L, item.expectedRevision)
+                RewatchOutboxSubmitResult.Unavailable
+            })
+    }
+
+    @Test
+    fun skippedAcknowledgmentRevisionNeverDiscardsOfflineEvent() = runBlocking {
+        val storage = FakeStorage()
+        val q = outbox(storage)
+        q.enqueue(2, "12003", "simkl-device:a", event("seed", revision = 0))
+        assertSuspendFails<IllegalArgumentException> {
+            q.drain(2, "12003", "simkl-device:a") {
+                RewatchOutboxSubmitResult.Accepted(3)
+            }
+        }
+        assertEquals(1, q.pendingCount(2, "12003", "simkl-device:a"))
+        assertEquals(null, q.acknowledgedCheckpoint(
+            2, "12003", "simkl-device:a", "imdb:tt0386676"
+        ))
+    }
+
+    @Test
+    fun corruptedAckDatabaseCannotBeSilentlyReset() = runBlocking {
+        val storage = FakeStorage()
+        storage.values[2] = """{"schemaVersion":1,"simklAccountId":"12003",
+            "deviceId":"simkl-device:a","pending":[],"acknowledged":{
+            "imdb:tt0386676":{"revision":-1,"sessionId":"office-session"}}}"""
+        assertSuspendFails<IllegalArgumentException> {
+            outbox(storage).pendingCount(2, "12003", "simkl-device:a")
+        }
+        assertTrue(storage.values[2]!!.contains("\"revision\":-1"))
+    }
+
+    @Test
+    fun legacyOutboxWithoutAckFieldRemainsReadable() = runBlocking {
+        val storage = FakeStorage()
+        storage.values[2] = """{"schemaVersion":1,"simklAccountId":"12003",
+            "deviceId":"simkl-device:a","pending":[]}"""
+        assertEquals(0, outbox(storage).pendingCount(2, "12003", "simkl-device:a"))
+        assertEquals(null, outbox(storage).acknowledgedCheckpoint(
+            2, "12003", "simkl-device:a", "imdb:tt0386676"
+        ))
+    }
+
 }
