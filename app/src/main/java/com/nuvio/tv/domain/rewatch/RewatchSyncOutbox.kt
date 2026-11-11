@@ -31,6 +31,65 @@ internal data class RewatchAcknowledgedCheckpoint(
     val sessionId: String
 )
 
+/**
+ * The last locally verified replay cursor whose data exactly matched a
+ * successful authenticated VPS GET. Acknowledged revisions alone do not
+ * establish a clean local state.
+ */
+@Serializable
+internal data class RewatchCleanCursor(
+    val ownerKey: String,
+    val canonicalSeriesId: String,
+    val sessionId: String,
+    val season: Int,
+    val episode: Int,
+    val positionMs: Long,
+    val durationMs: Long,
+    val completedSeason: Int? = null,
+    val completedEpisode: Int? = null,
+    val phase: String,
+    val revision: Long
+) {
+    fun matches(session: RewatchSession): Boolean =
+        ownerKey == session.ownerKey &&
+            canonicalSeriesId.trim().equals(session.canonicalSeriesId.trim(), ignoreCase = true) &&
+            sessionId == session.sessionId &&
+            season == session.episode.season && episode == session.episode.episode &&
+            positionMs == session.positionMs && durationMs == session.durationMs &&
+            completedSeason == session.lastCompletedEpisode?.season &&
+            completedEpisode == session.lastCompletedEpisode?.episode &&
+            phase == session.phase.name
+
+    fun toSession(): RewatchSession = RewatchSession(
+        ownerKey = ownerKey,
+        canonicalSeriesId = canonicalSeriesId,
+        sessionId = sessionId,
+        episode = RewatchEpisode(season, episode),
+        positionMs = positionMs,
+        durationMs = durationMs,
+        lastCompletedEpisode = if (completedSeason != null && completedEpisode != null)
+            RewatchEpisode(completedSeason, completedEpisode) else null,
+        phase = RewatchPhase.valueOf(phase),
+        updatedAtEpochMs = 0L
+    )
+
+    companion object {
+        fun of(session: RewatchSession, revision: Long) = RewatchCleanCursor(
+            ownerKey = session.ownerKey,
+            canonicalSeriesId = session.canonicalSeriesId,
+            sessionId = session.sessionId,
+            season = session.episode.season,
+            episode = session.episode.episode,
+            positionMs = session.positionMs,
+            durationMs = session.durationMs,
+            completedSeason = session.lastCompletedEpisode?.season,
+            completedEpisode = session.lastCompletedEpisode?.episode,
+            phase = session.phase.name,
+            revision = revision
+        )
+    }
+}
+
 @Serializable
 internal data class RewatchOutboxEnvelope(
     val schemaVersion: Int = 1,
@@ -38,7 +97,8 @@ internal data class RewatchOutboxEnvelope(
     val deviceId: String,
     val pending: List<RewatchQueuedEvent> = emptyList(),
     // Retained even after the last event is acknowledged; survives restart.
-    val acknowledged: Map<String, RewatchAcknowledgedCheckpoint> = emptyMap()
+    val acknowledged: Map<String, RewatchAcknowledgedCheckpoint> = emptyMap(),
+    val clean: Map<String, RewatchCleanCursor> = emptyMap()
 )
 
 internal interface RewatchOutboxStorage {
@@ -127,6 +187,22 @@ internal class RewatchSyncOutbox(
                 ack.revision > 0 && ack.revision < Long.MAX_VALUE &&
                 ack.sessionId.isNotBlank() && ack.sessionId.length <= 160
         }) { "Corrupted acknowledged replay checkpoint" }
+        require(value.clean.all { (key, cursor) ->
+            key == seriesKey(key) && key.isNotBlank() &&
+                key == seriesKey(cursor.canonicalSeriesId) &&
+                cursor.ownerKey == "local-profile:$profileId" &&
+                cursor.sessionId.isNotBlank() && cursor.sessionId.length <= 160 &&
+                cursor.revision > 0 && cursor.revision < Long.MAX_VALUE &&
+                cursor.season > 0 && cursor.episode > 0 &&
+                cursor.positionMs >= 0 && cursor.durationMs >= 0 &&
+                (cursor.completedSeason == null) == (cursor.completedEpisode == null) &&
+                (cursor.completedSeason == null || cursor.completedSeason > 0) &&
+                (cursor.completedEpisode == null || cursor.completedEpisode > 0) &&
+                RewatchPhase.entries.any { it.name == cursor.phase } &&
+                (value.acknowledged[key] == null ||
+                    value.acknowledged.getValue(key).revision <= cursor.revision ||
+                    value.acknowledged.getValue(key).sessionId == cursor.sessionId)
+        }) { "Corrupted clean replay baseline" }
         return value
     }
 
@@ -270,6 +346,67 @@ internal class RewatchSyncOutbox(
             }
         }
         RewatchOutboxDrainResult.DRAINED
+    }
+
+    /**
+     * Record a clean cursor ONLY when an authenticated VPS read exactly
+     * matches the still-current local replay. Pending replay events prohibit
+     * this proof. No clean marker is ever invented from an HTTP failure or a
+     * successful POST acknowledgment alone.
+     *
+     * The caller must recheck the local cursor under its DataStore transaction
+     * before any subsequent remote promotion; this method is a marker only.
+     */
+    suspend fun recordVerifiedCleanBaseline(
+        profileId: Int,
+        simklAccountId: String,
+        deviceId: String,
+        local: RewatchSession,
+        lookup: RewatchRemoteLookup
+    ): Boolean = mutex.withLock {
+        if (!stillCurrent(profileId, simklAccountId, deviceId) ||
+            local.ownerKey != "local-profile:$profileId") return@withLock false
+        val verified = lookup as? RewatchRemoteLookup.Verified ?: return@withLock false
+        val remote = verified.remoteSession ?: return@withLock false
+        val checkpoint = verified.checkpoint as? RewatchRemoteCheckpoint.Synced
+            ?: return@withLock false
+        val key = seriesKey(local.canonicalSeriesId)
+        if (remote.ownerKey != local.ownerKey ||
+            !remote.canonicalSeriesId.trim().equals(
+                local.canonicalSeriesId.trim(), ignoreCase = true
+            ) ||
+            remote.sessionId != checkpoint.sessionId) return@withLock false
+        val cursor = RewatchCleanCursor.of(local, checkpoint.revision)
+        if (!cursor.matches(remote)) return@withLock false
+        val envelope = readChecked(profileId, simklAccountId, deviceId)
+        if (envelope.pending.any { seriesKey(it.canonicalSeriesId) == key })
+            return@withLock false
+        val previous = envelope.clean[key]
+        val ack = envelope.acknowledged[key]
+        if ((previous != null && checkpoint.revision < previous.revision) ||
+            (ack != null && (
+                checkpoint.revision < ack.revision ||
+                (checkpoint.revision == ack.revision && checkpoint.sessionId != ack.sessionId)
+            ))) return@withLock false
+        if (!stillCurrent(profileId, simklAccountId, deviceId)) return@withLock false
+        storage.write(profileId, json.encodeToString(
+            envelope.copy(clean = envelope.clean + (key to cursor))
+        ))
+        true
+    }
+
+    /** Read only a proven cursor; caller still compares its local DataStore
+     * value and checks for concurrent unpublished writes before applying. */
+    suspend fun cleanBaseline(
+        profileId: Int, simklAccountId: String, deviceId: String,
+        canonicalSeriesId: String
+    ): RewatchCleanCursor? = mutex.withLock {
+        if (!stillCurrent(profileId, simklAccountId, deviceId)) return@withLock null
+        val key = seriesKey(canonicalSeriesId)
+        val envelope = readChecked(profileId, simklAccountId, deviceId)
+        if (envelope.pending.any { seriesKey(it.canonicalSeriesId) == key })
+            return@withLock null
+        envelope.clean[key]
     }
 
     suspend fun acknowledgedCheckpoint(
