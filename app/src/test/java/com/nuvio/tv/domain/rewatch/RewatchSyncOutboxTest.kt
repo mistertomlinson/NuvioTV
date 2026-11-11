@@ -419,4 +419,50 @@ class RewatchSyncOutboxTest {
         ))
     }
 
+    @Test
+    fun verifiedMatchedGetAdvancesAcknowledgmentWithoutPendingPost() = runBlocking {
+        val storage = FakeStorage()
+        val queue = outbox(storage)
+        val local = cleanReplay()
+        assertTrue(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local, 9)
+        ))
+        val afterRestart = outbox(storage)
+        assertEquals(
+            RewatchAcknowledgedCheckpoint(9, local.sessionId),
+            afterRestart.acknowledgedCheckpoint(
+                2, "12003", "simkl-device:a", local.canonicalSeriesId
+            )
+        )
+        val progress = local.copy(
+            positionMs = local.positionMs + 1_000,
+            updatedAtEpochMs = local.updatedAtEpochMs + 1
+        )
+        assertTrue(afterRestart.enqueueCommittedTransition(
+            2, "12003", "simkl-device:a", local, progress,
+            RewatchRemoteCheckpoint.Unknown, "after-get"
+        ))
+        assertEquals(RewatchOutboxDrainResult.UNAVAILABLE,
+            afterRestart.drain(2, "12003", "simkl-device:a") { event ->
+                assertEquals(9L, event.expectedRevision)
+                RewatchOutboxSubmitResult.Unavailable
+            })
+    }
+
+    @Test
+    fun olderRemoteGetNeverRollsBackHigherAcknowledgedRevision() = runBlocking {
+        val storage = FakeStorage()
+        val queue = outbox(storage)
+        val local = cleanReplay()
+        assertTrue(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local, 9)
+        ))
+        assertFalse(queue.recordVerifiedCleanBaseline(
+            2, "12003", "simkl-device:a", local, verifiedClean(local, 8)
+        ))
+        assertEquals(9L, outbox(storage).acknowledgedCheckpoint(
+            2, "12003", "simkl-device:a", local.canonicalSeriesId
+        )?.revision)
+    }
+
 }
