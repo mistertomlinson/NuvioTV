@@ -2,6 +2,7 @@ package com.nuvio.tv.data.local
 
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.Preferences
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.core.profile.ProfileManager
@@ -25,6 +26,13 @@ import kotlinx.coroutines.flow.map
  * it does not read or write watched history, Simkl snapshots, or CW caches.
  * All writes capture a profile ID and are guarded against profile switches.
  */
+/** Atomically observed replay cursor and local write generation. */
+internal data class RewatchObservedLocalSync(
+    val profileId: Int,
+    val sessions: List<RewatchSession>,
+    val generation: Long
+)
+
 /** Capture the profile ID with its replay data, never as separate emissions. */
 data class ProfileRewatchSessions(
     val profileId: Int,
@@ -43,8 +51,111 @@ class RewatchSessionStore @Inject constructor(
 
     private val gson = Gson()
     private val key = stringPreferencesKey("sessions_v1")
+    private val ledgerKey = stringPreferencesKey("rewatch_local_sync_ledger_v1")
 
     private fun store(profileId: Int) = factory.get(profileId, FEATURE)
+
+    private fun localLedger(preferences: Preferences, profileId: Int) =
+        decodeRewatchLocalSyncLedger(
+            preferences[ledgerKey] ?: """{"schemaVersion":1,"generation":0,"cleanBySeries":{}}""",
+            profileId, gson
+        )
+
+    /** One consistent DataStore snapshot for compare-and-swap reconciliation. */
+    internal suspend fun observeLocalReplaySync(profileId: Int): RewatchObservedLocalSync {
+        require(profileId > 0)
+        val preferences = store(profileId).data.first()
+        return RewatchObservedLocalSync(
+            profileId = profileId,
+            sessions = decodeRewatchSessions(preferences[key] ?: "[]", gson),
+            generation = localLedger(preferences, profileId).generation
+        )
+    }
+
+    /**
+     * Mark a replay clean only after an authenticated GET and an independently
+     * verified empty outbox. The local cursor and its mutation generation are
+     * checked within the same DataStore edit.
+     */
+    internal suspend fun certifyAuthenticatedRemoteMatch(
+        expectedProfileId: Int,
+        simklAccountId: String,
+        deviceId: String,
+        expectedLocal: RewatchSession,
+        remoteLookup: RewatchRemoteLookup,
+        pendingOrUnpublished: Boolean,
+        stillAuthenticated: () -> Boolean
+    ): Boolean {
+        var accepted = false
+        if (!stillAuthenticated()) return false
+        profileManager.withActiveProfileMutation(expectedProfileId) {
+            store(expectedProfileId).edit { preferences ->
+                if (!stillAuthenticated()) return@edit
+                val sessions = decodeRewatchSessions(preferences[key] ?: "[]", gson)
+                val ledger = localLedger(preferences, expectedProfileId)
+                val updated = certifyRewatchLocalClean(
+                    sessions, ledger, expectedProfileId, simklAccountId,
+                    deviceId, expectedLocal, remoteLookup, pendingOrUnpublished
+                ) ?: return@edit
+                if (!stillAuthenticated()) return@edit
+                preferences[ledgerKey] = gson.toJson(updated)
+                accepted = true
+            }
+            true
+        }
+        return accepted && stillAuthenticated()
+    }
+
+    /**
+     * Remote replay and clean proof are written together, with a generation
+     * compare-and-swap. A late player save invalidates the proof and prevents
+     * this write; no provider or watched-history persistence is called.
+     */
+    internal suspend fun applyAuthenticatedRemoteIfClean(
+        expectedProfileId: Int,
+        simklAccountId: String,
+        deviceId: String,
+        canonicalSeriesId: String,
+        observed: RewatchObservedLocalSync,
+        remoteLookup: RewatchRemoteLookup,
+        pendingOrUnpublished: Boolean,
+        appliedAtEpochMs: Long,
+        stillAuthenticated: () -> Boolean
+    ): Boolean {
+        if (observed.profileId != expectedProfileId || !stillAuthenticated()) return false
+        var accepted = false
+        profileManager.withActiveProfileMutation(expectedProfileId) {
+            store(expectedProfileId).edit { preferences ->
+                if (!stillAuthenticated()) return@edit
+                val sessions = decodeRewatchSessions(preferences[key] ?: "[]", gson)
+                val ledger = localLedger(preferences, expectedProfileId)
+                val local = observed.sessions.firstOrNull {
+                    it.canonicalSeriesId.trim().equals(
+                        canonicalSeriesId.trim(), ignoreCase = true
+                    )
+                }
+                val result = mergeRewatchRemoteWithLedger(
+                    sessions = sessions,
+                    ledger = ledger,
+                    profileId = expectedProfileId,
+                    simklAccountId = simklAccountId,
+                    deviceId = deviceId,
+                    expectedLocal = local,
+                    expectedGeneration = observed.generation,
+                    canonicalSeriesId = canonicalSeriesId,
+                    remoteLookup = remoteLookup,
+                    pendingOrUnpublished = pendingOrUnpublished,
+                    appliedAtEpochMs = appliedAtEpochMs
+                ) ?: return@edit
+                if (!stillAuthenticated()) return@edit
+                preferences[key] = gson.toJson(result.first)
+                preferences[ledgerKey] = gson.toJson(result.second)
+                accepted = true
+            }
+            true
+        }
+        return accepted && stillAuthenticated()
+    }
 
     val activeProfileSessions: Flow<ProfileRewatchSessions> =
         profileManager.activeProfileId.flatMapLatest { profileId ->
@@ -144,7 +255,13 @@ class RewatchSessionStore @Inject constructor(
                     replaceSession = replaceSession
                 )
                 if (updated != null) {
+                    val nextLedger = onLocalRewatchCommitted(
+                        localLedger(preferences, expectedProfileId), session
+                    )
+                    // Atomic in the replay DataStore: no local write can
+                    // succeed without invalidating its prior clean proof.
                     preferences[key] = gson.toJson(updated)
+                    preferences[ledgerKey] = gson.toJson(nextLedger)
                     accepted = true
                 }
             }
