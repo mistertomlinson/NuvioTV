@@ -13,6 +13,16 @@ import com.nuvio.tv.domain.rewatch.RewatchRemoteLookup
 import com.nuvio.tv.domain.rewatch.RewatchSyncOutbox
 import com.nuvio.tv.domain.rewatch.RewatchTransportCoordinator
 import com.nuvio.tv.domain.rewatch.RewatchVpsApi
+import com.nuvio.tv.domain.rewatch.RewatchForegroundAccess
+import com.nuvio.tv.domain.rewatch.RewatchForegroundResult
+import com.nuvio.tv.domain.rewatch.RewatchForegroundSynchronizer
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -42,6 +52,11 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     private val local: RewatchSessionStore
 ) {
     private val stateLock = Any()
+    // The gate is OFF. These are allocated only if a reviewed future build
+    // enables demand-driven replay synchronization.
+    private val syncScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
+    private val foregroundMutex = Mutex()
+    private val uploadMutex = Mutex()
     private var boundAuthorization: ExistingSimklRewatchAuthorization? = null
     private var boundIdentity: RewatchCommitIdentity? = null
     private val verifiedCheckpoints = mutableMapOf<String, RewatchRemoteCheckpoint>()
@@ -121,17 +136,24 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     val committedSaveSink: RewatchCommittedSaveSink =
         RewatchCommittedSaveSink { profileId, before, after ->
             if (RewatchCrossDeviceGate.ENABLED) {
-                val identity = identityForLocalSave() ?: return@RewatchCommittedSaveSink
-                if (identity.profileId != profileId ||
-                    after.ownerKey != "local-profile:$profileId") {
+                if (after.ownerKey != "local-profile:$profileId") {
                     return@RewatchCommittedSaveSink
                 }
+                val identity = identityForLocalSave()
+                if (identity == null) {
+                    // First replay save after upgrading: no verified remote
+                    // checkpoint exists yet. Never guess empty; do an
+                    // authenticated background reconciliation instead.
+                    syncScope.launch { reconcileForeground(after.canonicalSeriesId) }
+                    return@RewatchCommittedSaveSink
+                }
+                if (identity.profileId != profileId) return@RewatchCommittedSaveSink
                 val checkpoint = synchronized(stateLock) {
                     verifiedCheckpoints[seriesKey(after.canonicalSeriesId)]
                         ?: RewatchRemoteCheckpoint.Unknown
                 }
                 if (currentBinding() != identity) return@RewatchCommittedSaveSink
-                outbox.enqueueCommittedTransition(
+                val queued = outbox.enqueueCommittedTransition(
                     profileId = profileId,
                     simklAccountId = identity.simklAccountId,
                     deviceId = identity.deviceId,
@@ -140,6 +162,11 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
                     checkpoint = checkpoint,
                     eventId = UUID.randomUUID().toString()
                 )
+                // No network on the playback-save/EOF critical path.
+                syncScope.launch {
+                    if (queued) uploadPending()
+                    else reconcileForeground(after.canonicalSeriesId)
+                }
             }
         }
 
@@ -182,8 +209,8 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
         return reconciler.pullSeries(canonicalSeriesId)
     }
 
-    suspend fun uploadPending(): RewatchOutboxDrainResult {
-        if (!RewatchCrossDeviceGate.ENABLED) return RewatchOutboxDrainResult.UNAVAILABLE
+    suspend fun uploadPending(): RewatchOutboxDrainResult = uploadMutex.withLock {
+        if (!RewatchCrossDeviceGate.ENABLED) return@withLock RewatchOutboxDrainResult.UNAVAILABLE
         val auth = existingSimkl.snapshot() ?: return RewatchOutboxDrainResult.UNAVAILABLE
         val connected = transport.ensureConnected()
         if (connected != ReplayBootstrapOutcome.CONNECTED) return RewatchOutboxDrainResult.UNAVAILABLE
@@ -212,6 +239,76 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
                 }
             }
         }
-        return result
+        return@withLock result
+    }
+
+    private val foregroundSynchronizer by lazy {
+        RewatchForegroundSynchronizer(object : RewatchForegroundAccess {
+            override suspend fun connect(): RewatchCommitIdentity? {
+                val auth = existingSimkl.snapshot() ?: return null
+                if (transport.ensureConnected() != ReplayBootstrapOutcome.CONNECTED) return null
+                val identity = transport.currentVerifiedIdentity() ?: return null
+                setBinding(auth, identity)
+                return currentBinding()
+            }
+            override fun stillCurrent(identity: RewatchCommitIdentity): Boolean =
+                currentBinding() == identity
+
+            override suspend fun remoteSeriesIds(): List<String>? =
+                transport.fetchVerifiedRemoteSeriesIds()
+
+            override suspend fun observeLocal(profileId: Int): RewatchObservedLocalSync =
+                local.observeLocalReplaySync(profileId)
+
+            override suspend fun applyRemote(seriesId: String): Boolean =
+                when (reconciler.pullSeries(seriesId)) {
+                    RewatchPullResult.CLEAN_VERIFIED, RewatchPullResult.REMOTE_APPLIED -> true
+                    else -> false
+                }
+
+            override suspend fun checkpoint(seriesId: String): RewatchRemoteLookup {
+                val bound = currentBinding() ?: return RewatchRemoteLookup.Invalid
+                val proof = transport.fetchCheckpointForSeries(seriesId)
+                if (currentBinding() == bound && proof is RewatchRemoteLookup.Verified) {
+                    synchronized(stateLock) {
+                        if (currentBinding() == bound) {
+                            verifiedCheckpoints[seriesKey(seriesId)] = proof.checkpoint
+                        }
+                    }
+                }
+                return if (currentBinding() == bound) proof else RewatchRemoteLookup.Invalid
+            }
+
+            override suspend fun hasPending(
+                identity: RewatchCommitIdentity, seriesId: String
+            ): Boolean = outbox.hasPendingForSeries(
+                identity.profileId, identity.simklAccountId, identity.deviceId, seriesId
+            )
+
+            override suspend fun enqueueImport(
+                identity: RewatchCommitIdentity, session: com.nuvio.tv.domain.rewatch.RewatchSession
+            ): Boolean {
+                if (currentBinding() != identity) return false
+                return outbox.enqueueCommittedTransition(
+                    profileId = identity.profileId,
+                    simklAccountId = identity.simklAccountId,
+                    deviceId = identity.deviceId,
+                    before = null,
+                    after = session,
+                    checkpoint = RewatchRemoteCheckpoint.ConfirmedEmpty,
+                    eventId = UUID.randomUUID().toString()
+                )
+            }
+
+            override suspend fun upload(): RewatchOutboxDrainResult = uploadPending()
+        })
+    }
+
+    /** Called only from a foreground Home or pre-play hook in gated builds. */
+    suspend fun reconcileForeground(onlySeries: String? = null): RewatchForegroundResult {
+        if (!RewatchCrossDeviceGate.ENABLED) return RewatchForegroundResult.UNAVAILABLE
+        return foregroundMutex.withLock {
+            foregroundSynchronizer.reconcile(onlySeries)
+        }
     }
 }
