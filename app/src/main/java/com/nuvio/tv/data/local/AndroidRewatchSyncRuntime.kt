@@ -144,7 +144,15 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
                     // First replay save after upgrading: no verified remote
                     // checkpoint exists yet. Never guess empty; do an
                     // authenticated background reconciliation instead.
-                    syncScope.launch { reconcileForeground(after.canonicalSeriesId) }
+                    syncScope.launch {
+                        try {
+                            reconcileForeground(after.canonicalSeriesId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (_: Exception) {
+                            // Optional replay sync never fails playback.
+                        }
+                    }
                     return@RewatchCommittedSaveSink
                 }
                 if (identity.profileId != profileId) return@RewatchCommittedSaveSink
@@ -164,8 +172,14 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
                 )
                 // No network on the playback-save/EOF critical path.
                 syncScope.launch {
-                    if (queued) uploadPending()
-                    else reconcileForeground(after.canonicalSeriesId)
+                    try {
+                        if (queued) uploadPending()
+                        else reconcileForeground(after.canonicalSeriesId)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        // Keep local cursor and durable outbox on network error.
+                    }
                 }
             }
         }
@@ -211,13 +225,13 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
 
     suspend fun uploadPending(): RewatchOutboxDrainResult = uploadMutex.withLock {
         if (!RewatchCrossDeviceGate.ENABLED) return@withLock RewatchOutboxDrainResult.UNAVAILABLE
-        val auth = existingSimkl.snapshot() ?: return RewatchOutboxDrainResult.UNAVAILABLE
+        val auth = existingSimkl.snapshot() ?: return@withLock RewatchOutboxDrainResult.UNAVAILABLE
         val connected = transport.ensureConnected()
-        if (connected != ReplayBootstrapOutcome.CONNECTED) return RewatchOutboxDrainResult.UNAVAILABLE
+        if (connected != ReplayBootstrapOutcome.CONNECTED) return@withLock RewatchOutboxDrainResult.UNAVAILABLE
         val identity = transport.currentVerifiedIdentity()
-            ?: return RewatchOutboxDrainResult.UNAVAILABLE
+            ?: return@withLock RewatchOutboxDrainResult.UNAVAILABLE
         setBinding(auth, identity)
-        if (currentBinding() != identity) return RewatchOutboxDrainResult.PROFILE_CHANGED
+        if (currentBinding() != identity) return@withLock RewatchOutboxDrainResult.PROFILE_CHANGED
         val touched = outbox.pendingSeriesIds(
             identity.profileId, identity.simklAccountId, identity.deviceId
         )
