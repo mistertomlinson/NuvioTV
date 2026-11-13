@@ -3855,6 +3855,20 @@ internal fun HomeViewModel.removeContinueWatchingPipeline(
                         expectedProfileId = selectedProfile,
                         session = finished
                     )
+                    if (saved && com.nuvio.tv.data.local.RewatchCrossDeviceGate.ENABLED) {
+                        // Dismiss only the replay. Persist its STOP tombstone
+                        // for linked devices, never modify Simkl history.
+                        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            com.nuvio.tv.domain.rewatch.notifyCommittedRewatchSave(
+                                sink = rewatchSyncRuntime.get().committedSaveSink,
+                                accepted = true,
+                                profileId = selectedProfile,
+                                activeProfileId = { profileManager.activeProfileId.value },
+                                before = stored,
+                                after = finished
+                            )
+                        }
+                    }
                     if (saved && profileManager.activeProfileId.value == selectedProfile) {
                         _uiState.update { state ->
                             state.copy(
@@ -4192,13 +4206,26 @@ private suspend fun HomeViewModel.buildDurableRewatchCards(
                             catalog.orderedEpisodes,
                             metadataComplete = true
                         )
-                        if (
-                            advanced != original &&
+                        val saved = advanced != original &&
                             rewatchSessionStore.upsertForActiveProfile(
                                 expectedProfileId = profileId,
                                 session = advanced
                             )
-                        ) advanced else original
+                        if (saved && com.nuvio.tv.data.local.RewatchCrossDeviceGate.ENABLED) {
+                            // A delayed metadata resolution must be visible on
+                            // the other device without rewatching the episode.
+                            viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                com.nuvio.tv.domain.rewatch.notifyCommittedRewatchSave(
+                                    sink = rewatchSyncRuntime.get().committedSaveSink,
+                                    accepted = true,
+                                    profileId = profileId,
+                                    activeProfileId = { profileManager.activeProfileId.value },
+                                    before = original,
+                                    after = advanced
+                                )
+                            }
+                        }
+                        if (saved) advanced else original
                     } else {
                         original
                     }
