@@ -67,11 +67,42 @@ class RewatchSessionStore @Inject constructor(
     /** One consistent DataStore snapshot for compare-and-swap reconciliation. */
     internal suspend fun observeLocalReplaySync(profileId: Int): RewatchObservedLocalSync {
         require(profileId > 0)
-        val preferences = store(profileId).data.first()
+        // Stage-only logs to isolate a failure before the per-series VPS GET.
+        // Exception messages and raw DataStore values are deliberately hidden.
+        val preferences = try {
+            store(profileId).data.first()
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            Log.w("RewatchVpsTest", "local_read_stage=DATASTORE type=" +
+                error.javaClass.simpleName)
+            throw error
+        }
+        val sessions = try {
+            decodeRewatchSessions(preferences[key] ?: "[]", gson)
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            Log.w("RewatchVpsTest", "local_read_stage=SESSIONS type=" +
+                error.javaClass.simpleName)
+            throw error
+        }
+        val ledger = try {
+            localLedger(preferences, profileId)
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            val category = when (error.message) {
+                "Invalid local replay clean proof" -> "CLEAN_PROOF"
+                "Invalid local replay sync ledger" -> "LEDGER_HEADER"
+                "Local replay sync ledger is null" -> "NULL_LEDGER"
+                else -> "OTHER"
+            }
+            Log.w("RewatchVpsTest", "local_read_stage=LEDGER type=" +
+                error.javaClass.simpleName + " category=" + category)
+            throw error
+        }
         return RewatchObservedLocalSync(
             profileId = profileId,
-            sessions = decodeRewatchSessions(preferences[key] ?: "[]", gson),
-            generation = localLedger(preferences, profileId).generation
+            sessions = sessions,
+            generation = ledger.generation
         )
     }
 
