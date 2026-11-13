@@ -202,8 +202,8 @@ fun HomeScreen(
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_PAUSE,
-                Lifecycle.Event.ON_STOP,
-                Lifecycle.Event.ON_START,
+                Lifecycle.Event.ON_STOP ->
+                    viewModel.setHomePresentationVisible(false)
                 Lifecycle.Event.ON_RESUME ->
                     refreshPresentationVisibility()
                 else -> Unit
