@@ -192,10 +192,13 @@ fun HomeScreen(
          */
         fun refreshPresentationVisibility() {
             viewModel.setHomePresentationVisible(
-                homeRootView.hasWindowFocus() &&
-                    homeLifecycleOwner.lifecycle.currentState.isAtLeast(
-                        Lifecycle.State.RESUMED
-                    )
+                homePresentationActive(
+                    windowFocused = homeRootView.hasWindowFocus(),
+                    lifecycleResumed =
+                        homeLifecycleOwner.lifecycle.currentState.isAtLeast(
+                            Lifecycle.State.RESUMED
+                        )
+                )
             )
         }
 
