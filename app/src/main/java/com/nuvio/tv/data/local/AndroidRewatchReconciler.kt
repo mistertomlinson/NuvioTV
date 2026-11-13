@@ -127,8 +127,20 @@ internal class AndroidRewatchReconciler(
             // save changes the atomic generation and invalidates this read.
             val observed = local.observe(identity.profileId)
             runCatching {
+                val office = observed.sessions.filter {
+                    it.canonicalSeriesId.trim().lowercase()
+                        .removePrefix("imdb:") == "tt0386676"
+                }
+                val officeSummary = office.joinToString(";") { session ->
+                    val shape = if (session.canonicalSeriesId.trim()
+                            .lowercase().startsWith("imdb:")) "PREFIXED" else "BARE"
+                    shape + ":S" + session.episode.season + "E" +
+                        session.episode.episode + ":" + session.phase.name
+                }
                 android.util.Log.i("RewatchVpsTest",
-                    "pull_stage=LOCAL_OBSERVED count=" + observed.sessions.size)
+                    "pull_stage=LOCAL_OBSERVED count=" + observed.sessions.size +
+                        " office_count=" + office.size +
+                        " office=" + officeSummary)
             }
             if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
             stage = "REMOTE_FETCH"
