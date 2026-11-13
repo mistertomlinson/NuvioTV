@@ -6,6 +6,7 @@ import com.nuvio.tv.domain.rewatch.decideRewatchActivation
 import com.nuvio.tv.domain.rewatch.startRewatchSession
 import kotlinx.coroutines.flow.first
 import com.nuvio.tv.domain.rewatch.RewatchEpisode
+import com.nuvio.tv.domain.rewatch.RewatchManualDetailsSelection
 import com.nuvio.tv.domain.rewatch.RewatchPlaybackWriteRoute
 import com.nuvio.tv.domain.rewatch.RewatchSession
 import com.nuvio.tv.domain.rewatch.completeRewatchEpisode
@@ -62,9 +63,14 @@ internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
     }
     // Consume the episode-list click at most once; an autoplay handoff,
     // stale click, profile switch, or restored player cannot request a jump.
-    val clickAgeMs = System.currentTimeMillis() - manualRewatchSelectionAtMs
-    val manualReposition = manualRewatchSelectedEpisode == currentEpisodeKey &&
-        clickAgeMs in 0L..120_000L
+    val nowAtSelection = System.currentTimeMillis()
+    val clickAgeMs = nowAtSelection - manualRewatchSelectionAtMs
+    val fromDetails = RewatchManualDetailsSelection.consume(
+        selectedProfile, content, currentEpisodeKey, nowAtSelection
+    )
+    val manualReposition = fromDetails ||
+        (manualRewatchSelectedEpisode == currentEpisodeKey &&
+            clickAgeMs in 0L..120_000L)
     manualRewatchSelectedEpisode = null
     manualRewatchSelectionAtMs = 0L
 
