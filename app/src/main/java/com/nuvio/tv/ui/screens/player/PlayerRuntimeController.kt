@@ -74,6 +74,7 @@ class PlayerRuntimeController(
     internal val rewatchSessionStore: RewatchSessionStore,
     internal val profileManager: ProfileManager,
     internal val rewatchCommitSink: RewatchCommittedSaveSink = DisabledRewatchCommittedSaveSink,
+    internal val rewatchBeforePlayback: suspend (String) -> Unit = {},
     savedStateHandle: SavedStateHandle,
     internal val scope: CoroutineScope,
     internal val directDebridResolver: DirectDebridResolver,
