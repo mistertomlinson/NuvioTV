@@ -126,15 +126,19 @@ internal class AndroidRewatchReconciler(
             // Observe BEFORE the request so any intervening local playback
             // save changes the atomic generation and invalidates this read.
             val observed = local.observe(identity.profileId)
-            android.util.Log.i("RewatchVpsTest",
-                "pull_stage=LOCAL_OBSERVED count=" + observed.sessions.size)
+            runCatching {
+                android.util.Log.i("RewatchVpsTest",
+                    "pull_stage=LOCAL_OBSERVED count=" + observed.sessions.size)
+            }
             if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
             stage = "REMOTE_FETCH"
             val lookup = fetchSeries(canonicalSeriesId)
             if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
-            android.util.Log.i("RewatchVpsTest",
-                "pull_stage=REMOTE_FETCHED verified=" +
-                    (lookup is RewatchRemoteLookup.Verified))
+            runCatching {
+                android.util.Log.i("RewatchVpsTest",
+                    "pull_stage=REMOTE_FETCHED verified=" +
+                        (lookup is RewatchRemoteLookup.Verified))
+            }
             val verified = lookup as? RewatchRemoteLookup.Verified
                 ?: return@withLock RewatchPullResult.NO_VERIFIED_REMOTE
             if (verified.checkpoint == RewatchRemoteCheckpoint.ConfirmedEmpty) {
@@ -212,9 +216,11 @@ internal class AndroidRewatchReconciler(
         } catch (error: Exception) {
             // Isolated test-branch diagnostics: stage and exception type only.
             // Never log raw messages, IDs, credentials, or replay payloads.
-            android.util.Log.w("RewatchVpsTest",
-                "pull_exception_stage=" + stage +
-                    " type=" + error.javaClass.simpleName)
+            runCatching {
+                android.util.Log.w("RewatchVpsTest",
+                    "pull_exception_stage=" + stage +
+                        " type=" + error.javaClass.simpleName)
+            }
             // Do not reset watched history or erase a local replay when
             // the optional sync service or either DataStore is unavailable.
             RewatchPullResult.NO_VERIFIED_REMOTE
