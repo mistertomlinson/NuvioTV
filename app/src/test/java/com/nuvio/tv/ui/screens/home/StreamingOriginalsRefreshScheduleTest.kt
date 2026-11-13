@@ -164,6 +164,13 @@ class StreamingOriginalsRefreshScheduleTest {
         }
     }
     @Test
+    fun `dream window focus loss counts as offscreen even if Home remains composed`() {
+        assertTrue(homePresentationActive(windowFocused = true, lifecycleResumed = true))
+        assertFalse(homePresentationActive(windowFocused = false, lifecycleResumed = true))
+        assertFalse(homePresentationActive(windowFocused = true, lifecycleResumed = false))
+        assertFalse(homePresentationActive(windowFocused = false, lifecycleResumed = false))
+    }
+    @Test
     fun `different device timezone cannot shift Eastern checkpoints`() {
         val midnightDone = mapOf(StreamingOriginalsTimedCheck.MIDNIGHT to "2026-11-06")
         assertEquals(
