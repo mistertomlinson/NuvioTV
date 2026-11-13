@@ -93,10 +93,38 @@ class RewatchSessionStore @Inject constructor(
                 "Invalid local replay clean proof" -> "CLEAN_PROOF"
                 "Invalid local replay sync ledger" -> "LEDGER_HEADER"
                 "Local replay sync ledger is null" -> "NULL_LEDGER"
+                "Unrecognized local replay ledger fields" -> "UNKNOWN_FIELDS"
+                "Unrecognized local replay ledger types" -> "UNKNOWN_TYPES"
+                "Unknown legacy ledger version" -> "UNKNOWN_VERSION"
+                "Invalid local replay clean proof value" -> "BAD_PROOF_VALUE"
                 else -> "OTHER"
             }
+            // Diagnostic reports only JSON shape, never keys, values,
+            // account identities or credentials.
+            val shape = runCatching {
+                val json = com.google.gson.JsonParser.parseString(
+                    preferences[ledgerKey] ?: "{}"
+                ).asJsonObject
+                val types = json.entrySet().map { (_, value) ->
+                    when {
+                        value.isJsonObject -> "O"
+                        value.isJsonArray -> "A"
+                        value.isJsonPrimitive &&
+                            value.asJsonPrimitive.isNumber -> "N"
+                        value.isJsonPrimitive -> "P"
+                        else -> "X"
+                    }
+                }.sorted().joinToString("")
+                "fields=" + json.size() + " types=" + types +
+                    " canonical=" + (
+                        json.has("schemaVersion") &&
+                            json.has("generation") &&
+                            json.has("cleanBySeries")
+                    )
+            }.getOrDefault("unparseable")
             Log.w("RewatchVpsTest", "local_read_stage=LEDGER type=" +
-                error.javaClass.simpleName + " category=" + category)
+                error.javaClass.simpleName + " category=" + category +
+                " shape=" + shape)
             throw error
         }
         return RewatchObservedLocalSync(
