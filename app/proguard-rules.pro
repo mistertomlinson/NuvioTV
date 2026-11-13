@@ -27,6 +27,7 @@
 -keep class com.nuvio.tv.data.local.RewatchLocalCleanProof { *; }
 -keep class com.nuvio.tv.domain.rewatch.RewatchSession { *; }
 -keep class com.nuvio.tv.domain.rewatch.RewatchEpisode { *; }
+-keep enum com.nuvio.tv.domain.rewatch.RewatchPhase { *; }
 
 # These models are persisted reflectively by the Home/TMDB Gson caches.
 # Keep their fields and nested generic element types stable across minified builds.
