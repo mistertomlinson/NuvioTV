@@ -168,6 +168,7 @@ class RewatchSessionStore @Inject constructor(
                     // write later may invalidate that proof, but never reopens
                     // this one-time migration exception.
                     preferences[officeTestAdoptionKey] = "completed"
+                    Log.i("RewatchVpsTest", "office_first_adoption=APPLIED")
                 }
                 accepted = true
             }
