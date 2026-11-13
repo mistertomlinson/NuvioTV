@@ -146,6 +146,41 @@ class RewatchSessionStore @Inject constructor(
                         alreadyAdopted = preferences[officeTestAdoptionKey] != null,
                         pending = pendingOrUnpublished
                     )
+                if (canonicalSeriesId.trim().lowercase().removePrefix("imdb:") ==
+                    "tt0386676") {
+                    val remote = (remoteLookup as? RewatchRemoteLookup.Verified)
+                        ?.remoteSession
+                    fun safeShape(value: String?) = when (value?.trim()?.lowercase()) {
+                        "tt0386676" -> "BARE"
+                        "imdb:tt0386676" -> "PREFIXED"
+                        null -> "NONE"
+                        else -> "OTHER"
+                    }
+                    val existingOffice = sessions.filter {
+                        it.canonicalSeriesId.trim().lowercase()
+                            .removePrefix("imdb:") == "tt0386676"
+                    }
+                    Log.i("RewatchVpsTest", "adoption_check=" +
+                        " requested=" + safeShape(canonicalSeriesId) +
+                        " local=" + safeShape(local?.canonicalSeriesId) +
+                        " local_episode=" + (local?.episode?.let {
+                            "S" + it.season + "E" + it.episode
+                        } ?: "NONE") +
+                        " other_office=" + existingOffice.size +
+                        " remote=" + safeShape(remote?.canonicalSeriesId) +
+                        " remote_episode=" + (remote?.episode?.let {
+                            "S" + it.season + "E" + it.episode
+                        } ?: "NONE") +
+                        " local_proof=" +
+                            (ledger.cleanBySeries.containsKey(
+                                canonicalSeriesId.trim().lowercase()
+                            )) +
+                        " marker=" + (preferences[officeTestAdoptionKey] != null) +
+                        " pending=" + pendingOrUnpublished +
+                        " generation_equal=" +
+                            (ledger.generation == observed.generation) +
+                        " approved=" + approvedFirstAdoption)
+                }
                 val result = mergeRewatchRemoteWithLedger(
                     sessions = sessions,
                     ledger = ledger,
@@ -159,7 +194,13 @@ class RewatchSessionStore @Inject constructor(
                     pendingOrUnpublished = pendingOrUnpublished,
                     appliedAtEpochMs = appliedAtEpochMs,
                     allowExplicitInitialTestAdoption = approvedFirstAdoption
-                ) ?: return@edit
+                ) ?: run {
+                    if (canonicalSeriesId.trim().lowercase().removePrefix("imdb:") ==
+                        "tt0386676") {
+                        Log.i("RewatchVpsTest", "adoption_merge=REJECTED")
+                    }
+                    return@edit
+                }
                 if (!stillAuthenticated()) return@edit
                 preferences[key] = gson.toJson(result.first)
                 preferences[ledgerKey] = gson.toJson(result.second)
