@@ -208,6 +208,10 @@ class PlayerRuntimeController(
     internal var pendingRewatchSaveJob: kotlinx.coroutines.Job? = null
     /** Guard a known next-episode replay handoff against failed disk writes. */
     internal var pendingRewatchHandoff: RewatchAutoplayHandoff? = null
+    // One-shot proof that a different episode came from an actual menu click,
+    // not autoplay or a restored player. Never persisted across restarts.
+    internal var manualRewatchSelectedEpisode: com.nuvio.tv.domain.rewatch.RewatchEpisode? = null
+    internal var manualRewatchSelectionAtMs: Long = 0L
 
     internal var currentVideoId: String? = videoId
     internal var currentSeason: Int? = initialSeason
