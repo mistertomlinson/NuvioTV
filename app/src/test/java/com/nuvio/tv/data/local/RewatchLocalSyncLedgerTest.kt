@@ -183,4 +183,103 @@ class RewatchLocalSyncLedgerTest {
         // Proof remains available but is no longer current until recertified
         assertNull(apply(ledger = changed, generation = changed.generation))
     }
+
+    private fun officeFirstAdoption() : Triple<
+        RewatchSession, RewatchSession, RewatchRemoteLookup.Verified
+    > {
+        val local = original.copy(
+            canonicalSeriesId = "tt0386676",
+            episode = RewatchEpisode(5, 16),
+            sessionId = "android-existing-office",
+            phase = RewatchPhase.NEXT_UP,
+            lastCompletedEpisode = RewatchEpisode(5, 15),
+            positionMs = 0L,
+            durationMs = 0L
+        )
+        val fromIpad = local.copy(
+            sessionId = "ios-newer-rewatch",
+            episode = RewatchEpisode(5, 6),
+            phase = RewatchPhase.PLAYING,
+            lastCompletedEpisode = null,
+            positionMs = 23_000L,
+            durationMs = 1_200_000L,
+            updatedAtEpochMs = 0L
+        )
+        val proof = RewatchRemoteLookup.Verified(
+            RewatchRemoteCheckpoint.Synced(1L, fromIpad.sessionId),
+            fromIpad
+        )
+        return Triple(local, fromIpad, proof)
+    }
+
+    @Test fun officeFirstTestAdoptionRequiresExplicitOneTimeApproval() {
+        val (local, remote, proof) = officeFirstAdoption()
+        assertTrue(isApprovedOfficeInitialTestAdoption(local, proof, false, false))
+        assertFalse(isApprovedOfficeInitialTestAdoption(local, proof, true, false))
+        assertFalse(isApprovedOfficeInitialTestAdoption(local, proof, false, true))
+        assertFalse(isApprovedOfficeInitialTestAdoption(
+            local.copy(canonicalSeriesId = "tt9999999"), proof, false, false
+        ))
+        assertFalse(isApprovedOfficeInitialTestAdoption(
+            local.copy(episode = RewatchEpisode(5, 15)), proof, false, false
+        ))
+        assertFalse(isApprovedOfficeInitialTestAdoption(
+            local, verified(remote.copy(episode = RewatchEpisode(5, 7)), 1L),
+            false, false
+        ))
+        assertFalse(isApprovedOfficeInitialTestAdoption(
+            local, RewatchRemoteLookup.Invalid, false, false
+        ))
+    }
+
+    @Test fun officeInitialMigrationCreatesCleanServerProofWithoutLosingSimklHistory() {
+        val (local, remote, proof) = officeFirstAdoption()
+        val ledger = RewatchLocalSyncLedger(generation = 11L)
+        fun merge(
+            expectedGeneration: Long = ledger.generation,
+            pending: Boolean = false,
+            allow: Boolean = false,
+            accountId: String = account
+        ) = mergeRewatchRemoteWithLedger(
+            sessions = listOf(local),
+            ledger = ledger,
+            profileId = 2,
+            simklAccountId = accountId,
+            deviceId = device,
+            expectedLocal = local,
+            expectedGeneration = expectedGeneration,
+            canonicalSeriesId = local.canonicalSeriesId,
+            remoteLookup = proof,
+            pendingOrUnpublished = pending,
+            appliedAtEpochMs = 5_000L,
+            allowExplicitInitialTestAdoption = allow
+        )
+        assertNull(merge())
+        assertNull(merge(expectedGeneration = 10L, allow = true))
+        assertNull(merge(pending = true, allow = true))
+        val adopted = requireNotNull(merge(allow = true))
+        assertTrue(sameRewatchCursor(adopted.first.single(), remote))
+        assertEquals(12L, adopted.second.generation)
+        assertEquals(1L, adopted.second.cleanBySeries.getValue(
+            local.canonicalSeriesId
+        ).revision)
+        val subsequentLocal = adopted.first.single().copy(
+            positionMs = 50_000L, updatedAtEpochMs = 6_000L
+        )
+        val dirtied = onLocalRewatchCommitted(adopted.second, subsequentLocal)
+        assertTrue(dirtied.cleanBySeries.isEmpty())
+        assertNull(mergeRewatchRemoteWithLedger(
+            sessions = listOf(subsequentLocal),
+            ledger = dirtied,
+            profileId = 2,
+            simklAccountId = account,
+            deviceId = device,
+            expectedLocal = subsequentLocal,
+            expectedGeneration = dirtied.generation,
+            canonicalSeriesId = local.canonicalSeriesId,
+            remoteLookup = proof,
+            pendingOrUnpublished = false,
+            appliedAtEpochMs = 7_000L
+        ))
+    }
 }
