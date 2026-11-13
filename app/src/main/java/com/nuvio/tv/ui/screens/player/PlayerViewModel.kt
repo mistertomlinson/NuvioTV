@@ -75,7 +75,7 @@ class PlayerViewModel @Inject constructor(
     private val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     private val rewatchSessionStore: RewatchSessionStore,
     private val rewatchSyncRuntime: dagger.Lazy<RewatchCommittedSaveSink>,
-    private val rewatchSyncPreflight: dagger.Lazy<com.nuvio.tv.data.local.AndroidRewatchSyncRuntime>,
+    private val rewatchSyncPreflight: dagger.Lazy<com.nuvio.tv.data.local.RewatchSyncFacade>,
     private val profileManager: ProfileManager,
     savedStateHandle: SavedStateHandle,
     private val directDebridResolver: DirectDebridResolver,
@@ -115,7 +115,7 @@ class PlayerViewModel @Inject constructor(
         },
         rewatchBeforePlayback = { series ->
             if (RewatchCrossDeviceGate.ENABLED) {
-                rewatchSyncPreflight.get().reconcileForeground(series)
+                rewatchSyncPreflight.get().reconcileForPresentation(series)
             }
         },
         savedStateHandle = savedStateHandle,
