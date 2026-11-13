@@ -218,6 +218,14 @@ fun HomeScreen(
     val playerReturnPending =
         playerReturnRequestedGeneration > playerReturnSettledGeneration
 
+    // A gated, replay-only Home entry/return check. The normal CW pipeline,
+    // initial skeleton rows, hero and scroll focus never wait on this call.
+    LaunchedEffect(viewModel, uiState.homeLoadSessionId, playerReturnRequestedGeneration) {
+        if (com.nuvio.tv.data.local.RewatchCrossDeviceGate.ENABLED) {
+            viewModel.requestForegroundRewatchSync()
+        }
+    }
+
     /*
      * Direct Player -> Home returns stay fully opaque until the exact CW
      * generation armed before Player release has survived the complete CW
