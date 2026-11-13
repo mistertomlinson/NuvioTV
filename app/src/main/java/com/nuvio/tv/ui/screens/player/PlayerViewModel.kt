@@ -113,6 +113,11 @@ class PlayerViewModel @Inject constructor(
         } else {
             DisabledRewatchCommittedSaveSink
         },
+        rewatchBeforePlayback = { series ->
+            if (RewatchCrossDeviceGate.ENABLED) {
+                rewatchSyncPreflight.get().reconcileForeground(series)
+            }
+        },
         savedStateHandle = savedStateHandle,
         scope = viewModelScope,
         directDebridResolver = directDebridResolver,
