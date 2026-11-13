@@ -28,6 +28,33 @@ internal data class RewatchLocalSyncLedger(
 
 private fun key(series: String) = series.trim().lowercase()
 
+/**
+ * R8 may erase the generic field signature for cleanBySeries in a sideload
+ * APK. Gson then returns Map<String, LinkedTreeMap> despite the Kotlin type.
+ * Recover only recognized entries through a concrete Gson class token, then
+ * subject every entry to the existing strict proof validation. Never clear
+ * corrupt or unknown persisted state.
+ */
+internal fun restoreRewatchCleanProofMap(
+    stored: Map<*, *>,
+    gson: Gson = Gson()
+): Map<String, RewatchLocalCleanProof> {
+    val restored = LinkedHashMap<String, RewatchLocalCleanProof>()
+    for ((storedKey, value) in stored) {
+        val series = storedKey as? String
+            ?: throw IllegalArgumentException("Invalid local replay clean proof key")
+        val proof = when (value) {
+            is RewatchLocalCleanProof -> value
+            is Map<*, *> -> gson.fromJson(
+                gson.toJsonTree(value), RewatchLocalCleanProof::class.java
+            )
+            else -> null
+        } ?: throw IllegalArgumentException("Invalid local replay clean proof value")
+        restored[series] = proof
+    }
+    return restored
+}
+
 internal fun sameRewatchCursor(a: RewatchSession, b: RewatchSession): Boolean =
     a.ownerKey == b.ownerKey &&
         key(a.canonicalSeriesId) == key(b.canonicalSeriesId) &&
@@ -55,20 +82,9 @@ internal fun decodeRewatchLocalSyncLedger(
     val rawProofs: Map<*, *> = requireNotNull(decoded.cleanBySeries) {
         "Local replay sync ledger has no clean proof map"
     }
-    val proofs = LinkedHashMap<String, RewatchLocalCleanProof>()
-    for ((seriesKey, rawProof) in rawProofs) {
-        val series = seriesKey as? String
-            ?: throw IllegalArgumentException("Invalid local replay clean proof key")
-        val proof = when (rawProof) {
-            is RewatchLocalCleanProof -> rawProof
-            is Map<*, *> -> gson.fromJson(
-                gson.toJsonTree(rawProof), RewatchLocalCleanProof::class.java
-            )
-            else -> null
-        } ?: throw IllegalArgumentException("Invalid local replay clean proof value")
-        proofs[series] = proof
-    }
-    val ledger = decoded.copy(cleanBySeries = proofs)
+    val ledger = decoded.copy(
+        cleanBySeries = restoreRewatchCleanProofMap(rawProofs, gson)
+    )
     require(ledger.schemaVersion == 1 &&
         ledger.generation >= 0L && ledger.generation < Long.MAX_VALUE
     ) { "Invalid local replay sync ledger" }
