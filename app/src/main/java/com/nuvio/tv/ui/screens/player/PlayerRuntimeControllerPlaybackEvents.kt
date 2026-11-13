@@ -929,6 +929,15 @@ fun PlayerRuntimeController.onEvent(event: PlayerEvent) {
             selectEpisodesSeason(event.season)
         }
         is PlayerEvent.OnEpisodeSelected -> {
+            // This event is fired only by the episode-list UI, never by
+            // automatic next-up selection. Keep it for the next stream switch.
+            val season = event.video.season
+            val number = event.video.episode
+            manualRewatchSelectedEpisode = if (
+                season != null && season > 0 && number != null && number > 0
+            ) com.nuvio.tv.domain.rewatch.RewatchEpisode(season, number)
+                else null
+            manualRewatchSelectionAtMs = System.currentTimeMillis()
             loadStreamsForEpisode(event.video)
         }
         PlayerEvent.OnReloadEpisodeStreams -> {
