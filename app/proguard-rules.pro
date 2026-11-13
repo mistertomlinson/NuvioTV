@@ -19,6 +19,15 @@
 -keep class com.google.gson.reflect.TypeToken { *; }
 -keep class * extends com.google.gson.reflect.TypeToken
 
+# Cross-device rewatch persists these Gson models across APK upgrades.
+# Never obfuscate, merge, remove, or rename their JSON fields / constructors.
+# Unlike unit-test JVM builds, sideload uses R8 shrink + class merging.
+# Preserving the complete class also retains nested Map<String, Proof> metadata.
+-keep class com.nuvio.tv.data.local.RewatchLocalSyncLedger { *; }
+-keep class com.nuvio.tv.data.local.RewatchLocalCleanProof { *; }
+-keep class com.nuvio.tv.domain.rewatch.RewatchSession { *; }
+-keep class com.nuvio.tv.domain.rewatch.RewatchEpisode { *; }
+
 # These models are persisted reflectively by the Home/TMDB Gson caches.
 # Keep their fields and nested generic element types stable across minified builds.
 -keep class com.nuvio.tv.core.tmdb.TmdbEnrichment { *; }
