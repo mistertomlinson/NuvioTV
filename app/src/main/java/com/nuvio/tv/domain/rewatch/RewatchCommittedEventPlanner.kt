@@ -123,6 +123,21 @@ internal fun planCommittedRewatchEvent(
         } else {
             if (before == after) return null
             when {
+                // A deliberate episode-list jump resets playback to zero and
+                // preserves the authenticated replay session/revision. Autoplay
+                // completion still uses COMPLETE_EPISODE with NEXT_UP.
+                before.phase in setOf(
+                    RewatchPhase.PLAYING,
+                    RewatchPhase.NEXT_UP,
+                    RewatchPhase.AWAITING_METADATA
+                ) &&
+                    before.episode != after.episode &&
+                    after.phase == RewatchPhase.PLAYING &&
+                    after.positionMs == 0L && after.durationMs == 0L &&
+                    after.lastCompletedEpisode == null -> {
+                    type = "REPOSITION"
+                    episode = after.episode
+                }
                 before.phase == RewatchPhase.AWAITING_METADATA &&
                     after.lastCompletedEpisode == before.lastCompletedEpisode &&
                     after.lastCompletedEpisode == before.episode &&
