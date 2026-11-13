@@ -1,5 +1,8 @@
 package com.nuvio.tv.ui.screens.detail
 
+import com.nuvio.tv.domain.rewatch.RewatchEpisode
+import com.nuvio.tv.domain.rewatch.RewatchManualDetailsSelection
+
 import android.os.Build
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
@@ -428,6 +431,16 @@ fun MetaDetailsScreen(
                     selectedComment = uiState.selectedComment,
                     onSeasonSelected = { viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(it)) },
                     onEpisodeClick = { video ->
+                        val season = video.season
+                        val episode = video.episode
+                        if (season != null && season > 0 &&
+                            episode != null && episode > 0) {
+                            RewatchManualDetailsSelection.arm(
+                                viewModel.activeRewatchProfileId, meta.id,
+                                RewatchEpisode(season, episode),
+                                System.currentTimeMillis()
+                            )
+                        }
                         onPlayClick(
                             video.id,
                             meta.apiType,
@@ -445,6 +458,16 @@ fun MetaDetailsScreen(
                         )
                     },
                     onEpisodeManualPlayClick = { video ->
+                        val season = video.season
+                        val episode = video.episode
+                        if (season != null && season > 0 &&
+                            episode != null && episode > 0) {
+                            RewatchManualDetailsSelection.arm(
+                                viewModel.activeRewatchProfileId, meta.id,
+                                RewatchEpisode(season, episode),
+                                System.currentTimeMillis()
+                            )
+                        }
                         onPlayManuallyClick(
                             video.id,
                             meta.apiType,
