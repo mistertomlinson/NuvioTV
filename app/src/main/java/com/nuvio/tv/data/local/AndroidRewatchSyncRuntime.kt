@@ -62,6 +62,12 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     private val verifiedCheckpoints = mutableMapOf<String, RewatchRemoteCheckpoint>()
 
     private fun seriesKey(value: String) = value.trim().lowercase()
+    // Non-sensitive diagnostic labels. Never log account/client IDs or tokens.
+    private fun officeIdShape(value: String): String = when (seriesKey(value)) {
+        "tt0386676" -> "BARE_IMDB_OFFICE"
+        "imdb:tt0386676" -> "PREFIXED_IMDB_OFFICE"
+        else -> "OTHER"
+    }
 
     private fun currentBinding(): RewatchCommitIdentity? {
         val current = existingSimkl.snapshot() ?: return null
@@ -271,17 +277,37 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
             override fun stillCurrent(identity: RewatchCommitIdentity): Boolean =
                 currentBinding() == identity
 
-            override suspend fun remoteSeriesIds(): List<String>? =
-                transport.fetchVerifiedRemoteSeriesIds()
+            override suspend fun remoteSeriesIds(): List<String>? {
+                val remote = transport.fetchVerifiedRemoteSeriesIds()
+                Log.i("RewatchVpsTest", "remote_roster=" + (remote?.size ?: -1) +
+                    " remote_office_id=" + (remote?.firstOrNull {
+                        officeIdShape(it) != "OTHER"
+                    }?.let(::officeIdShape) ?: "NONE"))
+                return remote
+            }
 
-            override suspend fun observeLocal(profileId: Int): RewatchObservedLocalSync =
-                local.observeLocalReplaySync(profileId)
-
-            override suspend fun applyRemote(seriesId: String): Boolean =
-                when (reconciler.pullSeries(seriesId)) {
-                    RewatchPullResult.CLEAN_VERIFIED, RewatchPullResult.REMOTE_APPLIED -> true
-                    else -> false
+            override suspend fun observeLocal(profileId: Int): RewatchObservedLocalSync {
+                val observed = local.observeLocalReplaySync(profileId)
+                val office = observed.sessions.filter {
+                    officeIdShape(it.canonicalSeriesId) != "OTHER"
                 }
+                Log.i("RewatchVpsTest", "local_sessions=" + observed.sessions.size +
+                    " local_office_count=" + office.size +
+                    " local_office=" + office.joinToString(";") {
+                        officeIdShape(it.canonicalSeriesId) + ":S" +
+                            it.episode.season + "E" + it.episode.episode +
+                            ":" + it.phase.name
+                    })
+                return observed
+            }
+
+            override suspend fun applyRemote(seriesId: String): Boolean {
+                val result = reconciler.pullSeries(seriesId)
+                Log.i("RewatchVpsTest", "pull_series=" + officeIdShape(seriesId) +
+                    " pull_result=" + result.name)
+                return result == RewatchPullResult.CLEAN_VERIFIED ||
+                    result == RewatchPullResult.REMOTE_APPLIED
+            }
 
             override suspend fun checkpoint(seriesId: String): RewatchRemoteLookup {
                 val bound = currentBinding() ?: return RewatchRemoteLookup.Invalid
