@@ -93,6 +93,20 @@ class RewatchSessionStoreTest {
     }
 
     @Test
+    fun `legacy minified sideload session remains readable`() {
+        // Observed R8 mappings from installed sideload: RewatchSession
+        // a..i and RewatchEpisode a,b. New Gson writes the stable names.
+        val legacy = """[{"a":"local-profile:2","b":"tt0386676","c":"old-office","d":{"a":5,"b":16},"e":100000,"f":1200000,"g":null,"h":"PLAYING","i":1000}]"""
+        val restored = decodeRewatchSessions(legacy).single()
+        assertEquals("local-profile:2", restored.ownerKey)
+        assertEquals("tt0386676", restored.canonicalSeriesId)
+        assertEquals(RewatchEpisode(5, 16), restored.episode)
+        assertEquals(100_000L, restored.positionMs)
+        assertEquals(RewatchPhase.PLAYING, restored.phase)
+        assertTrue(Gson().toJson(restored).contains("\"canonicalSeriesId\""))
+    }
+
+    @Test
     fun `invalid or duplicate payload fails closed`() {
         assertThrows(IllegalArgumentException::class.java) {
             decodeRewatchSessions("null")
