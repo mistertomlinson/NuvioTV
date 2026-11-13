@@ -75,6 +75,7 @@ class PlayerViewModel @Inject constructor(
     private val watchedItemsPreferences: com.nuvio.tv.data.local.WatchedItemsPreferences,
     private val rewatchSessionStore: RewatchSessionStore,
     private val rewatchSyncRuntime: dagger.Lazy<RewatchCommittedSaveSink>,
+    private val rewatchSyncPreflight: dagger.Lazy<com.nuvio.tv.data.local.AndroidRewatchSyncRuntime>,
     private val profileManager: ProfileManager,
     savedStateHandle: SavedStateHandle,
     private val directDebridResolver: DirectDebridResolver,
