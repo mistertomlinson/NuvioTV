@@ -27,6 +27,7 @@ private class FakeSyncAccess : RewatchForegroundAccess {
     var applied = 0
     var uploaded = 0
     var pending = false
+    var drainResult = RewatchOutboxDrainResult.DRAINED
     var remoteEmpty = true
     var changedDuringRead = false
     var reads = 0
@@ -67,7 +68,7 @@ private class FakeSyncAccess : RewatchForegroundAccess {
     }
     override suspend fun upload(): RewatchOutboxDrainResult {
         uploaded++
-        return RewatchOutboxDrainResult.DRAINED
+        return drainResult
     }
 }
 
@@ -88,7 +89,7 @@ fun importsDurableLocalNextUpOnlyAfterAuthenticatedEmptyCheckpoint() = runBlocki
     assertEquals(RewatchForegroundResult.COMPLETED,
         RewatchForegroundSynchronizer(fake).reconcile())
     assertEquals(1, fake.imported)
-    assertEquals(1, fake.uploaded)
+    assertEquals(2, fake.uploaded)
     assertEquals(3, fake.reads)
 }
 
@@ -101,7 +102,7 @@ fun newlyPublishedRemoteSessionNeverGetsOverwrittenByOfflineImport() = runBlocki
     assertEquals(RewatchForegroundResult.LOCAL_CONFLICT,
         RewatchForegroundSynchronizer(fake).reconcile())
     assertEquals(0, fake.imported)
-    assertEquals(0, fake.uploaded)
+    assertEquals(1, fake.uploaded)
 }
 
 @Test
@@ -125,7 +126,7 @@ fun accountSwitchAndFailedRosterNeverImportOrUpload() = runBlocking {
     assertEquals(RewatchForegroundResult.PROFILE_CHANGED,
         RewatchForegroundSynchronizer(switched).reconcile())
     assertEquals(0, switched.imported)
-    assertEquals(0, switched.uploaded)
+    assertEquals(1, switched.uploaded)
 
     val unavailable = FakeSyncAccess().apply {
         local = listOf(office)
@@ -134,7 +135,23 @@ fun accountSwitchAndFailedRosterNeverImportOrUpload() = runBlocking {
     assertEquals(RewatchForegroundResult.UNAVAILABLE,
         RewatchForegroundSynchronizer(unavailable).reconcile())
     assertEquals(0, unavailable.imported)
-    assertEquals(0, unavailable.uploaded)
+    assertEquals(1, unavailable.uploaded)
+}
+
+@Test
+fun offlineConflictStopsBeforeRemotePullAndPreservesQueuedState() = runBlocking {
+    val fake = FakeSyncAccess().apply {
+        local = listOf(office)
+        visible = listOf(office.canonicalSeriesId)
+        pending = true
+        drainResult = RewatchOutboxDrainResult.CONFLICT
+    }
+    assertEquals(RewatchForegroundResult.LOCAL_CONFLICT,
+        RewatchForegroundSynchronizer(fake).reconcile())
+    assertEquals(listOf(office), fake.local)
+    assertEquals(0, fake.applied)
+    assertEquals(0, fake.imported)
+    assertEquals(1, fake.uploaded)
 }
 
 @Test
