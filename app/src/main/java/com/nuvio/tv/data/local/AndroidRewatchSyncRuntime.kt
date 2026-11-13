@@ -282,7 +282,7 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
                 Log.i("RewatchVpsTest", "remote_roster=" + (remote?.size ?: -1) +
                     " remote_office_id=" + (remote?.firstOrNull {
                         officeIdShape(it) != "OTHER"
-                    }?.let(::officeIdShape) ?: "NONE"))
+                    }?.let { officeIdShape(it) } ?: "NONE"))
                 return remote
             }
 
