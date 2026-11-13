@@ -1,7 +1,6 @@
 package com.nuvio.tv.data.local
 
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import com.nuvio.tv.domain.rewatch.RewatchRemoteCheckpoint
 import com.nuvio.tv.domain.rewatch.RewatchRemoteLookup
 import com.nuvio.tv.domain.rewatch.RewatchSession
@@ -45,9 +44,31 @@ internal fun decodeRewatchLocalSyncLedger(
     gson: Gson = Gson()
 ): RewatchLocalSyncLedger {
     require(profileId > 0)
-    val ledger = requireNotNull(gson.fromJson<RewatchLocalSyncLedger>(
-        raw, object : TypeToken<RewatchLocalSyncLedger>() {}.type
-    )) { "Local replay sync ledger is null" }
+    // Deserialize the non-generic root by its concrete class. R8 may erase
+    // the generic signature on the nested cleanBySeries map; Gson then emits
+    // LinkedTreeMap instead of RewatchLocalCleanProof for its values. Convert
+    // each entry using a concrete class token BEFORE accessing typed fields.
+    // Keep existing serialized field names intact for installed user data.
+    val decoded = requireNotNull(
+        gson.fromJson(raw, RewatchLocalSyncLedger::class.java)
+    ) { "Local replay sync ledger is null" }
+    val rawProofs: Map<*, *> = requireNotNull(decoded.cleanBySeries) {
+        "Local replay sync ledger has no clean proof map"
+    }
+    val proofs = LinkedHashMap<String, RewatchLocalCleanProof>()
+    for ((seriesKey, rawProof) in rawProofs) {
+        val series = seriesKey as? String
+            ?: throw IllegalArgumentException("Invalid local replay clean proof key")
+        val proof = when (rawProof) {
+            is RewatchLocalCleanProof -> rawProof
+            is Map<*, *> -> gson.fromJson(
+                gson.toJsonTree(rawProof), RewatchLocalCleanProof::class.java
+            )
+            else -> null
+        } ?: throw IllegalArgumentException("Invalid local replay clean proof value")
+        proofs[series] = proof
+    }
+    val ledger = decoded.copy(cleanBySeries = proofs)
     require(ledger.schemaVersion == 1 &&
         ledger.generation >= 0L && ledger.generation < Long.MAX_VALUE
     ) { "Invalid local replay sync ledger" }
