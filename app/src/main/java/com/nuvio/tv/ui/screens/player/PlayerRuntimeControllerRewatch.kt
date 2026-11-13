@@ -33,6 +33,18 @@ internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
     if (!profileManager.activeProfileReady.value) return
 
     val selectedProfile = profileManager.activeProfileId.value
+    // The optional VPS lookup is bounded and fail-closed. If remote state is
+    // unavailable, the original local replay and scrobble classification win.
+    try {
+        kotlinx.coroutines.withTimeoutOrNull(750L) {
+            rewatchBeforePlayback(content)
+        }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        // Never block normal player startup on an optional sync failure.
+    }
+    if (profileManager.activeProfileId.value != selectedProfile) return
     val ownerKey = "local-profile:$selectedProfile"
     val currentEpisodeKey = RewatchEpisode(season, episode)
     val sessions = try {
