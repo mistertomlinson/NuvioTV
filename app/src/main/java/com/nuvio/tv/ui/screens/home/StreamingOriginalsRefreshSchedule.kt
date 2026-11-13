@@ -80,3 +80,9 @@ internal fun shouldApplyStreamingOriginalsStage(
     homePresentationVisible: Boolean,
     stageReady: Boolean
 ): Boolean = !homePresentationVisible && stageReady
+
+/** A TV dream may leave the composable alive while stealing window focus. */
+internal fun homePresentationActive(
+    windowFocused: Boolean,
+    lifecycleResumed: Boolean
+): Boolean = windowFocused && lifecycleResumed
