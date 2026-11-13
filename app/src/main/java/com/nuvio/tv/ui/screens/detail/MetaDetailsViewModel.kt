@@ -40,6 +40,7 @@ import com.nuvio.tv.data.local.ReleaseReminderStatus
 import com.nuvio.tv.data.local.releaseReminderKey
 import com.nuvio.tv.data.repository.TraktCommentsService
 import com.nuvio.tv.data.repository.TrackingRatingCoordinator
+import com.nuvio.tv.core.profile.ProfileManager
 import com.nuvio.tv.domain.model.MetaBehaviorHints
 import com.nuvio.tv.domain.model.TraktCommentReview
 import com.nuvio.tv.data.trailer.TrailerService
@@ -148,6 +149,7 @@ internal fun resolveFreshRewatchSuccessor(
 @HiltViewModel
 class MetaDetailsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val profileManager: ProfileManager,
     private val metaRepository: MetaRepository,
     private val tmdbSettingsDataStore: TmdbSettingsDataStore,
     private val tmdbService: TmdbService,
@@ -174,6 +176,10 @@ class MetaDetailsViewModel @Inject constructor(
     private val itemId: String = editionRoute?.canonicalId ?: requestedItemId
     private val itemType: String = savedStateHandle["itemType"] ?: ""
     private val preferredAddonBaseUrl: String? = savedStateHandle["addonBaseUrl"]
+
+    /** Used only to bind an explicit details-episode click to its profile. */
+    internal val activeRewatchProfileId: Int
+        get() = profileManager.activeProfileId.value
 
     private val _uiState = MutableStateFlow(MetaDetailsUiState())
     val uiState: StateFlow<MetaDetailsUiState> = _uiState.asStateFlow()
