@@ -82,6 +82,31 @@ class RewatchLocalSyncLedgerTest {
         ))
     }
 
+    @Test fun restoresErasedR8GsonGenericProofMapsWithoutDroppingCursor() {
+        val gson = Gson()
+        val source = clean()
+        // Simulate the runtime object shape when R8 erases the generic Map
+        // signature: Gson has materialized LinkedTreeMap values, not proofs.
+        val rawErased = gson.fromJson(
+            gson.toJson(source.cleanBySeries), Map::class.java
+        ) as Map<*, *>
+        val restored = restoreRewatchCleanProofMap(rawErased, gson)
+        assertEquals(source.cleanBySeries, restored)
+        assertTrue(sameRewatchCursor(
+            original, restored.values.single().cursor
+        ))
+        assertEquals(source, decodeRewatchLocalSyncLedger(gson.toJson(source), 2))
+    }
+
+    @Test fun refusesCorruptOrUnrecognizedErasedProofValues() {
+        assertThrows(IllegalArgumentException::class.java) {
+            restoreRewatchCleanProofMap(mapOf("imdb:tt0386676" to "invalid"))
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            restoreRewatchCleanProofMap(mapOf(123 to emptyMap<String, Any>()))
+        }
+    }
+
     @Test fun localReplayCommitInvalidatesProofInSameLedgerMutation() {
         val ledger = clean()
         val changed = onLocalRewatchCommitted(ledger,
