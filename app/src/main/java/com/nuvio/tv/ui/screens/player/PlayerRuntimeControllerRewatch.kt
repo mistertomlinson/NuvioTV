@@ -60,11 +60,74 @@ internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
         session.ownerKey == ownerKey &&
             session.canonicalSeriesId.trim().equals(content, ignoreCase = true)
     }
+    // Consume the episode-list click at most once; an autoplay handoff,
+    // stale click, profile switch, or restored player cannot request a jump.
+    val clickAgeMs = System.currentTimeMillis() - manualRewatchSelectionAtMs
+    val manualReposition = manualRewatchSelectedEpisode == currentEpisodeKey &&
+        clickAgeMs in 0L..120_000L
+    manualRewatchSelectedEpisode = null
+    manualRewatchSelectionAtMs = 0L
+
     if (stored != null && stored.phase != com.nuvio.tv.domain.rewatch.RewatchPhase.FINISHED) {
         if (stored.episode == currentEpisodeKey) {
             activeRewatchProfileId = selectedProfile
             activeRewatchSession = stored
+            return
         }
+        if (!manualReposition) return
+
+        // A deliberate jump can target an earlier or later episode, but never
+        // manufacture a replay from an episode with no verified watched history.
+        val previouslyWatched = try {
+            kotlinx.coroutines.withTimeoutOrNull(900L) {
+                watchProgressRepository.isWatched(
+                    contentId = content,
+                    videoId = currentVideoId,
+                    season = season,
+                    episode = episode
+                ).first()
+            } == true
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (_: Exception) {
+            false
+        }
+        if (!previouslyWatched ||
+            profileManager.activeProfileId.value != selectedProfile) return
+
+        val now = System.currentTimeMillis()
+        if (now <= stored.updatedAtEpochMs) return
+        val moved = stored.copy(
+            episode = currentEpisodeKey,
+            positionMs = 0L,
+            durationMs = 0L,
+            lastCompletedEpisode = null,
+            phase = com.nuvio.tv.domain.rewatch.RewatchPhase.PLAYING,
+            updatedAtEpochMs = now
+        )
+        val accepted = try {
+            rewatchSessionStore.upsertForActiveProfile(
+                expectedProfileId = selectedProfile,
+                session = moved
+            )
+        } catch (error: kotlinx.coroutines.CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Log.w("PlayerRewatch", "Cannot persist explicit replay reposition", error)
+            false
+        }
+        if (accepted && profileManager.activeProfileId.value == selectedProfile) {
+            activeRewatchProfileId = selectedProfile
+            activeRewatchSession = moved
+        }
+        notifyCommittedRewatchSave(
+            sink = rewatchCommitSink,
+            accepted = accepted,
+            profileId = selectedProfile,
+            activeProfileId = { profileManager.activeProfileId.value },
+            before = stored,
+            after = moved
+        )
         return
     }
 
