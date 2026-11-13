@@ -1,0 +1,49 @@
+name: Validate manual rewatch reposition
+
+on:
+  push:
+    branches:
+      - fix/android-manual-rewatch-reposition-20261113
+    paths:
+      - 'app/src/**'
+      - '.github/workflows/rewatch-manual-reposition.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rewatch-android:
+    name: Android TV replay and safety regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK
+        run: sdkmanager --install 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Test manual jumps, ledger, server-event parity and synchronization
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:testSideloadUnitTest \
+            --tests '*RewatchCommittedEventPlannerTest' \
+            --tests '*RewatchManualDetailsSelectionTest' \
+            --tests '*AndroidRewatchReconcilerTest' \
+            --tests '*RewatchLocalSyncLedgerTest' \
+            --tests '*RewatchSessionStoreTest' \
+            --tests '*RewatchForegroundSynchronizerTest' \
+            --no-daemon --console=plain
+      - name: Summarize verification
+        run: |
+          {
+            echo "## Manual rewatch reposition"
+            echo "ANDROID_TESTS=PASSED"
+            echo "VPS=UNTOUCHED"
+            echo "INSTALLED_ANDROID_APK=UNTOUCHED"
+            echo "HEAD=$(git rev-parse --short HEAD)"
+          } >> "$GITHUB_STEP_SUMMARY"
