@@ -131,7 +131,8 @@ internal fun mergeRewatchRemoteWithLedger(
     canonicalSeriesId: String,
     remoteLookup: RewatchRemoteLookup,
     pendingOrUnpublished: Boolean,
-    appliedAtEpochMs: Long
+    appliedAtEpochMs: Long,
+    allowExplicitInitialTestAdoption: Boolean = false
 ): Pair<List<RewatchSession>, RewatchLocalSyncLedger>? {
     if (profileId <= 0 || canonicalSeriesId.isBlank() ||
         simklAccountId.isBlank() || deviceId.isBlank() ||
@@ -158,8 +159,11 @@ internal fun mergeRewatchRemoteWithLedger(
         // resurrect a replay which had a clean marker but was locally deleted.
         if (proof != null) return null
     } else {
-        if (proof == null ||
-            proof.simklAccountId != simklAccountId ||
+        if (proof == null) {
+            // Opt-in migration is authorized by the test-only DataStore guard,
+            // never from an ordinary network GET or an unbound client.
+            if (!allowExplicitInitialTestAdoption) return null
+        } else if (proof.simklAccountId != simklAccountId ||
             proof.deviceId != deviceId ||
             proof.generation != ledger.generation ||
             !sameRewatchCursor(proof.cursor, current) ||
@@ -181,4 +185,37 @@ internal fun mergeRewatchRemoteWithLedger(
         generation = generation,
         cleanBySeries = ledger.cleanBySeries + (key(canonicalSeriesId) to clean)
     )
+}
+
+/**
+ * Test-only, user-approved initial adoption. Android already has a local-only
+ * S5E16 Office cursor while the same authenticated Simkl account has S5E6 on
+ * the VPS. Never generalize this into "server always wins" sync behavior.
+ *
+ * The caller additionally checks a durable per-profile one-time marker,
+ * atomic local generation, matching authenticated identity, and empty outbox.
+ */
+internal fun isApprovedOfficeInitialTestAdoption(
+    local: RewatchSession?,
+    lookup: RewatchRemoteLookup,
+    alreadyAdopted: Boolean,
+    pending: Boolean
+): Boolean {
+    val verified = lookup as? RewatchRemoteLookup.Verified ?: return false
+    val remote = verified.remoteSession ?: return false
+    return !alreadyAdopted && !pending &&
+        verified.checkpoint is RewatchRemoteCheckpoint.Synced &&
+        local != null &&
+        local.canonicalSeriesId.trim().equals("tt0386676", ignoreCase = true) &&
+        local.canonicalSeriesId.trim().equals(
+            remote.canonicalSeriesId.trim(), ignoreCase = true
+        ) &&
+        local.sessionId != remote.sessionId &&
+        local.episode.season == 5 && local.episode.episode == 16 &&
+        remote.episode.season == 5 && remote.episode.episode == 6 &&
+        local.phase in setOf(
+            com.nuvio.tv.domain.rewatch.RewatchPhase.PLAYING,
+            com.nuvio.tv.domain.rewatch.RewatchPhase.NEXT_UP
+        ) &&
+        remote.phase == com.nuvio.tv.domain.rewatch.RewatchPhase.PLAYING
 }
