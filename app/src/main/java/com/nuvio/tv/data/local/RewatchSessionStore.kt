@@ -52,6 +52,9 @@ class RewatchSessionStore @Inject constructor(
     private val gson = Gson()
     private val key = stringPreferencesKey("sessions_v1")
     private val ledgerKey = stringPreferencesKey("rewatch_local_sync_ledger_v1")
+    // Isolated test-branch migration marker, persisted per local profile.
+    private val officeTestAdoptionKey =
+        stringPreferencesKey("rewatch_office_vps_first_adoption_test_v1")
 
     private fun store(profileId: Int) = factory.get(profileId, FEATURE)
 
@@ -136,6 +139,13 @@ class RewatchSessionStore @Inject constructor(
                         canonicalSeriesId.trim(), ignoreCase = true
                     )
                 }
+                val approvedFirstAdoption = RewatchCrossDeviceGate.ENABLED &&
+                    isApprovedOfficeInitialTestAdoption(
+                        local = local,
+                        lookup = remoteLookup,
+                        alreadyAdopted = preferences[officeTestAdoptionKey] != null,
+                        pending = pendingOrUnpublished
+                    )
                 val result = mergeRewatchRemoteWithLedger(
                     sessions = sessions,
                     ledger = ledger,
@@ -147,11 +157,18 @@ class RewatchSessionStore @Inject constructor(
                     canonicalSeriesId = canonicalSeriesId,
                     remoteLookup = remoteLookup,
                     pendingOrUnpublished = pendingOrUnpublished,
-                    appliedAtEpochMs = appliedAtEpochMs
+                    appliedAtEpochMs = appliedAtEpochMs,
+                    allowExplicitInitialTestAdoption = approvedFirstAdoption
                 ) ?: return@edit
                 if (!stillAuthenticated()) return@edit
                 preferences[key] = gson.toJson(result.first)
                 preferences[ledgerKey] = gson.toJson(result.second)
+                if (approvedFirstAdoption) {
+                    // Atomic with the new clean baseline. An offline local
+                    // write later may invalidate that proof, but never reopens
+                    // this one-time migration exception.
+                    preferences[officeTestAdoptionKey] = "completed"
+                }
                 accepted = true
             }
             true
