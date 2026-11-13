@@ -23,6 +23,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import android.util.Log
 import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -186,9 +187,12 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     private val reconciler by lazy {
         AndroidRewatchReconciler(
             ensureIdentity = {
-                if (transport.ensureConnected() != ReplayBootstrapOutcome.CONNECTED) {
+                val outcome = transport.ensureConnected()
+                if (outcome != ReplayBootstrapOutcome.CONNECTED) {
+                    Log.i("RewatchVpsTest", "bootstrap=" + outcome.name)
                     null
                 } else {
+                    Log.i("RewatchVpsTest", "bootstrap=CONNECTED")
                     val auth = existingSimkl.snapshot()
                     val identity = transport.currentVerifiedIdentity()
                     if (auth != null && identity != null) {
@@ -325,8 +329,11 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     /** Called only from a foreground Home or pre-play hook in gated builds. */
     suspend fun reconcileForeground(onlySeries: String? = null): RewatchForegroundResult {
         if (!RewatchCrossDeviceGate.ENABLED) return RewatchForegroundResult.UNAVAILABLE
-        return foregroundMutex.withLock {
+        val result = foregroundMutex.withLock {
             foregroundSynchronizer.reconcile(onlySeries)
         }
+        // Test-branch diagnostics: status only, never tokens, accounts or content.
+        Log.i("RewatchVpsTest", "foreground=" + result.name)
+        return result
     }
 }
