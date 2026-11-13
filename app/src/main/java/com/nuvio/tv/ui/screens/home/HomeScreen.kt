@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.view.KeyEvent as AndroidKeyEvent
+import android.view.ViewTreeObserver
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
@@ -40,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -50,6 +52,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -168,22 +173,61 @@ fun HomeScreen(
             )
         }
 
+    val homeLifecycleOwner = LocalLifecycleOwner.current
+    val homeRootView = LocalView.current
+
     androidx.compose.runtime.DisposableEffect(
-        viewModel
+        viewModel,
+        homeLifecycleOwner,
+        homeRootView
     ) {
-        viewModel.setHomePresentationVisible(
-            true
-        )
+        viewModel.setHomePresentationVisible(true)
         viewModel.setReleaseReminderHomeVisible(true)
 
-        onDispose {
-            /*
-             * Home is no longer being navigated. Pending Seasonal Spotlight
-             * preparation may now use network/TMDB/image decode resources.
-             */
+        /*
+         * Android TV dreams may either pause the Activity OR merely take
+         * window focus, without disposing the Home composable. Both signals
+         * must release the offscreen staging gate. A normal focused/resumed
+         * Home session never performs TMDB enrichment or row swaps.
+         */
+        fun refreshPresentationVisibility() {
             viewModel.setHomePresentationVisible(
-                false
+                homePresentationActive(
+                    windowFocused = homeRootView.hasWindowFocus(),
+                    lifecycleResumed =
+                        homeLifecycleOwner.lifecycle.currentState.isAtLeast(
+                            Lifecycle.State.RESUMED
+                        )
+                )
             )
+        }
+
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP ->
+                    viewModel.setHomePresentationVisible(false)
+                Lifecycle.Event.ON_RESUME ->
+                    refreshPresentationVisibility()
+                else -> Unit
+            }
+        }
+        val windowFocusObserver =
+            ViewTreeObserver.OnWindowFocusChangeListener {
+                refreshPresentationVisibility()
+            }
+        val treeObserver = homeRootView.viewTreeObserver
+        treeObserver.addOnWindowFocusChangeListener(windowFocusObserver)
+        homeLifecycleOwner.lifecycle.addObserver(observer)
+
+        onDispose {
+            homeLifecycleOwner.lifecycle.removeObserver(observer)
+            if (treeObserver.isAlive) {
+                treeObserver.removeOnWindowFocusChangeListener(
+                    windowFocusObserver
+                )
+            }
+            viewModel.setHomePresentationVisible(false)
             viewModel.setReleaseReminderHomeVisible(false)
         }
     }

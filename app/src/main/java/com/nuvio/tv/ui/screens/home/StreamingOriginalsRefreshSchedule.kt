@@ -59,3 +59,30 @@ internal fun dueStreamingOriginalsTimedChecks(
             lastTriggeredDates[check] != today
     }
 }
+
+/**
+ * Two independent phases: a low-cost HTTP probe may run while Home owns focus,
+ * but TMDB/image enrichment and the atomic row swap require an offscreen
+ * window. Android TV dreams do not reliably dispose HomeScreen composition.
+ */
+internal fun shouldStartStreamingOriginalsProbe(
+    refreshDue: Boolean,
+    stageReady: Boolean,
+    stageRunning: Boolean,
+    seasonalBusy: Boolean
+): Boolean = refreshDue && !stageReady && !stageRunning && !seasonalBusy
+
+internal fun shouldEnrichStreamingOriginalsStage(
+    homePresentationVisible: Boolean
+): Boolean = !homePresentationVisible
+
+internal fun shouldApplyStreamingOriginalsStage(
+    homePresentationVisible: Boolean,
+    stageReady: Boolean
+): Boolean = !homePresentationVisible && stageReady
+
+/** A TV dream may leave the composable alive while stealing window focus. */
+internal fun homePresentationActive(
+    windowFocused: Boolean,
+    lifecycleResumed: Boolean
+): Boolean = windowFocused && lifecycleResumed

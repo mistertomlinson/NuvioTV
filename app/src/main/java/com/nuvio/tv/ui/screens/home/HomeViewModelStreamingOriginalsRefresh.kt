@@ -19,6 +19,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 
@@ -35,7 +36,7 @@ private data class StreamingOriginalsRefreshState(
     var tickerJob: Job? = null,
     var stageJob: Job? = null,
     @Volatile var refreshGeneration: Long = 0,
-    var stageReady: Boolean = false,
+    @Volatile var stageReady: Boolean = false,
     var stagedRows: Map<String, CatalogRow> = emptyMap(),
     var stagedAddons: List<Addon>? = null,
     var stagedLocalDate: String? = null
@@ -103,9 +104,8 @@ private fun HomeViewModel.markStreamingOriginalsRefreshDue(
     }
 
     Log.d(HomeViewModel.TAG, "Streaming Originals refresh due: $reason")
-    if (!homePresentationVisible) {
-        startPendingStreamingOriginalsStageIfNeeded()
-    }
+    // Run a lightweight HTTP probe even if Home stays composed through a dream.
+    startPendingStreamingOriginalsStageIfNeeded()
 }
 
 private fun HomeViewModel.discardStaleStreamingOriginalsStage(
@@ -196,33 +196,32 @@ internal fun HomeViewModel.streamingOriginalsStageBusyOrReady(): Boolean {
     return state.stageReady || state.stageJob?.isActive == true
 }
 
-internal fun HomeViewModel.cancelStreamingOriginalsStageForVisibleHome() {
-    val state = streamingOriginalsRefreshState()
-    if (state.stageReady) return
+internal fun HomeViewModel.checkStreamingOriginalsRefreshOnResume() {
+    // Android may suspend the ticker while the display/device sleeps.
+    evaluateStreamingOriginalsRefreshBoundary()
+    startPendingStreamingOriginalsStageIfNeeded()
+}
 
-    state.stageJob?.cancel()
-    state.stageJob = null
+internal fun HomeViewModel.applyStreamingOriginalsIfQuiet() {
+    val state = streamingOriginalsRefreshState()
+    if (!shouldApplyStreamingOriginalsStage(homePresentationVisible, state.stageReady)) return
+    viewModelScope.launch {
+        if (shouldApplyStreamingOriginalsStage(homePresentationVisible, state.stageReady)) {
+            applyStagedStreamingOriginalsIfReady()
+        }
+    }
 }
 
 internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
-    if (homePresentationVisible) return
-    if (!isStreamingOriginalsRefreshDue()) return
-
     val state = streamingOriginalsRefreshState()
-    if (
-        state.stageReady ||
-        state.stageJob?.isActive == true
-    ) {
-        return
-    }
-
-    if (
-        pendingSeasonalSpotlightAddons != null ||
-        seasonalSpotlightStageJob?.isActive == true ||
-        seasonalSpotlightStageReadyState.value
-    ) {
-        return
-    }
+    if (!shouldStartStreamingOriginalsProbe(
+            refreshDue = isStreamingOriginalsRefreshDue(),
+            stageReady = state.stageReady,
+            stageRunning = state.stageJob?.isActive == true,
+            seasonalBusy = pendingSeasonalSpotlightAddons != null ||
+                seasonalSpotlightStageJob?.isActive == true ||
+                seasonalSpotlightStageReadyState.value
+        )) return
 
     val currentAddon =
         addonsCache.firstOrNull { addon ->
@@ -238,6 +237,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
 
     state.stageJob =
         viewModelScope.launch(Dispatchers.IO) {
+            Log.d(HomeViewModel.TAG, "Streaming Originals HTTP probe started; Home visible=$homePresentationVisible")
             val refreshedAddon =
                 when (
                     val result = addonRepository.fetchAddon(
@@ -256,8 +256,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
             if (
                 refreshedAddon == null ||
                 state.refreshGeneration != stageGeneration ||
-                profileManager.activeProfileId.value != profileId ||
-                homePresentationVisible
+                profileManager.activeProfileId.value != profileId
             ) {
                 return@launch
             }
@@ -272,7 +271,8 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 STREAMING_ORIGINALS_REFRESH_ADDON_ID
             )
 
-            val semaphore = Semaphore(4)
+            // Cap concurrent network requests while Home accepts DPAD input.
+            val semaphore = Semaphore(if (homePresentationVisible) 2 else 4)
             val preparedRows =
                 coroutineScope {
                     refreshedAddon.catalogs.map { catalog ->
@@ -320,7 +320,6 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
             if (
                 state.refreshGeneration != stageGeneration ||
                 profileManager.activeProfileId.value != profileId ||
-                homePresentationVisible ||
                 preparedRows.size != refreshedAddon.catalogs.size ||
                 preparedRows.any { it == null }
             ) {
@@ -378,6 +377,22 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 return@launch
             }
 
+            /*
+             * The HTTP probe runs regardless of Home visibility, but heavy
+             * TMDB enrichment waits for Home to be offscreen. A screensaver,
+             * navigation or background transition can release this gate.
+             */
+            if (homePresentationVisible) {
+                Log.d(HomeViewModel.TAG, "Streaming Originals raw probe ready; waiting for offscreen enrichment")
+            }
+            while (!shouldEnrichStreamingOriginalsStage(homePresentationVisible)) {
+                if (state.refreshGeneration != stageGeneration ||
+                    profileManager.activeProfileId.value != profileId
+                ) return@launch
+                delay(500L)
+            }
+
+            Log.d(HomeViewModel.TAG, "Streaming Originals offscreen enrichment starting")
             val tmdbSettings = currentTmdbSettings
             val fullyPrepared =
                 rawPreparedRows.map { row ->
@@ -421,8 +436,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
 
             if (
                 state.refreshGeneration != stageGeneration ||
-                profileManager.activeProfileId.value != profileId ||
-                homePresentationVisible
+                profileManager.activeProfileId.value != profileId
             ) {
                 return@launch
             }
@@ -479,6 +493,15 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 HomeViewModel.TAG,
                 "Streaming Originals replacement staged: ${staged.size} rows"
             )
+
+            withContext(Dispatchers.Main.immediate) {
+                if (shouldApplyStreamingOriginalsStage(homePresentationVisible, state.stageReady) &&
+                    state.refreshGeneration == stageGeneration &&
+                    profileManager.activeProfileId.value == profileId
+                ) {
+                    applyStagedStreamingOriginalsIfReady()
+                }
+            }
         }
 }
 
