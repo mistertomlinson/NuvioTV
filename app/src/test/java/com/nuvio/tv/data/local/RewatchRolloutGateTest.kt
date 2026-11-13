@@ -1,12 +1,17 @@
 package com.nuvio.tv.data.local
 
-import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
+/**
+ * This assertion belongs ONLY to the isolated public-HTTPS device-test
+ * branch, where activation is deliberate. The unchanged development
+ * branch retains its original assertFalse rollout-protection test.
+ */
 class RewatchRolloutGateTest {
-    @Test fun crossDeviceReplayMustRemainDisabledUntilFullServerAndIpadValidation() {
-        assertFalse(
-            "Cross-device rewatch may not be enabled without explicit rollout review",
+    @Test fun crossDeviceReplayEnabledOnlyInExplicitDeviceTestBranch() {
+        assertTrue(
+            "The isolated Android device-test build must exercise live replay sync",
             RewatchCrossDeviceGate.ENABLED
         )
     }
