@@ -237,6 +237,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
 
     state.stageJob =
         viewModelScope.launch(Dispatchers.IO) {
+            Log.d(HomeViewModel.TAG, "Streaming Originals HTTP probe started; Home visible=$homePresentationVisible")
             val refreshedAddon =
                 when (
                     val result = addonRepository.fetchAddon(
@@ -381,6 +382,9 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
              * TMDB enrichment waits for Home to be offscreen. A screensaver,
              * navigation or background transition can release this gate.
              */
+            if (homePresentationVisible) {
+                Log.d(HomeViewModel.TAG, "Streaming Originals raw probe ready; waiting for offscreen enrichment")
+            }
             while (!shouldEnrichStreamingOriginalsStage(homePresentationVisible)) {
                 if (state.refreshGeneration != stageGeneration ||
                     profileManager.activeProfileId.value != profileId
@@ -388,6 +392,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
                 delay(500L)
             }
 
+            Log.d(HomeViewModel.TAG, "Streaming Originals offscreen enrichment starting")
             val tmdbSettings = currentTmdbSettings
             val fullyPrepared =
                 rawPreparedRows.map { row ->
