@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.di
 
 import com.nuvio.tv.data.local.AndroidRewatchSyncRuntime
+import com.nuvio.tv.data.local.RewatchSyncFacade
 import com.nuvio.tv.domain.rewatch.RewatchCommittedSaveSink
 import dagger.Module
 import dagger.Provides
@@ -21,4 +22,10 @@ internal object RewatchSyncModule {
     fun provideRewatchCommittedSaveSink(
         runtime: AndroidRewatchSyncRuntime
     ): RewatchCommittedSaveSink = runtime.committedSaveSink
+
+    @Provides
+    @Singleton
+    fun provideRewatchSyncFacade(
+        runtime: AndroidRewatchSyncRuntime
+    ): RewatchSyncFacade = runtime
 }
