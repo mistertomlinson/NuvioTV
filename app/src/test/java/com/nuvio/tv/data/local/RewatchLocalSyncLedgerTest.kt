@@ -82,6 +82,33 @@ class RewatchLocalSyncLedgerTest {
         ))
     }
 
+    @Test fun legacyMinifiedLedgerFieldsRecoverGenerationWithoutReset() {
+        val raw = """{"obfuscatedVersion":1,"obfuscatedGeneration":37,"obfuscatedProofs":{}}"""
+        val restored = decodeRewatchLocalSyncLedger(raw, 2)
+        assertEquals(1, restored.schemaVersion)
+        assertEquals(37L, restored.generation)
+        assertTrue(restored.cleanBySeries.isEmpty())
+        assertTrue(Gson().toJson(restored).contains("\"cleanBySeries\""))
+    }
+
+    @Test fun refusesAmbiguousOrUnexpectedLegacyLedgerShape() {
+        assertThrows(IllegalArgumentException::class.java) {
+            decodeRewatchLocalSyncLedger(
+                """{"obfuscatedVersion":0,"obfuscatedGeneration":37,"obfuscatedProofs":{}}""", 2
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            decodeRewatchLocalSyncLedger(
+                """{"unrecognized":1,"generation":37,"proofs":{},"extra":2}""", 2
+            )
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            decodeRewatchLocalSyncLedger(
+                """{"obfuscatedVersion":1,"obfuscatedGeneration":37,"obfuscatedProofs":[]}""", 2
+            )
+        }
+    }
+
     @Test fun restoresErasedR8GsonGenericProofMapsWithoutDroppingCursor() {
         val gson = Gson()
         val source = clean()
