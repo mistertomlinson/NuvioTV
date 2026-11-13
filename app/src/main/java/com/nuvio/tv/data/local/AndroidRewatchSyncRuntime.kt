@@ -33,7 +33,8 @@ import javax.inject.Singleton
  * fail-closed VPS deployment have been approved.
  */
 internal object RewatchCrossDeviceGate {
-    const val ENABLED = false
+    // Explicit public-HTTPS device-test branch; not a production rollout.
+    const val ENABLED = true
 }
 
 /**
