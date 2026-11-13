@@ -50,6 +50,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.ExperimentalTvMaterial3Api
@@ -168,22 +171,39 @@ fun HomeScreen(
             )
         }
 
+    val homeLifecycleOwner = LocalLifecycleOwner.current
+
     androidx.compose.runtime.DisposableEffect(
-        viewModel
+        viewModel,
+        homeLifecycleOwner
     ) {
-        viewModel.setHomePresentationVisible(
-            true
-        )
+        viewModel.setHomePresentationVisible(true)
         viewModel.setReleaseReminderHomeVisible(true)
 
+        /*
+         * Android TV screensavers can pause an Activity without removing
+         * HomeScreen from composition. Treat that pause as a safe offscreen
+         * window; otherwise the 11:45/12:45 stages never get an opportunity
+         * to enrich or apply until the user navigates away from Home.
+         *
+         * No Home row/focus work runs from the lifecycle event itself.
+         */
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP ->
+                    viewModel.setHomePresentationVisible(false)
+                Lifecycle.Event.ON_START,
+                Lifecycle.Event.ON_RESUME ->
+                    viewModel.setHomePresentationVisible(true)
+                else -> Unit
+            }
+        }
+        homeLifecycleOwner.lifecycle.addObserver(observer)
+
         onDispose {
-            /*
-             * Home is no longer being navigated. Pending Seasonal Spotlight
-             * preparation may now use network/TMDB/image decode resources.
-             */
-            viewModel.setHomePresentationVisible(
-                false
-            )
+            homeLifecycleOwner.lifecycle.removeObserver(observer)
+            viewModel.setHomePresentationVisible(false)
             viewModel.setReleaseReminderHomeVisible(false)
         }
     }
