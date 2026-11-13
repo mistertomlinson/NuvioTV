@@ -121,13 +121,20 @@ internal class AndroidRewatchReconciler(
             ?: return@withLock RewatchPullResult.NO_EXISTING_SIMKL_LOGIN
         fun unchanged() = currentIdentity() == identity
         if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
+        var stage = "LOCAL_OBSERVE"
         try {
             // Observe BEFORE the request so any intervening local playback
             // save changes the atomic generation and invalidates this read.
             val observed = local.observe(identity.profileId)
+            android.util.Log.i("RewatchVpsTest",
+                "pull_stage=LOCAL_OBSERVED count=" + observed.sessions.size)
             if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
+            stage = "REMOTE_FETCH"
             val lookup = fetchSeries(canonicalSeriesId)
             if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
+            android.util.Log.i("RewatchVpsTest",
+                "pull_stage=REMOTE_FETCHED verified=" +
+                    (lookup is RewatchRemoteLookup.Verified))
             val verified = lookup as? RewatchRemoteLookup.Verified
                 ?: return@withLock RewatchPullResult.NO_VERIFIED_REMOTE
             if (verified.checkpoint == RewatchRemoteCheckpoint.ConfirmedEmpty) {
@@ -137,6 +144,7 @@ internal class AndroidRewatchReconciler(
                 verified.remoteSession == null) {
                 return@withLock RewatchPullResult.NO_VERIFIED_REMOTE
             }
+            stage = "OUTBOX_CHECK"
             val pending = outbox.hasPendingForSeries(
                 identity.profileId, identity.simklAccountId,
                 identity.deviceId, canonicalSeriesId
@@ -170,6 +178,7 @@ internal class AndroidRewatchReconciler(
                 else RewatchPullResult.LOCAL_CONFLICT
             }
 
+            stage = "APPLY_REMOTE"
             val applied = local.apply(
                 identity, canonicalSeriesId, observed, verified,
                 pending = false, nowEpochMs = nowEpochMs(),
@@ -200,7 +209,12 @@ internal class AndroidRewatchReconciler(
             else RewatchPullResult.REMOTE_APPLIED_REVISION_REFRESH_PENDING
         } catch (error: CancellationException) {
             throw error
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            // Isolated test-branch diagnostics: stage and exception type only.
+            // Never log raw messages, IDs, credentials, or replay payloads.
+            android.util.Log.w("RewatchVpsTest",
+                "pull_exception_stage=" + stage +
+                    " type=" + error.javaClass.simpleName)
             // Do not reset watched history or erase a local replay when
             // the optional sync service or either DataStore is unavailable.
             RewatchPullResult.NO_VERIFIED_REMOTE
