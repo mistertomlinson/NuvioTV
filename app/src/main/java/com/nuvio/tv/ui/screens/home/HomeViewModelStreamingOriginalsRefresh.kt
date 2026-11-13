@@ -36,7 +36,7 @@ private data class StreamingOriginalsRefreshState(
     var tickerJob: Job? = null,
     var stageJob: Job? = null,
     @Volatile var refreshGeneration: Long = 0,
-    var stageReady: Boolean = false,
+    @Volatile var stageReady: Boolean = false,
     var stagedRows: Map<String, CatalogRow> = emptyMap(),
     var stagedAddons: List<Addon>? = null,
     var stagedLocalDate: String? = null
