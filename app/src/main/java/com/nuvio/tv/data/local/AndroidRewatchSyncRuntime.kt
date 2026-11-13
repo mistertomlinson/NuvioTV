@@ -50,7 +50,7 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     private val existingSimkl: RewatchExistingSimklAuthorization,
     private val storage: AndroidRewatchOutboxStorage,
     private val local: RewatchSessionStore
-) {
+) : RewatchSyncFacade {
     private val stateLock = Any()
     // The gate is OFF. These are allocated only if a reviewed future build
     // enables demand-driven replay synchronization.
@@ -133,7 +133,7 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
         return currentBinding()
     }
 
-    val committedSaveSink: RewatchCommittedSaveSink =
+    override val committedSaveSink: RewatchCommittedSaveSink =
         RewatchCommittedSaveSink { profileId, before, after ->
             if (RewatchCrossDeviceGate.ENABLED) {
                 if (after.ownerKey != "local-profile:$profileId") {
@@ -316,6 +316,11 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
 
             override suspend fun upload(): RewatchOutboxDrainResult = uploadPending()
         })
+    }
+
+    override suspend fun reconcileForPresentation(seriesId: String?) {
+        if (!RewatchCrossDeviceGate.ENABLED) return
+        reconcileForeground(seriesId)
     }
 
     /** Called only from a foreground Home or pre-play hook in gated builds. */
