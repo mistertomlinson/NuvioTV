@@ -1,10 +1,17 @@
 package com.nuvio.tv.domain.rewatch
 
+import com.google.gson.annotations.SerializedName
+
 /**
  * Independent replay cursor. This model never reads or writes tracking-provider
  * watched history. The caller owns persistence, identity resolution and sync.
  */
-data class RewatchEpisode(val season: Int, val episode: Int) {
+data class RewatchEpisode(
+    @field:SerializedName(value = "season", alternate = ["a"])
+    val season: Int,
+    @field:SerializedName(value = "episode", alternate = ["b"])
+    val episode: Int
+) {
     init {
         require(season > 0) { "Specials are not implicitly part of a series replay" }
         require(episode > 0)
@@ -19,14 +26,25 @@ enum class RewatchPhase {
 }
 
 data class RewatchSession(
+    // "a"…"i" are observed legacy R8 field names from the user's previous
+    // minified sideload. New writes ALWAYS use the stable, readable name.
+    @field:SerializedName(value = "ownerKey", alternate = ["a"])
     val ownerKey: String,
+    @field:SerializedName(value = "canonicalSeriesId", alternate = ["b"])
     val canonicalSeriesId: String,
+    @field:SerializedName(value = "sessionId", alternate = ["c"])
     val sessionId: String,
+    @field:SerializedName(value = "episode", alternate = ["d"])
     val episode: RewatchEpisode,
+    @field:SerializedName(value = "positionMs", alternate = ["e"])
     val positionMs: Long,
+    @field:SerializedName(value = "durationMs", alternate = ["f"])
     val durationMs: Long,
+    @field:SerializedName(value = "lastCompletedEpisode", alternate = ["g"])
     val lastCompletedEpisode: RewatchEpisode?,
+    @field:SerializedName(value = "phase", alternate = ["h"])
     val phase: RewatchPhase,
+    @field:SerializedName(value = "updatedAtEpochMs", alternate = ["i"])
     val updatedAtEpochMs: Long
 )
 
