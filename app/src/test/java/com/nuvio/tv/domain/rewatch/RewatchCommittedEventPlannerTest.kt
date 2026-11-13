@@ -94,6 +94,24 @@ class RewatchCommittedEventPlannerTest {
     }
 
     @Test
+    fun manualEpisodeSelectionProducesRepositionWithoutRewritingWatchedHistory() {
+        for (selected in listOf(RewatchEpisode(5, 19), RewatchEpisode(2, 1))) {
+            val moved = original.copy(
+                episode = selected, positionMs = 0L, durationMs = 0L,
+                phase = RewatchPhase.PLAYING, lastCompletedEpisode = null
+            )
+            val queued = requireNotNull(plan(original, moved,
+                RewatchRemoteCheckpoint.Synced(9, original.sessionId)))
+            val json = data(queued)
+            assertEquals("REPOSITION", json["type"]?.jsonPrimitive?.content)
+            assertEquals(selected.season.toString(),
+                json["episode"]?.jsonObject?.get("season")?.toString())
+            assertEquals(original.sessionId, queued.sessionId)
+            assertTrue("ownerKey" !in queued.payload)
+        }
+    }
+
+    @Test
     fun unknownMetadataDoesNotFalselyFinishTheSeries() {
         val awaiting = original.copy(
             phase = RewatchPhase.AWAITING_METADATA,
