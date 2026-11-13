@@ -96,7 +96,7 @@ class HomeViewModel @Inject constructor(
     internal val profileManager: ProfileManager,
     internal val cwEnrichmentCache: ContinueWatchingEnrichmentCache,
     internal val rewatchSessionStore: com.nuvio.tv.data.local.RewatchSessionStore,
-    internal val rewatchSyncRuntime: dagger.Lazy<com.nuvio.tv.data.local.AndroidRewatchSyncRuntime>,
+    internal val rewatchSyncRuntime: dagger.Lazy<com.nuvio.tv.data.local.RewatchSyncFacade>,
     internal val collectionsDataStore: com.nuvio.tv.data.local.CollectionsDataStore,
     internal val mdbListSettingsDataStore: com.nuvio.tv.data.local.MDBListSettingsDataStore,
     internal val mdbListRepository: com.nuvio.tv.data.repository.MDBListRepository,
@@ -116,7 +116,7 @@ class HomeViewModel @Inject constructor(
         if (!com.nuvio.tv.data.local.RewatchCrossDeviceGate.ENABLED) return
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
-                rewatchSyncRuntime.get().reconcileForeground()
+                rewatchSyncRuntime.get().reconcileForPresentation()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
