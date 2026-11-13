@@ -203,34 +203,25 @@ internal fun HomeViewModel.checkStreamingOriginalsRefreshOnResume() {
 }
 
 internal fun HomeViewModel.applyStreamingOriginalsIfQuiet() {
-    if (homePresentationVisible) return
     val state = streamingOriginalsRefreshState()
-    if (!state.stageReady) return
+    if (!shouldApplyStreamingOriginalsStage(homePresentationVisible, state.stageReady)) return
     viewModelScope.launch {
-        if (!homePresentationVisible) {
+        if (shouldApplyStreamingOriginalsStage(homePresentationVisible, state.stageReady)) {
             applyStagedStreamingOriginalsIfReady()
         }
     }
 }
 
 internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
-    if (!isStreamingOriginalsRefreshDue()) return
-
     val state = streamingOriginalsRefreshState()
-    if (
-        state.stageReady ||
-        state.stageJob?.isActive == true
-    ) {
-        return
-    }
-
-    if (
-        pendingSeasonalSpotlightAddons != null ||
-        seasonalSpotlightStageJob?.isActive == true ||
-        seasonalSpotlightStageReadyState.value
-    ) {
-        return
-    }
+    if (!shouldStartStreamingOriginalsProbe(
+            refreshDue = isStreamingOriginalsRefreshDue(),
+            stageReady = state.stageReady,
+            stageRunning = state.stageJob?.isActive == true,
+            seasonalBusy = pendingSeasonalSpotlightAddons != null ||
+                seasonalSpotlightStageJob?.isActive == true ||
+                seasonalSpotlightStageReadyState.value
+        )) return
 
     val currentAddon =
         addonsCache.firstOrNull { addon ->
@@ -390,7 +381,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
              * TMDB enrichment waits for Home to be offscreen. A screensaver,
              * navigation or background transition can release this gate.
              */
-            while (homePresentationVisible) {
+            while (!shouldEnrichStreamingOriginalsStage(homePresentationVisible)) {
                 if (state.refreshGeneration != stageGeneration ||
                     profileManager.activeProfileId.value != profileId
                 ) return@launch
@@ -499,7 +490,7 @@ internal fun HomeViewModel.startPendingStreamingOriginalsStageIfNeeded() {
             )
 
             withContext(Dispatchers.Main.immediate) {
-                if (!homePresentationVisible && state.stageReady &&
+                if (shouldApplyStreamingOriginalsStage(homePresentationVisible, state.stageReady) &&
                     state.refreshGeneration == stageGeneration &&
                     profileManager.activeProfileId.value == profileId
                 ) {
