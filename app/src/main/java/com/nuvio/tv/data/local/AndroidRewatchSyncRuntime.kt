@@ -28,12 +28,12 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Explicit rollout barrier. Normal Nuvio builds remain on the exact
- * pre-sync player behavior until end-to-end Android/iPad tests and
- * fail-closed VPS deployment have been approved.
+ * Isolated VPS end-to-end TEST branch only. Never merge this gate into
+ * production before verifying Android authentication, account binding,
+ * initial conflict behavior, and replay-only upload with the iPad.
  */
 internal object RewatchCrossDeviceGate {
-    const val ENABLED = false
+    const val ENABLED = true
 }
 
 /**
@@ -43,7 +43,7 @@ internal object RewatchCrossDeviceGate {
  * can be recovered from a previously account-bound offline outbox.
  *
  * This singleton has no init work, coroutine, timer, HTTP request or
- * profile observer. Everything is demand-driven behind the disabled gate.
+ * profile observer. Everything remains demand-driven behind the test-only gate.
  */
 @Singleton
 internal class AndroidRewatchSyncRuntime @Inject constructor(
@@ -52,8 +52,7 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     private val local: RewatchSessionStore
 ) : RewatchSyncFacade {
     private val stateLock = Any()
-    // The gate is OFF. These are allocated only if a reviewed future build
-    // enables demand-driven replay synchronization.
+    // Objects are allocated lazily; the test gate enables demand-driven sync.
     private val syncScope by lazy { CoroutineScope(SupervisorJob() + Dispatchers.IO) }
     private val foregroundMutex = Mutex()
     private val uploadMutex = Mutex()
