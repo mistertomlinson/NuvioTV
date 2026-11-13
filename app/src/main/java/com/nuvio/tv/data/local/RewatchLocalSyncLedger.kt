@@ -1,6 +1,9 @@
 package com.nuvio.tv.data.local
 
 import com.google.gson.Gson
+import com.google.gson.JsonObject
+import com.google.gson.JsonParser
+import com.google.gson.annotations.SerializedName
 import com.nuvio.tv.domain.rewatch.RewatchRemoteCheckpoint
 import com.nuvio.tv.domain.rewatch.RewatchRemoteLookup
 import com.nuvio.tv.domain.rewatch.RewatchSession
@@ -13,16 +16,24 @@ import com.nuvio.tv.domain.rewatch.RewatchSession
  * No access token, watched history or PIN is ever stored here.
  */
 internal data class RewatchLocalCleanProof(
+    @field:SerializedName("simklAccountId")
     val simklAccountId: String,
+    @field:SerializedName("deviceId")
     val deviceId: String,
+    @field:SerializedName("revision")
     val revision: Long,
+    @field:SerializedName("generation")
     val generation: Long,
+    @field:SerializedName("cursor")
     val cursor: RewatchSession
 )
 
 internal data class RewatchLocalSyncLedger(
+    @field:SerializedName("schemaVersion")
     val schemaVersion: Int = 1,
+    @field:SerializedName("generation")
     val generation: Long = 0L,
+    @field:SerializedName("cleanBySeries")
     val cleanBySeries: Map<String, RewatchLocalCleanProof> = emptyMap()
 )
 
@@ -55,6 +66,56 @@ internal fun restoreRewatchCleanProofMap(
     return restored
 }
 
+/**
+ * A previous sideload build may have persisted the three ledger properties
+ * using obfuscated field names. Only reconstruct that legacy shape when the
+ * raw JSON has EXACTLY two integral scalars (version and generation) and one
+ * object (clean proofs), with no other content. Anything ambiguous fails
+ * closed rather than dropping a generation or fabricating a clean baseline.
+ *
+ * This is a parsing compatibility shim, NOT a sync reset. New writes use
+ * explicit @SerializedName fields and ProGuard keep rules.
+ */
+internal fun normalizeLegacyRewatchLedgerJson(raw: String): JsonObject {
+    val json = JsonParser.parseString(raw)
+    require(json.isJsonObject) { "Invalid local replay sync ledger JSON" }
+    val root = json.asJsonObject
+    if (root.has("schemaVersion") && root.has("generation") &&
+        root.has("cleanBySeries")) return root
+
+    require(root.size() == 3) { "Unrecognized local replay ledger fields" }
+    val entries = root.entrySet().toList()
+    val objectFields = entries.filter { it.value.isJsonObject }
+    val numberFields = entries.filter { field ->
+        field.value.isJsonPrimitive && field.value.asJsonPrimitive.isNumber
+    }
+    require(objectFields.size == 1 && numberFields.size == 2) {
+        "Unrecognized local replay ledger types"
+    }
+    val integers = numberFields.map { field ->
+        val str = field.value.asString
+        require(Regex("(0|[1-9][0-9]*)").matches(str)) {
+            "Non-integral legacy ledger number"
+        }
+        str.toLongOrNull() ?: throw IllegalArgumentException(
+            "Legacy ledger number overflow"
+        )
+    }
+    val versionIndexes = integers.withIndex().filter { it.value == 1L }
+    require(versionIndexes.isNotEmpty()) { "Unknown legacy ledger version" }
+    val generation = if (versionIndexes.size == 2) {
+        1L
+    } else {
+        integers[1 - versionIndexes.single().index]
+    }
+    require(generation < Long.MAX_VALUE) { "Legacy generation overflow" }
+    return JsonObject().apply {
+        addProperty("schemaVersion", 1)
+        addProperty("generation", generation)
+        add("cleanBySeries", objectFields.single().value.deepCopy())
+    }
+}
+
 internal fun sameRewatchCursor(a: RewatchSession, b: RewatchSession): Boolean =
     a.ownerKey == b.ownerKey &&
         key(a.canonicalSeriesId) == key(b.canonicalSeriesId) &&
@@ -76,8 +137,9 @@ internal fun decodeRewatchLocalSyncLedger(
     // LinkedTreeMap instead of RewatchLocalCleanProof for its values. Convert
     // each entry using a concrete class token BEFORE accessing typed fields.
     // Keep existing serialized field names intact for installed user data.
+    val normalized = normalizeLegacyRewatchLedgerJson(raw)
     val decoded = requireNotNull(
-        gson.fromJson(raw, RewatchLocalSyncLedger::class.java)
+        gson.fromJson(normalized, RewatchLocalSyncLedger::class.java)
     ) { "Local replay sync ledger is null" }
     val rawProofs: Map<*, *> = requireNotNull(decoded.cleanBySeries) {
         "Local replay sync ledger has no clean proof map"
