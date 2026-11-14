@@ -129,7 +129,9 @@ class StreamScreenViewModel @Inject constructor(
     private val manualSelection: Boolean = savedStateHandle.get<String>("manualSelection")
         ?.toBooleanStrictOrNull()
         ?: false
-    private val streamCacheKey: String = "${contentType.lowercase()}|$videoId"
+    private val streamCacheKey: String = com.nuvio.tv.core.player.playbackStreamLinkCacheKey(
+        contentType, videoId
+    ) ?: "${contentType.lowercase()}|$videoId"
 
     private val _uiState = MutableStateFlow(
         StreamScreenUiState(
