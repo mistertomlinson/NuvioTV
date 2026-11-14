@@ -140,11 +140,14 @@ class DebridEpisodePackSafetyTest {
             PremiumizeDirectDownloadFileSelector().selectFile(premiumize(names), metadata, season, episode, context)?.displayName())
     }
 
+    private fun fileSize(index: Int, name: String): Long =
+        if (name.contains("Larger")) 200000L else 100000L - index * 1000L
+
     private fun real(names: List<String>) = names.mapIndexed { index, name ->
         RealDebridTorrentFileDto(
             id = 100 + index * 7,
             path = "Release/$name",
-            bytes = 100000L - index * 1000L
+            bytes = fileSize(index, name)
         )
     }
 
@@ -152,7 +155,7 @@ class DebridEpisodePackSafetyTest {
         TorboxTorrentFileDto(
             id = 100 + index * 7,
             name = "Release/$name",
-            size = 100000L - index * 1000L
+            size = fileSize(index, name)
         )
     }
 
@@ -160,7 +163,7 @@ class DebridEpisodePackSafetyTest {
         PremiumizeDirectDownloadFileDto(
             path = "Release/$name",
             link = "https://example.invalid/file/$index",
-            size = 100000L - index * 1000L
+            size = fileSize(index, name)
         )
     }
 
