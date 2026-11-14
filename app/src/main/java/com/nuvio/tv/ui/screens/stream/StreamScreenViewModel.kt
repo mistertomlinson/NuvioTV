@@ -9,7 +9,7 @@ import com.nuvio.tv.R
 import com.nuvio.tv.core.debrid.DebridEpisodeSelectionContext
 import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.DirectDebridResolveResult
-import com.nuvio.tv.core.debrid.classifyDebridEpisodeFileName
+import com.nuvio.tv.core.debrid.classifyDebridEpisodeFileEvidence
 import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.orderByDebridEpisodeTitleEvidence
 import com.nuvio.tv.core.debrid.DirectDebridResolver
@@ -352,7 +352,7 @@ class StreamScreenViewModel @Inject constructor(
                 )
                 if (
                     cached != null &&
-                    classifyDebridEpisodeFileName(
+                    classifyDebridEpisodeFileEvidence(
                         cached.filename,
                         ensureDebridEpisodeSelectionContext()
                     ) != DebridEpisodeTitleMatch.CONFLICT
@@ -1197,7 +1197,7 @@ class StreamScreenViewModel @Inject constructor(
         return when (val result = directDebridResolver.resolve(stream, season, episode, episodeSelectionContext)) {
             is DirectDebridResolveResult.Success -> {
                 if (
-                    classifyDebridEpisodeFileName(
+                    classifyDebridEpisodeFileEvidence(
                         result.filename,
                         episodeSelectionContext
                     ) == DebridEpisodeTitleMatch.CONFLICT
