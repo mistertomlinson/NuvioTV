@@ -45,7 +45,10 @@ class RealDebridFileSelector @Inject constructor() {
         // Stremio fileIdx is zero-based within the original torrent file list.
         // It is not a provider-specific file ID and includes non-video entries.
         resolve.fileIdx?.let { fileIdx ->
-            files.getOrNull(fileIdx)?.takeIf { it in eligible }?.let { return it }
+            val indexedFile = files.getOrNull(fileIdx)?.takeIf { it in eligible }
+            if (indexedFile != null) return indexedFile
+            // A bad/mismatching episode index is not permission to guess a file.
+            if (isEpisode) return null
         }
 
         // If a multi-video episode pack has no trustworthy match, do not
