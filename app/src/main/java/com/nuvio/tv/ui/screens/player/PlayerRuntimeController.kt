@@ -330,11 +330,7 @@ class PlayerRuntimeController(
     internal var episodeStreamsCacheRequestKey: String? = null
     // Episode switches mutate currentVideoId; never retain the initial episode's key.
     internal val streamCacheKey: String?
-        get() {
-            val type = contentType?.lowercase()
-            val vid = currentVideoId
-            return if (type.isNullOrBlank() || vid.isNullOrBlank()) null else "$type|$vid"
-        }
+        get() = com.nuvio.tv.core.player.playbackStreamLinkCacheKey(contentType, currentVideoId)
 
     init {
         /*
