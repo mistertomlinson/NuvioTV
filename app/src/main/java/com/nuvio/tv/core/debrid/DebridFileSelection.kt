@@ -78,21 +78,19 @@ internal fun classifyDebridEpisodeFileName(
     context: DebridEpisodeSelectionContext?
 ): DebridEpisodeTitleMatch {
     val selection = context ?: return DebridEpisodeTitleMatch.UNKNOWN
-    val numericMatch = classifyDebridEpisodeNumber(fileName, selection.season, selection.episode)
-    // An explicit different episode number must veto title-based selection.
-    if (numericMatch == DebridEpisodeTitleMatch.CONFLICT) return numericMatch
-
+    // Preserve the existing episode-title classification independently of
+    // release numbering: some distributors use alternate episode orders.
     val target = selection.title
         ?.normalizedDebridText()
         ?.takeIf { it.isNotBlank() }
-        ?: return numericMatch
+        ?: return DebridEpisodeTitleMatch.UNKNOWN
     val normalizedFile = fileName
         ?.replace('\\', '/')
         ?.substringAfterLast('/')
         ?.substringBeforeLast('.')
         ?.normalizedDebridText()
         ?.takeIf { it.isNotBlank() }
-        ?: return numericMatch
+        ?: return DebridEpisodeTitleMatch.UNKNOWN
 
     val knownTitles = buildList {
         selection.title?.let(::add)
@@ -105,7 +103,22 @@ internal fun classifyDebridEpisodeFileName(
         .filter { normalizedFile.containsStrongDebridEpisodeTitle(it) }
 
     if (matchedTitles.any { it != target }) return DebridEpisodeTitleMatch.CONFLICT
-    return if (target in matchedTitles) DebridEpisodeTitleMatch.TARGET else numericMatch
+    return if (target in matchedTitles) DebridEpisodeTitleMatch.TARGET else DebridEpisodeTitleMatch.UNKNOWN
+}
+
+/**
+ * Combine independent title and numbering evidence for file safety.
+ * An exact known episode title takes precedence when a release follows a
+ * different episode ordering. If the title cannot identify the episode,
+ * a complete season/episode token can still match or veto the file.
+ */
+internal fun classifyDebridEpisodeFileEvidence(
+    fileName: String?,
+    context: DebridEpisodeSelectionContext?
+): DebridEpisodeTitleMatch {
+    val titleEvidence = classifyDebridEpisodeFileName(fileName, context)
+    if (titleEvidence != DebridEpisodeTitleMatch.UNKNOWN) return titleEvidence
+    return classifyDebridEpisodeNumber(fileName, context?.season, context?.episode)
 }
 
 internal fun Stream.debridEpisodeTitleMatch(
@@ -115,7 +128,7 @@ internal fun Stream.debridEpisodeTitleMatch(
         behaviorHints?.filename,
         clientResolve?.filename,
         clientResolve?.stream?.raw?.filename
-    ).map { classifyDebridEpisodeFileName(it, context) }
+    ).map { classifyDebridEpisodeFileEvidence(it, context) }
 
     return when {
         // Be conservative when different stream filename fields disagree.
@@ -160,7 +173,7 @@ internal fun <T> List<T>.withoutDebridEpisodeTitleConflicts(
     displayName: (T) -> String
 ): List<T> =
     filter {
-        classifyDebridEpisodeFileName(displayName(it), context) !=
+        classifyDebridEpisodeFileEvidence(displayName(it), context) !=
             DebridEpisodeTitleMatch.CONFLICT
     }
 
