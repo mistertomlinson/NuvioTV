@@ -370,6 +370,12 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
     val key = streamCacheKey ?: return
     val streamName = (stream.name?.takeIf { it.isNotBlank() } ?: stream.addonName)?.takeIf { it.isNotBlank() }
         ?: title
+    // Capture the selected episode's values before launching the asynchronous write.
+    val filename = currentFilename
+    val videoHash = currentVideoHash
+    val videoSize = currentVideoSize
+    val addonName = currentAddonName
+    val addonBaseUrl = currentAddonBaseUrl
 
     scope.launch {
         streamLinkCacheDataStore.save(
@@ -377,11 +383,11 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
             url = url,
             streamName = streamName,
             headers = headers,
-            filename = currentFilename,
-            videoHash = currentVideoHash,
-            videoSize = currentVideoSize,
-            addonName = currentAddonName,
-            addonBaseUrl = currentAddonBaseUrl
+            filename = filename,
+            videoHash = videoHash,
+            videoSize = videoSize,
+            addonName = addonName,
+            addonBaseUrl = addonBaseUrl
         )
     }
 }
@@ -844,7 +850,6 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
         url = url,
         headers = newHeaders
     )
-    persistSelectedStreamForReuse(stream = stream, url = url, headers = newHeaders)
     pendingSameSeriesTrackSelectionRestore =
         sameSeriesTrackSelectionPreference?.takeIf { contentType?.lowercase() in listOf("series", "tv") }
     hasRetriedCurrentStreamAfter416 = false
@@ -852,6 +857,8 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(stream: Stream, force
     currentSeason = targetVideo?.season ?: _uiState.value.episodeStreamsSeason ?: currentSeason
     currentEpisode = targetVideo?.episode ?: _uiState.value.episodeStreamsEpisode ?: currentEpisode
     currentEpisodeTitle = targetVideo?.title ?: _uiState.value.episodeStreamsTitle ?: currentEpisodeTitle
+    // Save only after the target video ID is active, not under the outgoing episode.
+    persistSelectedStreamForReuse(stream = stream, url = url, headers = newHeaders)
     currentTraktEpisodeMapping = null
     currentTraktEpisodeMappingKey = null
     lastSavedPosition = 0L
