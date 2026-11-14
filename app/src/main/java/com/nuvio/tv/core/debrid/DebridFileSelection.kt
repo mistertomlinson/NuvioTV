@@ -27,6 +27,38 @@ internal enum class DebridEpisodeTitleMatch {
     UNKNOWN
 }
 
+// Match complete numeric episode tokens, never substrings (2x1 must not match 2x10).
+// Only the basename is checked: a season-pack folder can contain episode tags.
+private val debridSeasonEpisodeTag = Regex(
+    """(?i)(?<![a-z0-9])s0*(\d{1,3})e0*(\d{1,4})(?!\d)"""
+)
+private val debridXEpisodeTag = Regex(
+    """(?i)(?<![a-z0-9])0*(\d{1,3})x0*(\d{1,4})(?!\d)"""
+)
+
+internal fun classifyDebridEpisodeNumber(
+    fileName: String?,
+    season: Int?,
+    episode: Int?
+): DebridEpisodeTitleMatch {
+    if (fileName.isNullOrBlank() || season == null || episode == null) {
+        return DebridEpisodeTitleMatch.UNKNOWN
+    }
+    val basename = fileName.replace('\\', '/').substringAfterLast('/')
+    val numbers = (debridSeasonEpisodeTag.findAll(basename) +
+        debridXEpisodeTag.findAll(basename))
+        .mapNotNull { match ->
+            val fileSeason = match.groupValues[1].toIntOrNull()
+            val fileEpisode = match.groupValues[2].toIntOrNull()
+            if (fileSeason != null && fileEpisode != null) fileSeason to fileEpisode else null
+        }
+        .toList()
+    if (numbers.isEmpty()) return DebridEpisodeTitleMatch.UNKNOWN
+    return if (numbers.all { (fileSeason, fileEpisode) ->
+        fileSeason == season && fileEpisode == episode
+    }) DebridEpisodeTitleMatch.TARGET else DebridEpisodeTitleMatch.CONFLICT
+}
+
 private fun String.normalizedDebridText(): String =
     lowercase()
         .replace("&", " and ")
@@ -46,17 +78,21 @@ internal fun classifyDebridEpisodeFileName(
     context: DebridEpisodeSelectionContext?
 ): DebridEpisodeTitleMatch {
     val selection = context ?: return DebridEpisodeTitleMatch.UNKNOWN
+    val numericMatch = classifyDebridEpisodeNumber(fileName, selection.season, selection.episode)
+    // An explicit different episode number must veto title-based selection.
+    if (numericMatch == DebridEpisodeTitleMatch.CONFLICT) return numericMatch
+
     val target = selection.title
         ?.normalizedDebridText()
         ?.takeIf { it.isNotBlank() }
-        ?: return DebridEpisodeTitleMatch.UNKNOWN
-
+        ?: return numericMatch
     val normalizedFile = fileName
+        ?.replace('\\', '/')
         ?.substringAfterLast('/')
         ?.substringBeforeLast('.')
         ?.normalizedDebridText()
         ?.takeIf { it.isNotBlank() }
-        ?: return DebridEpisodeTitleMatch.UNKNOWN
+        ?: return numericMatch
 
     val knownTitles = buildList {
         selection.title?.let(::add)
@@ -65,25 +101,11 @@ internal fun classifyDebridEpisodeFileName(
         .map { it.normalizedDebridText() }
         .filter { it.isNotBlank() }
         .distinct()
-
     val matchedTitles = knownTitles
         .filter { normalizedFile.containsStrongDebridEpisodeTitle(it) }
 
-    if (matchedTitles.isEmpty()) {
-        return DebridEpisodeTitleMatch.UNKNOWN
-    }
-
-    // If a filename contains a different known episode title, do not let an
-    // incidental target-title occurrence override that stronger conflict.
-    if (matchedTitles.any { it != target }) {
-        return DebridEpisodeTitleMatch.CONFLICT
-    }
-
-    return if (target in matchedTitles) {
-        DebridEpisodeTitleMatch.TARGET
-    } else {
-        DebridEpisodeTitleMatch.UNKNOWN
-    }
+    if (matchedTitles.any { it != target }) return DebridEpisodeTitleMatch.CONFLICT
+    return if (target in matchedTitles) DebridEpisodeTitleMatch.TARGET else numericMatch
 }
 
 internal fun Stream.debridEpisodeTitleMatch(
@@ -108,7 +130,9 @@ internal fun Stream.debridEpisodeTitleMatch(
 internal fun List<Stream>.orderByDebridEpisodeTitleEvidence(
     context: DebridEpisodeSelectionContext?
 ): List<Stream> {
-    if (context?.title.isNullOrBlank()) return this
+    if (context == null ||
+        (context.title.isNullOrBlank() && (context.season == null || context.episode == null))
+    ) return this
     return withIndex()
         .sortedWith(
             compareBy<IndexedValue<Stream>> {
@@ -162,17 +186,30 @@ internal fun StreamClientResolve.specificDebridFileNames(episodePatterns: List<S
 
 internal fun String.looksSpecificForDebridSelection(episodePatterns: List<String>): Boolean {
     val lower = lowercase()
-    return lower.hasDebridVideoExtension() || episodePatterns.any { pattern -> lower.contains(pattern) }
+    return lower.hasDebridVideoExtension() || episodePatterns.any { pattern ->
+        Regex("(?<![a-z0-9])${Regex.escape(pattern)}(?![0-9])")
+            .containsMatchIn(lower)
+    }
 }
 
 internal fun <T> List<T>.firstDebridNameMatch(
     names: List<String>,
-    displayName: (T) -> String
-): T? =
-    firstOrNull { item ->
+    displayName: (T) -> String,
+    requireExact: Boolean = false
+): T? {
+    if (requireExact) {
+        // Episode packs must never use broad name-substring selection.
+        for (name in names) {
+            val matches = filter { displayName(it).normalizedDebridFileName() == name }
+            if (matches.size == 1) return matches.single()
+        }
+        return null
+    }
+    return firstOrNull { item ->
         val fileName = displayName(item).normalizedDebridFileName()
         names.any { name -> fileName.contains(name) }
     }
+}
 
 internal fun buildDebridEpisodePatterns(season: Int?, episode: Int?): List<String> {
     if (season == null || episode == null) return emptyList()
