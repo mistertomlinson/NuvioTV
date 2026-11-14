@@ -82,19 +82,46 @@ class DebridEpisodePackSafetyTest {
     }
 
     @Test
-    fun `known wrong number defeats apparent title match`() {
+    fun `wrong number without matching title evidence vetoes a pack file`() {
         val context = DebridEpisodeSelectionContext(
             season = 2, episode = 1, title = "The Injury",
             seasonEpisodeTitles = listOf("The Injury")
         )
         assertEquals(
             DebridEpisodeTitleMatch.CONFLICT,
-            classifyDebridEpisodeFileName("The.Office.S02E10.The.Injury.mkv", context)
+            classifyDebridEpisodeFileEvidence("The.Office.S02E10.1080p.mkv", context)
         )
         assertSelectedForAllProviders(
-            null, listOf("The.Office.S02E10.The.Injury.mkv", "The.Office.S02E11.mkv"),
+            null, listOf("The.Office.S02E10.1080p.mkv", "The.Office.S02E11.mkv"),
             2, 1, context = context
         )
+    }
+
+    @Test
+    fun `strong title match preserves alternate episode order releases`() {
+        val context = DebridEpisodeSelectionContext(
+            season = 1, episode = 8, title = "Autofac",
+            seasonEpisodeTitles = listOf("Impossible Planet", "Autofac")
+        )
+        assertEquals(
+            DebridEpisodeTitleMatch.TARGET,
+            classifyDebridEpisodeFileEvidence("S01E02.Autofac.mkv", context)
+        )
+        assertSelectedForAllProviders(
+            "S01E02.Autofac.mkv",
+            listOf("S01E08.Impossible.Planet.mkv", "S01E02.Autofac.mkv"),
+            1, 8, context = context
+        )
+    }
+
+    @Test
+    fun `two encodes with the requested episode number select larger matching encode`() {
+        val names = listOf(
+            "Office.S02E01.720p.mkv",
+            "Office.S02E10.2160p.mkv",
+            "Office.S02E01.Larger.mkv"
+        )
+        assertSelectedForAllProviders("Office.S02E01.Larger.mkv", names, 2, 1)
     }
 
     @Test
