@@ -19,28 +19,36 @@ class PremiumizeDirectDownloadFileSelector @Inject constructor() {
         val playable = files.filter { it.isPlayableVideo(isBluray) }
         if (playable.isEmpty()) return null
 
-        playable.firstDebridTargetEpisodeTitleMatch(selectionContext) { it.displayName() }
-            ?.let { return it }
-
-        val eligible = playable.withoutDebridEpisodeTitleConflicts(selectionContext) { it.displayName() }
+        val requestedSeason = season ?: resolve.season
+        val requestedEpisode = episode ?: resolve.episode
+        val isEpisode = requestedSeason != null && requestedEpisode != null
+        val targetContext = DebridEpisodeSelectionContext(
+            season = requestedSeason,
+            episode = requestedEpisode,
+            title = selectionContext?.title,
+            seasonEpisodeTitles = selectionContext?.seasonEpisodeTitles.orEmpty()
+        )
+        // Numeric mismatches and known-other episode titles are ineligible,
+        // including when a pack's fileIndex or filename metadata points at them.
+        val eligible = playable.withoutDebridEpisodeTitleConflicts(targetContext) { it.displayName() }
         if (eligible.isEmpty()) return null
 
-        val episodePatterns = buildDebridEpisodePatterns(
-            season = season ?: resolve.season,
-            episode = episode ?: resolve.episode
-        )
+        eligible.firstDebridTargetEpisodeTitleMatch(targetContext) { it.displayName() }
+            ?.let { return it }
+
+        val episodePatterns = buildDebridEpisodePatterns(requestedSeason, requestedEpisode)
         val names = resolve.specificDebridFileNames(episodePatterns)
         if (names.isNotEmpty()) {
-            eligible.firstDebridNameMatch(names) { it.displayName() }?.let { return it }
+            eligible.firstDebridNameMatch(
+                names, { it.displayName() }, requireExact = isEpisode
+            )?.let { return it }
         }
 
-        if (episodePatterns.isNotEmpty()) {
-            eligible.firstOrNull { file ->
-                val fileName = file.displayName().lowercase()
-                episodePatterns.any { pattern -> fileName.contains(pattern) }
-            }?.let { return it }
-        }
+        // If a multi-video episode pack has no trustworthy match, do not
+        // silently play its largest (often wrong) episode. Try another source.
+        if (isEpisode) return if (playable.size == 1) eligible.singleOrNull() else null
 
+        // Retain movie/single-video behavior when no episode was requested.
         return eligible.maxByOrNull { it.size ?: 0L }
     }
 
