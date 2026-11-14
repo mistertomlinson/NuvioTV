@@ -42,6 +42,19 @@ class RealDebridFileSelector @Inject constructor() {
             )?.let { return it }
         }
 
+        // A positive, bounded episode-token match is safe even in a season pack.
+        // Multiple encodes of the same episode are not ambiguous: prefer the
+        // largest matching encode, never the largest file in the whole pack.
+        if (isEpisode) {
+            eligible
+                .filter {
+                    classifyDebridEpisodeNumber(it.displayName(), requestedSeason, requestedEpisode) ==
+                        DebridEpisodeTitleMatch.TARGET
+                }
+                .maxByOrNull { it.bytes ?: 0L }
+                ?.let { return it }
+        }
+
         // Stremio fileIdx is zero-based within the original torrent file list.
         // It is not a provider-specific file ID and includes non-video entries.
         resolve.fileIdx?.let { fileIdx ->
