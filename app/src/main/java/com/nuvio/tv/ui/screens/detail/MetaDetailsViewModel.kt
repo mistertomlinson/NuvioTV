@@ -31,6 +31,9 @@ import com.nuvio.tv.domain.repository.MetaRepository
 import com.nuvio.tv.domain.repository.WatchProgressRepository
 import com.nuvio.tv.ui.util.buildCompletedSeriesEpisodeProgress
 import com.nuvio.tv.ui.util.releasedRegularEpisodesForWatchedAction
+import com.nuvio.tv.data.local.ProfileRewatchSessions
+import com.nuvio.tv.data.local.RewatchSessionStore
+import com.nuvio.tv.domain.rewatch.RewatchPhase
 import com.nuvio.tv.data.local.WatchedItemsPreferences
 import com.nuvio.tv.data.local.TrailerSettingsDataStore
 import com.nuvio.tv.data.local.TraktSettingsDataStore
@@ -158,6 +161,7 @@ class MetaDetailsViewModel @Inject constructor(
     private val mdbListRepository: MDBListRepository,
     private val libraryRepository: LibraryRepository,
     private val watchProgressRepository: WatchProgressRepository,
+    private val rewatchSessionStore: RewatchSessionStore,
     private val watchedItemsPreferences: WatchedItemsPreferences,
     private val trailerService: TrailerService,
     private val trailerSettingsDataStore: TrailerSettingsDataStore,
@@ -217,6 +221,7 @@ class MetaDetailsViewModel @Inject constructor(
     private var commentsLoadMoreJob: Job? = null
     private var episodeRatingsJob: Job? = null
     private var nextToWatchJob: Job? = null
+    private var rewatchSnapshot: ProfileRewatchSessions? = null
     private val authoritativeWatchedEpisodes =
         MutableStateFlow<Set<Pair<Int, Int>>>(emptySet())
     private val optimisticWatchedEpisodeOverrides =
@@ -237,6 +242,7 @@ class MetaDetailsViewModel @Inject constructor(
         observeLibraryState()
         observeReleaseReminder()
         observeWatchProgress()
+        observeRewatchSessions()
         observeWatchedEpisodes()
         observeMovieWatched()
         observeBlurUnwatchedEpisodes()
@@ -1565,6 +1571,17 @@ class MetaDetailsViewModel @Inject constructor(
             .sortedBy { it.episode }
     }
 
+    private fun observeRewatchSessions() {
+        viewModelScope.launch {
+            rewatchSessionStore.activeProfileSessions.collectLatest { snapshot ->
+                rewatchSnapshot = snapshot
+                // The replay cursor is a separate DataStore from ordinary
+                // watched history. Recompute the hero when it changes.
+                calculateNextToWatch()
+            }
+        }
+    }
+
     private fun calculateNextToWatch() {
         val meta = _uiState.value.meta ?: return
         val progressMap = _uiState.value.episodeProgressMap
@@ -1620,6 +1637,52 @@ class MetaDetailsViewModel @Inject constructor(
 
             val nonSpecialEpisodes = allEpisodes.filter { (it.season ?: 0) > 0 }
             val episodePool = if (nonSpecialEpisodes.isNotEmpty()) nonSpecialEpisodes else allEpisodes
+
+            // A verified, profile-scoped replay always owns the Details hero
+            // while active. Its episode must also be the playback target.
+            // When absent, finished or not in metadata, preserve existing
+            // first-watch and Simkl logic unchanged.
+            val replayTarget = resolveRewatchDetailsTarget(
+                requestedProfileId = profileManager.activeProfileId.value,
+                snapshot = rewatchSnapshot,
+                contentIds = buildSet {
+                    itemId.trim().takeIf { it.isNotBlank() }?.let(::add)
+                    meta.id.trim().takeIf { it.isNotBlank() }?.let(::add)
+                    meta.imdbId?.trim()?.takeIf { it.isNotBlank() }?.let(::add)
+                },
+                playableEpisodes = episodePool
+            )
+            if (replayTarget != null) {
+                val season = replayTarget.video.season ?: return@launch
+                val episode = replayTarget.video.episode ?: return@launch
+                val phase = replayTarget.session.phase
+                val label = when (phase) {
+                    RewatchPhase.PLAYING ->
+                        if (replayTarget.session.positionMs > 0L) {
+                            context.getString(R.string.detail_btn_resume_episode,
+                                season, episode)
+                        } else {
+                            context.getString(R.string.detail_btn_play_episode,
+                                season, episode)
+                        }
+                    RewatchPhase.NEXT_UP ->
+                        context.getString(R.string.detail_btn_next_episode,
+                            season, episode)
+                    else -> return@launch
+                }
+                updateNextToWatch(
+                    NextToWatch(
+                        watchProgress = null,
+                        isResume = phase == RewatchPhase.PLAYING &&
+                            replayTarget.session.positionMs > 0L,
+                        nextVideoId = replayTarget.video.id,
+                        nextSeason = season,
+                        nextEpisode = episode,
+                        displayText = label
+                    )
+                )
+                return@launch
+            }
             val latestSeriesProgress = progressMap.values.maxByOrNull { it.lastWatched }
             val defaultEpisode = findPreferredDefaultEpisode(meta)?.takeIf { preferred ->
                 episodePool.any { it.id == preferred.id }
