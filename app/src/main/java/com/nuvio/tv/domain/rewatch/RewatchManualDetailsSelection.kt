@@ -1,5 +1,10 @@
 package com.nuvio.tv.domain.rewatch
 
+internal enum class RewatchDetailsPlaybackOrigin {
+    HERO_BUTTON,
+    EPISODE_LIST
+}
+
 /**
  * In-process one-shot proof of an explicit details-page episode click.
  * It does not persist, change account identity, or authorize an autoplay
@@ -16,8 +21,18 @@ internal object RewatchManualDetailsSelection {
     private const val MAX_AGE_MS = 120_000L
 
     @Synchronized
-    fun arm(profileId: Int, series: String, episode: RewatchEpisode, nowMs: Long) {
-        if (profileId <= 0 || series.isBlank() || nowMs < 0L) return
+    fun onPlaybackRequested(
+        profileId: Int,
+        series: String,
+        episode: RewatchEpisode?,
+        origin: RewatchDetailsPlaybackOrigin,
+        nowMs: Long
+    ) {
+        // Every new playback request supersedes a previously abandoned click.
+        // Hero resume and manual stream picking are not episode selections.
+        pending = null
+        if (origin != RewatchDetailsPlaybackOrigin.EPISODE_LIST ||
+            profileId <= 0 || series.isBlank() || episode == null || nowMs < 0L) return
         pending = Target(profileId, series.trim().lowercase(), episode, nowMs)
     }
 

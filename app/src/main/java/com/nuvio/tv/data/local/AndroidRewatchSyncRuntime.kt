@@ -10,6 +10,7 @@ import com.nuvio.tv.domain.rewatch.RewatchCommittedSaveSink
 import com.nuvio.tv.domain.rewatch.RewatchOutboxDrainResult
 import com.nuvio.tv.domain.rewatch.RewatchRemoteCheckpoint
 import com.nuvio.tv.domain.rewatch.RewatchRemoteLookup
+import com.nuvio.tv.domain.rewatch.RewatchSession
 import com.nuvio.tv.domain.rewatch.RewatchSyncOutbox
 import com.nuvio.tv.domain.rewatch.RewatchTransportCoordinator
 import com.nuvio.tv.domain.rewatch.RewatchVpsApi
@@ -140,55 +141,126 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
     }
 
     override val committedSaveSink: RewatchCommittedSaveSink =
-        RewatchCommittedSaveSink { profileId, before, after ->
-            if (RewatchCrossDeviceGate.ENABLED) {
-                if (after.ownerKey != "local-profile:$profileId") {
-                    return@RewatchCommittedSaveSink
-                }
-                val identity = identityForLocalSave()
-                if (identity == null) {
-                    // First replay save after upgrading: no verified remote
-                    // checkpoint exists yet. Never guess empty; do an
-                    // authenticated background reconciliation instead.
+        object : RewatchCommittedSaveSink {
+            override suspend fun committed(
+                profileId: Int, before: RewatchSession?, after: RewatchSession
+            ) = committedWithIntent(profileId, before, after, false)
+
+            override suspend fun committedWithIntent(
+                profileId: Int,
+                before: RewatchSession?,
+                after: RewatchSession,
+                manualRepositionApproved: Boolean
+            ) {
+                if (RewatchCrossDeviceGate.ENABLED) {
+                    if (after.ownerKey != "local-profile:$profileId") {
+                        return
+                    }
+                    val identity = identityForLocalSave()
+                    if (identity == null) {
+                        // First replay save after upgrading: no verified remote
+                        // checkpoint exists yet. Never guess empty; do an
+                        // authenticated background reconciliation instead.
+                        syncScope.launch {
+                            try {
+                                uploadCommittedSelection(profileId, before, after, manualRepositionApproved)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: Exception) {
+                                // Optional replay sync never fails playback.
+                            }
+                        }
+                        return
+                    }
+                    if (identity.profileId != profileId) return
+                    val checkpoint = synchronized(stateLock) {
+                        verifiedCheckpoints[seriesKey(after.canonicalSeriesId)]
+                            ?: RewatchRemoteCheckpoint.Unknown
+                    }
+                    if (currentBinding() != identity) return
+                    outbox.enqueueCommittedTransition(
+                        profileId = profileId,
+                        simklAccountId = identity.simklAccountId,
+                        deviceId = identity.deviceId,
+                        before = before,
+                        after = after,
+                        checkpoint = checkpoint,
+                        eventId = UUID.randomUUID().toString(),
+                        manualRepositionApproved = manualRepositionApproved
+                    )
+                    // No network on the playback-save/EOF critical path.
                     syncScope.launch {
                         try {
-                            reconcileForeground(after.canonicalSeriesId)
+                            uploadCommittedSelection(profileId, before, after, manualRepositionApproved)
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (_: Exception) {
-                            // Optional replay sync never fails playback.
+                            // Keep local cursor and durable outbox on network error.
                         }
-                    }
-                    return@RewatchCommittedSaveSink
-                }
-                if (identity.profileId != profileId) return@RewatchCommittedSaveSink
-                val checkpoint = synchronized(stateLock) {
-                    verifiedCheckpoints[seriesKey(after.canonicalSeriesId)]
-                        ?: RewatchRemoteCheckpoint.Unknown
-                }
-                if (currentBinding() != identity) return@RewatchCommittedSaveSink
-                val queued = outbox.enqueueCommittedTransition(
-                    profileId = profileId,
-                    simklAccountId = identity.simklAccountId,
-                    deviceId = identity.deviceId,
-                    before = before,
-                    after = after,
-                    checkpoint = checkpoint,
-                    eventId = UUID.randomUUID().toString()
-                )
-                // No network on the playback-save/EOF critical path.
-                syncScope.launch {
-                    try {
-                        if (queued) uploadPending()
-                        else reconcileForeground(after.canonicalSeriesId)
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        // Keep local cursor and durable outbox on network error.
                     }
                 }
             }
         }
+
+    /** A new picker action may resolve a stale queue; background saves may not. */
+    private suspend fun uploadCommittedSelection(
+        profileId: Int,
+        before: RewatchSession?,
+        after: RewatchSession,
+        manualRepositionApproved: Boolean
+    ) {
+        var drained = uploadPending()
+        if (manualRepositionApproved) {
+            Log.i("RewatchVpsTest", "manual_replay_drain=" + drained.name)
+        }
+        if (manualRepositionApproved && before != null && drained in setOf(
+                RewatchOutboxDrainResult.EMPTY,
+                RewatchOutboxDrainResult.CONFLICT,
+                RewatchOutboxDrainResult.INVALID_PROGRESS
+            )) {
+            val auth = existingSimkl.snapshot()
+            if (auth != null && auth.profileId == profileId &&
+                transport.ensureConnected() == ReplayBootstrapOutcome.CONNECTED) {
+                val identity = transport.currentVerifiedIdentity()
+                if (identity != null && identity.profileId == profileId) {
+                    setBinding(auth, identity)
+                    val lookup = transport.fetchCheckpointForSeries(after.canonicalSeriesId)
+                    val observed = local.observeLocalReplaySync(profileId)
+                    val latest = observed.sessions.singleOrNull {
+                        seriesKey(it.canonicalSeriesId) == seriesKey(after.canonicalSeriesId)
+                    }
+                    if (latest != null && currentBinding() == identity) {
+                        val repaired = outbox.recoverExplicitManualSelection(
+                            profileId = profileId,
+                            simklAccountId = identity.simklAccountId,
+                            deviceId = identity.deviceId,
+                            manualBefore = before,
+                            manualAfter = after,
+                            latestLocal = latest,
+                            lookup = lookup,
+                            repositionEventId = UUID.randomUUID().toString(),
+                            progressEventId = UUID.randomUUID().toString(),
+                            localUnchanged = {
+                                if (currentBinding() != identity) false else {
+                                    val again = local.observeLocalReplaySync(profileId)
+                                    again.profileId == observed.profileId &&
+                                        again.generation == observed.generation &&
+                                        again.sessions == observed.sessions
+                                }
+                            }
+                        )
+                        Log.i("RewatchVpsTest", "manual_recovery=" +
+                            if (repaired) "STAGED" else "DECLINED")
+                        if (repaired) drained = uploadPending()
+                    }
+                }
+            }
+        }
+        if (drained == RewatchOutboxDrainResult.EMPTY ||
+            drained == RewatchOutboxDrainResult.DRAINED) {
+            reconcileForeground(after.canonicalSeriesId)
+        }
+    }
 
     private val reconciler by lazy {
         AndroidRewatchReconciler(

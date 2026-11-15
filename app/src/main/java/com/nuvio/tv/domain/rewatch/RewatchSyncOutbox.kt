@@ -6,6 +6,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 
 /**
  * Durable transport-agnostic replay write queue. No Simkl watched-history
@@ -98,7 +102,10 @@ internal data class RewatchOutboxEnvelope(
     val pending: List<RewatchQueuedEvent> = emptyList(),
     // Retained even after the last event is acknowledged; survives restart.
     val acknowledged: Map<String, RewatchAcknowledgedCheckpoint> = emptyMap(),
-    val clean: Map<String, RewatchCleanCursor> = emptyMap()
+    val clean: Map<String, RewatchCleanCursor> = emptyMap(),
+    // Never destroy old offline replay events during an explicit recovery.
+    // Superseded events stay available locally for audit or manual restore.
+    val recoveryArchive: List<RewatchQueuedEvent> = emptyList()
 )
 
 internal interface RewatchOutboxStorage {
@@ -109,12 +116,13 @@ internal interface RewatchOutboxStorage {
 internal sealed interface RewatchOutboxSubmitResult {
     data class Accepted(val revision: Long) : RewatchOutboxSubmitResult
     data object Conflict : RewatchOutboxSubmitResult
+    data object InvalidProgress : RewatchOutboxSubmitResult
     data object Unavailable : RewatchOutboxSubmitResult
     data object Unauthorized : RewatchOutboxSubmitResult
 }
 
 internal enum class RewatchOutboxDrainResult {
-    EMPTY, DRAINED, CONFLICT, UNAVAILABLE, UNAUTHORIZED, PROFILE_CHANGED
+    EMPTY, DRAINED, CONFLICT, INVALID_PROGRESS, UNAVAILABLE, UNAUTHORIZED, PROFILE_CHANGED
 }
 
 internal class RewatchSyncOutbox(
@@ -127,7 +135,7 @@ internal class RewatchSyncOutbox(
     private fun seriesKey(value: String): String = value.trim().lowercase()
 
     /**
-     * The stored checkpoint is strictly an acknowledged outbound revision.
+     * The stored checkpoint is an acknowledged or authenticated server revision.
      * A stale cached GET cannot roll it backward; a newer GET indicates a
      * competing device and must be reconciled before another local write.
      */
@@ -177,6 +185,10 @@ internal class RewatchSyncOutbox(
         }
         require(value.pending.all { validEvent(it, deviceId) }) {
             "Corrupted replay outbox"
+        }
+        require(value.recoveryArchive.size <= 1000 &&
+            value.recoveryArchive.all { validEvent(it, deviceId) }) {
+            "Corrupted replay recovery archive"
         }
         require(value.pending.map { it.eventId }.distinct().size == value.pending.size) {
             "Duplicate replay event IDs"
@@ -236,7 +248,8 @@ internal class RewatchSyncOutbox(
         before: RewatchSession?,
         after: RewatchSession,
         checkpoint: RewatchRemoteCheckpoint,
-        eventId: String
+        eventId: String,
+        manualRepositionApproved: Boolean = false
     ): Boolean = mutex.withLock {
         if (!stillCurrent(profileId, simklAccountId, deviceId) ||
             after.ownerKey != "local-profile:$profileId") return@withLock false
@@ -275,12 +288,217 @@ internal class RewatchSyncOutbox(
             after = after,
             checkpoint = effectiveCheckpoint,
             eventId = eventId,
-            deviceId = deviceId
+            deviceId = deviceId,
+            manualRepositionApproved = manualRepositionApproved
         ) ?: return@withLock false
         if (!stillCurrent(profileId, simklAccountId, deviceId)) return@withLock false
         storage.write(profileId, json.encodeToString(
             old.copy(pending = old.pending + planned)
         ))
+        true
+    }
+
+
+    /**
+     * Publish or recover a replay move only after a *new*, verified
+     * manual episode-picker selection. Never infer manual intent from the
+     * rejected event itself, another device, autoplay, or a guessed server
+     * revision. The caller must have just observed an empty queue or a verified
+     * HTTP 409 (INVALID_PROGRESS or CONFLICT), then fetched current VPS state.
+     *
+     * On a fresh authenticated VPS GET, verify the original replay session
+     * and revision. An incompatible queue chain is never dropped: its exact
+     * events are moved into the same durable outbox's recoveryArchive in one
+     * write, while a new REPOSITION (+ optional latest PROGRESS) is staged.
+     *
+     * This function performs no network requests or Simkl mutations.
+     */
+    suspend fun recoverExplicitManualSelection(
+        profileId: Int,
+        simklAccountId: String,
+        deviceId: String,
+        manualBefore: RewatchSession,
+        manualAfter: RewatchSession,
+        latestLocal: RewatchSession,
+        lookup: RewatchRemoteLookup,
+        repositionEventId: String,
+        progressEventId: String,
+        localUnchanged: suspend () -> Boolean
+    ): Boolean = mutex.withLock {
+        if (!stillCurrent(profileId, simklAccountId, deviceId) ||
+            !localUnchanged() ||
+            manualBefore.ownerKey != "local-profile:$profileId" ||
+            manualAfter.ownerKey != manualBefore.ownerKey ||
+            latestLocal.ownerKey != manualAfter.ownerKey ||
+            manualBefore.sessionId != manualAfter.sessionId ||
+            latestLocal.sessionId != manualAfter.sessionId ||
+            manualBefore.episode == manualAfter.episode ||
+            manualAfter.updatedAtEpochMs <= manualBefore.updatedAtEpochMs ||
+            latestLocal.updatedAtEpochMs < manualAfter.updatedAtEpochMs ||
+            manualAfter.phase != RewatchPhase.PLAYING ||
+            latestLocal.phase != RewatchPhase.PLAYING ||
+            manualAfter.durationMs != 0L ||
+            manualAfter.lastCompletedEpisode != null ||
+            latestLocal.lastCompletedEpisode != null ||
+            latestLocal.episode != manualAfter.episode ||
+            !seriesKey(manualAfter.canonicalSeriesId)
+                .equals(seriesKey(manualBefore.canonicalSeriesId)) ||
+            !seriesKey(latestLocal.canonicalSeriesId)
+                .equals(seriesKey(manualAfter.canonicalSeriesId)) ||
+            repositionEventId.isBlank() || progressEventId.isBlank() ||
+            repositionEventId == progressEventId) return@withLock false
+
+        val verified = lookup as? RewatchRemoteLookup.Verified
+            ?: return@withLock false
+        val checkpoint = verified.checkpoint as? RewatchRemoteCheckpoint.Synced
+            ?: return@withLock false
+        val remote = verified.remoteSession ?: return@withLock false
+        val key = seriesKey(manualAfter.canonicalSeriesId)
+        if (remote.ownerKey != manualAfter.ownerKey ||
+            seriesKey(remote.canonicalSeriesId) != key ||
+            remote.sessionId != checkpoint.sessionId ||
+            checkpoint.sessionId != manualAfter.sessionId ||
+            remote.episode == manualAfter.episode ||
+            remote.phase == RewatchPhase.FINISHED) return@withLock false
+
+        val old = readChecked(profileId, simklAccountId, deviceId)
+        val pending = old.pending.filter {
+            seriesKey(it.canonicalSeriesId) == key
+        }
+        // A fresh manual action may also have missed enqueueing while the
+        // authenticated checkpoint was loading. Never bypass another show's
+        // blocked queue. Every superseded event remains in the archive.
+        if ((old.pending.isNotEmpty() && old.pending.firstOrNull()?.let {
+                seriesKey(it.canonicalSeriesId)
+            } != key) ||
+            old.recoveryArchive.size + pending.size > 1000 ||
+            old.recoveryArchive.any {
+                it.eventId == repositionEventId || it.eventId == progressEventId
+            } || old.pending.any {
+                it.eventId == repositionEventId || it.eventId == progressEventId
+            }) return@withLock false
+
+        // Validated progress, manual moves, and replay completions can be
+        // superseded by this NEW, watched-verified manual action. Validate
+        // payload identities as well as envelopes before archiving anything.
+        fun payload(event: RewatchQueuedEvent) = runCatching {
+            json.parseToJsonElement(event.payload).jsonObject
+        }.getOrNull()
+        fun validRecoverableEvent(event: RewatchQueuedEvent): Boolean = runCatching {
+            val body = payload(event) ?: return@runCatching false
+            fun literal(name: String) = body[name]?.jsonPrimitive?.content
+            val type = literal("type")
+            fun validEpisode(name: String): Boolean {
+                val ep = body[name]?.jsonObject ?: return false
+                return (ep["season"]?.jsonPrimitive?.intOrNull ?: 0) > 0 &&
+                    (ep["episode"]?.jsonPrimitive?.intOrNull ?: 0) > 0
+            }
+            fun validSuccessor(previousName: String): Boolean {
+                if (!validEpisode(previousName) || !validEpisode("nextEpisode")) return false
+                val previous = body.getValue(previousName).jsonObject
+                val next = body.getValue("nextEpisode").jsonObject
+                val season = previous.getValue("season").jsonPrimitive.intOrNull!!
+                val number = previous.getValue("episode").jsonPrimitive.intOrNull!!
+                val nextSeason = next.getValue("season").jsonPrimitive.intOrNull!!
+                val nextNumber = next.getValue("episode").jsonPrimitive.intOrNull!!
+                return nextSeason == season && nextNumber > number ||
+                    nextSeason > season && nextNumber == 1
+            }
+            val position = body["positionMs"]?.jsonPrimitive?.longOrNull
+            val duration = body["durationMs"]?.jsonPrimitive?.longOrNull
+            literal("eventId") == event.eventId &&
+                literal("deviceId") == event.deviceId &&
+                literal("canonicalSeriesId") == event.canonicalSeriesId &&
+                literal("sessionId") == event.sessionId &&
+                body["expectedRevision"]?.jsonPrimitive?.longOrNull == event.expectedRevision &&
+                when (type) {
+                    "PROGRESS" -> validEpisode("episode") && position != null && position >= 0L &&
+                        duration != null && duration >= 0L
+                    "REPOSITION" ->
+                        validEpisode("episode") &&
+                        (body["positionMs"] == null || position != null && position >= 0L) &&
+                        (body["durationMs"] == null || duration != null && duration >= 0L) &&
+                        (duration == null || duration == 0L || (position ?: 0L) < duration) &&
+                        listOf("nextEpisode", "completedEpisode", "session").none { it in body }
+                    "COMPLETE_EPISODE" -> validEpisode("episode") &&
+                        when (literal("resultPhase")) {
+                            "NEXT_UP" -> validSuccessor("episode")
+                            "AWAITING_METADATA", "FINISHED" -> "nextEpisode" !in body
+                            else -> false
+                        }
+                    "RESOLVE_METADATA" -> validEpisode("completedEpisode") &&
+                        when (literal("resultPhase")) {
+                            "NEXT_UP" -> validSuccessor("completedEpisode")
+                            "FINISHED" -> "nextEpisode" !in body
+                            else -> false
+                        }
+                    else -> false
+                }
+        }.getOrDefault(false)
+
+        // The rejected client queue may be anchored to an older VPS
+        // revision because another device legitimately advanced the same
+        // session. Verify the ORIGINAL contiguous local chain separately,
+        // then base the replacement event on the latest authenticated GET.
+        // A future-revision queue must never be silently discarded.
+        val queuedRevision = pending.firstOrNull()?.expectedRevision ?: checkpoint.revision
+        if (queuedRevision < 1L || queuedRevision > checkpoint.revision ||
+            pending.withIndex().any { (index, event) ->
+                event.sessionId != checkpoint.sessionId ||
+                    event.deviceId != deviceId ||
+                    event.expectedRevision != queuedRevision + index.toLong() ||
+                    !validRecoverableEvent(event)
+            }) return@withLock false
+        val ack = old.acknowledged[key]
+        if (ack != null && (ack.sessionId != checkpoint.sessionId ||
+            ack.revision > checkpoint.revision ||
+            ack.revision > queuedRevision)) return@withLock false
+
+        val reposition = planCommittedRewatchEvent(
+            before = remote,
+            after = manualAfter,
+            checkpoint = checkpoint,
+            eventId = repositionEventId,
+            deviceId = deviceId,
+            manualRepositionApproved = true
+        ) ?: return@withLock false
+
+        val progress = planCommittedRewatchEvent(
+            before = manualAfter,
+            after = latestLocal,
+            checkpoint = RewatchRemoteCheckpoint.Synced(
+                checkpoint.revision + 1, checkpoint.sessionId
+            ),
+            eventId = progressEventId,
+            deviceId = deviceId
+        )?.takeIf {
+            payload(it)?.get("type")?.jsonPrimitive?.content == "PROGRESS"
+        }
+        // If local progress changed after the manual click, its latest
+        // position must be carried forward, not lost when archiving.
+        if ((manualAfter.positionMs != latestLocal.positionMs ||
+            manualAfter.durationMs != latestLocal.durationMs) &&
+            progress == null) return@withLock false
+
+        val replacement = listOfNotNull(reposition, progress)
+        if (old.pending.size - pending.size + replacement.size > 1000)
+            return@withLock false
+
+        if (!stillCurrent(profileId, simklAccountId, deviceId) ||
+            !localUnchanged()) return@withLock false
+        storage.write(profileId, json.encodeToString(old.copy(
+            pending = old.pending.filterNot {
+                seriesKey(it.canonicalSeriesId) == key
+            } + replacement,
+            recoveryArchive = old.recoveryArchive + pending,
+            // A fetched revision is now the anchor for the replacement
+            // queue. Persist it with the replacement so a concurrent/new
+            // progress save can append at revision 667 before upload starts.
+            acknowledged = old.acknowledged + (key to RewatchAcknowledgedCheckpoint(
+                checkpoint.revision, checkpoint.sessionId
+            )),
+            clean = old.clean - key
+        )))
         true
     }
 
@@ -336,6 +554,8 @@ internal class RewatchSyncOutbox(
                 }
                 RewatchOutboxSubmitResult.Conflict ->
                     return@withLock RewatchOutboxDrainResult.CONFLICT
+                RewatchOutboxSubmitResult.InvalidProgress ->
+                    return@withLock RewatchOutboxDrainResult.INVALID_PROGRESS
                 RewatchOutboxSubmitResult.Unauthorized ->
                     return@withLock RewatchOutboxDrainResult.UNAUTHORIZED
                 RewatchOutboxSubmitResult.Unavailable ->

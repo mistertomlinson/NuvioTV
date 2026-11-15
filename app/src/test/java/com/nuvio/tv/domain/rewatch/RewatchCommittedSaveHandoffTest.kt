@@ -27,6 +27,26 @@ class RewatchCommittedSaveHandoffTest {
         }
     }
 
+    @Test fun verifiedManualIntentReachesDurableQueueButOrdinarySavesCannotReposition() = runBlocking {
+        val storage = MemoryStorage()
+        val outbox = RewatchSyncOutbox(storage) { _, account, actor ->
+            account == identity.simklAccountId && actor == device
+        }
+        val sink = RewatchCommittedOutboxSink(
+            currentIdentity = { identity },
+            checkpoint = { _, _ -> RewatchRemoteCheckpoint.Synced(666, initial.sessionId) },
+            outbox = outbox,
+            eventId = { "verified-manual" }
+        )
+        val moved = initial.copy(episode = RewatchEpisode(5, 16),
+            positionMs = 0, durationMs = 0, updatedAtEpochMs = 200)
+        notifyCommittedRewatchSave(sink, true, 2, { 2 }, initial, moved)
+        assertEquals(0, outbox.pendingCount(2, identity.simklAccountId, device))
+        notifyCommittedRewatchSave(sink, true, 2, { 2 }, initial, moved,
+            manualEpisodeSelection = true)
+        assertEquals(1, outbox.pendingCount(2, identity.simklAccountId, device))
+    }
+
     @Test fun rejectedLocalSaveNeverEnqueues() = runBlocking {
         val storage = MemoryStorage()
         val outbox = RewatchSyncOutbox(storage) { _, _, _ -> true }

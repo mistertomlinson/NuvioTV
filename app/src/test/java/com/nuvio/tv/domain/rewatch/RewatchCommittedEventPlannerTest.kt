@@ -26,9 +26,10 @@ class RewatchCommittedEventPlannerTest {
     private fun plan(
         before: RewatchSession?,
         after: RewatchSession,
-        checkpoint: RewatchRemoteCheckpoint
+        checkpoint: RewatchRemoteCheckpoint,
+        manual: Boolean = false
     ): RewatchQueuedEvent? = planCommittedRewatchEvent(
-        before, after, checkpoint, "event-id-1", device
+        before, after, checkpoint, "event-id-1", device, manual
     )
     private fun data(value: RewatchQueuedEvent) =
         Json.parseToJsonElement(value.payload).jsonObject
@@ -98,10 +99,11 @@ class RewatchCommittedEventPlannerTest {
         for (selected in listOf(RewatchEpisode(5, 19), RewatchEpisode(2, 1))) {
             val moved = original.copy(
                 episode = selected, positionMs = 0L, durationMs = 0L,
-                phase = RewatchPhase.PLAYING, lastCompletedEpisode = null
+                phase = RewatchPhase.PLAYING, lastCompletedEpisode = null,
+                updatedAtEpochMs = 200L
             )
             val queued = requireNotNull(plan(original, moved,
-                RewatchRemoteCheckpoint.Synced(9, original.sessionId)))
+                RewatchRemoteCheckpoint.Synced(9, original.sessionId), manual = true))
             val json = data(queued)
             assertEquals("REPOSITION", json["type"]?.jsonPrimitive?.content)
             assertEquals(selected.season.toString(),
@@ -109,6 +111,13 @@ class RewatchCommittedEventPlannerTest {
             assertEquals(original.sessionId, queued.sessionId)
             assertTrue("ownerKey" !in queued.payload)
         }
+    }
+
+    @Test
+    fun episodeDifferenceWithoutVerifiedSelectionNeverAuthorizesReposition() {
+        assertNull(plan(original, original.copy(
+            episode = RewatchEpisode(5, 16), updatedAtEpochMs = 200L
+        ), RewatchRemoteCheckpoint.Synced(9, original.sessionId)))
     }
 
     @Test

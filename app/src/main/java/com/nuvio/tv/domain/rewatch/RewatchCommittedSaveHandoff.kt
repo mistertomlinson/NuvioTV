@@ -17,6 +17,15 @@ fun interface RewatchCommittedSaveSink {
         before: RewatchSession?,
         after: RewatchSession
     )
+
+    suspend fun committedWithIntent(
+        profileId: Int,
+        before: RewatchSession?,
+        after: RewatchSession,
+        manualRepositionApproved: Boolean
+    ) {
+        committed(profileId, before, after)
+    }
 }
 
 internal object DisabledRewatchCommittedSaveSink : RewatchCommittedSaveSink {
@@ -33,7 +42,8 @@ internal suspend fun notifyCommittedRewatchSave(
     profileId: Int,
     activeProfileId: () -> Int,
     before: RewatchSession?,
-    after: RewatchSession
+    after: RewatchSession,
+    manualEpisodeSelection: Boolean = false
 ) {
     if (!accepted || profileId <= 0 || activeProfileId() != profileId ||
         after.ownerKey != "local-profile:$profileId" ||
@@ -44,7 +54,7 @@ internal suspend fun notifyCommittedRewatchSave(
             )
         ))) return
     try {
-        sink.committed(profileId, before, after)
+        sink.committedWithIntent(profileId, before, after, manualEpisodeSelection)
     } catch (error: CancellationException) {
         throw error
     } catch (_: Exception) {
@@ -71,6 +81,13 @@ internal class RewatchCommittedOutboxSink(
         profileId: Int,
         before: RewatchSession?,
         after: RewatchSession
+    ) = committedWithIntent(profileId, before, after, false)
+
+    override suspend fun committedWithIntent(
+        profileId: Int,
+        before: RewatchSession?,
+        after: RewatchSession,
+        manualRepositionApproved: Boolean
     ) {
         val identity = currentIdentity() ?: return
         if (identity.profileId != profileId) return
@@ -83,7 +100,8 @@ internal class RewatchCommittedOutboxSink(
             before = before,
             after = after,
             checkpoint = confirmed,
-            eventId = eventId()
+            eventId = eventId(),
+            manualRepositionApproved = manualRepositionApproved
         )
         // No upload here. The queue is drained only by an explicit,
         // separately validated transport coordinator.

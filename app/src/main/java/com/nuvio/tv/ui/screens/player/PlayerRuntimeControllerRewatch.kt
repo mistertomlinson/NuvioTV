@@ -101,8 +101,8 @@ internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
         if (!previouslyWatched ||
             profileManager.activeProfileId.value != selectedProfile) return
 
-        val now = System.currentTimeMillis()
-        if (now <= stored.updatedAtEpochMs) return
+        if (stored.updatedAtEpochMs >= Long.MAX_VALUE - 1L) return
+        val now = maxOf(System.currentTimeMillis(), stored.updatedAtEpochMs + 1L)
         val moved = stored.copy(
             episode = currentEpisodeKey,
             positionMs = 0L,
@@ -132,7 +132,8 @@ internal suspend fun PlayerRuntimeController.prepareExistingRewatchPlayback() {
             profileId = selectedProfile,
             activeProfileId = { profileManager.activeProfileId.value },
             before = stored,
-            after = moved
+            after = moved,
+            manualEpisodeSelection = true
         )
         return
     }

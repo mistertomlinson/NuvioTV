@@ -70,7 +70,8 @@ internal fun planCommittedRewatchEvent(
     after: RewatchSession,
     checkpoint: RewatchRemoteCheckpoint,
     eventId: String,
-    deviceId: String
+    deviceId: String,
+    manualRepositionApproved: Boolean = false
 ): RewatchQueuedEvent? {
     if (!safeRewatchSession(after) ||
         eventId.isBlank() || eventId.length > 160 ||
@@ -123,9 +124,10 @@ internal fun planCommittedRewatchEvent(
         } else {
             if (before == after) return null
             when {
-                // A deliberate episode-list jump resets playback to zero and
-                // preserves the authenticated replay session/revision. Autoplay
-                // completion still uses COMPLETE_EPISODE with NEXT_UP.
+                // A manually selected, already-watched episode can move
+                // forward OR backward within the same authenticated session.
+                // Autoplay's NEXT_UP transition is handled by COMPLETE_EPISODE,
+                // and cannot masquerade as this zero-position PLAYING move.
                 before.phase in setOf(
                     RewatchPhase.PLAYING,
                     RewatchPhase.NEXT_UP,
@@ -133,10 +135,19 @@ internal fun planCommittedRewatchEvent(
                 ) &&
                     before.episode != after.episode &&
                     after.phase == RewatchPhase.PLAYING &&
-                    after.positionMs == 0L && after.durationMs == 0L &&
+                    // An episode difference alone is not manual-selection evidence.
+                    // This flag may only originate at the player's consumed,
+                    // watched-history-verified manual-selection boundary.
+                    manualRepositionApproved &&
+                    after.updatedAtEpochMs > before.updatedAtEpochMs &&
+                    after.durationMs == 0L &&
+                    // A details-page Resume may carry its previously saved
+                    // offset. Duration zero means unknown until player starts.
                     after.lastCompletedEpisode == null -> {
                     type = "REPOSITION"
                     episode = after.episode
+                    position = after.positionMs
+                    duration = after.durationMs
                 }
                 before.phase == RewatchPhase.AWAITING_METADATA &&
                     after.lastCompletedEpisode == before.lastCompletedEpisode &&

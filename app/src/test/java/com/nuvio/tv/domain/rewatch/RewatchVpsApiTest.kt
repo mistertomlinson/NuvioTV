@@ -86,6 +86,14 @@ class RewatchVpsApiTest {
     }
 
     @Test
+    fun invalidProgressIsDistinguishedFromAStaleRevisionConflict() = runBlocking {
+        val api = RewatchVpsApi(RewatchHttpExchange { _, _, _, _ ->
+            RewatchHttpResponse(409, """{"error":"invalid_progress"}""")
+        })
+        assertEquals(RewatchOutboxSubmitResult.InvalidProgress, api.submit(credential, event()))
+    }
+
+    @Test
     fun authenticatedAcceptedEventRequiresHigherServerRevision() = runBlocking {
         val okay = RewatchVpsApi(RewatchHttpExchange { _, _, _, _ ->
             RewatchHttpResponse(200, """{"schemaVersion":1,"revision":1}""")

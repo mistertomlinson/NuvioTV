@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.detail
 
 import com.nuvio.tv.domain.rewatch.RewatchEpisode
+import com.nuvio.tv.domain.rewatch.RewatchDetailsPlaybackOrigin
 import com.nuvio.tv.domain.rewatch.RewatchManualDetailsSelection
 
 import android.os.Build
@@ -430,17 +431,17 @@ fun MetaDetailsScreen(
                     shouldShowCommentsSection = uiState.shouldShowCommentsSection,
                     selectedComment = uiState.selectedComment,
                     onSeasonSelected = { viewModel.onEvent(MetaDetailsEvent.OnSeasonSelected(it)) },
-                    onEpisodeClick = { video ->
+                    onEpisodeClick = { video, origin ->
                         val season = video.season
                         val episode = video.episode
-                        if (season != null && season > 0 &&
+                        val selected = if (season != null && season > 0 &&
                             episode != null && episode > 0) {
-                            RewatchManualDetailsSelection.arm(
-                                viewModel.activeRewatchProfileId, meta.id,
-                                RewatchEpisode(season, episode),
-                                System.currentTimeMillis()
-                            )
-                        }
+                            RewatchEpisode(season, episode)
+                        } else null
+                        RewatchManualDetailsSelection.onPlaybackRequested(
+                            viewModel.activeRewatchProfileId, meta.id, selected,
+                            origin, System.currentTimeMillis()
+                        )
                         onPlayClick(
                             video.id,
                             meta.apiType,
@@ -457,17 +458,17 @@ fun MetaDetailsScreen(
                             video.runtime
                         )
                     },
-                    onEpisodeManualPlayClick = { video ->
+                    onEpisodeManualPlayClick = { video, origin ->
                         val season = video.season
                         val episode = video.episode
-                        if (season != null && season > 0 &&
+                        val selected = if (season != null && season > 0 &&
                             episode != null && episode > 0) {
-                            RewatchManualDetailsSelection.arm(
-                                viewModel.activeRewatchProfileId, meta.id,
-                                RewatchEpisode(season, episode),
-                                System.currentTimeMillis()
-                            )
-                        }
+                            RewatchEpisode(season, episode)
+                        } else null
+                        RewatchManualDetailsSelection.onPlaybackRequested(
+                            viewModel.activeRewatchProfileId, meta.id, selected,
+                            origin, System.currentTimeMillis()
+                        )
                         onPlayManuallyClick(
                             video.id,
                             meta.apiType,
@@ -485,6 +486,10 @@ fun MetaDetailsScreen(
                         )
                     },
                     onPlayClick = { videoId ->
+                        RewatchManualDetailsSelection.onPlaybackRequested(
+                            viewModel.activeRewatchProfileId, meta.id, null,
+                            RewatchDetailsPlaybackOrigin.HERO_BUTTON, System.currentTimeMillis()
+                        )
                         onPlayClick(
                             videoId,
                             meta.apiType,
@@ -502,6 +507,10 @@ fun MetaDetailsScreen(
                         )
                     },
                     onPlayManuallyClick = { videoId ->
+                        RewatchManualDetailsSelection.onPlaybackRequested(
+                            viewModel.activeRewatchProfileId, meta.id, null,
+                            RewatchDetailsPlaybackOrigin.HERO_BUTTON, System.currentTimeMillis()
+                        )
                         onPlayManuallyClick(
                             videoId,
                             meta.apiType,
@@ -731,8 +740,8 @@ private fun MetaDetailsContent(
     shouldShowCommentsSection: Boolean = false,
     selectedComment: TraktCommentReview? = null,
     onSeasonSelected: (Int) -> Unit,
-    onEpisodeClick: (Video) -> Unit,
-    onEpisodeManualPlayClick: (Video) -> Unit,
+    onEpisodeClick: (Video, RewatchDetailsPlaybackOrigin) -> Unit,
+    onEpisodeManualPlayClick: (Video, RewatchDetailsPlaybackOrigin) -> Unit,
     onPlayClick: (String) -> Unit,
     onPlayManuallyClick: (String) -> Unit,
     showManualPlayOption: Boolean,
@@ -1335,7 +1344,7 @@ private fun MetaDetailsContent(
             } else {
                 markHeroRestore()
                 if (heroVideo != null) {
-                    onEpisodeClick(heroVideo)
+                    onEpisodeClick(heroVideo, RewatchDetailsPlaybackOrigin.HERO_BUTTON)
                 } else {
                     onPlayClick(meta.id)
                 }
@@ -1346,7 +1355,7 @@ private fun MetaDetailsContent(
         {
             markHeroRestore()
             if (heroVideo != null) {
-                onEpisodeManualPlayClick(heroVideo)
+                onEpisodeManualPlayClick(heroVideo, RewatchDetailsPlaybackOrigin.HERO_BUTTON)
             } else {
                 onPlayManuallyClick(meta.id)
             }
@@ -1356,13 +1365,13 @@ private fun MetaDetailsContent(
     val episodeClick = remember(onEpisodeClick) {
         { video: Video ->
             markEpisodePlaybackRestore(video.id)
-            onEpisodeClick(video)
+            onEpisodeClick(video, RewatchDetailsPlaybackOrigin.EPISODE_LIST)
         }
     }
     val episodeManualClick = remember(onEpisodeManualPlayClick) {
         { video: Video ->
             markEpisodePlaybackRestore(video.id)
-            onEpisodeManualPlayClick(video)
+            onEpisodeManualPlayClick(video, RewatchDetailsPlaybackOrigin.EPISODE_LIST)
         }
     }
 
