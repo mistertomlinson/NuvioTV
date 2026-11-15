@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - fix/android-manual-rewatch-reposition-20261113
+      - fix/android-details-rewatch-cursor-20261115
     paths:
       - 'app/src/**'
       - '.github/workflows/rewatch-manual-reposition.yml'
@@ -33,6 +34,8 @@ jobs:
           ./gradlew :app:testSideloadUnitTest \
             --tests '*RewatchCommittedEventPlannerTest' \
             --tests '*RewatchManualDetailsSelectionTest' \
+            --tests '*RewatchDetailsTargetTest' \
+            --tests '*MetaDetailsRewatchNextUpTest' \
             --tests '*AndroidRewatchReconcilerTest' \
             --tests '*RewatchLocalSyncLedgerTest' \
             --tests '*RewatchSessionStoreTest' \
@@ -41,7 +44,7 @@ jobs:
       - name: Summarize verification
         run: |
           {
-            echo "## Manual rewatch reposition"
+            echo "## Manual rewatch reposition and Details cursor"
             echo "ANDROID_TESTS=PASSED"
             echo "VPS=UNTOUCHED"
             echo "INSTALLED_ANDROID_APK=UNTOUCHED"
