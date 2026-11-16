@@ -141,7 +141,6 @@ internal fun PlaybackSettingsSections(
 ) {
     var generalExpanded by rememberSaveable { mutableStateOf(false) }
     var afrExpanded by rememberSaveable { mutableStateOf(false) }
-    var afrClosing by remember { mutableStateOf(false) }
     var streamExpanded by rememberSaveable { mutableStateOf(false) }
     var audioTrailerExpanded by rememberSaveable { mutableStateOf(false) }
     var subtitlesExpanded by rememberSaveable { mutableStateOf(false) }
@@ -336,17 +335,7 @@ internal fun PlaybackSettingsSections(
     }
 
     fun toggleAfr() {
-        if (afrExpanded) {
-            afrClosing = true
-            afrExpanded = false
-            playbackAnimationScope.launch {
-                delay(240L)
-                afrClosing = false
-            }
-        } else {
-            afrClosing = false
-            afrExpanded = true
-        }
+        afrExpanded = !afrExpanded
     }
 
     val defaultGeneralHeaderFocus = remember { FocusRequester() }
@@ -524,13 +513,7 @@ internal fun PlaybackSettingsSections(
                             focusedSection = PlaybackSection.GENERAL
                         },
                         enabled = !generalUi.isExternalPlayer,
-                        groupPosition =
-                            if (afrExpanded) {
-                                SettingsGroupPosition.BOTTOM
-                            } else {
-                                SettingsGroupPosition.MIDDLE
-                            },
-                        animateBottomFlatten = afrClosing
+                        groupPosition = SettingsGroupPosition.MIDDLE
                     )
 
                     PlaybackExpandableGroup(
@@ -545,9 +528,8 @@ internal fun PlaybackSettingsSections(
                             focusedSection = PlaybackSection.GENERAL
                         },
                         enabled = !generalUi.isExternalPlayer,
-                        groupPosition = SettingsGroupPosition.BOTTOM,
-                        animateTopFlatten = afrClosing,
-                        deferBottomCorner = afrClosing
+                        groupPosition = SettingsGroupPosition.MIDDLE,
+                        clipExpandedContentBottomCorners = false
                     ) {
                         FrameRateMatchingModeOptions(
                             selectedMode =
