@@ -120,6 +120,7 @@ internal fun PlaybackSettingsSections(
     onSetNextEpisodeThresholdMinutesBeforeEnd: (Float) -> Unit,
     onSetStreamAutoPlayTimeoutSeconds: (Int) -> Unit,
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
+    onSetHiddenVideoCodecIds: (Set<String>) -> Unit,
     onSetLoadingOverlayEnabled: (Boolean) -> Unit,
     onSetPauseOverlayEnabled: (Boolean) -> Unit,
     onSetOsdClockEnabled: (Boolean) -> Unit,
@@ -640,6 +641,8 @@ internal fun PlaybackSettingsSections(
                             onSetStreamAutoPlayTimeoutSeconds,
                         onSetReuseLastLinkEnabled =
                             onSetReuseLastLinkEnabled,
+                        onSetHiddenVideoCodecIds =
+                            onSetHiddenVideoCodecIds,
                         onItemFocused = {
                             focusedSection =
                                 PlaybackSection.STREAM_SELECTION
