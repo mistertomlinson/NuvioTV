@@ -321,6 +321,13 @@ internal fun PostPlayRecommendationOverlay(
                     maxWidth - 48.dp * fixedIconCount - spacing * (itemCount - 1)
                 val buttonWidth =
                     minOf((maxWidth - spacing) / 2, availableActionWidth / actionCount)
+                // The exiting Trailer retains its original two-action width
+                // while the Play button animates to its wider target.
+                val trailerButtonWidth = minOf(
+                    (maxWidth - spacing) / 2,
+                    (maxWidth - 48.dp * fixedIconCount -
+                        spacing * (fixedIconCount + 1)) / 2
+                )
                 val playWidth by animateDpAsState(
                     targetValue = buttonWidth,
                     animationSpec = tween(
@@ -385,7 +392,7 @@ internal fun PostPlayRecommendationOverlay(
                                 focusRequester = trailerFocusRequester,
                                 onClick = onPlayTrailer,
                                 modifier = Modifier
-                                    .width(buttonWidth)
+                                    .width(trailerButtonWidth)
                                     .focusProperties {
                                         when {
                                             descriptionTruncated -> up = readMoreFocusRequester
