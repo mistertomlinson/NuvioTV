@@ -96,6 +96,21 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
     onSetHiddenVideoCodecIds: (Set<String>) -> Unit,
     onItemFocused: () -> Unit = {}
 ) {
+    // Codec expansion changes the rounded boundary of the preceding setting.
+    var codecExpanded by rememberSaveable { mutableStateOf(false) }
+    var codecClosing by remember { mutableStateOf(false) }
+    LaunchedEffect(codecExpanded, codecClosing) {
+        if (!codecExpanded && codecClosing) {
+            delay(240L)
+            codecClosing = false
+        }
+    }
+    val precedingCodecPosition = if (codecExpanded) {
+        SettingsGroupPosition.BOTTOM
+    } else {
+        SettingsGroupPosition.MIDDLE
+    }
+
     ToggleSettingsItem(
         icon = Icons.Default.History,
         title = stringResource(R.string.autoplay_reuse_last_link),
@@ -222,7 +237,9 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 onValueChange = {
                     onSetNextEpisodeThresholdPercent(it / 2f)
                 },
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = precedingCodecPosition,
+                animateBottomFlatten = codecClosing
             )
         }
 
@@ -251,7 +268,9 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                         it / 2f
                     )
                 },
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = precedingCodecPosition,
+                animateBottomFlatten = codecClosing
             )
         }
     }
@@ -300,7 +319,14 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 ),
                 subtitle = addonSubtitle,
                 onClick = onShowAddonSelectionDialog,
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = if (
+                    playerSettings.streamAutoPlaySource ==
+                        StreamAutoPlaySource.INSTALLED_ADDONS_ONLY &&
+                    playerSettings.streamAutoPlayMode !=
+                        StreamAutoPlayMode.REGEX_MATCH
+                ) precedingCodecPosition else null,
+                animateBottomFlatten = codecClosing
             )
         }
 
@@ -326,7 +352,11 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 ),
                 subtitle = pluginSubtitle,
                 onClick = onShowPluginSelectionDialog,
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = if (
+                    playerSettings.streamAutoPlayMode != StreamAutoPlayMode.REGEX_MATCH
+                ) precedingCodecPosition else null,
+                animateBottomFlatten = codecClosing
             )
         }
     }
@@ -347,14 +377,27 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
             title = stringResource(R.string.autoplay_regex_title),
             subtitle = regexSubtitle,
             onClick = onShowRegexDialog,
-            onFocused = onItemFocused
+            onFocused = onItemFocused,
+            groupPosition = precedingCodecPosition,
+            animateBottomFlatten = codecClosing
         )
     }
 
     CodecFilterSettingsItem(
         hiddenCodecIds = playerSettings.hiddenVideoCodecIds,
         onChange = onSetHiddenVideoCodecIds,
-        onFocused = onItemFocused
+        onFocused = onItemFocused,
+        expanded = codecExpanded,
+        closing = codecClosing,
+        onToggle = {
+            if (codecExpanded) {
+                codecClosing = true
+                codecExpanded = false
+            } else {
+                codecClosing = false
+                codecExpanded = true
+            }
+        }
     )
 }
 
@@ -362,17 +405,11 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
 private fun CodecFilterSettingsItem(
     hiddenCodecIds: Set<String>,
     onChange: (Set<String>) -> Unit,
-    onFocused: () -> Unit
+    onFocused: () -> Unit,
+    expanded: Boolean,
+    closing: Boolean,
+    onToggle: () -> Unit
 ) {
-    var expanded by rememberSaveable { mutableStateOf(false) }
-    var closing by remember { mutableStateOf(false) }
-
-    LaunchedEffect(expanded, closing) {
-        if (!expanded && closing) {
-            delay(240L)
-            closing = false
-        }
-    }
 
     val activeNames = VideoCodecOption.entries
         .filter { it.id in hiddenCodecIds }
@@ -394,20 +431,12 @@ private fun CodecFilterSettingsItem(
         SettingsActionRow(
             title = stringResource(R.string.playback_codec_filters_title),
             subtitle = summary,
-            onClick = {
-                if (expanded) {
-                    closing = true
-                    expanded = false
-                } else {
-                    closing = false
-                    expanded = true
-                }
-            },
+            onClick = onToggle,
             onFocused = onFocused,
             trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
             showDivider = false,
-            groupPosition = if (expanded || closing) SettingsGroupPosition.TOP else SettingsGroupPosition.SINGLE,
-            animateBottomFlatten = closing
+            groupPosition = if (expanded) SettingsGroupPosition.TOP else SettingsGroupPosition.MIDDLE,
+            animateTopFlatten = closing
         )
 
         androidx.compose.animation.AnimatedVisibility(
