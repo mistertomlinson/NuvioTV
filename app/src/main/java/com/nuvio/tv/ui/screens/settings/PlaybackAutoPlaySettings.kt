@@ -238,8 +238,15 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                     onSetNextEpisodeThresholdPercent(it / 2f)
                 },
                 onFocused = onItemFocused,
-                groupPosition = precedingCodecPosition,
-                animateBottomFlatten = codecClosing
+                // Only the directly adjacent row may change its corner shape.
+                // Source, plugin, addon and regex rows appear after this slider
+                // whenever the selection mode is not Manual.
+                groupPosition = if (
+                    playerSettings.streamAutoPlayMode == StreamAutoPlayMode.MANUAL
+                ) precedingCodecPosition else null,
+                animateBottomFlatten =
+                    codecClosing && playerSettings.streamAutoPlayMode ==
+                        StreamAutoPlayMode.MANUAL
             )
         }
 
@@ -269,8 +276,15 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                     )
                 },
                 onFocused = onItemFocused,
-                groupPosition = precedingCodecPosition,
-                animateBottomFlatten = codecClosing
+                // Only the directly adjacent row may change its corner shape.
+                // Source, plugin, addon and regex rows appear after this slider
+                // whenever the selection mode is not Manual.
+                groupPosition = if (
+                    playerSettings.streamAutoPlayMode == StreamAutoPlayMode.MANUAL
+                ) precedingCodecPosition else null,
+                animateBottomFlatten =
+                    codecClosing && playerSettings.streamAutoPlayMode ==
+                        StreamAutoPlayMode.MANUAL
             )
         }
     }
