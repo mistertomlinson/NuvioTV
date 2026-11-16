@@ -584,6 +584,7 @@ internal fun PlaybackSettingsSections(
                         )
                     },
                     focusRequester = streamHeaderFocus,
+                    clipExpandedContentBottomCorners = false,
                     groupPosition = groupPositionFor(
                         PlaybackSection.STREAM_SELECTION
                     ),
@@ -785,6 +786,7 @@ private fun PlaybackExpandableGroup(
     animateTopFlatten: Boolean = false,
     animateBottomFlatten: Boolean = false,
     deferBottomCorner: Boolean = false,
+    clipExpandedContentBottomCorners: Boolean = true,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     var previousExpanded by remember {
@@ -854,7 +856,9 @@ private fun PlaybackExpandableGroup(
                 shrinkTowards = Alignment.Top
             )
         ) {
-            SettingsExpandedSectionSurface {
+            SettingsExpandedSectionSurface(
+                clipBottomCorners = clipExpandedContentBottomCorners
+            ) {
                 content()
             }
         }
