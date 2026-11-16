@@ -728,13 +728,14 @@ internal fun SettingsGroupCard(
 @Composable
 internal fun SettingsExpandedSectionSurface(
     modifier: Modifier = Modifier,
+    clipBottomCorners: Boolean = true,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val shape = settingsGroupShape(SettingsGroupPosition.BOTTOM)
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape),
+            .then(if (clipBottomCorners) Modifier.clip(shape) else Modifier),
         verticalArrangement = Arrangement.spacedBy(SettingsRowGap),
         content = content
     )
