@@ -96,9 +96,16 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
     onSetHiddenVideoCodecIds: (Set<String>) -> Unit,
     onItemFocused: () -> Unit = {}
 ) {
-    // The entire Playback page shares one divided group: nested codec
-    // controls never change the corners of unrelated rows.
+    // An open codec list is a nested group. Only its immediate visible
+    // predecessor closes the preceding group; other rows keep their corners.
     var codecExpanded by rememberSaveable { mutableStateOf(false) }
+
+    fun beforeCodecsPosition(isLastVisibleRow: Boolean): SettingsGroupPosition =
+        if (codecExpanded && isLastVisibleRow) {
+            SettingsGroupPosition.BOTTOM
+        } else {
+            SettingsGroupPosition.MIDDLE
+        }
 
     ToggleSettingsItem(
         icon = Icons.Default.History,
@@ -226,7 +233,11 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 onValueChange = {
                     onSetNextEpisodeThresholdPercent(it / 2f)
                 },
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = beforeCodecsPosition(
+                    playerSettings.streamAutoPlayMode == StreamAutoPlayMode.MANUAL
+                ),
+                animateBottomFlatten = true
             )
         }
 
@@ -255,7 +266,11 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                         it / 2f
                     )
                 },
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = beforeCodecsPosition(
+                    playerSettings.streamAutoPlayMode == StreamAutoPlayMode.MANUAL
+                ),
+                animateBottomFlatten = true
             )
         }
     }
@@ -304,7 +319,12 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 ),
                 subtitle = addonSubtitle,
                 onClick = onShowAddonSelectionDialog,
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = beforeCodecsPosition(
+                    playerSettings.streamAutoPlayMode == StreamAutoPlayMode.FIRST_STREAM &&
+                        playerSettings.streamAutoPlaySource == StreamAutoPlaySource.INSTALLED_ADDONS_ONLY
+                ),
+                animateBottomFlatten = true
             )
         }
 
@@ -330,7 +350,11 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
                 ),
                 subtitle = pluginSubtitle,
                 onClick = onShowPluginSelectionDialog,
-                onFocused = onItemFocused
+                onFocused = onItemFocused,
+                groupPosition = beforeCodecsPosition(
+                    playerSettings.streamAutoPlayMode == StreamAutoPlayMode.FIRST_STREAM
+                ),
+                animateBottomFlatten = true
             )
         }
     }
@@ -351,7 +375,11 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
             title = stringResource(R.string.autoplay_regex_title),
             subtitle = regexSubtitle,
             onClick = onShowRegexDialog,
-            onFocused = onItemFocused
+            onFocused = onItemFocused,
+            groupPosition = beforeCodecsPosition(
+                true
+            ),
+            animateBottomFlatten = true
         )
     }
 
@@ -381,8 +409,8 @@ private fun CodecFilterSettingsItem(
         stringResource(R.string.playback_codec_filters_summary, activeNames.joinToString(", "))
     }
 
-    // Stream Selection is in the middle of one continuous Playback bubble:
-    // the nested header and every codec option have square corners.
+    // The expanded header owns the top corners; the final codec owns the bottom.
+    // Closed, the header rejoins the surrounding divided settings group.
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(
@@ -396,7 +424,8 @@ private fun CodecFilterSettingsItem(
             onFocused = onFocused,
             trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
             showDivider = false,
-            groupPosition = SettingsGroupPosition.MIDDLE
+            groupPosition = if (expanded) SettingsGroupPosition.TOP else SettingsGroupPosition.MIDDLE,
+            animateTopFlatten = true
         )
 
         androidx.compose.animation.AnimatedVisibility(
@@ -416,8 +445,8 @@ private fun CodecFilterSettingsItem(
                 shrinkTowards = Alignment.Top
             )
         ) {
-            SettingsExpandedSectionSurface(clipBottomCorners = false) {
-                VideoCodecOption.entries.forEach { codec ->
+            SettingsExpandedSectionSurface {
+                VideoCodecOption.entries.forEachIndexed { index, codec ->
                     SettingsToggleRow(
                         title = codec.displayName,
                         subtitle = if (codec == VideoCodecOption.DOLBY_VISION) {
@@ -432,7 +461,11 @@ private fun CodecFilterSettingsItem(
                         },
                         onFocused = onFocused,
                         showDivider = false,
-                        groupPosition = SettingsGroupPosition.MIDDLE
+                        groupPosition = if (index == VideoCodecOption.entries.lastIndex) {
+                            SettingsGroupPosition.BOTTOM
+                        } else {
+                            SettingsGroupPosition.MIDDLE
+                        }
                     )
                 }
             }
