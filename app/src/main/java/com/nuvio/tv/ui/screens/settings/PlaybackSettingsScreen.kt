@@ -583,11 +583,20 @@ internal fun NavigationSettingsItem(
     subtitle: String,
     onClick: () -> Unit,
     onFocused: () -> Unit = {},
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    groupPosition: SettingsGroupPosition? = null,
+    animateBottomFlatten: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
-    val rowShape = RoundedCornerShape(SettingsInnerRowRadius)
+    val rowShape = if (groupPosition != null) {
+        animatedSettingsGroupShape(
+            position = groupPosition,
+            animateBottomFlatten = animateBottomFlatten
+        )
+    } else {
+        RoundedCornerShape(SettingsInnerRowRadius)
+    }
 
     Card(
         onClick = { if (enabled) onClick() },
@@ -676,13 +685,20 @@ internal fun SliderSettingsItem(
     onFocused: () -> Unit = {},
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
-    useDialogGlass: Boolean = false
+    useDialogGlass: Boolean = false,
+    groupPosition: SettingsGroupPosition? = null,
+    animateBottomFlatten: Boolean = false
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val contentAlpha = if (enabled) 1f else 0.4f
     val rowShape =
         if (useDialogGlass) {
             SettingsDialogPillShape
+        } else if (groupPosition != null) {
+            animatedSettingsGroupShape(
+                position = groupPosition,
+                animateBottomFlatten = animateBottomFlatten
+            )
         } else {
             RoundedCornerShape(SettingsInnerRowRadius)
         }
