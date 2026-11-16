@@ -26,6 +26,8 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.PlayArrow
@@ -38,6 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,6 +65,7 @@ import androidx.tv.material3.ExperimentalTvMaterial3Api
 import androidx.tv.material3.Icon
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
+import com.nuvio.tv.core.streams.VideoCodecOption
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.NextEpisodeThresholdMode
 import com.nuvio.tv.data.local.StreamAutoPlayMode
@@ -70,6 +74,7 @@ import com.nuvio.tv.ui.components.NuvioDialog
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.roundToInt
 import java.util.Locale
+import kotlinx.coroutines.delay
 import com.nuvio.tv.ui.components.glassDialogFocusTransform
 
 @Composable
@@ -88,6 +93,7 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
     onSetNextEpisodeThresholdMinutesBeforeEnd: (Float) -> Unit,
     onSetStreamAutoPlayTimeoutSeconds: (Int) -> Unit,
     onSetReuseLastLinkEnabled: (Boolean) -> Unit,
+    onSetHiddenVideoCodecIds: (Set<String>) -> Unit,
     onItemFocused: () -> Unit = {}
 ) {
     ToggleSettingsItem(
@@ -343,6 +349,109 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
             onClick = onShowRegexDialog,
             onFocused = onItemFocused
         )
+    }
+
+    CodecFilterSettingsItem(
+        hiddenCodecIds = playerSettings.hiddenVideoCodecIds,
+        onChange = onSetHiddenVideoCodecIds,
+        onFocused = onItemFocused
+    )
+}
+
+@Composable
+private fun CodecFilterSettingsItem(
+    hiddenCodecIds: Set<String>,
+    onChange: (Set<String>) -> Unit,
+    onFocused: () -> Unit
+) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var closing by remember { mutableStateOf(false) }
+
+    LaunchedEffect(expanded, closing) {
+        if (!expanded && closing) {
+            delay(240L)
+            closing = false
+        }
+    }
+
+    val activeNames = VideoCodecOption.entries
+        .filter { it.id in hiddenCodecIds }
+        .map { it.displayName }
+    val summary = if (activeNames.isEmpty()) {
+        stringResource(R.string.playback_codec_filters_none)
+    } else {
+        stringResource(R.string.playback_codec_filters_summary, activeNames.joinToString(", "))
+    }
+
+    // Match the existing PlaybackExpandableGroup design: top-rounded parent,
+    // square divided middle rows, and bottom-rounded final child.
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(
+            if (expanded || closing) SettingsRowGap else 0.dp
+        )
+    ) {
+        SettingsActionRow(
+            title = stringResource(R.string.playback_codec_filters_title),
+            subtitle = summary,
+            onClick = {
+                if (expanded) {
+                    closing = true
+                    expanded = false
+                } else {
+                    closing = false
+                    expanded = true
+                }
+            },
+            onFocused = onFocused,
+            trailingIcon = if (expanded) Icons.Default.ExpandMore else Icons.Default.ChevronRight,
+            showDivider = false,
+            groupPosition = if (expanded || closing) SettingsGroupPosition.TOP else SettingsGroupPosition.SINGLE,
+            animateBottomFlatten = closing
+        )
+
+        androidx.compose.animation.AnimatedVisibility(
+            visible = expanded,
+            enter = androidx.compose.animation.expandVertically(
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 240,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing
+                ),
+                expandFrom = Alignment.Top
+            ),
+            exit = androidx.compose.animation.shrinkVertically(
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = 240,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing
+                ),
+                shrinkTowards = Alignment.Top
+            )
+        ) {
+            SettingsExpandedSectionSurface {
+                VideoCodecOption.entries.forEachIndexed { index, codec ->
+                    SettingsToggleRow(
+                        title = codec.displayName,
+                        subtitle = if (codec == VideoCodecOption.DOLBY_VISION) {
+                            "Video format, not a separate codec"
+                        } else null,
+                        checked = codec.id in hiddenCodecIds,
+                        onToggle = {
+                            onChange(
+                                if (codec.id in hiddenCodecIds) hiddenCodecIds - codec.id
+                                else hiddenCodecIds + codec.id
+                            )
+                        },
+                        onFocused = onFocused,
+                        showDivider = false,
+                        groupPosition = if (index == VideoCodecOption.entries.lastIndex) {
+                            SettingsGroupPosition.BOTTOM
+                        } else {
+                            SettingsGroupPosition.MIDDLE
+                        }
+                    )
+                }
+            }
+        }
     }
 }
 
