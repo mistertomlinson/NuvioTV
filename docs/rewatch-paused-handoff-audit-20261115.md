@@ -1,3 +1,5 @@
+> Historical audit for the November 15 source. See [the November 16 completion-conflict correction](rewatch-completion-conflict-20261116.md) for the currently implemented completion recovery.
+
 # Paused Android / iPad rewatch handoff
 
 This branch extends installed Android commit 44bb0660edb8b7bd0a2bc7f45f5f54afde2b0606. Its Details cursor and explicit-selection safety fixes remain included. No live app, VPS, login, or Simkl history was changed while preparing this source.

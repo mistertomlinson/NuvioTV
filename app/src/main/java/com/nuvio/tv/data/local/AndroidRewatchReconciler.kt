@@ -139,7 +139,11 @@ internal class AndroidRewatchReconciler(
                     val shape = if (session.canonicalSeriesId.trim()
                             .lowercase().startsWith("imdb:")) "PREFIXED" else "BARE"
                     shape + ":S" + session.episode.season + "E" +
-                        session.episode.episode + ":" + session.phase.name
+                        session.episode.episode + ":" + session.phase.name +
+                        ":position=" + session.positionMs + ":duration=" + session.durationMs +
+                        ":completed=" + (session.lastCompletedEpisode?.let {
+                            "S" + it.season + "E" + it.episode
+                        } ?: "NONE")
                 }
                 android.util.Log.i("RewatchVpsTest",
                     "pull_stage=LOCAL_OBSERVED count=" + observed.sessions.size +
@@ -181,16 +185,20 @@ internal class AndroidRewatchReconciler(
             runCatching { android.util.Log.i("RewatchVpsTest",
                 "pull_revision=" + verified.checkpoint.revision +
                     " remote_episode=S" + remote.episode.season + "E" + remote.episode.episode +
-                    " local_generation=" + observed.generation + " pending=" + pending) }
+                    " local_generation=" + observed.generation + " pending=" + pending +
+                    " same_session=" + (current?.sessionId == remote.sessionId)) }
             if (pending && current != null) {
-                val archived = outbox.archiveSupersededProgress(
+                val archived = outbox.archiveSupersededPlayback(
                     identity, current, observed.generation, verified,
                     localUnchanged = {
                         unchanged() && local.observe(identity.profileId) == observed
+                    },
+                    diagnostic = { reason ->
+                        android.util.Log.i("RewatchVpsTest", "queue_recovery_declined=" + reason)
                     }
                 )
                 runCatching { android.util.Log.i("RewatchVpsTest",
-                    "paused_progress_handoff=" + if (archived) "ARCHIVED" else "DECLINED") }
+                    "queued_playback_handoff=" + if (archived) "ARCHIVED" else "DECLINED") }
                 pending = outbox.hasPendingForSeries(
                     identity.profileId, identity.simklAccountId,
                     identity.deviceId, canonicalSeriesId

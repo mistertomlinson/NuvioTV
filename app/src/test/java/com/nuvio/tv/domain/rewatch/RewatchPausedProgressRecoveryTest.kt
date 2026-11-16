@@ -33,7 +33,7 @@ class RewatchPausedProgressRecoveryTest {
     }
     private suspend fun archive(q: RewatchSyncOutbox, local: RewatchSession = paused,
         proof: RewatchRemoteLookup = lookup(), unchanged: suspend () -> Boolean = { true }) =
-        q.archiveSupersededProgress(who, local, 7, proof, unchanged)
+        q.archiveSupersededPlayback(who, local, 7, proof, unchanged)
 
     @Test fun exactQueuedEventsAreArchivedAndReceiptSurvivesRestart() = runBlocking {
         val storage = MemoryStorage(); val q = queue(storage); pending(q)
@@ -63,8 +63,8 @@ class RewatchPausedProgressRecoveryTest {
         }
     }
 
-    @Test fun sameEpisodeAndChangedSessionAreNotAnEpisodeHandoff() = runBlocking {
-        for (session in listOf(paused.copy(updatedAtEpochMs = 0), remote.copy(sessionId = "new-session"))) {
+    @Test fun sameEpisodeWithDifferentPositionAndChangedSessionStayPending() = runBlocking {
+        for (session in listOf(paused.copy(positionMs = paused.positionMs + 1000, updatedAtEpochMs = 0), remote.copy(sessionId = "new-session"))) {
             val storage = MemoryStorage(); val q = queue(storage); pending(q)
             val original = storage.raw
             assertFalse(archive(q, proof = lookup(session)))

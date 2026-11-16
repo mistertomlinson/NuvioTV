@@ -107,9 +107,9 @@ internal data class RewatchOutboxEnvelope(
     // Never destroy old offline replay events during an explicit recovery.
     // Superseded events stay available locally for audit or manual restore.
     val recoveryArchive: List<RewatchQueuedEvent> = emptyList(),
-    // Crash-safe receipt for passive progress archived after a newer remote
-    // episode replaced the paused player's episode. Local generation is still
-    // checked atomically by the replay store before applying that handoff.
+    // Crash-safe receipt for automatic playback events archived after a newer
+    // authenticated cursor superseded them. Keep this serialized field name.
+    // Local generation is checked atomically before applying that handoff.
     val archivedProgress: Map<String, RewatchArchivedProgressProof> = emptyMap()
 )
 
@@ -234,7 +234,7 @@ internal class RewatchSyncOutbox(
                 proof.cursor.sessionId.isNotBlank() &&
                 proof.cursor.season > 0 && proof.cursor.episode > 0 &&
                 proof.cursor.positionMs >= 0L && proof.cursor.durationMs >= 0L &&
-                proof.cursor.phase == RewatchPhase.PLAYING.name
+                validArchivedPlaybackCursor(proof.cursor)
         }) { "Corrupted archived replay progress proof" }
         return value
     }
@@ -324,69 +324,60 @@ internal class RewatchSyncOutbox(
     }
 
     /**
-     * A paused player's passive progress cannot move a newer authenticated
-     * remote episode back. Archive only a complete, obsolete PROGRESS chain
-     * that exactly explains the current local cursor. Explicit selections,
-     * completions, malformed events and unexplained local changes stay pending.
-     * The receipt survives a crash between this write and the local apply.
+     * A newer authenticated cursor can supersede obsolete automatic playback
+     * events, including completion and metadata resolution. Replay the entire
+     * chain and match its final cursor before preserving it in the archive.
+     * Explicit selections and unexplained changes stay pending. The receipt
+     * survives a crash between this write and the atomic local application.
      */
-    suspend fun archiveSupersededProgress(
+    suspend fun archiveSupersededPlayback(
         identity: RewatchCommitIdentity,
         local: RewatchSession,
         generation: Long,
         lookup: RewatchRemoteLookup,
-        localUnchanged: suspend () -> Boolean
+        localUnchanged: suspend () -> Boolean,
+        diagnostic: (String) -> Unit = {}
     ): Boolean = mutex.withLock {
+        fun decline(reason: String): Boolean {
+            runCatching { diagnostic(reason) }
+            return false
+        }
         val (profileId, accountId, deviceId) = identity
         if (!stillCurrent(profileId, accountId, deviceId) || !localUnchanged() ||
             local.ownerKey != "local-profile:$profileId" || generation < 0L ||
-            local.phase != RewatchPhase.PLAYING) return@withLock false
-        val verified = lookup as? RewatchRemoteLookup.Verified ?: return@withLock false
+            generation >= Long.MAX_VALUE - 1L) return@withLock decline("IDENTITY_OR_LOCAL_CHANGED")
+        val verified = lookup as? RewatchRemoteLookup.Verified ?: return@withLock decline("UNVERIFIED_REMOTE")
         val checkpoint = verified.checkpoint as? RewatchRemoteCheckpoint.Synced
-            ?: return@withLock false
-        val remote = verified.remoteSession ?: return@withLock false
+            ?: return@withLock decline("NO_SYNCED_CHECKPOINT")
+        val remote = verified.remoteSession ?: return@withLock decline("NO_REMOTE_CURSOR")
         val key = seriesKey(local.canonicalSeriesId)
         if (remote.ownerKey != local.ownerKey ||
             seriesKey(remote.canonicalSeriesId) != key ||
             checkpoint.sessionId != remote.sessionId ||
             remote.sessionId != local.sessionId || remote.updatedAtEpochMs != 0L ||
-            remote.episode == local.episode || checkpoint.revision < 1L)
-            return@withLock false
+            checkpoint.revision < 1L || checkpoint.revision >= Long.MAX_VALUE ||
+            (remote.episode == local.episode && local.phase == RewatchPhase.PLAYING &&
+                !RewatchCleanCursor.of(local, checkpoint.revision).matches(remote)))
+            return@withLock decline("REMOTE_BINDING_OR_EPISODE_CONFLICT")
         val old = readChecked(profileId, accountId, deviceId)
         val chain = old.pending.filter { seriesKey(it.canonicalSeriesId) == key }
         if (chain.isEmpty() || seriesKey(old.pending.first().canonicalSeriesId) != key ||
-            old.recoveryArchive.size + chain.size > 1000) return@withLock false
+            old.recoveryArchive.size + chain.size > 1000) return@withLock decline("QUEUE_HEAD_OR_ARCHIVE_CAPACITY")
         val firstRevision = chain.first().expectedRevision
         if (firstRevision < 1L || firstRevision >= checkpoint.revision)
-            return@withLock false
+            return@withLock decline("SERVER_REVISION_NOT_NEWER")
         val ack = old.acknowledged[key]
         if (ack != null && (ack.sessionId != local.sessionId ||
-                ack.revision > firstRevision)) return@withLock false
-        val valid = chain.withIndex().all { (index, event) -> runCatching {
-            val body = json.parseToJsonElement(event.payload).jsonObject
-            fun literal(name: String) = body[name]?.jsonPrimitive?.content
-            val episode = body.getValue("episode").jsonObject
-            event.sessionId == local.sessionId && event.deviceId == deviceId &&
-                event.expectedRevision == firstRevision + index.toLong() &&
-                event.expectedRevision < Long.MAX_VALUE &&
-                literal("type") == "PROGRESS" &&
-                literal("eventId") == event.eventId &&
-                literal("deviceId") == deviceId &&
-                literal("sessionId") == local.sessionId &&
-                literal("canonicalSeriesId") == event.canonicalSeriesId &&
-                body["expectedRevision"]?.jsonPrimitive?.longOrNull == event.expectedRevision &&
-                episode["season"]?.jsonPrimitive?.intOrNull == local.episode.season &&
-                episode["episode"]?.jsonPrimitive?.intOrNull == local.episode.episode &&
-                (body["positionMs"]?.jsonPrimitive?.longOrNull ?: -1L) >= 0L &&
-                (body["durationMs"]?.jsonPrimitive?.longOrNull ?: -1L) >= 0L
-        }.getOrDefault(false) }
-        if (!valid) return@withLock false
-        val last = json.parseToJsonElement(chain.last().payload).jsonObject
-        if (last["positionMs"]?.jsonPrimitive?.longOrNull != local.positionMs ||
-            last["durationMs"]?.jsonPrimitive?.longOrNull != local.durationMs)
-            return@withLock false
+                ack.revision > firstRevision)) return@withLock decline("ACKNOWLEDGED_ANCHOR_CONFLICT")
+        if (chain.withIndex().any { (index, event) ->
+                event.sessionId != local.sessionId || event.deviceId != deviceId ||
+                    event.expectedRevision != firstRevision + index.toLong() ||
+                    event.expectedRevision >= Long.MAX_VALUE
+            }) return@withLock decline("NONCONTIGUOUS_QUEUE")
+        if (!passiveQueueExplainsLocalCursor(chain, local))
+            return@withLock decline("QUEUE_DOES_NOT_EXPLAIN_LOCAL")
         if (!stillCurrent(profileId, accountId, deviceId) || !localUnchanged())
-            return@withLock false
+            return@withLock decline("LOCAL_CHANGED_DURING_RECOVERY")
         storage.write(profileId, json.encodeToString(old.copy(
             pending = old.pending.filterNot { seriesKey(it.canonicalSeriesId) == key },
             recoveryArchive = old.recoveryArchive + chain,

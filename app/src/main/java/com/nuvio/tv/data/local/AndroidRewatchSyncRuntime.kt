@@ -427,7 +427,7 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
                     identity.profileId, identity.simklAccountId, identity.deviceId
                 ).firstOrNull() ?: return false
                 // pullSeries fetches fresh authenticated state, archives only
-                // fully explained passive progress, and atomically guards the
+                // fully explained automatic playback events, and guards the
                 // local generation. It never repositions the server.
                 val result = reconciler.pullSeries(blocked)
                 Log.i("RewatchVpsTest", "foreground_conflict_pull=" + result.name)
