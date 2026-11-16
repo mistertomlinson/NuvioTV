@@ -21,6 +21,7 @@ import com.nuvio.tv.core.torrent.TorrentSettings
 import com.nuvio.tv.core.player.StreamAutoPlayPolicy
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.core.streams.StreamBadgePresentation
+import com.nuvio.tv.core.streams.VideoCodecFilter
 import com.nuvio.tv.data.local.PlayerPreference
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.DebridSettingsDataStore
@@ -350,6 +351,8 @@ class StreamScreenViewModel @Inject constructor(
                 )
                 if (
                     cached != null &&
+                    !VideoCodecFilter.excludedText(cached.filename, playerSettings.hiddenVideoCodecIds) &&
+                    !VideoCodecFilter.excludedText(cached.streamName, playerSettings.hiddenVideoCodecIds) &&
                     classifyDebridEpisodeFileName(
                         cached.filename,
                         ensureDebridEpisodeSelectionContext()
@@ -432,6 +435,7 @@ class StreamScreenViewModel @Inject constructor(
                         settings = debridSettings
                     )
                 }.orderByDebridEpisodeTitleEvidence(debridEpisodeSelectionContext)
+                    .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
                 // Auto-select only after all addons have responded or the
                 // configured timeout has elapsed. This gives slower addons a
@@ -580,6 +584,7 @@ class StreamScreenViewModel @Inject constructor(
                                     },
                                     settings = debridSettings
                                 ).orderByDebridEpisodeTitleEvidence(debridEpisodeSelectionContext)
+                                    .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
                                 val currentFilter = state.selectedAddonFilter
                                 val filteredStreams = if (currentFilter == null) {
                                     updatedAllStreams
@@ -652,7 +657,10 @@ class StreamScreenViewModel @Inject constructor(
                                 val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(
                                     merged, installedAddonOrder
                                 )
-                                val allStreams = orderedStreams.flatMap { it.streams }
+                                val allStreams = VideoCodecFilter.visibleStreams(
+                                    orderedStreams.flatMap { it.streams },
+                                    playerSettings.hiddenVideoCodecIds
+                                )
                                 val earlyMatch = StreamAutoPlaySelector.selectAutoPlayStream(
                                     streams = allStreams,
                                     mode = playerSettings.streamAutoPlayMode,
@@ -1164,6 +1172,8 @@ class StreamScreenViewModel @Inject constructor(
 
     suspend fun resolveStreamForPlayback(stream: Stream): StreamPlaybackInfo? {
         val episodeSelectionContext = ensureDebridEpisodeSelectionContext()
+        val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
+        if (VideoCodecFilter.excludedStream(stream, hiddenVideoCodecIds)) return null
 
         if (
             stream.debridEpisodeTitleMatch(episodeSelectionContext) ==
@@ -1194,6 +1204,16 @@ class StreamScreenViewModel @Inject constructor(
         val basePlaybackInfo = getStreamForPlayback(stream)
         return when (val result = directDebridResolver.resolve(stream, season, episode, episodeSelectionContext)) {
             is DirectDebridResolveResult.Success -> {
+                // The selected file within an episode pack can advertise a different codec
+                // than the outer stream. Reject it before caching or navigating to the player.
+                if (VideoCodecFilter.excludedText(
+                        result.filename ?: basePlaybackInfo.filename,
+                        hiddenVideoCodecIds
+                    )
+                ) {
+                    android.util.Log.i(TAG, "Skipping resolved episode file excluded by video codec preference")
+                    return null
+                }
                 if (
                     classifyDebridEpisodeFileName(
                         result.filename,
