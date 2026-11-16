@@ -172,20 +172,14 @@ internal fun PlaybackSettingsSections(
         section: PlaybackSection,
         expanded: Set<PlaybackSection> = expandedSections
     ): SettingsGroupPosition {
+        // Expanding a section does not split the Playback list into separate
+        // rounded cards. General owns the top, Subtitles owns the bottom;
+        // Stream Selection and Audio & Trailer always remain middle rows.
         val index = visibleSections.indexOf(section)
-        if (index < 0) return SettingsGroupPosition.SINGLE
-        if (section in expanded) return SettingsGroupPosition.TOP
-
-        val startsGroup =
-            index == 0 || visibleSections[index - 1] in expanded
-        val endsGroup =
-            index == visibleSections.lastIndex ||
-                visibleSections[index + 1] in expanded
-
-        return when {
-            startsGroup && endsGroup -> SettingsGroupPosition.SINGLE
-            startsGroup -> SettingsGroupPosition.TOP
-            endsGroup -> SettingsGroupPosition.BOTTOM
+        return when (index) {
+            -1 -> SettingsGroupPosition.SINGLE
+            0 -> SettingsGroupPosition.TOP
+            visibleSections.lastIndex -> SettingsGroupPosition.BOTTOM
             else -> SettingsGroupPosition.MIDDLE
         }
     }
@@ -451,6 +445,7 @@ internal fun PlaybackSettingsSections(
                         )
                     },
                     focusRequester = generalHeaderFocus,
+                    clipExpandedContentBottomCorners = false,
                     groupPosition = groupPositionFor(
                         PlaybackSection.GENERAL
                     ),
@@ -664,6 +659,7 @@ internal fun PlaybackSettingsSections(
                         )
                     },
                     focusRequester = audioTrailerHeaderFocus,
+                    clipExpandedContentBottomCorners = false,
                     groupPosition = groupPositionFor(
                         PlaybackSection.AUDIO_TRAILER
                     ),
@@ -799,17 +795,14 @@ private fun PlaybackExpandableGroup(
     }
 
     val effectiveHeaderPosition = when {
-        expanded -> SettingsGroupPosition.TOP
-        deferBottomCorner -> when (groupPosition) {
-            SettingsGroupPosition.SINGLE ->
-                SettingsGroupPosition.TOP
-            SettingsGroupPosition.BOTTOM ->
-                SettingsGroupPosition.MIDDLE
-            SettingsGroupPosition.TOP ->
-                SettingsGroupPosition.TOP
-            SettingsGroupPosition.MIDDLE ->
-                SettingsGroupPosition.MIDDLE
-        }
+        // Only an outer bottom edge may be rounded. While its content is
+        // visible, the bottom of the Subtitles section belongs to its last
+        // child, not its header.
+        (expanded || deferBottomCorner) &&
+            groupPosition == SettingsGroupPosition.BOTTOM ->
+            SettingsGroupPosition.MIDDLE
+        expanded && groupPosition == SettingsGroupPosition.SINGLE ->
+            SettingsGroupPosition.TOP
         else -> groupPosition
     }
 
