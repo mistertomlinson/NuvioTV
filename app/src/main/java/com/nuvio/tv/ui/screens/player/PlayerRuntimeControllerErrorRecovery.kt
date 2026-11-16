@@ -3,6 +3,8 @@ package com.nuvio.tv.ui.screens.player
 import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.classifyDebridEpisodeFileName
 import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
+import com.nuvio.tv.core.streams.VideoCodecFilter
+import kotlinx.coroutines.flow.first
 
 import android.util.Log
 import androidx.media3.common.PlaybackException
@@ -394,6 +396,12 @@ private suspend fun PlayerRuntimeController.switchToNextDebridStream(
 ) {
     val nextStream = streams[nextIndex]
     val episodeSelectionContext = currentDebridEpisodeSelectionContext()
+    val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
+    if (VideoCodecFilter.excludedStream(nextStream, hiddenVideoCodecIds)) {
+        val furtherIndex = nextIndex + 1
+        if (furtherIndex < streams.size) switchToNextDebridStream(streams, furtherIndex)
+        return
+    }
 
     if (
         nextStream.debridEpisodeTitleMatch(episodeSelectionContext) ==
@@ -429,7 +437,10 @@ private suspend fun PlayerRuntimeController.switchToNextDebridStream(
         )
         when (result) {
             is com.nuvio.tv.core.debrid.DirectDebridResolveResult.Success -> {
-                if (
+                if (VideoCodecFilter.excludedText(result.filename, hiddenVideoCodecIds)) {
+                    android.util.Log.i("PlayerRecovery", "Skipping debrid file excluded by video codec preference")
+                    null
+                } else if (
                     classifyDebridEpisodeFileName(
                         result.filename,
                         episodeSelectionContext
