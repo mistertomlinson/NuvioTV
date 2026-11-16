@@ -318,6 +318,7 @@ internal fun PostPlayRecommendationOverlay(
                         label = stringResource(R.string.player_post_play_play),
                         painter = playPainter,
                         primary = true,
+                        focusScale = if (showTrailerButton) 1.1f else 1.02f,
                         focusRequester = playFocusRequester,
                         onClick = onPlay,
                         modifier = Modifier
@@ -444,7 +445,8 @@ private fun PostPlayActionButton(
     primary: Boolean,
     focusRequester: FocusRequester,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    focusScale: Float = 1.1f
 ) {
     val shape = RoundedCornerShape(24.dp)
     Button(
@@ -457,7 +459,7 @@ private fun PostPlayActionButton(
             focusedContentColor = if (primary) Color.Black else NuvioTheme.colors.OnSecondary
         ),
         shape = ButtonDefaults.shape(shape = shape),
-        scale = ButtonDefaults.scale(focusedScale = 1.1f),
+        scale = ButtonDefaults.scale(focusedScale = focusScale),
         border = ButtonDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
