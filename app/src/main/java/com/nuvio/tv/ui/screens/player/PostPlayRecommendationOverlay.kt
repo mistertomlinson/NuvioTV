@@ -5,11 +5,14 @@ package com.nuvio.tv.ui.screens.player
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandHorizontally
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -206,7 +209,9 @@ internal fun PostPlayRecommendationOverlay(
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
-                .fillMaxWidth(0.52f)
+                // Leave enough room for equal focus-safe gaps without
+                // squeezing the Trailer countdown into multiple lines.
+                .fillMaxWidth(0.58f)
                 .padding(start = 52.dp, bottom = 42.dp),
             horizontalAlignment = Alignment.Start
         ) {
@@ -308,21 +313,34 @@ internal fun PostPlayRecommendationOverlay(
                 val navigationCount = if (showNavigationButtons) 2 else 0
                 val fixedIconCount = navigationCount + 1
                 val itemCount = actionCount + fixedIconCount
-                val spacing = 12.dp
+                // All button-to-button gaps are equal. At 10% focus scale,
+                // a wide Play button grows 5% to the right, leaving a
+                // comfortable clear gap before the library / arrow icons.
+                val spacing = 24.dp
                 val availableActionWidth =
                     maxWidth - 48.dp * fixedIconCount - spacing * (itemCount - 1)
                 val buttonWidth =
                     minOf((maxWidth - spacing) / 2, availableActionWidth / actionCount)
-                Row(horizontalArrangement = Arrangement.spacedBy(spacing), verticalAlignment = Alignment.CenterVertically) {
+                val playWidth by animateDpAsState(
+                    targetValue = buttonWidth,
+                    animationSpec = tween(
+                        durationMillis = 420,
+                        easing = FastOutSlowInEasing
+                    ),
+                    label = "postPlayPlayButtonWidth"
+                )
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     PostPlayActionButton(
                         label = stringResource(R.string.player_post_play_play),
                         painter = playPainter,
                         primary = true,
-                        focusScale = if (showTrailerButton) 1.1f else 1.02f,
                         focusRequester = playFocusRequester,
                         onClick = onPlay,
                         modifier = Modifier
-                            .width(buttonWidth)
+                            // The centered icon and "Play" label follow the
+                            // same width tween, without an abrupt text jump.
+                            .width(playWidth)
                             .focusProperties {
                                 when {
                                     descriptionTruncated && !isTrailerPlaying -> up = readMoreFocusRequester
@@ -330,30 +348,55 @@ internal fun PostPlayRecommendationOverlay(
                                 }
                             }
                     )
-                    if (showTrailerButton) {
-                        PostPlayActionButton(
-                            label = if (trailerCountdownSec != null) {
-                                stringResource(
-                                    R.string.player_post_play_trailer_countdown,
-                                    trailerCountdownSec
-                                )
-                            } else {
-                                stringResource(R.string.player_post_play_trailer)
-                            },
-                            painter = trailerPainter,
-                            primary = false,
-                            focusRequester = trailerFocusRequester,
-                            onClick = onPlayTrailer,
-                            modifier = Modifier
-                                .width(buttonWidth)
-                                .focusProperties {
-                                    when {
-                                        descriptionTruncated -> up = readMoreFocusRequester
-                                        !hasPlayedTrailer -> up = playerWindowFocusRequester
+
+                    // Animate the trailing gap WITH the Trailer button. The
+                    // icon controls never jump when the removed item's Row
+                    // spacing disappears at the end of the transition.
+                    AnimatedVisibility(
+                        visible = showTrailerButton,
+                        enter = expandHorizontally(
+                            expandFrom = Alignment.Start,
+                            animationSpec = tween(
+                                durationMillis = 420,
+                                easing = FastOutSlowInEasing
+                            )
+                        ) + fadeIn(tween(180)),
+                        exit = shrinkHorizontally(
+                            shrinkTowards = Alignment.Start,
+                            animationSpec = tween(
+                                durationMillis = 420,
+                                easing = FastOutSlowInEasing
+                            )
+                        ) + fadeOut(tween(180))
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Spacer(Modifier.width(spacing))
+                            PostPlayActionButton(
+                                label = if (trailerCountdownSec != null) {
+                                    stringResource(
+                                        R.string.player_post_play_trailer_countdown,
+                                        trailerCountdownSec
+                                    )
+                                } else {
+                                    stringResource(R.string.player_post_play_trailer)
+                                },
+                                painter = trailerPainter,
+                                primary = false,
+                                focusRequester = trailerFocusRequester,
+                                onClick = onPlayTrailer,
+                                modifier = Modifier
+                                    .width(buttonWidth)
+                                    .focusProperties {
+                                        when {
+                                            descriptionTruncated -> up = readMoreFocusRequester
+                                            !hasPlayedTrailer -> up = playerWindowFocusRequester
+                                        }
                                     }
-                                }
-                        )
+                            )
+                        }
                     }
+
+                    Spacer(Modifier.width(spacing))
                     PostPlayLibraryButton(
                         isInLibrary = isInLibrary,
                         addPainter = libraryAddPainter,
@@ -373,30 +416,33 @@ internal fun PostPlayRecommendationOverlay(
                     )
 
                     if (showNavigationButtons) {
-                    PostPlayNavigationButton(
-                        focusRequester = previousFocusRequester,
-                        icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
-                        contentDescription = stringResource(R.string.player_post_play_previous_recommendation),
-                        playerWindowFocusRequester = playerWindowFocusRequester,
-                        canFocusPlayerWindow = !hasPlayedTrailer,
-                        enabled = canGoPrevious,
-                        onClick = {
-                            pendingNavigationDirection = -1
-                            onPrevious()
-                        }
-                    )
-                    PostPlayNavigationButton(
-                        focusRequester = nextFocusRequester,
-                        icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
-                        contentDescription = stringResource(R.string.player_post_play_next_recommendation),
-                        playerWindowFocusRequester = playerWindowFocusRequester,
-                        canFocusPlayerWindow = !hasPlayedTrailer,
-                        enabled = canGoNext,
-                        onClick = {
-                            pendingNavigationDirection = 1
-                            onNext()
-                        }
-                    )
+                        Spacer(Modifier.width(spacing))
+                        PostPlayNavigationButton(
+                            focusRequester = previousFocusRequester,
+                            icon = Icons.AutoMirrored.Filled.KeyboardArrowLeft,
+                            contentDescription = stringResource(R.string.player_post_play_previous_recommendation),
+                            playerWindowFocusRequester = playerWindowFocusRequester,
+                            canFocusPlayerWindow = !hasPlayedTrailer,
+                            enabled = canGoPrevious,
+                            onClick = {
+                                pendingNavigationDirection = -1
+                                onPrevious()
+                            }
+                        )
+
+                        Spacer(Modifier.width(spacing))
+                        PostPlayNavigationButton(
+                            focusRequester = nextFocusRequester,
+                            icon = Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                            contentDescription = stringResource(R.string.player_post_play_next_recommendation),
+                            playerWindowFocusRequester = playerWindowFocusRequester,
+                            canFocusPlayerWindow = !hasPlayedTrailer,
+                            enabled = canGoNext,
+                            onClick = {
+                                pendingNavigationDirection = 1
+                                onNext()
+                            }
+                        )
                     }
                 }
             }
@@ -445,8 +491,7 @@ private fun PostPlayActionButton(
     primary: Boolean,
     focusRequester: FocusRequester,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    focusScale: Float = 1.1f
+    modifier: Modifier = Modifier
 ) {
     val shape = RoundedCornerShape(24.dp)
     Button(
@@ -459,14 +504,14 @@ private fun PostPlayActionButton(
             focusedContentColor = if (primary) Color.Black else NuvioTheme.colors.OnSecondary
         ),
         shape = ButtonDefaults.shape(shape = shape),
-        scale = ButtonDefaults.scale(focusedScale = focusScale),
+        scale = ButtonDefaults.scale(focusedScale = 1.1f),
         border = ButtonDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(2.dp, NuvioTheme.colors.FocusRing),
                 shape = shape
             )
         ),
-        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 14.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -475,7 +520,7 @@ private fun PostPlayActionButton(
         ) {
             Icon(painter, contentDescription = null, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(label)
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
