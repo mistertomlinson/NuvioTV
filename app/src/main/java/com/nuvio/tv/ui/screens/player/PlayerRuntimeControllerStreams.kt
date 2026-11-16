@@ -10,6 +10,7 @@ import com.nuvio.tv.core.debrid.DirectDebridPlayableResult
 import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
 import com.nuvio.tv.core.network.NetworkResult
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
+import com.nuvio.tv.core.streams.VideoCodecFilter
 import com.nuvio.tv.data.local.PlayerSettings
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamAutoPlaySource
@@ -146,6 +147,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
         val installedAddons = addonRepository.getInstalledAddons().first()
         val installedAddonOrder = installedAddons.map { it.displayName }
         val debridSettings = debridSettingsDataStore.settings.first()
+        val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
         updateSourceChipsForFetchStart(type, installedAddons)
 
         streamRepository.getStreamsFromAllAddons(
@@ -163,7 +165,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
                             streams = addonStreams.flatMap { it.streams },
                             settings = debridSettings
                         ).orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
-                    }
+                    }.let { VideoCodecFilter.visibleStreams(it, hiddenVideoCodecIds) }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
@@ -703,6 +705,7 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
         val installedAddons = addonRepository.getInstalledAddons().first()
         val installedAddonOrder = installedAddons.map { it.displayName }
         val debridSettings = debridSettingsDataStore.settings.first()
+        val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
 
         streamRepository.getStreamsFromAllAddons(
             type = type,
@@ -719,7 +722,7 @@ internal fun PlayerRuntimeController.loadStreamsForEpisode(video: Video, forceRe
                             streams = addonStreams.flatMap { it.streams },
                             settings = debridSettings
                         ).orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
-                    }
+                    }.let { VideoCodecFilter.visibleStreams(it, hiddenVideoCodecIds) }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
@@ -1006,6 +1009,8 @@ internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
     episode: Int?,
     selectionContext: DebridEpisodeSelectionContext? = null
 ): Stream? {
+    val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
+    if (VideoCodecFilter.excludedStream(stream, hiddenVideoCodecIds)) return null
     if (stream.getStreamUrl() != null) {
         return stream.takeUnless {
             it.debridEpisodeTitleMatch(selectionContext) == DebridEpisodeTitleMatch.CONFLICT
@@ -1021,7 +1026,8 @@ internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
         )
     ) {
         is DirectDebridPlayableResult.Success -> result.stream.takeUnless {
-            it.debridEpisodeTitleMatch(selectionContext) == DebridEpisodeTitleMatch.CONFLICT
+            it.debridEpisodeTitleMatch(selectionContext) == DebridEpisodeTitleMatch.CONFLICT ||
+                VideoCodecFilter.excludedStream(it, hiddenVideoCodecIds)
         }
         DirectDebridPlayableResult.MissingApiKey,
         DirectDebridPlayableResult.NotCached,
@@ -1127,6 +1133,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                             DebridEpisodeTitleMatch.CONFLICT
                     }
                     .filterNot { it.stableKey() in excludedStreamKeys }
+                    .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
 
                 return StreamAutoPlaySelector.selectAutoPlayStream(
                     streams = allStreams,
