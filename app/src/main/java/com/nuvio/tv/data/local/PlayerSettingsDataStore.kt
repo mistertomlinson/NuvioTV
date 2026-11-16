@@ -9,6 +9,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.nuvio.tv.core.profile.ProfileManager
+import com.nuvio.tv.core.streams.VideoCodecFilter
+import com.nuvio.tv.core.streams.VideoCodecOption
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -184,6 +186,7 @@ data class PlayerSettings(
     val streamAutoPlaySelectedAddons: Set<String> = emptySet(),
     val streamAutoPlaySelectedPlugins: Set<String> = emptySet(),
     val streamAutoPlayRegex: String = "",
+    val hiddenVideoCodecIds: Set<String> = VideoCodecFilter.DEFAULT_HIDDEN_CODEC_IDS,
     val streamAutoPlayNextEpisodeEnabled: Boolean = true,
     val streamAutoPlayPreferBingeGroupForNextEpisode: Boolean = false,
     val streamAutoPlayTimeoutSeconds: Int = 2,
@@ -303,6 +306,7 @@ class PlayerSettingsDataStore @Inject constructor(
     private val streamAutoPlaySelectedAddonsKey = stringSetPreferencesKey("stream_auto_play_selected_addons")
     private val streamAutoPlaySelectedPluginsKey = stringSetPreferencesKey("stream_auto_play_selected_plugins")
     private val streamAutoPlayRegexKey = stringPreferencesKey("stream_auto_play_regex")
+    private val hiddenVideoCodecIdsKey = stringSetPreferencesKey("hidden_video_codec_ids")
     private val streamAutoPlayNextEpisodeEnabledKey = booleanPreferencesKey("stream_auto_play_next_episode_enabled")
     private val streamAutoPlayPreferBingeGroupForNextEpisodeKey = booleanPreferencesKey("stream_auto_play_prefer_bingegroup_next_episode")
     private val streamAutoPlayTimeoutSecondsKey = intPreferencesKey("stream_auto_play_timeout_seconds")
@@ -456,6 +460,8 @@ class PlayerSettingsDataStore @Inject constructor(
                 streamAutoPlaySelectedAddons = prefs[streamAutoPlaySelectedAddonsKey] ?: emptySet(),
                 streamAutoPlaySelectedPlugins = prefs[streamAutoPlaySelectedPluginsKey] ?: emptySet(),
                 streamAutoPlayRegex = prefs[streamAutoPlayRegexKey] ?: "",
+                hiddenVideoCodecIds = prefs[hiddenVideoCodecIdsKey]
+                    ?: VideoCodecFilter.DEFAULT_HIDDEN_CODEC_IDS,
                 streamAutoPlayNextEpisodeEnabled = prefs[streamAutoPlayNextEpisodeEnabledKey] ?: true,
                 streamAutoPlayPreferBingeGroupForNextEpisode =
                     prefs[streamAutoPlayPreferBingeGroupForNextEpisodeKey] ?: false,
@@ -664,6 +670,14 @@ class PlayerSettingsDataStore @Inject constructor(
     suspend fun setStreamAutoPlaySelectedPlugins(plugins: Set<String>) {
         store().edit { prefs ->
             prefs[streamAutoPlaySelectedPluginsKey] = plugins
+        }
+    }
+
+    suspend fun setHiddenVideoCodecIds(ids: Set<String>) {
+        val knownIds = VideoCodecOption.entries.map { it.id }.toSet()
+        store().edit { prefs ->
+            // An explicitly empty saved set disables all filters; absence means VC-1 only.
+            prefs[hiddenVideoCodecIdsKey] = ids.intersect(knownIds)
         }
     }
 
