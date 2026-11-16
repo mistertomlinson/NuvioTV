@@ -225,6 +225,10 @@ class PlaybackSettingsViewModel @Inject constructor(
         playerSettingsDataStore.setStreamAutoPlaySelectedPlugins(plugins)
     }
 
+    suspend fun setHiddenVideoCodecIds(ids: Set<String>) {
+        playerSettingsDataStore.setHiddenVideoCodecIds(ids)
+    }
+
     suspend fun setStreamAutoPlayRegex(regex: String) {
         playerSettingsDataStore.setStreamAutoPlayRegex(regex)
     }
