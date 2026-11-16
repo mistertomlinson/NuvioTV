@@ -7,6 +7,7 @@ import com.google.gson.annotations.SerializedName
 import com.nuvio.tv.domain.rewatch.RewatchRemoteCheckpoint
 import com.nuvio.tv.domain.rewatch.RewatchRemoteLookup
 import com.nuvio.tv.domain.rewatch.RewatchSession
+import com.nuvio.tv.domain.rewatch.RewatchArchivedProgressProof
 
 /**
  * Part of the SAME profile DataStore transaction as the replay cursor.
@@ -231,7 +232,8 @@ internal fun mergeRewatchRemoteWithLedger(
     remoteLookup: RewatchRemoteLookup,
     pendingOrUnpublished: Boolean,
     appliedAtEpochMs: Long,
-    allowExplicitInitialTestAdoption: Boolean = false
+    allowExplicitInitialTestAdoption: Boolean = false,
+    archivedProgress: RewatchArchivedProgressProof? = null
 ): Pair<List<RewatchSession>, RewatchLocalSyncLedger>? {
     if (profileId <= 0 || canonicalSeriesId.isBlank() ||
         simklAccountId.isBlank() || deviceId.isBlank() ||
@@ -253,18 +255,25 @@ internal fun mergeRewatchRemoteWithLedger(
     if (current != expectedLocal) return null
 
     val proof = ledger.cleanBySeries[key(canonicalSeriesId)]
+    val archived = current != null && archivedProgress != null &&
+        archivedProgress.simklAccountId == simklAccountId &&
+        archivedProgress.deviceId == deviceId &&
+        archivedProgress.generation == ledger.generation &&
+        archivedProgress.cursor.matches(current) &&
+        archivedProgress.cursor.sessionId == remote.sessionId &&
+        checkpoint.revision >= archivedProgress.cursor.revision
     if (current == null) {
         // A truly empty profile can adopt a verified remote replay. Do not
         // resurrect a replay which had a clean marker but was locally deleted.
         if (proof != null) return null
-    } else {
+    } else if (!archived) {
         if (proof == null) {
             // Opt-in migration is authorized by the test-only DataStore guard,
             // never from an ordinary network GET or an unbound client.
             if (!allowExplicitInitialTestAdoption) return null
         } else if (proof.simklAccountId != simklAccountId ||
             proof.deviceId != deviceId ||
-            proof.generation != ledger.generation ||
+            proof.generation > ledger.generation ||
             !sameRewatchCursor(proof.cursor, current) ||
             checkpoint.revision <= proof.revision) return null
     }

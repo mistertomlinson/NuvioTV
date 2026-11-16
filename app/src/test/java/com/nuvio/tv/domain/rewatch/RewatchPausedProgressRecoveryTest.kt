@@ -1,0 +1,113 @@
+package com.nuvio.tv.domain.rewatch
+
+import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
+import org.junit.Assert.*
+import org.junit.Test
+
+class RewatchPausedProgressRecoveryTest {
+    private class MemoryStorage : RewatchOutboxStorage {
+        var raw: String? = null
+        var fail = false
+        override suspend fun read(profileId: Int) = raw
+        override suspend fun write(profileId: Int, payload: String) {
+            check(!fail)
+            raw = payload
+        }
+        fun saved() = Json.decodeFromString<RewatchOutboxEnvelope>(requireNotNull(raw))
+    }
+    private val who = RewatchCommitIdentity(2, "12003", "simkl-device:tv")
+    private val before = RewatchSession("local-profile:2", "tt0386676", "office",
+        RewatchEpisode(6, 4), 30_000, 1_300_000, null, RewatchPhase.PLAYING, 100)
+    private val paused = before.copy(positionMs = 31_948, updatedAtEpochMs = 200)
+    private val remote = paused.copy(episode = RewatchEpisode(5, 17), updatedAtEpochMs = 0)
+    private fun lookup(session: RewatchSession = remote, revision: Long = 1044) =
+        RewatchRemoteLookup.Verified(RewatchRemoteCheckpoint.Synced(revision, session.sessionId), session)
+    private fun queue(storage: MemoryStorage, current: () -> Boolean = { true }) =
+        RewatchSyncOutbox(storage) { p, a, d -> current() &&
+            p == who.profileId && a == who.simklAccountId && d == who.deviceId }
+    private suspend fun pending(q: RewatchSyncOutbox) {
+        assertTrue(q.enqueueCommittedTransition(2, "12003", who.deviceId, before, paused,
+            RewatchRemoteCheckpoint.Synced(671, "office"), "paused-progress"))
+    }
+    private suspend fun archive(q: RewatchSyncOutbox, local: RewatchSession = paused,
+        proof: RewatchRemoteLookup = lookup(), unchanged: suspend () -> Boolean = { true }) =
+        q.archiveSupersededProgress(who, local, 7, proof, unchanged)
+
+    @Test fun exactQueuedEventsAreArchivedAndReceiptSurvivesRestart() = runBlocking {
+        val storage = MemoryStorage(); val q = queue(storage); pending(q)
+        val original = storage.saved().pending
+        assertTrue(archive(q))
+        assertEquals(original, storage.saved().recoveryArchive)
+        assertEquals(emptyList<RewatchQueuedEvent>(), storage.saved().pending)
+        val receipt = queue(storage).archivedProgressProof(who, before.canonicalSeriesId)!!
+        assertTrue(receipt.cursor.matches(paused))
+        assertEquals(1044L, receipt.cursor.revision)
+        assertEquals(7L, receipt.generation)
+    }
+
+    @Test fun newerLocalProgressNotRepresentedInQueueCannotBeArchived() = runBlocking {
+        val storage = MemoryStorage(); val q = queue(storage); pending(q)
+        val original = storage.raw
+        assertFalse(archive(q, local = paused.copy(positionMs = 40_000)))
+        assertEquals(original, storage.raw)
+    }
+
+    @Test fun currentOrOlderRevisionCannotSupersedePendingProgress() = runBlocking {
+        for (rev in listOf(1L, 671L)) {
+            val storage = MemoryStorage(); val q = queue(storage); pending(q)
+            val original = storage.raw
+            assertFalse(archive(q, proof = lookup(revision = rev)))
+            assertEquals(original, storage.raw)
+        }
+    }
+
+    @Test fun sameEpisodeAndChangedSessionAreNotAnEpisodeHandoff() = runBlocking {
+        for (session in listOf(paused.copy(updatedAtEpochMs = 0), remote.copy(sessionId = "new-session"))) {
+            val storage = MemoryStorage(); val q = queue(storage); pending(q)
+            val original = storage.raw
+            assertFalse(archive(q, proof = lookup(session)))
+            assertEquals(original, storage.raw)
+        }
+    }
+
+    @Test fun failedGetChangedProfileAndRacingSavePreserveEverything() = runBlocking {
+        val storage = MemoryStorage(); var current = true; val q = queue(storage) { current }; pending(q)
+        val original = storage.raw
+        assertFalse(archive(q, proof = RewatchRemoteLookup.Invalid))
+        assertFalse(archive(q, unchanged = { false }))
+        var checks = 0
+        assertFalse(archive(q, unchanged = { ++checks < 2 }))
+        current = false
+        assertFalse(archive(q))
+        assertEquals(original, storage.raw)
+    }
+
+    @Test fun explicitManualSelectionNeverGetsAutomaticallyArchived() = runBlocking {
+        val storage = MemoryStorage(); val q = queue(storage)
+        val selected = paused.copy(episode = RewatchEpisode(6, 5), positionMs = 0,
+            durationMs = 0, updatedAtEpochMs = 300)
+        assertTrue(q.enqueueCommittedTransition(2, "12003", who.deviceId, paused, selected,
+            RewatchRemoteCheckpoint.Synced(671, "office"), "explicit-picker", true))
+        val original = storage.raw
+        assertFalse(archive(q, local = selected))
+        assertEquals(original, storage.raw)
+    }
+
+    @Test fun failedArchiveWriteLeavesOriginalQueueRetryable() = runBlocking {
+        val storage = MemoryStorage(); val q = queue(storage); pending(q)
+        val original = storage.raw; storage.fail = true
+        try { archive(q); fail("Expected failed persistence") } catch (_: IllegalStateException) { }
+        assertEquals(original, storage.raw)
+    }
+
+    @Test fun successfulVerifiedApplyRemovesReceiptButRetainsArchive() = runBlocking {
+        val storage = MemoryStorage(); val q = queue(storage); pending(q)
+        assertTrue(archive(q))
+        val original = storage.saved().recoveryArchive
+        assertTrue(q.recordVerifiedCleanBaseline(2, "12003", who.deviceId, remote, lookup()))
+        assertNull(q.archivedProgressProof(who, before.canonicalSeriesId))
+        assertEquals(original, storage.saved().recoveryArchive)
+    }
+}

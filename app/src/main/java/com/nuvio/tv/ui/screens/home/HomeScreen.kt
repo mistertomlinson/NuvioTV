@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.home
 
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.activity.compose.BackHandler
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.AnimatedContent
@@ -225,6 +226,7 @@ fun HomeScreen(
             viewModel.requestForegroundRewatchSync()
         }
     }
+
 
     /*
      * Direct Player -> Home returns stay fully opaque until the exact CW
@@ -502,6 +504,28 @@ fun HomeScreen(
             watchedRatingHandoffActive ||
             continueWatchingPopupVisible
 
+    // Composition survives TV Home -> Nuvio. Refresh on real foreground
+    // return and while Home is visible so another device's selection appears
+    // without restarting the app. Never poll from a background/player route.
+    val rewatchLifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    val rewatchPopupVisible = androidx.compose.runtime.rememberUpdatedState(homePopupVisible)
+    LaunchedEffect(viewModel, rewatchLifecycleOwner) {
+        if (com.nuvio.tv.data.local.RewatchCrossDeviceGate.ENABLED) {
+            rewatchLifecycleOwner.lifecycle.repeatOnLifecycle(
+                androidx.lifecycle.Lifecycle.State.RESUMED
+            ) {
+                viewModel.requestForegroundRewatchSync()
+                while (true) {
+                    kotlinx.coroutines.delay(15_000L)
+                    if (!rewatchPopupVisible.value) {
+                        viewModel.requestForegroundRewatchSync(idlePoll = true)
+                    }
+                }
+            }
+        }
+    }
+
+
     /*
      * Do NOT run Home's Haze capture during ordinary navigation.
      *
@@ -746,6 +770,10 @@ fun HomeScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .onPreviewKeyEvent {
+                viewModel.noteRewatchHomeInput()
+                false
+            }
             .then(
                 if (
                     homePopupBlurEnabled &&

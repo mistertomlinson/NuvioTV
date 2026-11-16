@@ -108,13 +108,26 @@ class HomeViewModel @Inject constructor(
     internal val trackingRatingCoordinator: TrackingRatingCoordinator,
     internal val homeTrailerPlayerHolder: com.nuvio.tv.ui.components.HomeTrailerPlayerHolder,
 ) : ViewModel() {
+    private var foregroundRewatchSyncJob: Job? = null
+    private var lastRewatchHomeInputAtMs = 0L
+
+    internal fun noteRewatchHomeInput() {
+        if (com.nuvio.tv.data.local.RewatchCrossDeviceGate.ENABLED) {
+            // Plain field: no Compose state writes or extra work per focus move.
+            lastRewatchHomeInputAtMs = android.os.SystemClock.elapsedRealtime()
+        }
+    }
     /**
      * Optional replay-only foreground refresh. It never participates in
      * skeleton/hero/CW readiness or normal Simkl watched-history loading.
      */
-    internal fun requestForegroundRewatchSync() {
+    internal fun requestForegroundRewatchSync(idlePoll: Boolean = false) {
         if (!com.nuvio.tv.data.local.RewatchCrossDeviceGate.ENABLED) return
-        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+        if (idlePoll && (homeHeroTrailerPlaying ||
+                homeTrailerPlayerHolder.hasActivePreview() ||
+                android.os.SystemClock.elapsedRealtime() - lastRewatchHomeInputAtMs < 2_000L)) return
+        if (foregroundRewatchSyncJob?.isActive == true) return
+        foregroundRewatchSyncJob = viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 rewatchSyncRuntime.get().reconcileForPresentation()
             } catch (cancelled: kotlinx.coroutines.CancellationException) {

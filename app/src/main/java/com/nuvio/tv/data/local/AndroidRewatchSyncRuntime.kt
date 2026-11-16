@@ -317,6 +317,10 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
             identity.profileId, identity.simklAccountId, identity.deviceId
         )
         val result = transport.submitPending()
+        if (currentBinding() == identity && (result == RewatchOutboxDrainResult.CONFLICT ||
+                result == RewatchOutboxDrainResult.INVALID_PROGRESS)) {
+            Log.i("RewatchVpsTest", "upload=" + result.name + " " + outbox.pendingSummary(identity))
+        }
         if (result == RewatchOutboxDrainResult.DRAINED &&
             currentBinding() == identity) {
             // An accepted POST does not itself prove that the local replay
@@ -416,6 +420,21 @@ internal class AndroidRewatchSyncRuntime @Inject constructor(
             }
 
             override suspend fun upload(): RewatchOutboxDrainResult = uploadPending()
+
+            override suspend fun recoverUploadConflict(): Boolean {
+                val identity = currentBinding() ?: return false
+                val blocked = outbox.pendingSeriesIds(
+                    identity.profileId, identity.simklAccountId, identity.deviceId
+                ).firstOrNull() ?: return false
+                // pullSeries fetches fresh authenticated state, archives only
+                // fully explained passive progress, and atomically guards the
+                // local generation. It never repositions the server.
+                val result = reconciler.pullSeries(blocked)
+                Log.i("RewatchVpsTest", "foreground_conflict_pull=" + result.name)
+                return currentBinding() == identity &&
+                    (result == RewatchPullResult.REMOTE_APPLIED ||
+                        result == RewatchPullResult.CLEAN_VERIFIED)
+            }
         })
     }
 

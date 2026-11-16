@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /**
  * Isolated local persistence for future replay integration.
@@ -184,6 +185,7 @@ class RewatchSessionStore @Inject constructor(
         remoteLookup: RewatchRemoteLookup,
         pendingOrUnpublished: Boolean,
         appliedAtEpochMs: Long,
+        archivedProgress: com.nuvio.tv.domain.rewatch.RewatchArchivedProgressProof? = null,
         stillAuthenticated: () -> Boolean
     ): Boolean {
         if (observed.profileId != expectedProfileId || !stillAuthenticated()) return false
@@ -252,7 +254,8 @@ class RewatchSessionStore @Inject constructor(
                     remoteLookup = remoteLookup,
                     pendingOrUnpublished = pendingOrUnpublished,
                     appliedAtEpochMs = appliedAtEpochMs,
-                    allowExplicitInitialTestAdoption = approvedFirstAdoption
+                    allowExplicitInitialTestAdoption = approvedFirstAdoption,
+                    archivedProgress = archivedProgress
                 ) ?: run {
                     if (canonicalSeriesId.trim().lowercase().removePrefix("imdb:") ==
                         "tt0386676") {
@@ -291,7 +294,7 @@ class RewatchSessionStore @Inject constructor(
                 Log.w("RewatchSessionStore", "Cannot read profile replay state", error)
                 emit(ProfileRewatchSessions(profileId, emptyList()))
             }
-        }
+        }.distinctUntilChanged()
 
     /** Compatibility accessor for readers not requiring an atomic profile tag. */
     val activeSessions: Flow<List<RewatchSession>> =

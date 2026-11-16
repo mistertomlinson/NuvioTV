@@ -8,6 +8,7 @@ import com.nuvio.tv.domain.rewatch.RewatchSession
 import com.nuvio.tv.domain.rewatch.RewatchSyncOutbox
 import com.nuvio.tv.domain.rewatch.RewatchTransportCoordinator
 import com.nuvio.tv.domain.rewatch.RewatchPhase
+import com.nuvio.tv.domain.rewatch.RewatchArchivedProgressProof
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -30,6 +31,7 @@ internal interface RewatchAtomicLocalAccess {
         remote: RewatchRemoteLookup,
         pending: Boolean,
         nowEpochMs: Long,
+        archivedProgress: RewatchArchivedProgressProof?,
         stillCurrent: () -> Boolean
     ): Boolean
 }
@@ -65,6 +67,7 @@ internal class RewatchAtomicDataStoreAccess(
         remote: RewatchRemoteLookup,
         pending: Boolean,
         nowEpochMs: Long,
+        archivedProgress: RewatchArchivedProgressProof?,
         stillCurrent: () -> Boolean
     ) = store.applyAuthenticatedRemoteIfClean(
         expectedProfileId = identity.profileId,
@@ -75,6 +78,7 @@ internal class RewatchAtomicDataStoreAccess(
         remoteLookup = remote,
         pendingOrUnpublished = pending,
         appliedAtEpochMs = nowEpochMs,
+        archivedProgress = archivedProgress,
         stillAuthenticated = stillCurrent
     )
 }
@@ -103,7 +107,7 @@ internal enum class RewatchPullResult {
  * outbox checkpoint refresh does NOT roll back an already applied local
  * replay; retrying a future authenticated GET repairs the checkpoint.
  *
- * This class is deliberately not registered in player/Home startup yet.
+ * The gated runtime invokes this from Home, playback entry and conflict recovery.
  */
 internal class AndroidRewatchReconciler(
     private val ensureIdentity: suspend () -> RewatchCommitIdentity?,
@@ -161,13 +165,11 @@ internal class AndroidRewatchReconciler(
                 return@withLock RewatchPullResult.NO_VERIFIED_REMOTE
             }
             stage = "OUTBOX_CHECK"
-            val pending = outbox.hasPendingForSeries(
+            var pending = outbox.hasPendingForSeries(
                 identity.profileId, identity.simklAccountId,
                 identity.deviceId, canonicalSeriesId
             )
             if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
-            if (pending) return@withLock RewatchPullResult.LOCAL_PENDING
-
             val matching = observed.sessions.filter {
                 it.canonicalSeriesId.trim().equals(
                     canonicalSeriesId.trim(), ignoreCase = true
@@ -176,6 +178,26 @@ internal class AndroidRewatchReconciler(
             if (matching.size > 1) return@withLock RewatchPullResult.LOCAL_CONFLICT
             val current = matching.singleOrNull()
             val remote = verified.remoteSession
+            runCatching { android.util.Log.i("RewatchVpsTest",
+                "pull_revision=" + verified.checkpoint.revision +
+                    " remote_episode=S" + remote.episode.season + "E" + remote.episode.episode +
+                    " local_generation=" + observed.generation + " pending=" + pending) }
+            if (pending && current != null) {
+                val archived = outbox.archiveSupersededProgress(
+                    identity, current, observed.generation, verified,
+                    localUnchanged = {
+                        unchanged() && local.observe(identity.profileId) == observed
+                    }
+                )
+                runCatching { android.util.Log.i("RewatchVpsTest",
+                    "paused_progress_handoff=" + if (archived) "ARCHIVED" else "DECLINED") }
+                pending = outbox.hasPendingForSeries(
+                    identity.profileId, identity.simklAccountId,
+                    identity.deviceId, canonicalSeriesId
+                )
+            }
+            if (!unchanged()) return@withLock RewatchPullResult.PROFILE_CHANGED
+            if (pending) return@withLock RewatchPullResult.LOCAL_PENDING
             if (current != null && sameRewatchCursor(current, remote)) {
                 val clean = local.certify(
                     identity, current, observed.generation,
@@ -195,9 +217,11 @@ internal class AndroidRewatchReconciler(
             }
 
             stage = "APPLY_REMOTE"
+            val archivedProof = outbox.archivedProgressProof(identity, canonicalSeriesId)
             val applied = local.apply(
                 identity, canonicalSeriesId, observed, verified,
                 pending = false, nowEpochMs = nowEpochMs(),
+                archivedProgress = archivedProof,
                 stillCurrent = ::unchanged
             )
             if (!applied) return@withLock RewatchPullResult.LOCAL_CONFLICT

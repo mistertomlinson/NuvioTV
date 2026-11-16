@@ -14,12 +14,22 @@ import javax.inject.Singleton
 class HomeTrailerPlayerHolder @Inject constructor(
     @ApplicationContext private val context: Context
 ) {
-    val player: ExoPlayer by lazy { createPlayer() }
+    private val heroPlayer = lazy { createPlayer() }
+    val player: ExoPlayer by heroPlayer
 
     // Expanded cards have a separate lifetime from the hero and popup players.
     // Keep one lazy instance so leaving a card doesn't synchronously release
     // ExoPlayer on the UI thread. TrailerPlayer still stops/clears each media item.
-    val expandedCardPlayer: ExoPlayer by lazy { createPlayer() }
+    private val cardPlayer = lazy { createPlayer() }
+    val expandedCardPlayer: ExoPlayer by cardPlayer
+
+    /** Main-thread check; inspecting sync eligibility never creates a player. */
+    fun hasActivePreview(): Boolean {
+        fun active(player: ExoPlayer) = player.isPlaying ||
+            (player.playWhenReady && player.playbackState == Player.STATE_BUFFERING)
+        return (heroPlayer.isInitialized() && active(heroPlayer.value)) ||
+            (cardPlayer.isInitialized() && active(cardPlayer.value))
+    }
 
     private fun createPlayer(): ExoPlayer {
         val loadControl = DefaultLoadControl.Builder()

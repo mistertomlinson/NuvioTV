@@ -232,8 +232,11 @@ class RewatchLocalSyncLedgerTest {
         val changed = onLocalRewatchCommitted(ledger, unrelated)
         assertEquals(4L, changed.generation)
         assertEquals(1, changed.cleanBySeries.size)
-        // Proof remains available but is no longer current until recertified
-        assertNull(apply(ledger = changed, generation = changed.generation))
+        // A response captured before the unrelated save is still stale.
+        assertNull(apply(ledger = changed, generation = ledger.generation))
+        // A fresh observation can use the untouched series' retained proof.
+        // Requiring recertification would deadlock when its remote cursor moved.
+        assertTrue(apply(ledger = changed, generation = changed.generation) != null)
     }
 
     private fun officeFirstAdoption() : Triple<

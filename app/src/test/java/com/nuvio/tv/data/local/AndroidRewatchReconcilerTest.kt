@@ -9,6 +9,13 @@ import com.nuvio.tv.domain.rewatch.RewatchSession
 import com.nuvio.tv.domain.rewatch.RewatchOutboxStorage
 import com.nuvio.tv.domain.rewatch.RewatchQueuedEvent
 import com.nuvio.tv.domain.rewatch.RewatchSyncOutbox
+import com.nuvio.tv.domain.rewatch.RewatchArchivedProgressProof
+import com.nuvio.tv.domain.rewatch.RewatchForegroundAccess
+import com.nuvio.tv.domain.rewatch.RewatchForegroundSynchronizer
+import com.nuvio.tv.domain.rewatch.RewatchForegroundResult
+import com.nuvio.tv.domain.rewatch.RewatchOutboxDrainResult
+import com.nuvio.tv.domain.rewatch.RewatchOutboxSubmitResult
+import com.nuvio.tv.domain.rewatch.recordRewatchProgress
 import com.nuvio.tv.domain.rewatch.startRewatchSession
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -87,6 +94,7 @@ class AndroidRewatchReconcilerTest {
             remote: RewatchRemoteLookup,
             pending: Boolean,
             nowEpochMs: Long,
+            archivedProgress: RewatchArchivedProgressProof?,
             stillCurrent: () -> Boolean
         ): Boolean {
             applyCalls++
@@ -98,7 +106,8 @@ class AndroidRewatchReconcilerTest {
                 sessions, ledger, identity.profileId,
                 identity.simklAccountId, identity.deviceId,
                 current, observed.generation, canonicalSeriesId,
-                remote, pending, nowEpochMs
+                remote, pending, nowEpochMs,
+                archivedProgress = archivedProgress
             ) ?: return false
             if (!stillCurrent()) return false
             sessions = result.first
@@ -256,5 +265,85 @@ class AndroidRewatchReconcilerTest {
         assertEquals(RewatchPullResult.CLEAN_VERIFIED,
             f.reconcile.pullSeries(initial.canonicalSeriesId))
         assertEquals(1, f.local.applyCalls)
+    }
+
+    @Test fun pausedAndroidProgressConflictYieldsToIpadSelectionThroughForegroundSync() = runBlocking {
+        val paused = initial.copy(episode = RewatchEpisode(6, 4))
+        val ipad = paused.copy(episode = RewatchEpisode(5, 17),
+            positionMs = 31_948, updatedAtEpochMs = 0)
+        val f = fixture(start = paused, remote = verified(ipad, 1044))
+        val latest = paused.copy(positionMs = 51_000, updatedAtEpochMs = 200)
+        f.local.localSave(latest)
+        assertTrue(f.queue.enqueueCommittedTransition(2, "12003", identity.deviceId,
+            paused, latest, RewatchRemoteCheckpoint.Synced(5, paused.sessionId), "paused-save"))
+        var attemptedPosts = 0
+        val access = object : RewatchForegroundAccess {
+            override suspend fun connect() = identity
+            override fun stillCurrent(identity: RewatchCommitIdentity) = identity == this@AndroidRewatchReconcilerTest.identity
+            override suspend fun remoteSeriesIds() = listOf(paused.canonicalSeriesId)
+            override suspend fun observeLocal(profileId: Int) = f.local.observe(profileId)
+            override suspend fun applyRemote(seriesId: String) =
+                f.reconcile.pullSeries(seriesId) == RewatchPullResult.CLEAN_VERIFIED
+            override suspend fun checkpoint(seriesId: String) = verified(ipad, 1044)
+            override suspend fun hasPending(identity: RewatchCommitIdentity, seriesId: String) =
+                f.queue.hasPendingForSeries(2, "12003", identity.deviceId, seriesId)
+            override suspend fun enqueueImport(identity: RewatchCommitIdentity, session: RewatchSession) = false
+            override suspend fun upload() = f.queue.drain(2, "12003", identity.deviceId) {
+                attemptedPosts++
+                RewatchOutboxSubmitResult.Conflict
+            }
+            override suspend fun recoverUploadConflict() =
+                f.reconcile.pullSeries(paused.canonicalSeriesId) == RewatchPullResult.REMOTE_APPLIED
+        }
+        assertEquals(RewatchForegroundResult.COMPLETED,
+            RewatchForegroundSynchronizer(access).reconcile())
+        assertEquals(1, attemptedPosts) // Never POST the old episode at the new revision.
+        assertEquals(0, f.queue.pendingCount(2, "12003", identity.deviceId))
+        val adopted = f.local.sessions.single()
+        assertEquals(ipad.episode, adopted.episode)
+        assertEquals(31_948L, adopted.positionMs)
+        assertEquals(1044L, f.local.ledger.cleanBySeries.values.single().revision)
+        // A late save from the still-paused S6E4 player cannot undo S5E17.
+        assertEquals(adopted, recordRewatchProgress(adopted, paused.episode,
+            51_000, paused.durationMs, 600))
+    }
+
+    @Test fun handoffReceiptRepairsCrashBetweenArchiveAndLocalApply() = runBlocking {
+        val f = fixture()
+        val latest = initial.copy(positionMs = 51_000, updatedAtEpochMs = 200)
+        f.local.localSave(latest)
+        assertTrue(f.queue.enqueueCommittedTransition(2, "12003", identity.deviceId,
+            initial, latest, RewatchRemoteCheckpoint.Synced(5, initial.sessionId), "paused"))
+        val observed = f.local.observe(2)
+        assertTrue(f.queue.archiveSupersededProgress(identity, latest, observed.generation,
+            verified(), { true }))
+        assertEquals(RewatchPullResult.REMOTE_APPLIED,
+            f.reconcile.pullSeries(initial.canonicalSeriesId))
+        assertEquals(next.episode, f.local.sessions.single().episode)
+    }
+
+    @Test fun localSaveAfterArchiveInvalidatesReceiptEvenIfCursorReturnsToSameValues() = runBlocking {
+        val f = fixture()
+        val latest = initial.copy(positionMs = 51_000, updatedAtEpochMs = 200)
+        f.local.localSave(latest)
+        assertTrue(f.queue.enqueueCommittedTransition(2, "12003", identity.deviceId,
+            initial, latest, RewatchRemoteCheckpoint.Synced(5, initial.sessionId), "paused"))
+        assertTrue(f.queue.archiveSupersededProgress(identity, latest,
+            f.local.ledger.generation, verified(), { true }))
+        f.local.localSave(latest.copy(positionMs = 90_000, updatedAtEpochMs = 201))
+        f.local.localSave(latest.copy(updatedAtEpochMs = 202))
+        assertEquals(RewatchPullResult.LOCAL_CONFLICT,
+            f.reconcile.pullSeries(initial.canonicalSeriesId))
+        assertEquals(51_000L, f.local.sessions.single().positionMs)
+    }
+
+    @Test fun savingAnotherSeriesDoesNotPermanentlyInvalidateOfficeCleanProof() = runBlocking {
+        val f = fixture()
+        f.local.localSave(initial.copy(canonicalSeriesId = "imdb:tt-other",
+            sessionId = "other-show", updatedAtEpochMs = 200))
+        assertEquals(RewatchPullResult.REMOTE_APPLIED,
+            f.reconcile.pullSeries(initial.canonicalSeriesId))
+        assertEquals(next.episode, f.local.sessions.first { it.canonicalSeriesId == initial.canonicalSeriesId }.episode)
+        assertEquals(2, f.local.sessions.size)
     }
 }

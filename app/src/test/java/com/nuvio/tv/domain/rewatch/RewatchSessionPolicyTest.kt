@@ -7,6 +7,11 @@ import org.junit.Assert.assertSame
 import org.junit.Test
 
 class RewatchSessionPolicyTest {
+    @Test fun pausedTimestampOnlySaveIsAnExactNoOp() {
+        val paused = start().copy(positionMs = 31_948, durationMs = 1_300_000)
+        assertSame(paused, recordRewatchProgress(paused, paused.episode,
+            paused.positionMs, paused.durationMs, paused.updatedAtEpochMs + 10_000))
+    }
     private val e1 = RewatchEpisode(2, 1)
     private val e2 = RewatchEpisode(2, 2)
     private val e3 = RewatchEpisode(2, 3)
