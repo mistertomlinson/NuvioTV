@@ -136,20 +136,23 @@ internal fun HomeViewModel.setHomePresentationVisible(
 
     if (visible) {
         /*
-         * Never let background replacement preparation compete with an active
-         * Home session. Completed repository fetches remain reusable later.
+         * Seasonal Spotlight remains frozen during active Home use.
+         * Streaming Originals may do its lightweight HTTP probe in the
+         * background, but its expensive enrichment waits until offscreen.
+         * Recheck Eastern checkpoints on resume after Android sleep/doze.
          */
         seasonalSpotlightStageJob?.cancel()
         seasonalSpotlightStageJob = null
-        cancelStreamingOriginalsStageForVisibleHome()
+        checkStreamingOriginalsRefreshOnResume()
         return
     }
 
     /*
-     * Seasonal gets first opportunity because a structural manifest rotation
-     * may already be pending. If it starts, the SO helper observes that shared
-     * staging state and defers itself until a later safe Home exit.
+     * Screensaver/activity pause may leave Home composable while the app is
+     * no longer visible. Finish and commit any already-staged SO replacement
+     * offscreen; otherwise allow the pending stages to run with no UI swap.
      */
+    applyStreamingOriginalsIfQuiet()
     startPendingSeasonalSpotlightStageIfNeeded()
     startPendingStreamingOriginalsStageIfNeeded()
 }

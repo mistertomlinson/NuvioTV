@@ -125,6 +125,52 @@ class StreamingOriginalsRefreshScheduleTest {
     }
 
     @Test
+    fun `timed HTTP probe starts while Home is visible without touching UI`() {
+        assertTrue(shouldStartStreamingOriginalsProbe(
+            refreshDue = true, stageReady = false,
+            stageRunning = false, seasonalBusy = false
+        ))
+        assertFalse(shouldEnrichStreamingOriginalsStage(homePresentationVisible = true))
+        assertFalse(shouldApplyStreamingOriginalsStage(
+            homePresentationVisible = true, stageReady = true
+        ))
+    }
+
+    @Test
+    fun `only offscreen window can enrich and atomically swap prepared rows`() {
+        assertTrue(shouldEnrichStreamingOriginalsStage(homePresentationVisible = false))
+        assertTrue(shouldApplyStreamingOriginalsStage(
+            homePresentationVisible = false, stageReady = true
+        ))
+        assertFalse(shouldApplyStreamingOriginalsStage(
+            homePresentationVisible = false, stageReady = false
+        ))
+    }
+
+    @Test
+    fun `staging is skipped when work is active or Seasonal owns the gate`() {
+        for (flags in listOf(
+            listOf(false, false, false, false),
+            listOf(true, true, false, false),
+            listOf(true, false, true, false),
+            listOf(true, false, false, true)
+        )) {
+            assertFalse(shouldStartStreamingOriginalsProbe(
+                refreshDue = flags[0],
+                stageReady = flags[1],
+                stageRunning = flags[2],
+                seasonalBusy = flags[3]
+            ))
+        }
+    }
+    @Test
+    fun `dream window focus loss counts as offscreen even if Home remains composed`() {
+        assertTrue(homePresentationActive(windowFocused = true, lifecycleResumed = true))
+        assertFalse(homePresentationActive(windowFocused = false, lifecycleResumed = true))
+        assertFalse(homePresentationActive(windowFocused = true, lifecycleResumed = false))
+        assertFalse(homePresentationActive(windowFocused = false, lifecycleResumed = false))
+    }
+    @Test
     fun `different device timezone cannot shift Eastern checkpoints`() {
         val midnightDone = mapOf(StreamingOriginalsTimedCheck.MIDNIGHT to "2026-11-06")
         assertEquals(
