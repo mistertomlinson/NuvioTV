@@ -144,6 +144,12 @@ internal fun PlaybackSettingsSections(
     var streamExpanded by rememberSaveable { mutableStateOf(false) }
     var audioTrailerExpanded by rememberSaveable { mutableStateOf(false) }
     var subtitlesExpanded by rememberSaveable { mutableStateOf(false) }
+    // Track the actual codec visibility so Audio stays a separate bubble
+    // until the final codec row completes its exit animation.
+    var codecExpanded by rememberSaveable { mutableStateOf(false) }
+    val codecVisibility = remember {
+        androidx.compose.animation.core.MutableTransitionState(codecExpanded)
+    }
 
     val playbackAnimationScope = rememberCoroutineScope()
     var animatedFlattenBoundaries by remember {
@@ -167,13 +173,18 @@ internal fun PlaybackSettingsSections(
         if (subtitlesExpanded) add(PlaybackSection.SUBTITLES)
     }
 
+    val codecBubbleVisible =
+        streamExpanded && (codecVisibility.currentState || codecVisibility.targetState)
+
     fun groupPositionFor(
         section: PlaybackSection,
         expanded: Set<PlaybackSection> = expandedSections
     ): SettingsGroupPosition {
-        // Expanding a section does not split the Playback list into separate
-        // rounded cards. General owns the top, Subtitles owns the bottom;
-        // Stream Selection and Audio & Trailer always remain middle rows.
+        // The last codec item closes the Stream Selection bubble. Audio &
+        // Trailer starts the next one while the codec options are visible.
+        if (section == PlaybackSection.AUDIO_TRAILER && codecBubbleVisible) {
+            return SettingsGroupPosition.TOP
+        }
         val index = visibleSections.indexOf(section)
         return when (index) {
             -1 -> SettingsGroupPosition.SINGLE
@@ -593,6 +604,12 @@ internal fun PlaybackSettingsSections(
 
                     autoPlaySettingsItems(
                         playerSettings = playerSettings,
+                        codecExpanded = codecExpanded,
+                        codecVisibility = codecVisibility,
+                        onCodecExpandedChange = { nextExpanded ->
+                            codecExpanded = nextExpanded
+                            codecVisibility.targetState = nextExpanded
+                        },
                         onShowModeDialog =
                             onShowStreamAutoPlayModeDialog,
                         onShowSourceDialog =
@@ -645,9 +662,8 @@ internal fun PlaybackSettingsSections(
                     groupPosition = groupPositionFor(
                         PlaybackSection.AUDIO_TRAILER
                     ),
-                    animateTopFlatten = animateTopFlattenFor(
-                        PlaybackSection.AUDIO_TRAILER
-                    ),
+                    // Smoothly rejoin the surrounding bubble on codec collapse.
+                    animateTopFlatten = true,
                     animateBottomFlatten = animateBottomFlattenFor(
                         PlaybackSection.AUDIO_TRAILER
                     ),
