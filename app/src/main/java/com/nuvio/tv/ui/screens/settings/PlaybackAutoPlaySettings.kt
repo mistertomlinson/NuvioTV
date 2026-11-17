@@ -40,7 +40,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,6 +79,9 @@ import com.nuvio.tv.ui.components.glassDialogFocusTransform
 @Composable
 internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItems(
     playerSettings: PlayerSettings,
+    codecExpanded: Boolean,
+    codecVisibility: androidx.compose.animation.core.MutableTransitionState<Boolean>,
+    onCodecExpandedChange: (Boolean) -> Unit,
     onShowModeDialog: () -> Unit,
     onShowSourceDialog: () -> Unit,
     onShowAddonSelectionDialog: () -> Unit,
@@ -98,8 +100,6 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
 ) {
     // An open codec list is a nested group. Only its immediate visible
     // predecessor closes the preceding group; other rows keep their corners.
-    var codecExpanded by rememberSaveable { mutableStateOf(false) }
-
     fun beforeCodecsPosition(isLastVisibleRow: Boolean): SettingsGroupPosition =
         if (codecExpanded && isLastVisibleRow) {
             SettingsGroupPosition.BOTTOM
@@ -388,7 +388,8 @@ internal fun androidx.compose.foundation.layout.ColumnScope.autoPlaySettingsItem
         onChange = onSetHiddenVideoCodecIds,
         onFocused = onItemFocused,
         expanded = codecExpanded,
-        onToggle = { codecExpanded = !codecExpanded }
+        visibleState = codecVisibility,
+        onToggle = { onCodecExpandedChange(!codecExpanded) }
     )
 }
 
@@ -398,6 +399,7 @@ private fun CodecFilterSettingsItem(
     onChange: (Set<String>) -> Unit,
     onFocused: () -> Unit,
     expanded: Boolean,
+    visibleState: androidx.compose.animation.core.MutableTransitionState<Boolean>,
     onToggle: () -> Unit
 ) {
     val activeNames = VideoCodecOption.entries
@@ -413,9 +415,8 @@ private fun CodecFilterSettingsItem(
     // Closed, the header rejoins the surrounding divided settings group.
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(
-            if (expanded) SettingsRowGap else 0.dp
-        )
+        // Never animate the inter-bubble gap as the codec list exits.
+        verticalArrangement = Arrangement.spacedBy(SettingsRowGap)
     ) {
         SettingsActionRow(
             title = stringResource(R.string.playback_codec_filters_title),
@@ -429,7 +430,7 @@ private fun CodecFilterSettingsItem(
         )
 
         androidx.compose.animation.AnimatedVisibility(
-            visible = expanded,
+            visibleState = visibleState,
             enter = androidx.compose.animation.expandVertically(
                 animationSpec = androidx.compose.animation.core.tween(
                     durationMillis = 240,
