@@ -5,6 +5,7 @@ import com.nuvio.tv.core.debrid.DebridEpisodeSelectionContext
 import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.orderByDebridEpisodeTitleEvidence
+import com.nuvio.tv.core.debrid.isDebridEpisodePlaybackCandidate
 
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.tv.core.debrid.DirectDebridPlayableResult
@@ -29,28 +30,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-
-internal data class StreamAddonFilterResult(
-    val selectedAddon: String?,
-    val streams: List<Stream>
-)
-
-internal fun resolveStreamAddonFilter(
-    allStreams: List<Stream>,
-    availableAddons: List<String>,
-    selectedAddon: String?
-): StreamAddonFilterResult {
-    val availableSelection = selectedAddon?.takeIf { it in availableAddons }
-    return StreamAddonFilterResult(
-        selectedAddon = availableSelection,
-        streams = if (availableSelection == null) {
-            allStreams
-        } else {
-            allStreams.filter { it.addonName == availableSelection }
-        }
-    )
-}
-
 
 internal fun PlayerRuntimeController.showEpisodesPanel() {
     _uiState.update {
@@ -203,6 +182,7 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
                             "row" to playingIndex,
                             "videoId" to currentVideoId,
                             "trackedFilename" to currentFilename,
+                            "displayedFilename" to _uiState.value.currentStreamFilename,
                             "trackedLinkHash" to PlaybackTrace.fingerprint(currentStreamUrl),
                             "exactKeyMatch" to (
                                 playingRow.stableKey() == _uiState.value.currentSourceStreamKey
@@ -404,7 +384,6 @@ private fun PlayerRuntimeController.applySelectedStreamState(
     currentFilename = stream.behaviorHints?.filename
         ?: stream.clientResolve?.filename
         ?: stream.clientResolve?.stream?.raw?.filename
-        ?: navigationArgs.filename
     currentStreamMimeType = PlayerMediaSourceFactory.inferMimeType(
         url = url,
         filename = currentFilename
@@ -456,7 +435,8 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
             videoHash = currentVideoHash,
             videoSize = currentVideoSize,
             addonName = currentAddonName,
-            addonBaseUrl = currentAddonBaseUrl
+            addonBaseUrl = currentAddonBaseUrl,
+            sourceStreamKey = stream.stableKey()
         )
     }
 }
@@ -474,10 +454,7 @@ internal fun PlayerRuntimeController.switchToSourceStream(
         "sourceKeyHash" to PlaybackTrace.fingerprint(sourceStreamKey)
     )
     val episodeSelectionContext = currentDebridEpisodeSelectionContext()
-    if (
-        stream.debridEpisodeTitleMatch(episodeSelectionContext) ==
-        DebridEpisodeTitleMatch.CONFLICT
-    ) {
+    if (!stream.isDebridEpisodePlaybackCandidate(episodeSelectionContext)) {
         _uiState.update {
             it.copy(sourceStreamsError = "Selected stream appears to be for a different episode")
         }
@@ -538,6 +515,7 @@ internal fun PlayerRuntimeController.switchToSourceStream(
             currentStreamFileIdx = currentFileIdx,
             currentStreamAddonName = currentAddonName,
             currentStreamDescription = currentStreamDescription,
+            currentStreamFilename = currentFilename,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
@@ -896,7 +874,7 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
         "autoplayRewatchHandoff" to protectAutoplayRewatchHandoff
     )
     val episodeSelectionContext = debridEpisodeSelectionContextFor(targetVideo)
-    if (stream.debridEpisodeTitleMatch(episodeSelectionContext) == DebridEpisodeTitleMatch.CONFLICT) {
+    if (!stream.isDebridEpisodePlaybackCandidate(episodeSelectionContext)) {
         _uiState.update {
             it.copy(episodeStreamsError = "Selected stream appears to be for a different episode")
         }
@@ -1014,6 +992,7 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
             currentStreamFileIdx = currentFileIdx,
             currentStreamAddonName = currentAddonName,
             currentStreamDescription = currentStreamDescription,
+            currentStreamFilename = currentFilename,
             audioTracks = emptyList(),
             subtitleTracks = emptyList(),
             selectedAudioTrackIndex = -1,
@@ -1242,10 +1221,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 val allStreams = orderedStreams
                     .flatMap { it.streams }
                     .orderByDebridEpisodeTitleEvidence(nextEpisodeSelectionContext)
-                    .filterNot {
-                        it.debridEpisodeTitleMatch(nextEpisodeSelectionContext) ==
-                            DebridEpisodeTitleMatch.CONFLICT
-                    }
+                    .filter { it.isDebridEpisodePlaybackCandidate(nextEpisodeSelectionContext) }
                     .filterNot { it.stableKey() in excludedStreamKeys }
                     .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
 

@@ -31,6 +31,7 @@ data class PlayerUiState(
     val currentStreamFileIdx: Int? = null,
     val currentStreamAddonName: String? = null,
     val currentStreamDescription: String? = null,
+    val currentStreamFilename: String? = null,
     val backdrop: String? = null,
     val logo: String? = null,
     val description: String? = null,

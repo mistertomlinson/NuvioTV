@@ -12,6 +12,10 @@ import com.nuvio.tv.core.debrid.DirectDebridResolveResult
 import com.nuvio.tv.core.debrid.classifyDebridEpisodeFileName
 import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.orderByDebridEpisodeTitleEvidence
+import com.nuvio.tv.core.debrid.canAttemptDebridEpisodePlayback
+import com.nuvio.tv.core.debrid.acceptsResolvedDebridEpisodeFile
+import com.nuvio.tv.core.debrid.isDebridEpisodePlaybackCandidate
+import kotlinx.coroutines.sync.withLock
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
 import com.nuvio.tv.core.debrid.DirectDebridStreamPreparer
@@ -99,6 +103,7 @@ class StreamScreenViewModel @Inject constructor(
     private var resumeBaselineStreams: List<AddonStreams>? = null
     private var sourceChipErrorDismissJob: Job? = null
     private var pendingCacheSaveJob: Job? = null
+    private val debridEpisodeContextMutex = kotlinx.coroutines.sync.Mutex()
 
     private val embeddedStreamGroupName: String by lazy {
         context.getString(R.string.stream_embedded_group)
@@ -414,7 +419,8 @@ class StreamScreenViewModel @Inject constructor(
                                 addonBaseUrl = cached.addonBaseUrl,
                                 fileIdx = cached.fileIdx,
                                 sources = cached.sources,
-                                contentLanguage = cached.contentLanguage ?: contentLanguage
+                                contentLanguage = cached.contentLanguage ?: contentLanguage,
+                                sourceStreamKey = cached.sourceStreamKey
                             ),
                             showDirectAutoPlayOverlay = showOverlay || it.showDirectAutoPlayOverlay,
                             isDirectAutoPlayFlow = showOverlay || it.isDirectAutoPlayFlow
@@ -604,12 +610,13 @@ class StreamScreenViewModel @Inject constructor(
                 }
                 debridPreparationLaunched = true
                 viewModelScope.launch {
+                    val selectionContext = ensureDebridEpisodeSelectionContext()
                     directDebridStreamPreparer.prepare(
                         streams = _uiState.value.allStreams,
                         season = season,
                         episode = episode,
                         playerSettings = playerSettings,
-                        selectionContext = debridEpisodeSelectionContext,
+                        selectionContext = selectionContext,
                         installedAddonNames = installedAddonOrder.toSet()
                     ) { original, prepared ->
                         updateUiStateIfChanged { state ->
@@ -1184,10 +1191,7 @@ class StreamScreenViewModel @Inject constructor(
             streams = state.allStreams
                 .orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
                 .filter { it.autoPlayKey() !in failed }
-                .filterNot {
-                    it.debridEpisodeTitleMatch(episodeSelectionContext) ==
-                        DebridEpisodeTitleMatch.CONFLICT
-                },
+                .filter { it.isDebridEpisodePlaybackCandidate(episodeSelectionContext) },
             mode = playerSettings.streamAutoPlayMode,
             regexPattern = playerSettings.streamAutoPlayRegex,
             source = playerSettings.streamAutoPlaySource,
@@ -1203,43 +1207,44 @@ class StreamScreenViewModel @Inject constructor(
         return nextCandidate
     }
 
-    private suspend fun ensureDebridEpisodeSelectionContext(): DebridEpisodeSelectionContext {
-        val current = debridEpisodeSelectionContext
-        if (season == null || episode == null) return current
-        if (current.seasonEpisodeTitles.isNotEmpty()) return current
+    private suspend fun ensureDebridEpisodeSelectionContext(): DebridEpisodeSelectionContext =
+        debridEpisodeContextMutex.withLock {
+            val current = debridEpisodeSelectionContext
+            if (season == null || episode == null) return@withLock current
+            if (current.seasonEpisodeTitles.isNotEmpty()) return@withLock current
 
-        val metaId = contentId ?: videoId.substringBefore(":")
-        if (metaId.isBlank() || contentType.isBlank()) return current
+            val metaId = contentId ?: videoId.substringBefore(":")
+            if (metaId.isBlank() || contentType.isBlank()) return@withLock current
 
-        val result = try {
-            metaRepository.getMetaFromAllAddons(type = contentType, id = metaId)
-                .first { it !is NetworkResult.Loading }
-        } catch (error: kotlinx.coroutines.CancellationException) {
-            throw error
-        } catch (_: Exception) {
-            return current
+            val result = try {
+                metaRepository.getMetaFromAllAddons(type = contentType, id = metaId)
+                    .first { it !is NetworkResult.Loading }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (_: Exception) {
+                return@withLock current
+            }
+
+            val meta = (result as? NetworkResult.Success)?.data ?: return@withLock current
+            val selectedEpisode = meta.videos.firstOrNull {
+                it.season == season && it.episode == episode
+            }
+
+            DebridEpisodeSelectionContext(
+                season = season,
+                episode = episode,
+                title = episodeName ?: selectedEpisode?.title,
+                seasonEpisodeTitles = meta.videos
+                    .asSequence()
+                    .filter { it.season == season }
+                    .map { it.title }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .toList()
+            ).also {
+                debridEpisodeSelectionContext = it
+            }
         }
-
-        val meta = (result as? NetworkResult.Success)?.data ?: return current
-        val selectedEpisode = meta.videos.firstOrNull {
-            it.season == season && it.episode == episode
-        }
-
-        return DebridEpisodeSelectionContext(
-            season = season,
-            episode = episode,
-            title = episodeName ?: selectedEpisode?.title,
-            seasonEpisodeTitles = meta.videos
-                .asSequence()
-                .filter { it.season == season }
-                .map { it.title }
-                .filter { it.isNotBlank() }
-                .distinct()
-                .toList()
-        ).also {
-            debridEpisodeSelectionContext = it
-        }
-    }
 
     suspend fun resolveStreamForPlayback(stream: Stream): StreamPlaybackInfo? {
         PlaybackTrace.stream("stream_screen_play_request", stream,
@@ -1252,14 +1257,16 @@ class StreamScreenViewModel @Inject constructor(
         val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
         if (VideoCodecFilter.excludedStream(stream, hiddenVideoCodecIds)) return null
 
-        if (
-            stream.debridEpisodeTitleMatch(episodeSelectionContext) ==
-            DebridEpisodeTitleMatch.CONFLICT
-        ) {
+        val willResolveFile = directDebridResolver.shouldResolveToPlayableStream(stream)
+        if (!stream.canAttemptDebridEpisodePlayback(episodeSelectionContext, willResolveFile)) {
+            PlaybackTrace.stream("stream_screen_episode_rejected", stream,
+                "videoId" to videoId, "requestedTitle" to episodeSelectionContext.title,
+                "reason" to "advertised_file_conflict"
+            )
             return null
         }
 
-        if (!directDebridResolver.shouldResolveToPlayableStream(stream)) {
+        if (!willResolveFile) {
             val info = getStreamForPlayback(stream)
             // Persist binge group for non-debrid streams on successful playback
             val bg = info.bingeGroup
@@ -1278,7 +1285,7 @@ class StreamScreenViewModel @Inject constructor(
             )
         }
 
-        val basePlaybackInfo = getStreamForPlayback(stream)
+        val basePlaybackInfo = getStreamForPlayback(stream, commitSelection = false)
         return when (val result = directDebridResolver.resolve(stream, season, episode, episodeSelectionContext)) {
             is DirectDebridResolveResult.Success -> {
                 PlaybackTrace.record("stream_screen_debrid_resolved",
@@ -1300,12 +1307,11 @@ class StreamScreenViewModel @Inject constructor(
                     android.util.Log.i(TAG, "Skipping resolved episode file excluded by video codec preference")
                     return null
                 }
-                if (
-                    classifyDebridEpisodeFileName(
-                        result.filename,
-                        episodeSelectionContext
-                    ) == DebridEpisodeTitleMatch.CONFLICT
-                ) {
+                if (!stream.acceptsResolvedDebridEpisodeFile(result.filename, episodeSelectionContext)) {
+                    PlaybackTrace.record("stream_screen_episode_rejected",
+                        "videoId" to videoId, "requestedTitle" to episodeSelectionContext.title,
+                        "resolvedFilename" to result.filename, "reason" to "resolved_file_conflict"
+                    )
                     return null
                 }
 
@@ -1346,7 +1352,8 @@ class StreamScreenViewModel @Inject constructor(
                             contentLanguage = contentLanguage,
                             year = year,
                             addonName = resolved.addonName,
-                            addonBaseUrl = resolved.addonBaseUrl
+                            addonBaseUrl = resolved.addonBaseUrl,
+                            sourceStreamKey = resolved.sourceStreamKey
                         )
                     }
                 }
@@ -1436,14 +1443,14 @@ class StreamScreenViewModel @Inject constructor(
     /**
      * Gets the selected stream for playback
      */
-    fun getStreamForPlayback(stream: Stream): StreamPlaybackInfo {
+    fun getStreamForPlayback(stream: Stream, commitSelection: Boolean = true): StreamPlaybackInfo {
         PlaybackTrace.stream("stream_screen_playback_info", stream,
             "videoId" to videoId,
             "season" to season,
             "episode" to episode,
             "episodeTitle" to episodeName
         )
-        cancelStreamsLoad()
+        if (commitSelection) cancelStreamsLoad()
         val playbackInfo = StreamPlaybackInfo(
             url = stream.getStreamUrl(),
             title = _uiState.value.title,
@@ -1478,11 +1485,12 @@ class StreamScreenViewModel @Inject constructor(
             addonBaseUrl = stream.addonBaseUrl,
             fileIdx = stream.fileIdx ?: stream.clientResolve?.fileIdx,
             sources = stream.sources ?: stream.clientResolve?.sources,
-            contentLanguage = contentLanguage
+            contentLanguage = contentLanguage,
+            sourceStreamKey = stream.stableKey()
         )
 
         val url = playbackInfo.url
-        if (!url.isNullOrBlank() && !playbackInfo.isExternal) {
+        if (commitSelection && !url.isNullOrBlank() && !playbackInfo.isExternal) {
             pendingCacheSaveJob = viewModelScope.launch {
                 streamLinkCacheDataStore.save(
                     contentKey = streamCacheKey,
@@ -1496,7 +1504,8 @@ class StreamScreenViewModel @Inject constructor(
                     contentLanguage = contentLanguage,
                     year = year,
                     addonName = playbackInfo.addonName,
-                    addonBaseUrl = playbackInfo.addonBaseUrl
+                    addonBaseUrl = playbackInfo.addonBaseUrl,
+                    sourceStreamKey = playbackInfo.sourceStreamKey
                 )
             }
         }
@@ -1716,7 +1725,8 @@ data class StreamPlaybackInfo(
     val fileIdx: Int? = null,
     val sources: List<String>? = null,
     val contentLanguage: String? = null,
-    val addonBaseUrl: String? = null
+    val addonBaseUrl: String? = null,
+    val sourceStreamKey: String? = null
 )
 
 private fun Stream.isReadyForDebridPreparation(): Boolean =

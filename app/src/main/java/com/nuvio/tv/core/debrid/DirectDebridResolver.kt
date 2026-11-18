@@ -158,15 +158,20 @@ class DirectDebridResolver @Inject constructor(
         episode: Int?,
         selectionContext: DebridEpisodeSelectionContext?
     ): DirectDebridResolveResult {
-        if (stream.needsLocalDebridResolve()) {
-            return resolveLocalTorrentStream(stream, season, episode, selectionContext)
-        }
-        return when (DebridProviders.byId(stream.clientResolve?.service)?.id) {
+        val result = if (stream.needsLocalDebridResolve()) {
+            resolveLocalTorrentStream(stream, season, episode, selectionContext)
+        } else when (DebridProviders.byId(stream.clientResolve?.service)?.id) {
             DebridProviders.TORBOX_ID -> torboxResolver.resolve(stream, season, episode, selectionContext)
             DebridProviders.PREMIUMIZE_ID -> premiumizeResolver.resolve(stream, season, episode, selectionContext)
             DebridProviders.REAL_DEBRID_ID -> realDebridResolver.resolve(stream, season, episode, selectionContext)
             else -> DirectDebridResolveResult.Error
         }
+        val target = selectionContext.withDebridEpisodeTarget(season, episode)
+        return if (result is DirectDebridResolveResult.Success &&
+            !stream.acceptsResolvedDebridEpisodeFile(result.filename, target)
+        ) {
+            DirectDebridResolveResult.Stale
+        } else result
     }
 
     private suspend fun Stream.directDebridResolveCacheKey(
@@ -300,6 +305,7 @@ private fun Stream.withResolvedDebridUrl(result: DirectDebridResolveResult.Succe
     copy(
         url = result.url,
         externalUrl = null,
+        resolvedFilename = result.filename,
         behaviorHints = behaviorHints.mergeResolvedDebridHints(result)
     )
 

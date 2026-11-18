@@ -33,7 +33,8 @@ internal data class PlayerNavigationArgs(
     val infoHash: String?,
     val fileIdx: Int?,
     val manualSelection: Boolean,
-    val streamAddonBaseUrl: String? = null
+    val streamAddonBaseUrl: String? = null,
+    val sourceStreamKey: String? = null
 ) {
     companion object {
         fun from(savedStateHandle: SavedStateHandle): PlayerNavigationArgs {
@@ -73,7 +74,9 @@ internal data class PlayerNavigationArgs(
                 infoHash = savedStateHandle.get<String>("infoHash")?.takeIf { it.isNotEmpty() },
                 fileIdx = savedStateHandle.get<String>("fileIdx")?.toIntOrNull(),
                 manualSelection = savedStateHandle.get<String>("manualSelection")?.toBooleanStrictOrNull() == true,
-                streamAddonBaseUrl = decodedOrNull("streamAddonBaseUrl")
+                streamAddonBaseUrl = decodedOrNull("streamAddonBaseUrl"),
+                // NavController has already decoded this opaque identity once.
+                sourceStreamKey = savedStateHandle.get<String>("sourceStreamKey")?.takeIf { it.isNotEmpty() }
             )
         }
     }

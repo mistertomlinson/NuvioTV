@@ -65,7 +65,8 @@ internal fun StreamItem(
     requestInitialFocus: Boolean,
     isCurrentStream: Boolean = false,
     onClick: () -> Unit,
-    onUpKey: (() -> Unit)? = null
+    onUpKey: (() -> Unit)? = null,
+    playingFilename: String? = null
 ) {
     Card(
         onClick = onClick,
@@ -141,7 +142,10 @@ internal fun StreamItem(
                     }
                 }
 
-                stream.getDisplayDescription()?.let { description ->
+                val displayDescription = if (isCurrentStream) {
+                    playingSourceDescription(stream, playingFilename)
+                } else stream.getDisplayDescription()
+                displayDescription?.let { description ->
                     if (description != stream.getDisplayName()) {
                         Text(
                             text = description,

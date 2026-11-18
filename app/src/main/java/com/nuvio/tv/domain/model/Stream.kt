@@ -25,7 +25,10 @@ data class Stream(
     val clientResolve: StreamClientResolve? = null,
     val debridCacheStatus: StreamDebridCacheStatus? = null,
     val badges: List<StreamBadge> = emptyList(),
-    val addonBaseUrl: String? = null
+    val addonBaseUrl: String? = null,
+    // Actual file chosen from a debrid file list; the addon can describe a
+    // different episode in the same pack before that selection is repaired.
+    val resolvedFilename: String? = null
 ) {
     /**
      * Returns the primary stream source URL
@@ -90,7 +93,7 @@ data class Stream(
         // that update as a brand-new row.
         append(infoHash ?: clientResolve?.infoHash ?: url ?: ytId ?: externalUrl ?: "")
         append('\u0000')
-        append(clientResolve?.fileIdx ?: "")
+        append(fileIdx ?: clientResolve?.fileIdx ?: "")
         append('\u0000')
         append(name ?: "")
         append('\u0000')

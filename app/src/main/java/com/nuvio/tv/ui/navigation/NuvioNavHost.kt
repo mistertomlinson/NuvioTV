@@ -1336,6 +1336,7 @@ fun NuvioNavHost(
                                 addonLogo = playbackInfo.addonLogo,
                                 streamAddonBaseUrl = playbackInfo.addonBaseUrl,
                                 streamDescription = playbackInfo.streamDescription,
+                                sourceStreamKey = playbackInfo.sourceStreamKey,
                                 manualSelection = true
                             )
                         )
@@ -1381,6 +1382,7 @@ fun NuvioNavHost(
                                 addonLogo = playbackInfo.addonLogo,
                                 streamAddonBaseUrl = playbackInfo.addonBaseUrl,
                                 streamDescription = playbackInfo.streamDescription,
+                                sourceStreamKey = playbackInfo.sourceStreamKey,
                                 manualSelection = false
                             )
                         ) {
@@ -1527,6 +1529,11 @@ fun NuvioNavHost(
                     defaultValue = null
                 },
                 navArgument("streamDescription") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+                navArgument("sourceStreamKey") {
                     type = NavType.StringType
                     nullable = true
                     defaultValue = null

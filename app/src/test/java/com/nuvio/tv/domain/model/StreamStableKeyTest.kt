@@ -46,6 +46,13 @@ class StreamStableKeyTest {
         )
     }
 
+    @Test
+    fun `plain torrent file indices distinguish episodes with identical labels`() {
+        val source = stream(url = null).copy(infoHash = "series-pack", fileIdx = 104)
+        assertNotEquals(source.stableKey(), source.copy(fileIdx = 105).stableKey())
+        assertEquals(source.stableKey(), source.copy(url = "https://cdn.example/selected-file").stableKey())
+    }
+
     private fun stream(
         url: String?,
         clientResolve: StreamClientResolve? = null

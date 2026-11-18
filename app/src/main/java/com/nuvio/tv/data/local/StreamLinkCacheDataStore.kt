@@ -28,7 +28,8 @@ data class CachedStreamLink(
     val contentLanguage: String? = null,
     val year: String? = null,
     val addonName: String? = null,
-    val addonBaseUrl: String? = null
+    val addonBaseUrl: String? = null,
+    val sourceStreamKey: String? = null
 )
 
 @Singleton
@@ -60,7 +61,8 @@ class StreamLinkCacheDataStore @Inject constructor(
         contentLanguage: String? = null,
         year: String? = null,
         addonName: String? = null,
-        addonBaseUrl: String? = null
+        addonBaseUrl: String? = null,
+        sourceStreamKey: String? = null
     ) {
         val payload = JSONObject().apply {
             put("url", url)
@@ -80,6 +82,7 @@ class StreamLinkCacheDataStore @Inject constructor(
             year?.let { put("year", it) }
             addonName?.let { put("addonName", it) }
             addonBaseUrl?.let { put("addonBaseUrl", it) }
+            sourceStreamKey?.let { put("sourceStreamKey", it) }
         }.toString()
 
         store().edit { prefs ->
@@ -137,7 +140,8 @@ class StreamLinkCacheDataStore @Inject constructor(
                 contentLanguage = json.optString("contentLanguage", "").ifBlank { null },
                 year = json.optString("year", "").ifBlank { null },
                 addonName = json.optString("addonName", "").ifBlank { null },
-                addonBaseUrl = json.optString("addonBaseUrl", "").ifBlank { null }
+                addonBaseUrl = json.optString("addonBaseUrl", "").ifBlank { null },
+                sourceStreamKey = json.optString("sourceStreamKey", "").ifBlank { null }
             )
         }.getOrNull()
 

@@ -151,6 +151,9 @@ private fun classifyDebridEpisodeTitle(
 internal fun Stream.debridEpisodeTitleMatch(
     context: DebridEpisodeSelectionContext?
 ): DebridEpisodeTitleMatch {
+    resolvedFilename?.takeIf { it.isNotBlank() }?.let {
+        return classifyDebridEpisodeFileName(it, context)
+    }
     val matches = listOfNotNull(
         behaviorHints?.filename,
         clientResolve?.filename,
@@ -165,6 +168,30 @@ internal fun Stream.debridEpisodeTitleMatch(
         DebridEpisodeTitleMatch.TARGET in matches -> DebridEpisodeTitleMatch.TARGET
         else -> DebridEpisodeTitleMatch.UNKNOWN
     }
+}
+
+internal fun Stream.canAttemptDebridEpisodePlayback(
+    context: DebridEpisodeSelectionContext?,
+    willResolveFile: Boolean
+): Boolean = debridEpisodeTitleMatch(context) != DebridEpisodeTitleMatch.CONFLICT || willResolveFile
+
+internal fun Stream.isDebridEpisodePlaybackCandidate(
+    context: DebridEpisodeSelectionContext?
+): Boolean = canAttemptDebridEpisodePlayback(
+    context,
+    willResolveFile = getStreamUrl().isNullOrBlank() && (isTorrent() || isDirectDebrid())
+)
+
+internal fun Stream.acceptsResolvedDebridEpisodeFile(
+    fileName: String?,
+    context: DebridEpisodeSelectionContext?
+): Boolean {
+    val resolvedMatch = classifyDebridEpisodeFileName(fileName, context)
+    if (resolvedMatch == DebridEpisodeTitleMatch.CONFLICT) return false
+    // A conflicting advertised episode can only be repaired by affirmative
+    // target-title evidence from the actual selected file, not by losing its title.
+    return debridEpisodeTitleMatch(context) != DebridEpisodeTitleMatch.CONFLICT ||
+        resolvedMatch == DebridEpisodeTitleMatch.TARGET
 }
 
 internal fun List<Stream>.orderByDebridEpisodeTitleEvidence(
