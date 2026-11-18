@@ -86,6 +86,7 @@ internal fun PlayerRuntimeController.persistRememberedLinkAudioSelection(trackIn
     val url = currentStreamUrl.takeIf { it.isNotBlank() } ?: return
     val streamName = _uiState.value.currentStreamName?.takeIf { it.isNotBlank() } ?: title
     val selectedTrack = _uiState.value.audioTracks.getOrNull(trackIndex)
+    val sourceStreamKey = _uiState.value.currentSourceStreamKey
 
     scope.launch {
         streamLinkCacheDataStore.save(
@@ -97,7 +98,10 @@ internal fun PlayerRuntimeController.persistRememberedLinkAudioSelection(trackIn
             rememberedAudioName = selectedTrack?.name,
             filename = currentFilename,
             videoHash = currentVideoHash,
-            videoSize = currentVideoSize
+            videoSize = currentVideoSize,
+            addonName = currentAddonName,
+            addonBaseUrl = currentAddonBaseUrl,
+            sourceStreamKey = sourceStreamKey
         )
     }
 }

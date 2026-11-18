@@ -365,8 +365,14 @@ class StreamScreenViewModel @Inject constructor(
                     contentKey = streamCacheKey,
                     maxAgeMs = playerSettings.streamReuseLastLinkCacheHours * 60L * 60L * 1000L
                 )
+                if (cached != null && cached.sourceStreamKey.isNullOrBlank()) {
+                    PlaybackTrace.record("last_link_cache_identity_missing",
+                        "cacheKey" to streamCacheKey, "requestedVideoId" to videoId
+                    )
+                }
                 if (
                     cached != null &&
+                    !cached.sourceStreamKey.isNullOrBlank() &&
                     !VideoCodecFilter.excludedText(cached.filename, playerSettings.hiddenVideoCodecIds) &&
                     !VideoCodecFilter.excludedText(cached.streamName, playerSettings.hiddenVideoCodecIds) &&
                     classifyDebridEpisodeFileName(
