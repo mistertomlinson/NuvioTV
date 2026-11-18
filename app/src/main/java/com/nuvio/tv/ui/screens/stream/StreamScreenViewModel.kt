@@ -502,7 +502,11 @@ class StreamScreenViewModel @Inject constructor(
                         "videoId" to videoId,
                         "season" to season,
                         "episode" to episode,
-                        "episodeTitle" to episodeName
+                        "episodeTitle" to episodeName,
+                        "selectionMode" to playerSettings.streamAutoPlayMode.name,
+                        "preferredBingeGroup" to persistedBingeGroup,
+                        "episodeEvidence" to selectedAutoPlayStream
+                            .debridEpisodeTitleMatch(debridEpisodeSelectionContext).name
                     )
                     android.util.Log.d("NuvioAutoPlay", "selected: ${selectedAutoPlayStream.name ?: selectedAutoPlayStream.addonName} debrid=${selectedAutoPlayStream.isDirectDebrid()} cached=${selectedAutoPlayStream.debridCacheStatus?.state}")
                     resolvedAutoPlayTarget = true
