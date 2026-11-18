@@ -120,7 +120,7 @@ object PlaybackTrace {
     internal fun scrub(key: String, value: Any?): Any? {
         if (value == null) return null
         val field = key.lowercase()
-        if (field.contains("url") || field.contains("token") ||
+        if ((field.contains("url") && !field.endsWith("hash")) || field.contains("token") ||
             field.contains("secret") || field.contains("password") ||
             field.contains("authorization") || field.contains("magnet") ||
             field.contains("header") || field.contains("apikey")) {
