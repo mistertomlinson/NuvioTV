@@ -7,7 +7,8 @@ data class DebridEpisodeSelectionContext(
     val season: Int?,
     val episode: Int?,
     val title: String?,
-    val seasonEpisodeTitles: List<String> = emptyList()
+    val seasonEpisodeTitles: List<String> = emptyList(),
+    val requireTitleMatch: Boolean = false
 ) {
     fun cacheKeyPart(): String {
         val target = title.orEmpty().normalizedDebridText()
@@ -17,7 +18,7 @@ data class DebridEpisodeSelectionContext(
             .distinct()
             .sorted()
             .joinToString("~")
-        return "$target|$known"
+        return "$target|$known|titleRequired=$requireTitleMatch"
     }
 }
 
@@ -34,7 +35,9 @@ internal fun DebridEpisodeSelectionContext?.withDebridEpisodeTarget(
     season = season ?: this?.season,
     episode = episode ?: this?.episode,
     title = this?.title,
-    seasonEpisodeTitles = this?.seasonEpisodeTitles.orEmpty()
+    seasonEpisodeTitles = this?.seasonEpisodeTitles.orEmpty(),
+    requireTitleMatch = this?.requireTitleMatch == true &&
+        (season == null || season == this.season) && (episode == null || episode == this.episode)
 )
 
 private data class DebridEpisodeNumber(val season: Int, val episodes: IntRange)
@@ -170,10 +173,38 @@ internal fun Stream.debridEpisodeTitleMatch(
     }
 }
 
+internal fun DebridEpisodeSelectionContext.withDebridEpisodeNumberingEvidence(
+    streams: List<Stream>
+): DebridEpisodeSelectionContext {
+    if (requireTitleMatch || season == null || episode == null) return this
+    val target = title.orEmpty().normalizedDebridText()
+    if (!target.containsStrongDebridEpisodeTitle(target)) return this
+
+    // A known other title at the requested number establishes conflicting
+    // release numbering. Unknown or translated filenames cannot resolve that
+    // conflict just by repeating the same number.
+    val conflictingNumber = streams.any { stream ->
+        listOfNotNull(
+            stream.resolvedFilename,
+            stream.behaviorHints?.filename,
+            stream.clientResolve?.filename,
+            stream.clientResolve?.stream?.raw?.filename
+        ).any { filename ->
+            filename.matchesDebridEpisodeNumber(season, episode) &&
+                classifyDebridEpisodeTitle(filename, this) == DebridEpisodeTitleMatch.CONFLICT
+        }
+    }
+    return if (conflictingNumber) copy(requireTitleMatch = true) else this
+}
+
 internal fun Stream.canAttemptDebridEpisodePlayback(
     context: DebridEpisodeSelectionContext?,
     willResolveFile: Boolean
-): Boolean = debridEpisodeTitleMatch(context) != DebridEpisodeTitleMatch.CONFLICT || willResolveFile
+): Boolean = willResolveFile || when (debridEpisodeTitleMatch(context)) {
+    DebridEpisodeTitleMatch.TARGET -> true
+    DebridEpisodeTitleMatch.UNKNOWN -> context?.requireTitleMatch != true
+    DebridEpisodeTitleMatch.CONFLICT -> false
+}
 
 internal fun Stream.isDebridEpisodePlaybackCandidate(
     context: DebridEpisodeSelectionContext?
@@ -188,6 +219,7 @@ internal fun Stream.acceptsResolvedDebridEpisodeFile(
 ): Boolean {
     val resolvedMatch = classifyDebridEpisodeFileName(fileName, context)
     if (resolvedMatch == DebridEpisodeTitleMatch.CONFLICT) return false
+    if (context?.requireTitleMatch == true) return resolvedMatch == DebridEpisodeTitleMatch.TARGET
     // A conflicting advertised episode can only be repaired by affirmative
     // target-title evidence from the actual selected file, not by losing its title.
     return debridEpisodeTitleMatch(context) != DebridEpisodeTitleMatch.CONFLICT ||
@@ -203,8 +235,12 @@ internal fun List<Stream>.orderByDebridEpisodeTitleEvidence(
             compareBy<IndexedValue<Stream>> {
                 when (it.value.debridEpisodeTitleMatch(context)) {
                     DebridEpisodeTitleMatch.TARGET -> 0
-                    DebridEpisodeTitleMatch.UNKNOWN -> 1
-                    DebridEpisodeTitleMatch.CONFLICT -> 2
+                    DebridEpisodeTitleMatch.UNKNOWN -> if (context?.requireTitleMatch == true) 2 else 1
+                    DebridEpisodeTitleMatch.CONFLICT -> when {
+                        context?.requireTitleMatch != true -> 2
+                        it.value.isDebridEpisodePlaybackCandidate(context) -> 1
+                        else -> 3
+                    }
                 }
             }.thenBy { it.index }
         )

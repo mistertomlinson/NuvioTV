@@ -20,6 +20,7 @@ class RealDebridFileSelector @Inject constructor() {
         val target = selectionContext.withDebridEpisodeTarget(season ?: resolve.season, episode ?: resolve.episode)
         playable.firstDebridTargetEpisodeTitleMatch(target) { it.displayName() }
             ?.let { return it }
+        if (target.requireTitleMatch) return null
 
         val eligible = playable.withoutDebridEpisodeTitleConflicts(target) { it.displayName() }
         if (eligible.isEmpty()) return null

@@ -39,6 +39,7 @@ class StreamLinkCacheDataStore @Inject constructor(
 ) {
     companion object {
         private const val FEATURE = "stream_link_cache"
+        private const val EPISODE_VALIDATION_VERSION = 1
     }
 
     private fun store(profileId: Int = profileManager.activeProfileId.value) =
@@ -68,6 +69,7 @@ class StreamLinkCacheDataStore @Inject constructor(
             put("url", url)
             put("streamName", streamName)
             put("cachedAtMs", System.currentTimeMillis())
+            put("episodeValidationVersion", EPISODE_VALIDATION_VERSION)
             put("headers", JSONObject(headers ?: emptyMap<String, String>()))
             put("filename", filename)
             put("videoHash", videoHash)
@@ -98,6 +100,10 @@ class StreamLinkCacheDataStore @Inject constructor(
 
         val parsed = runCatching {
             val json = JSONObject(raw)
+            // Older links may have passed numeric-only checks despite known
+            // episode-order conflicts. Re-resolve them once under the new rule.
+            val episodeKey = contentKey.substringBefore('|') in listOf("series", "tv")
+            if (episodeKey && json.optInt("episodeValidationVersion", 0) != EPISODE_VALIDATION_VERSION) return@runCatching null
             val cachedAtMs = json.optLong("cachedAtMs", 0L)
             val age = System.currentTimeMillis() - cachedAtMs
             if (cachedAtMs <= 0L || age > maxAgeMs) return@runCatching null

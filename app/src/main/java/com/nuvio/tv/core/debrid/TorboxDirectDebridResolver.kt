@@ -38,6 +38,7 @@ class TorboxDirectDebridResolver @Inject constructor(
             "requestedSeason" to season,
             "requestedEpisode" to episode,
             "requestedTitle" to selectionContext?.title,
+            "requireTitleMatch" to selectionContext?.requireTitleMatch,
             "resolveFilename" to resolve.filename,
             "resolveFileIdx" to resolve.fileIdx
         )
@@ -113,6 +114,7 @@ class TorboxDirectDebridResolver @Inject constructor(
                     "requestedSeason" to season,
                     "requestedEpisode" to episode,
                     "requestedTitle" to selectionContext?.title,
+                    "requireTitleMatch" to selectionContext?.requireTitleMatch,
                     "fileCount" to files.size
                 )
                 android.util.Log.w("NuvioDebrid", "TB fileSelector returned null from ${files.size} files for season=$season episode=$episode")

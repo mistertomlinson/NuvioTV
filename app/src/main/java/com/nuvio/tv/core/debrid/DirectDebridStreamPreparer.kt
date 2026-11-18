@@ -41,7 +41,7 @@ class DirectDebridStreamPreparer @Inject constructor(
         if (!settings.canResolvePlayableLinks || limit <= 0) return
 
         val candidates = prioritizeCandidates(
-            streams = streams,
+            streams = streams.orderByDebridEpisodeTitleEvidence(selectionContext),
             limit = limit,
             playerSettings = playerSettings,
             installedAddonNames = installedAddonNames

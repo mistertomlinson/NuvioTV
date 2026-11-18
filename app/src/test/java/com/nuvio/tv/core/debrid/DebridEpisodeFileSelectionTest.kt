@@ -119,6 +119,35 @@ class DebridEpisodeFileSelectionTest(private val provider: String) {
         ))
     }
 
+    @Test
+    fun `Murder request rejects the translated Double Date file under conflicting numbering`() {
+        assertNull(select(
+            listOf(File(35, "The Office_S06E09_Hélène et Michael.mkv")),
+            filename = "The Office_S06E09_Hélène et Michael.mkv", fileIdx = 35,
+            context = DebridEpisodeSelectionContext(6, 9, "Murder", listOf("Double Date", "Murder"), requireTitleMatch = true),
+            season = 6, episode = 9
+        ))
+    }
+
+    @Test
+    fun `known numbering conflict requires a title even on number only files`() {
+        assertNull(select(
+            listOf(File(35, "The.Office.S06E09.mkv")), filename = "The.Office.S06E09.mkv", fileIdx = 35,
+            context = DebridEpisodeSelectionContext(6, 9, "Murder", listOf("Double Date", "Murder"), requireTitleMatch = true),
+            season = 6, episode = 9
+        ))
+    }
+
+    @Test
+    fun `known numbering conflict selects the title confirmed Murder file inside a pack`() {
+        val correct = "The.Office.S06E10.Murder.mkv"
+        assertEquals(correct, select(
+            listOf(File(35, "The.Office.S06E09.Double.Date.mkv"), File(36, correct)),
+            context = DebridEpisodeSelectionContext(6, 9, "Murder", listOf("Double Date", "Murder"), requireTitleMatch = true),
+            season = 6, episode = 9
+        ))
+    }
+
     private data class File(val id: Int, val name: String, val size: Long = 1000)
 
     private fun select(

@@ -6,6 +6,7 @@ import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.orderByDebridEpisodeTitleEvidence
 import com.nuvio.tv.core.debrid.isDebridEpisodePlaybackCandidate
+import com.nuvio.tv.core.debrid.withDebridEpisodeNumberingEvidence
 
 import androidx.media3.common.util.UnstableApi
 import com.nuvio.tv.core.debrid.DirectDebridPlayableResult
@@ -1064,6 +1065,7 @@ internal fun PlayerRuntimeController.debridEpisodeSelectionContextFor(
     if (targetSeason == null || targetEpisode == null) return null
 
     val targetTitle = video?.title ?: currentEpisodeTitle
+    val state = _uiState.value
     val seasonTitles = _uiState.value.episodesAll
         .asSequence()
         .filter { it.season == targetSeason }
@@ -1072,12 +1074,17 @@ internal fun PlayerRuntimeController.debridEpisodeSelectionContextFor(
         .distinct()
         .toList()
 
+    val offeredStreams = if (targetSeason == currentSeason && targetEpisode == currentEpisode) {
+        state.sourceAllStreams
+    } else if (targetSeason == state.episodeStreamsSeason && targetEpisode == state.episodeStreamsEpisode) {
+        state.episodeAllStreams
+    } else emptyList()
     return DebridEpisodeSelectionContext(
         season = targetSeason,
         episode = targetEpisode,
         title = targetTitle,
         seasonEpisodeTitles = seasonTitles
-    )
+    ).withDebridEpisodeNumberingEvidence(offeredStreams)
 }
 
 internal fun PlayerRuntimeController.currentDebridEpisodeSelectionContext():
@@ -1093,9 +1100,7 @@ internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
     val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
     if (VideoCodecFilter.excludedStream(stream, hiddenVideoCodecIds)) return null
     if (stream.getStreamUrl() != null) {
-        return stream.takeUnless {
-            it.debridEpisodeTitleMatch(selectionContext) == DebridEpisodeTitleMatch.CONFLICT
-        }
+        return stream.takeIf { it.isDebridEpisodePlaybackCandidate(selectionContext) }
     }
 
     return when (
@@ -1106,9 +1111,9 @@ internal suspend fun PlayerRuntimeController.resolveDirectDebridStreamIfNeeded(
             selectionContext = selectionContext
         )
     ) {
-        is DirectDebridPlayableResult.Success -> result.stream.takeUnless {
-            it.debridEpisodeTitleMatch(selectionContext) == DebridEpisodeTitleMatch.CONFLICT ||
-                VideoCodecFilter.excludedStream(it, hiddenVideoCodecIds)
+        is DirectDebridPlayableResult.Success -> result.stream.takeIf {
+            it.isDebridEpisodePlaybackCandidate(selectionContext) &&
+                !VideoCodecFilter.excludedStream(it, hiddenVideoCodecIds)
         }
         DirectDebridPlayableResult.MissingApiKey,
         DirectDebridPlayableResult.NotCached,
@@ -1124,7 +1129,7 @@ internal fun shouldRunNextEpisodeAutoPlayCountdown(
 internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = false) {
     val nextVideo = nextEpisodeVideo ?: return
     val type = contentType ?: return
-    val nextEpisodeSelectionContext = debridEpisodeSelectionContextFor(nextVideo)
+    var nextEpisodeSelectionContext = debridEpisodeSelectionContextFor(nextVideo)
     PlaybackTrace.record(
         "next_episode_request",
         "userInitiated" to userInitiated,
@@ -1218,6 +1223,9 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 excludedStreamKeys: Set<String> = emptySet()
             ): Stream? {
                 val orderedStreams = StreamAutoPlaySelector.orderAddonStreams(data, installedAddonOrder)
+                nextEpisodeSelectionContext = nextEpisodeSelectionContext?.withDebridEpisodeNumberingEvidence(
+                    orderedStreams.flatMap { it.streams }
+                )
                 val allStreams = orderedStreams
                     .flatMap { it.streams }
                     .orderByDebridEpisodeTitleEvidence(nextEpisodeSelectionContext)
@@ -1353,8 +1361,7 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                     selectionContext = nextEpisodeSelectionContext
                 ) ?: attempted.takeIf { directCandidate ->
                     !directCandidate.getStreamUrl().isNullOrBlank() &&
-                        directCandidate.debridEpisodeTitleMatch(nextEpisodeSelectionContext) !=
-                            DebridEpisodeTitleMatch.CONFLICT
+                        directCandidate.isDebridEpisodePlaybackCandidate(nextEpisodeSelectionContext)
                 }
 
                 if (resolvedCandidate != null) {

@@ -15,6 +15,7 @@ import com.nuvio.tv.core.debrid.orderByDebridEpisodeTitleEvidence
 import com.nuvio.tv.core.debrid.canAttemptDebridEpisodePlayback
 import com.nuvio.tv.core.debrid.acceptsResolvedDebridEpisodeFile
 import com.nuvio.tv.core.debrid.isDebridEpisodePlaybackCandidate
+import com.nuvio.tv.core.debrid.withDebridEpisodeNumberingEvidence
 import kotlinx.coroutines.sync.withLock
 import com.nuvio.tv.core.debrid.DirectDebridResolver
 import com.nuvio.tv.core.debrid.DirectDebridStreamFilter
@@ -457,6 +458,11 @@ class StreamScreenViewModel @Inject constructor(
                     addonStreamGroups,
                     installedAddonOrder
                 )
+                if (isAllLoaded) ensureDebridEpisodeSelectionContext()
+                val selectionContext = debridEpisodeSelectionContext.withDebridEpisodeNumberingEvidence(
+                    orderedAddonStreams.flatMap { it.streams }
+                )
+                debridEpisodeSelectionContext = selectionContext
                 
                 val allStreams = kotlinx.coroutines.withContext(
                     kotlinx.coroutines.Dispatchers.Default
@@ -467,7 +473,7 @@ class StreamScreenViewModel @Inject constructor(
                         },
                         settings = debridSettings
                     )
-                }.orderByDebridEpisodeTitleEvidence(debridEpisodeSelectionContext)
+                }.orderByDebridEpisodeTitleEvidence(selectionContext)
                     .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
                 if (isAllLoaded) {
@@ -476,6 +482,7 @@ class StreamScreenViewModel @Inject constructor(
                         "season" to season,
                         "episode" to episode,
                         "episodeTitle" to episodeName,
+                        "requireTitleMatch" to selectionContext.requireTitleMatch,
                         "count" to allStreams.size,
                         "addons" to availableAddons.take(12).joinToString(",")
                     )
@@ -1100,8 +1107,9 @@ class StreamScreenViewModel @Inject constructor(
                         .map { it.title }
                         .filter { it.isNotBlank() }
                         .distinct()
-                        .toList()
-                )
+                        .toList(),
+                    requireTitleMatch = debridEpisodeSelectionContext.requireTitleMatch
+                ).withDebridEpisodeNumberingEvidence(_uiState.value.allStreams)
             }
 
             val metaGenres = meta.genres.takeIf { it.isNotEmpty() }?.joinToString(" • ")
@@ -1217,7 +1225,11 @@ class StreamScreenViewModel @Inject constructor(
         debridEpisodeContextMutex.withLock {
             val current = debridEpisodeSelectionContext
             if (season == null || episode == null) return@withLock current
-            if (current.seasonEpisodeTitles.isNotEmpty()) return@withLock current
+            if (current.seasonEpisodeTitles.isNotEmpty()) {
+                return@withLock current.withDebridEpisodeNumberingEvidence(_uiState.value.allStreams).also {
+                    debridEpisodeSelectionContext = it
+                }
+            }
 
             val metaId = contentId ?: videoId.substringBefore(":")
             if (metaId.isBlank() || contentType.isBlank()) return@withLock current
@@ -1247,7 +1259,7 @@ class StreamScreenViewModel @Inject constructor(
                     .filter { it.isNotBlank() }
                     .distinct()
                     .toList()
-            ).also {
+            ).withDebridEpisodeNumberingEvidence(_uiState.value.allStreams).also {
                 debridEpisodeSelectionContext = it
             }
         }
