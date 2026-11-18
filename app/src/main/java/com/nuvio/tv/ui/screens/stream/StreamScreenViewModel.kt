@@ -28,6 +28,7 @@ import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettingsDataStore
 import com.nuvio.tv.data.local.StreamAutoPlayMode
 import com.nuvio.tv.data.local.StreamBadgeSettingsDataStore
+import com.nuvio.tv.core.diagnostics.PlaybackTrace
 import com.nuvio.tv.data.local.StreamLinkCacheDataStore
 import com.nuvio.tv.data.local.BingeGroupCacheDataStore
 import com.nuvio.tv.domain.model.AddonStreams
@@ -285,6 +286,16 @@ class StreamScreenViewModel @Inject constructor(
     }
 
     private fun loadStreams() {
+        PlaybackTrace.record("stream_screen_request",
+            "videoId" to videoId,
+            "contentId" to contentId,
+            "type" to contentType,
+            "season" to season,
+            "episode" to episode,
+            "episodeTitle" to episodeName,
+            "seriesTitle" to contentName,
+            "manualSelection" to manualSelection
+        )
         streamLoadScope?.cancel()
         streamLoadScope = null
         streamLoadJob = null
@@ -358,6 +369,16 @@ class StreamScreenViewModel @Inject constructor(
                         ensureDebridEpisodeSelectionContext()
                     ) != DebridEpisodeTitleMatch.CONFLICT
                 ) {
+                    PlaybackTrace.record("last_link_cache_hit",
+                        "cacheKey" to streamCacheKey,
+                        "requestedVideoId" to videoId,
+                        "requestedSeason" to season,
+                        "requestedEpisode" to episode,
+                        "cachedFilename" to cached.filename,
+                        "cachedAddon" to cached.addonName,
+                        "cachedStreamName" to cached.streamName,
+                        "cachedLinkHash" to PlaybackTrace.fingerprint(cached.url)
+                    )
                     android.util.Log.d("NuvioAutoPlay", "TRIGGER: stream reuse cache hit url=${cached.url?.take(60)}")
                     autoPlayHandledForSession = true
                     resolvedAutoPlayTarget = true
@@ -437,6 +458,24 @@ class StreamScreenViewModel @Inject constructor(
                 }.orderByDebridEpisodeTitleEvidence(debridEpisodeSelectionContext)
                     .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
+                if (isAllLoaded) {
+                    PlaybackTrace.record("stream_screen_candidates_ready",
+                        "videoId" to videoId,
+                        "season" to season,
+                        "episode" to episode,
+                        "episodeTitle" to episodeName,
+                        "count" to allStreams.size,
+                        "addons" to availableAddons.take(12).joinToString(",")
+                    )
+                    allStreams.take(50).forEachIndexed { index, candidate ->
+                        PlaybackTrace.stream("stream_screen_candidate", candidate,
+                            "videoId" to videoId,
+                            "season" to season,
+                            "episode" to episode,
+                            "rank" to index
+                        )
+                    }
+                }
                 // Auto-select only after all addons have responded or the
                 // configured timeout has elapsed. This gives slower addons a
                 // chance to return higher-quality streams before the selector
@@ -459,6 +498,12 @@ class StreamScreenViewModel @Inject constructor(
                     )
                 }
                 if (selectedAutoPlayStream != null) {
+                    PlaybackTrace.stream("stream_screen_autoplay_selected", selectedAutoPlayStream,
+                        "videoId" to videoId,
+                        "season" to season,
+                        "episode" to episode,
+                        "episodeTitle" to episodeName
+                    )
                     android.util.Log.d("NuvioAutoPlay", "selected: ${selectedAutoPlayStream.name ?: selectedAutoPlayStream.addonName} debrid=${selectedAutoPlayStream.isDirectDebrid()} cached=${selectedAutoPlayStream.debridCacheStatus?.state}")
                     resolvedAutoPlayTarget = true
                 }
@@ -674,6 +719,12 @@ class StreamScreenViewModel @Inject constructor(
                                     bingeGroupOnly = true
                                 )
                                 if (earlyMatch != null) {
+                                    PlaybackTrace.stream("stream_screen_binge_early_match", earlyMatch,
+                                        "videoId" to videoId,
+                                        "season" to season,
+                                        "episode" to episode,
+                                        "episodeTitle" to episodeName
+                                    )
                                     android.util.Log.d("NuvioAutoPlay", "TRIGGER: early binge group match ${earlyMatch.name ?: earlyMatch.addonName}")
                                     resolvedAutoPlayTarget = true
                                     autoSelectTriggered = true
@@ -1171,6 +1222,12 @@ class StreamScreenViewModel @Inject constructor(
     }
 
     suspend fun resolveStreamForPlayback(stream: Stream): StreamPlaybackInfo? {
+        PlaybackTrace.stream("stream_screen_play_request", stream,
+            "videoId" to videoId,
+            "season" to season,
+            "episode" to episode,
+            "episodeTitle" to episodeName
+        )
         val episodeSelectionContext = ensureDebridEpisodeSelectionContext()
         val hiddenVideoCodecIds = playerSettingsDataStore.playerSettings.first().hiddenVideoCodecIds
         if (VideoCodecFilter.excludedStream(stream, hiddenVideoCodecIds)) return null
@@ -1204,6 +1261,15 @@ class StreamScreenViewModel @Inject constructor(
         val basePlaybackInfo = getStreamForPlayback(stream)
         return when (val result = directDebridResolver.resolve(stream, season, episode, episodeSelectionContext)) {
             is DirectDebridResolveResult.Success -> {
+                PlaybackTrace.record("stream_screen_debrid_resolved",
+                    "videoId" to videoId,
+                    "season" to season,
+                    "episode" to episode,
+                    "requestedTitle" to episodeName,
+                    "resolvedFilename" to result.filename,
+                    "resolvedLinkHash" to PlaybackTrace.fingerprint(result.url),
+                    "bytes" to result.videoSize
+                )
                 // The selected file within an episode pack can advertise a different codec
                 // than the outer stream. Reject it before caching or navigating to the player.
                 if (VideoCodecFilter.excludedText(
