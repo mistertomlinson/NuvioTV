@@ -182,6 +182,47 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
                             settings = debridSettings
                         ).orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
                     }.let { VideoCodecFilter.visibleStreams(it, hiddenVideoCodecIds) }
+                    PlaybackTrace.record("sources_panel_results",
+                        "requestKey" to requestKey,
+                        "streamCount" to allStreams.size,
+                        "addons" to addonStreams.map { it.addonName }.take(12).joinToString(",")
+                    )
+                    val playingIndex = findCurrentStreamIndex(
+                        streams = allStreams,
+                        currentSourceStreamKey = _uiState.value.currentSourceStreamKey,
+                        currentStreamInfoHash = _uiState.value.currentStreamInfoHash,
+                        currentStreamFileIdx = _uiState.value.currentStreamFileIdx,
+                        currentStreamUrl = _uiState.value.currentStreamUrl,
+                        currentStreamName = _uiState.value.currentStreamName,
+                        currentStreamAddonName = _uiState.value.currentStreamAddonName,
+                        currentStreamDescription = _uiState.value.currentStreamDescription
+                    )
+                    if (playingIndex >= 0) {
+                        val playingRow = allStreams[playingIndex]
+                        PlaybackTrace.stream("playing_indicator_match", playingRow,
+                            "row" to playingIndex,
+                            "videoId" to currentVideoId,
+                            "trackedFilename" to currentFilename,
+                            "trackedLinkHash" to PlaybackTrace.fingerprint(currentStreamUrl),
+                            "exactKeyMatch" to (
+                                playingRow.stableKey() == _uiState.value.currentSourceStreamKey
+                            ),
+                            "hashMatch" to (
+                                (playingRow.infoHash ?: playingRow.clientResolve?.infoHash)
+                                    ?.equals(currentInfoHash, ignoreCase = true)
+                            ),
+                            "fileIndexMatch" to (
+                                (playingRow.fileIdx ?: playingRow.clientResolve?.fileIdx) == currentFileIdx
+                            )
+                        )
+                    } else {
+                        PlaybackTrace.record("playing_indicator_no_match",
+                            "requestKey" to requestKey,
+                            "videoId" to currentVideoId,
+                            "trackedFilename" to currentFilename,
+                            "trackedTorrentHash" to PlaybackTrace.fingerprint(currentInfoHash)
+                        )
+                    }
                     android.util.Log.d("PlayerRecovery", "Stream preload complete: ${allStreams.size} streams available for fallback")
                     val availableAddons = addonStreams.map { it.addonName }
                     _uiState.update {
