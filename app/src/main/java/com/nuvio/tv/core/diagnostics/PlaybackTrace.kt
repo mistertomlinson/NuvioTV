@@ -38,10 +38,15 @@ object PlaybackTrace {
     @Volatile private var directory: File? = null
 
     fun install(context: Context) {
-        val base = context.applicationContext.getExternalFilesDir(null)
-            ?: context.applicationContext.filesDir
-        directory = File(base, "diagnostics")
-        record("process_start", "appPackage" to context.packageName)
+        try {
+            val base = context.applicationContext.getExternalFilesDir(null)
+                ?: context.applicationContext.filesDir
+            directory = File(base, "diagnostics")
+            record("process_start", "appPackage" to context.packageName)
+        } catch (error: Exception) {
+            // Diagnostics must never prevent the TV application from starting.
+            Log.w(TAG, "Playback diagnostic storage unavailable", error)
+        }
     }
 
     /** A deterministic, non-reversible identifier for matching the same link or torrent. */
