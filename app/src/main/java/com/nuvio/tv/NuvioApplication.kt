@@ -9,6 +9,7 @@ import coil.decode.GifDecoder
 import coil.decode.ImageDecoderDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
+import com.nuvio.tv.core.diagnostics.PlaybackTrace
 import com.nuvio.tv.core.homechannel.HomeScreenChannelWorker
 import com.nuvio.tv.core.reminders.ReleaseReminderWorker
 import com.nuvio.tv.core.sync.StartupSyncService
@@ -31,6 +32,7 @@ class NuvioApplication : Application(), ImageLoaderFactory, Configuration.Provid
 
     override fun onCreate() {
         super.onCreate()
+        PlaybackTrace.install(this)
         HomeScreenChannelWorker.schedule(this)
         releaseReminderCoordinator.start()
         ReleaseReminderWorker.schedulePeriodic(this)
