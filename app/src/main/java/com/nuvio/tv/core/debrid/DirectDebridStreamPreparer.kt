@@ -1,6 +1,7 @@
 package com.nuvio.tv.core.debrid
 
 import android.util.Log
+import com.nuvio.tv.core.diagnostics.PlaybackTrace
 import com.nuvio.tv.core.player.StreamAutoPlaySelector
 import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.local.PlayerSettings
@@ -45,9 +46,25 @@ class DirectDebridStreamPreparer @Inject constructor(
             playerSettings = playerSettings,
             installedAddonNames = installedAddonNames
         )
+        PlaybackTrace.record("background_prepare_batch",
+            "season" to season,
+            "episode" to episode,
+            "targetTitle" to selectionContext?.title,
+            "candidateCount" to candidates.size,
+            "limit" to limit
+        )
         for (stream in candidates) {
             if (!resolver.shouldResolveToPlayableStream(stream)) continue
+            PlaybackTrace.stream("background_prepare_candidate", stream,
+                "season" to season,
+                "episode" to episode,
+                "targetTitle" to selectionContext?.title
+            )
             resolver.cachedPlayableStream(stream, season, episode, selectionContext)?.let { cached ->
+                PlaybackTrace.stream("background_prepare_cache_hit", cached,
+                    "season" to season,
+                    "episode" to episode
+                )
                 onPrepared(stream, cached)
                 continue
             }
@@ -60,11 +77,20 @@ class DirectDebridStreamPreparer @Inject constructor(
             try {
                 when (val result = resolver.resolveToPlayableStream(stream, season, episode, selectionContext)) {
                     is DirectDebridPlayableResult.Success -> {
+                        PlaybackTrace.stream("background_prepare_resolved", result.stream,
+                            "season" to season,
+                            "episode" to episode,
+                            "resolvedLinkHash" to PlaybackTrace.fingerprint(result.stream.getStreamUrl())
+                        )
                         if (result.stream.getStreamUrl() != null) {
                             onPrepared(stream, result.stream)
                         }
                     }
-                    else -> Unit
+                    else -> PlaybackTrace.stream("background_prepare_failed", stream,
+                        "season" to season,
+                        "episode" to episode,
+                        "reason" to result.javaClass.simpleName
+                    )
                 }
             } catch (error: CancellationException) {
                 throw error
