@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.player
 
+import com.nuvio.tv.core.diagnostics.PlaybackTrace
 import com.nuvio.tv.core.debrid.DebridEpisodeSelectionContext
 import com.nuvio.tv.core.debrid.DebridEpisodeTitleMatch
 import com.nuvio.tv.core.debrid.debridEpisodeTitleMatch
@@ -92,6 +93,16 @@ internal fun PlayerRuntimeController.showSourcesPanel() {
             sourceFilteredStreams = it.sourceAllStreams
         )
     }
+    PlaybackTrace.record(
+        "sources_panel_opened",
+        "videoId" to currentVideoId,
+        "season" to currentSeason,
+        "episode" to currentEpisode,
+        "filename" to currentFilename,
+        "playingStreamKeyHash" to PlaybackTrace.fingerprint(_uiState.value.currentSourceStreamKey),
+        "playingTorrentHash" to PlaybackTrace.fingerprint(currentInfoHash),
+        "playingFileIdx" to currentFileIdx
+    )
     loadSourceStreams(forceRefresh = false)
 }
 
@@ -118,6 +129,11 @@ internal fun PlayerRuntimeController.loadSourceStreams(forceRefresh: Boolean) {
     }
 
     val requestKey = buildSourceRequestKey(type = type, videoId = vid, season = seasonArg, episode = episodeArg)
+    PlaybackTrace.record(
+        "sources_panel_request", "requestKey" to requestKey,
+        "forceRefresh" to forceRefresh,
+        "targetSeason" to seasonArg, "targetEpisode" to episodeArg
+    )
     val state = _uiState.value
     val hasCachedPayload = state.sourceAllStreams.isNotEmpty() || state.sourceStreamsError != null
     if (!forceRefresh && requestKey == sourceStreamsCacheRequestKey && hasCachedPayload) {
@@ -335,6 +351,13 @@ private fun PlayerRuntimeController.applySelectedStreamState(
     url: String,
     headers: Map<String, String>
 ) {
+    PlaybackTrace.stream(
+        "active_stream_applied", stream,
+        "trackedVideoIdBeforeApply" to currentVideoId,
+        "trackedSeasonBeforeApply" to currentSeason,
+        "trackedEpisodeBeforeApply" to currentEpisode,
+        "playbackLinkHash" to PlaybackTrace.fingerprint(url)
+    )
     currentStreamUrl = url
     currentHeaders = headers
     currentFilename = stream.behaviorHints?.filename
@@ -371,6 +394,14 @@ private fun PlayerRuntimeController.persistSelectedStreamForReuse(
     if (!streamReuseLastLinkEnabled) return
 
     val key = streamCacheKey ?: return
+    PlaybackTrace.stream(
+        "last_link_cache_write", stream,
+        "cacheKey" to key,
+        "trackedVideoIdAtWrite" to currentVideoId,
+        "trackedSeason" to currentSeason,
+        "trackedEpisode" to currentEpisode,
+        "linkHash" to PlaybackTrace.fingerprint(url)
+    )
     val streamName = (stream.name?.takeIf { it.isNotBlank() } ?: stream.addonName)?.takeIf { it.isNotBlank() }
         ?: title
 
@@ -394,6 +425,13 @@ internal fun PlayerRuntimeController.switchToSourceStream(
     stream: Stream,
     sourceStreamKey: String = stream.stableKey()
 ) {
+    PlaybackTrace.stream(
+        "source_switch_requested", stream,
+        "videoId" to currentVideoId,
+        "season" to currentSeason,
+        "episode" to currentEpisode,
+        "sourceKeyHash" to PlaybackTrace.fingerprint(sourceStreamKey)
+    )
     val episodeSelectionContext = currentDebridEpisodeSelectionContext()
     if (
         stream.debridEpisodeTitleMatch(episodeSelectionContext) ==
@@ -805,6 +843,17 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
             }
         ).firstOrNull { it != null }
 
+    PlaybackTrace.stream(
+        "episode_stream_switch_requested", stream,
+        "fromVideoId" to currentVideoId,
+        "fromSeason" to currentSeason,
+        "fromEpisode" to currentEpisode,
+        "targetVideoId" to targetVideo?.id,
+        "targetSeason" to targetVideo?.season,
+        "targetEpisode" to targetVideo?.episode,
+        "targetTitle" to targetVideo?.title,
+        "autoplayRewatchHandoff" to protectAutoplayRewatchHandoff
+    )
     val episodeSelectionContext = debridEpisodeSelectionContextFor(targetVideo)
     if (stream.debridEpisodeTitleMatch(episodeSelectionContext) == DebridEpisodeTitleMatch.CONFLICT) {
         _uiState.update {
@@ -890,6 +939,18 @@ internal fun PlayerRuntimeController.switchToEpisodeStream(
     currentSeason = targetVideo?.season ?: _uiState.value.episodeStreamsSeason ?: currentSeason
     currentEpisode = targetVideo?.episode ?: _uiState.value.episodeStreamsEpisode ?: currentEpisode
     currentEpisodeTitle = targetVideo?.title ?: _uiState.value.episodeStreamsTitle ?: currentEpisodeTitle
+    PlaybackTrace.record(
+        "episode_stream_handoff",
+        "videoId" to currentVideoId,
+        "season" to currentSeason,
+        "episode" to currentEpisode,
+        "episodeTitle" to currentEpisodeTitle,
+        "actualFilename" to currentFilename,
+        "linkHash" to PlaybackTrace.fingerprint(url),
+        "torrentHash" to PlaybackTrace.fingerprint(currentInfoHash),
+        "fileIdx" to currentFileIdx,
+        "cacheKeyAtHandoff" to if (streamReuseLastLinkEnabled) streamCacheKey else null
+    )
     currentTraktEpisodeMapping = null
     currentTraktEpisodeMappingKey = null
     lastSavedPosition = 0L
@@ -1044,6 +1105,18 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
     val nextVideo = nextEpisodeVideo ?: return
     val type = contentType ?: return
     val nextEpisodeSelectionContext = debridEpisodeSelectionContextFor(nextVideo)
+    PlaybackTrace.record(
+        "next_episode_request",
+        "userInitiated" to userInitiated,
+        "fromVideoId" to currentVideoId,
+        "fromSeason" to currentSeason,
+        "fromEpisode" to currentEpisode,
+        "targetVideoId" to nextVideo.id,
+        "targetSeason" to nextVideo.season,
+        "targetEpisode" to nextVideo.episode,
+        "targetTitle" to nextVideo.title,
+        "preferredBingeGroup" to currentStreamBingeGroup
+    )
 
     val state = _uiState.value
     if (state.nextEpisode?.hasAired == false) {
@@ -1209,6 +1282,14 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 selectionReady.await()
             }
 
+            selectedStream?.let {
+                PlaybackTrace.stream("next_episode_selected", it,
+                    "targetVideoId" to nextVideo.id,
+                    "targetSeason" to nextVideo.season,
+                    "targetEpisode" to nextVideo.episode,
+                    "autoMode" to effectiveMode.name
+                )
+            }
             if (selectedStream != null) {
                 innerJob.cancel()
             } else {
@@ -1221,6 +1302,12 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
 
             while (candidate != null && rejectedStreamKeys.size < 5) {
                 val attempted = candidate
+                PlaybackTrace.stream("next_episode_candidate", attempted,
+                    "targetVideoId" to nextVideo.id,
+                    "targetSeason" to nextVideo.season,
+                    "targetEpisode" to nextVideo.episode,
+                    "attempt" to (rejectedStreamKeys.size + 1)
+                )
                 val resolvedCandidate = resolveDirectDebridStreamIfNeeded(
                     stream = attempted,
                     season = nextVideo.season,
@@ -1238,6 +1325,11 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 }
 
                 rejectedStreamKeys += attempted.stableKey()
+                PlaybackTrace.stream("next_episode_candidate_rejected", attempted,
+                    "targetVideoId" to nextVideo.id,
+                    "targetSeason" to nextVideo.season,
+                    "targetEpisode" to nextVideo.episode
+                )
                 android.util.Log.d(
                     "PlayerRecovery",
                     "Next episode candidate rejected; trying another source"
@@ -1251,6 +1343,12 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 }
             }
             if (streamToPlay != null) {
+                PlaybackTrace.stream("next_episode_handoff_selected", streamToPlay,
+                    "targetVideoId" to nextVideo.id,
+                    "targetSeason" to nextVideo.season,
+                    "targetEpisode" to nextVideo.episode,
+                    "targetTitle" to nextVideo.title
+                )
                 val sourceName = (streamToPlay.name?.takeIf { it.isNotBlank() } ?: streamToPlay.addonName).trim()
                 if (shouldRunNextEpisodeAutoPlayCountdown(userInitiated)) {
                     for (remaining in 3 downTo 1) {
@@ -1290,6 +1388,13 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                         nextEpisodeAutoPlayCountdownSec = null
                     )
                 }
+                PlaybackTrace.record("next_episode_no_playable_source",
+                    "targetVideoId" to nextVideo.id,
+                    "targetSeason" to nextVideo.season,
+                    "targetEpisode" to nextVideo.episode,
+                    "candidateRejectCount" to rejectedStreamKeys.size,
+                    "streamSearchError" to (lastError != null)
+                )
                 showEpisodeStreamPicker(
                     video = nextVideo,
                     forceRefresh = lastError != null
