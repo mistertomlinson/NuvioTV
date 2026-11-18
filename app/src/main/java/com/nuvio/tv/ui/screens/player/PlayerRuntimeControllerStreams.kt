@@ -1337,6 +1337,27 @@ internal fun PlayerRuntimeController.playNextEpisode(userInitiated: Boolean = fa
                 innerJob.join()
             }
 
+            val offeredStreams = lastSuccessData
+                ?.let { StreamAutoPlaySelector.orderAddonStreams(it, installedAddonOrder) }
+                ?.flatMap { it.streams }
+                .orEmpty()
+            PlaybackTrace.record("next_episode_addon_results",
+                "targetVideoId" to nextVideo.id,
+                "targetSeason" to nextVideo.season,
+                "targetEpisode" to nextVideo.episode,
+                "availableCount" to offeredStreams.size,
+                "streamAutoPlayMode" to effectiveMode.name,
+                "preferredBingeGroup" to currentStreamBingeGroup
+            )
+            offeredStreams.take(40).forEachIndexed { index, item ->
+                PlaybackTrace.stream("next_episode_addon_candidate", item,
+                    "targetVideoId" to nextVideo.id,
+                    "targetSeason" to nextVideo.season,
+                    "targetEpisode" to nextVideo.episode,
+                    "rank" to index,
+                    "titleEvidence" to item.debridEpisodeTitleMatch(nextEpisodeSelectionContext).name
+                )
+            }
             var streamToPlay: Stream? = null
             val rejectedStreamKeys = linkedSetOf<String>()
             var candidate = selectedStream
