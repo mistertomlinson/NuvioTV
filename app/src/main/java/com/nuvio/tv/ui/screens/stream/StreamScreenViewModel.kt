@@ -472,9 +472,9 @@ class StreamScreenViewModel @Inject constructor(
                             addonStreams.streams
                         },
                         settings = debridSettings
-                    )
-                }.orderByDebridEpisodeTitleEvidence(selectionContext)
-                    .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
+                    ).orderByDebridEpisodeTitleEvidence(selectionContext)
+                        .let { VideoCodecFilter.visibleStreams(it, playerSettings.hiddenVideoCodecIds) }
+                }
                 val availableAddons = orderedAddonStreams.map { it.addonName }
                 if (isAllLoaded) {
                     PlaybackTrace.record("stream_screen_candidates_ready",

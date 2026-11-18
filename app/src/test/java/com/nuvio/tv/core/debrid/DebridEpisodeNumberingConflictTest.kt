@@ -75,6 +75,35 @@ class DebridEpisodeNumberingConflictTest {
     }
 
     @Test
+    fun `title ranking preserves source order within every evidence group`() {
+        val confirmedFirst = source("The.Office.S06E10.Murder.1080p.mkv")
+        val confirmedSecond = source("The.Office.S06E10.Murder.720p.mkv")
+        val numeric = source("The.Office.S06E09.mkv")
+        val repairable = source("The.Office.S06E09.Koi.Pond.mkv")
+        val conflictingDirect = alternateOrder.copy(url = "https://cdn.example/other-episode")
+        val offered = listOf(french, alternateOrder, confirmedFirst, numeric, repairable, confirmedSecond, conflictingDirect)
+
+        assertEquals(
+            listOf(confirmedFirst, confirmedSecond, french, numeric, alternateOrder, repairable, conflictingDirect),
+            offered.orderByDebridEpisodeTitleEvidence(murder)
+        )
+        assertEquals(
+            listOf(confirmedFirst, confirmedSecond, alternateOrder, repairable, french, numeric, conflictingDirect),
+            offered.orderByDebridEpisodeTitleEvidence(murder.copy(requireTitleMatch = true))
+        )
+    }
+
+    @Test
+    fun `prepared title evidence is refreshed when the target context is copied`() {
+        val original = murder.copy(episode = 8, title = "Double Date")
+        assertEquals(DebridEpisodeTitleMatch.TARGET, classifyDebridEpisodeFileName("S06E09.Double.Date.mkv", original))
+
+        val next = original.copy(episode = 9, title = "Murder")
+        assertEquals(DebridEpisodeTitleMatch.CONFLICT, classifyDebridEpisodeFileName("S06E09.Double.Date.mkv", next))
+        assertEquals(DebridEpisodeTitleMatch.TARGET, classifyDebridEpisodeFileName("S06E10.Murder.mkv", next))
+    }
+
+    @Test
     fun `weak generic target titles do not enable a confirmation rule they cannot satisfy`() {
         val pilot = DebridEpisodeSelectionContext(1, 1, "Pilot", listOf("Pilot", "Second Story"))
         assertFalse(pilot.withDebridEpisodeNumberingEvidence(listOf(source("Show.S01E01.Second.Story.mkv"))).requireTitleMatch)
