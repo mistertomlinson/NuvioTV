@@ -1156,17 +1156,27 @@ class StreamScreenViewModel @Inject constructor(
             ?: "${addonName}:${name}:${title}"
 
     fun markAutoPlayStreamFailed(stream: Stream) {
+        PlaybackTrace.stream("stream_screen_autoplay_failed", stream,
+            "videoId" to videoId,
+            "season" to season,
+            "episode" to episode
+        )
         failedAutoPlayStreamKeys.add(stream.autoPlayKey())
     }
 
     suspend fun nextAutoPlayCandidate(failedStream: Stream): Stream? {
+        PlaybackTrace.stream("stream_screen_retry_search", failedStream,
+            "videoId" to videoId,
+            "season" to season,
+            "episode" to episode
+        )
         val state = _uiState.value
         val episodeSelectionContext = ensureDebridEpisodeSelectionContext()
         val playerSettings = playerSettingsDataStore.playerSettings.first()
         val installedAddons = addonRepository.getInstalledAddons().first().enabledAddons()
         val installedAddonOrder = installedAddons.map { it.displayName }
         val failed = failedAutoPlayStreamKeys + failedStream.autoPlayKey()
-        return StreamAutoPlaySelector.selectAutoPlayStream(
+        val nextCandidate = StreamAutoPlaySelector.selectAutoPlayStream(
             streams = state.allStreams
                 .orderByDebridEpisodeTitleEvidence(episodeSelectionContext)
                 .filter { it.autoPlayKey() !in failed }
@@ -1181,6 +1191,12 @@ class StreamScreenViewModel @Inject constructor(
             selectedAddons = playerSettings.streamAutoPlaySelectedAddons,
             selectedPlugins = playerSettings.streamAutoPlaySelectedPlugins
         )
+        nextCandidate?.let { PlaybackTrace.stream("stream_screen_retry_selected", it,
+            "videoId" to videoId,
+            "season" to season,
+            "episode" to episode
+        ) }
+        return nextCandidate
     }
 
     private suspend fun ensureDebridEpisodeSelectionContext(): DebridEpisodeSelectionContext {
@@ -1417,6 +1433,12 @@ class StreamScreenViewModel @Inject constructor(
      * Gets the selected stream for playback
      */
     fun getStreamForPlayback(stream: Stream): StreamPlaybackInfo {
+        PlaybackTrace.stream("stream_screen_playback_info", stream,
+            "videoId" to videoId,
+            "season" to season,
+            "episode" to episode,
+            "episodeTitle" to episodeName
+        )
         cancelStreamsLoad()
         val playbackInfo = StreamPlaybackInfo(
             url = stream.getStreamUrl(),
