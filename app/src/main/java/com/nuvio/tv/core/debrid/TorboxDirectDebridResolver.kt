@@ -55,6 +55,7 @@ class TorboxDirectDebridResolver @Inject constructor(
                 "requestedSeason" to season, "requestedEpisode" to episode,
                 "requestedTitle" to selectionContext?.title,
                 "torrentHash" to PlaybackTrace.fingerprint(resolve.infoHash),
+                "returnedTorrentHash" to PlaybackTrace.fingerprint(create.body()?.data?.hash?.trim()?.lowercase()),
                 "torrentId" to torrentId,
                 "status" to create.code(),
                 "success" to create.body()?.success,
@@ -83,6 +84,9 @@ class TorboxDirectDebridResolver @Inject constructor(
                 "torrentId" to torrentId,
                 "requestedSeason" to season,
                 "requestedEpisode" to episode,
+                "requestedTorrentHash" to PlaybackTrace.fingerprint(resolve.infoHash?.trim()?.lowercase()),
+                "returnedTorrentHash" to PlaybackTrace.fingerprint(torrent.body()?.data?.hash?.trim()?.lowercase()),
+                "returnedTorrentName" to torrent.body()?.data?.name,
                 "fileCount" to files.size
             )
             files.filter { f -> f.displayName().lowercase().let {

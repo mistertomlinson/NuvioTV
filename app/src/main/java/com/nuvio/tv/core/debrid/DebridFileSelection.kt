@@ -27,6 +27,49 @@ internal enum class DebridEpisodeTitleMatch {
     UNKNOWN
 }
 
+internal fun DebridEpisodeSelectionContext?.withDebridEpisodeTarget(
+    season: Int?,
+    episode: Int?
+): DebridEpisodeSelectionContext = DebridEpisodeSelectionContext(
+    season = season ?: this?.season,
+    episode = episode ?: this?.episode,
+    title = this?.title,
+    seasonEpisodeTitles = this?.seasonEpisodeTitles.orEmpty()
+)
+
+private data class DebridEpisodeNumber(val season: Int, val episodes: IntRange)
+
+// Parse complete numeric tokens, including combined episodes. Substring tests
+// such as "contains(s06e08)" also match S06E080 and cannot establish identity.
+private val debridEpisodeNumberPattern = Regex(
+    """(?<![a-z0-9])(?:s(\d{1,3})[ ._-]*e|(\d{1,3})x)(\d{1,4})((?:(?:[ ._]*-[ ._]*e?|[ ._]*e)\d{1,4}(?=$|[^a-z0-9]|e\d))*)(?!\d)""",
+    RegexOption.IGNORE_CASE
+)
+private val debridAdditionalEpisodePattern = Regex(
+    """([ ._]*-[ ._]*e?|[ ._]*e)(\d{1,4})""",
+    RegexOption.IGNORE_CASE
+)
+
+private fun String.debridEpisodeNumbers(): List<DebridEpisodeNumber> =
+    debridEpisodeNumberPattern.findAll(substringAfterLast('/').substringAfterLast('\\'))
+        .flatMap { match ->
+            val season = (match.groups[1]?.value ?: match.groupValues[2]).toInt()
+            var previous = match.groupValues[3].toInt()
+            buildList {
+                add(DebridEpisodeNumber(season, previous..previous))
+                debridAdditionalEpisodePattern.findAll(match.groupValues[4]).forEach { extra ->
+                    val next = extra.groupValues[2].toInt()
+                    val start = if ('-' in extra.groupValues[1]) previous else next
+                    add(DebridEpisodeNumber(season, start..next))
+                    previous = next
+                }
+            }
+        }.toList()
+
+internal fun String.matchesDebridEpisodeNumber(season: Int?, episode: Int?): Boolean =
+    season != null && episode != null &&
+        debridEpisodeNumbers().any { it.season == season && episode in it.episodes }
+
 private fun String.normalizedDebridText(): String =
     lowercase()
         .replace("&", " and ")
@@ -42,6 +85,25 @@ private fun String.containsStrongDebridEpisodeTitle(normalizedTitle: String): Bo
 }
 
 internal fun classifyDebridEpisodeFileName(
+    fileName: String?,
+    context: DebridEpisodeSelectionContext?
+): DebridEpisodeTitleMatch {
+    val titleMatch = classifyDebridEpisodeTitle(fileName, context)
+    // An explicit title can establish an alternate episode order. Keep this
+    // stronger evidence ahead of numeric matching (e.g. Electric Dreams).
+    if (titleMatch != DebridEpisodeTitleMatch.UNKNOWN) return titleMatch
+
+    val season = context?.season ?: return DebridEpisodeTitleMatch.UNKNOWN
+    val episode = context.episode ?: return DebridEpisodeTitleMatch.UNKNOWN
+    val numbers = fileName?.debridEpisodeNumbers().orEmpty()
+    return if (numbers.isNotEmpty() && numbers.none { it.season == season && episode in it.episodes }) {
+        DebridEpisodeTitleMatch.CONFLICT
+    } else {
+        DebridEpisodeTitleMatch.UNKNOWN
+    }
+}
+
+private fun classifyDebridEpisodeTitle(
     fileName: String?,
     context: DebridEpisodeSelectionContext?
 ): DebridEpisodeTitleMatch {

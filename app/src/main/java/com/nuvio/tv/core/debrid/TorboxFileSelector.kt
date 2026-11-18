@@ -19,15 +19,16 @@ class TorboxFileSelector @Inject constructor() {
         val playable = files.filter { it.isPlayableVideo(isBluray) }.sortedByDescending { it.size ?: 0L }
         if (playable.isEmpty()) return null
 
-        playable.firstDebridTargetEpisodeTitleMatch(selectionContext) { it.displayName() }
+        val target = selectionContext.withDebridEpisodeTarget(season ?: resolve.season, episode ?: resolve.episode)
+        playable.firstDebridTargetEpisodeTitleMatch(target) { it.displayName() }
             ?.let { return it }
 
-        val eligible = playable.withoutDebridEpisodeTitleConflicts(selectionContext) { it.displayName() }
+        val eligible = playable.withoutDebridEpisodeTitleConflicts(target) { it.displayName() }
         if (eligible.isEmpty()) return null
 
         val episodePatterns = buildDebridEpisodePatterns(
-            season = season ?: resolve.season,
-            episode = episode ?: resolve.episode
+            season = target.season,
+            episode = target.episode
         )
         val names = resolve.specificDebridFileNames(episodePatterns)
         if (names.isNotEmpty()) {
@@ -36,8 +37,7 @@ class TorboxFileSelector @Inject constructor() {
 
         if (episodePatterns.isNotEmpty()) {
             eligible.firstOrNull { file ->
-                val fileName = file.displayName().lowercase()
-                episodePatterns.any { pattern -> fileName.contains(pattern) }
+                file.displayName().matchesDebridEpisodeNumber(target.season, target.episode)
             }?.let { return it }
         }
 
@@ -45,6 +45,9 @@ class TorboxFileSelector @Inject constructor() {
             eligible.firstOrNull { it.id == fileIdx }?.let { return it }
         }
 
+        // A missing episode must reject this source so autoplay can try the
+        // next candidate. The largest video is only a fallback for movies.
+        if (target.season != null && target.episode != null) return null
         return eligible.maxByOrNull { it.size ?: 0L }
     }
 

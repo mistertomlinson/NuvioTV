@@ -111,4 +111,66 @@ class DebridEpisodeTitleSelectionTest {
         )
     }
 
+    @Test
+    fun `explicit wrong season and episode is a conflict without a known title`() {
+        assertEquals(
+            DebridEpisodeTitleMatch.CONFLICT,
+            classifyDebridEpisodeFileName("The.Office.S09E15.Extended.mkv", electricDreams)
+        )
+    }
+
+    @Test
+    fun `number mismatch is rejected when metadata has no episode title`() {
+        assertEquals(
+            DebridEpisodeTitleMatch.CONFLICT,
+            classifyDebridEpisodeFileName(
+                "The.Office.S09E15.Extended.mkv",
+                DebridEpisodeSelectionContext(6, 8, null)
+            )
+        )
+    }
+
+    @Test
+    fun `episode number is checked exactly for cached filenames`() {
+        assertEquals(
+            DebridEpisodeTitleMatch.CONFLICT,
+            classifyDebridEpisodeFileName("The.Office.S06E080.mkv", DebridEpisodeSelectionContext(6, 8, "Double Date"))
+        )
+    }
+
+    @Test
+    fun `video resolution after hyphen is not an episode range`() {
+        assertFalse("The.Office.S06E08-1080p.mkv".matchesDebridEpisodeNumber(6, 9))
+        assertTrue("The.Office.S06E08-1080p.mkv".matchesDebridEpisodeNumber(6, 8))
+    }
+
+    @Test
+    fun `episode ranges include middle episodes but chained suffixes do not`() {
+        assertTrue("Show.S06E07-E09.mkv".matchesDebridEpisodeNumber(6, 8))
+        assertFalse("Show.S06E07E09.mkv".matchesDebridEpisodeNumber(6, 8))
+        assertTrue("Show.S06E07E08E09.mkv".matchesDebridEpisodeNumber(6, 9))
+        assertTrue("Show.6x07-09.mkv".matchesDebridEpisodeNumber(6, 8))
+    }
+
+    @Test
+    fun `parent directory episode does not override the actual filename`() {
+        assertEquals(
+            DebridEpisodeTitleMatch.CONFLICT,
+            classifyDebridEpisodeFileName("/Show.S06E08/Show.S09E15.mkv", DebridEpisodeSelectionContext(6, 8, null))
+        )
+        assertEquals(
+            DebridEpisodeTitleMatch.CONFLICT,
+            classifyDebridEpisodeFileName("C:\\Show.S06E08\\Show.S09E15.mkv", DebridEpisodeSelectionContext(6, 8, null))
+        )
+    }
+
+    @Test
+    fun `missing numbering and title evidence remains unknown`() {
+        assertEquals(
+            DebridEpisodeTitleMatch.UNKNOWN,
+            classifyDebridEpisodeFileName("unlabelled-video.mkv", electricDreams)
+        )
+        assertEquals(DebridEpisodeTitleMatch.UNKNOWN, classifyDebridEpisodeFileName(null, electricDreams))
+    }
+
 }
