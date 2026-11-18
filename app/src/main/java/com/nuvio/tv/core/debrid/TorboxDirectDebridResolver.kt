@@ -86,7 +86,7 @@ class TorboxDirectDebridResolver @Inject constructor(
                 "fileCount" to files.size
             )
             files.filter { f -> f.displayName().lowercase().let {
-                name -> listOf(".mkv", ".mp4", ".avi", ".webm", ".m4v", ".ts", ".mov").any(name::endsWith)
+                name -> listOf(".mkv", ".mp4", ".avi", ".webm", ".m4v", ".ts", ".mov").any { ext -> name.endsWith(ext) }
             } }.take(25).forEachIndexed { index, candidate ->
                 PlaybackTrace.record("torbox_file_candidate",
                     "torrentId" to torrentId,
