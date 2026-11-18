@@ -1,6 +1,7 @@
 package com.nuvio.tv.ui.screens.player
 
 import com.nuvio.tv.R
+import com.nuvio.tv.core.diagnostics.PlaybackTrace
 import android.content.Context
 import android.content.res.Resources
 import android.os.Build
@@ -72,6 +73,19 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
         return
     }
 
+    PlaybackTrace.record(
+        "player_initialize",
+        "contentId" to contentId,
+        "videoId" to currentVideoId,
+        "season" to currentSeason,
+        "episode" to currentEpisode,
+        "episodeTitle" to currentEpisodeTitle,
+        "filename" to currentFilename,
+        "linkHash" to PlaybackTrace.fingerprint(url),
+        "torrentHash" to PlaybackTrace.fingerprint(currentInfoHash),
+        "fileIdx" to currentFileIdx,
+        "addon" to currentAddonName
+    )
     val isDebridStream = url.lowercase().let {
         it.contains("tb-cdn") || it.contains("torbox") || it.contains("real-debrid") || it.contains("energycdn") ||
         it.contains("premiumize") || it.contains("alldebrid") || it.contains("offcloud")
@@ -313,6 +327,23 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
 
                 addListener(object : Player.Listener {
                     override fun onPlaybackStateChanged(playbackState: Int) {
+                        PlaybackTrace.record(
+                            "player_state",
+                            "state" to when (playbackState) {
+                                Player.STATE_IDLE -> "IDLE"
+                                Player.STATE_BUFFERING -> "BUFFERING"
+                                Player.STATE_READY -> "READY"
+                                Player.STATE_ENDED -> "ENDED"
+                                else -> playbackState.toString()
+                            },
+                            "videoId" to currentVideoId,
+                            "season" to currentSeason,
+                            "episode" to currentEpisode,
+                            "filename" to currentFilename,
+                            "linkHash" to PlaybackTrace.fingerprint(currentStreamUrl),
+                            "positionMs" to currentPosition,
+                            "durationMs" to duration
+                        )
                         val playerDuration = duration
                         if (playerDuration > lastKnownDuration) {
                             lastKnownDuration = playerDuration
@@ -410,6 +441,16 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        PlaybackTrace.record(
+                            "player_is_playing",
+                            "isPlaying" to isPlaying,
+                            "videoId" to currentVideoId,
+                            "season" to currentSeason,
+                            "episode" to currentEpisode,
+                            "filename" to currentFilename,
+                            "linkHash" to PlaybackTrace.fingerprint(currentStreamUrl),
+                            "positionMs" to currentPosition
+                        )
                         refreshStableProgressResetGate()
                         _uiState.update { it.copy(isPlaying = isPlaying) }
                         if (isPlaying) {
@@ -441,6 +482,18 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onRenderedFirstFrame() {
+                        PlaybackTrace.record(
+                            "first_frame",
+                            "videoId" to currentVideoId,
+                            "season" to currentSeason,
+                            "episode" to currentEpisode,
+                            "episodeTitle" to currentEpisodeTitle,
+                            "filename" to currentFilename,
+                            "linkHash" to PlaybackTrace.fingerprint(currentStreamUrl),
+                            "torrentHash" to PlaybackTrace.fingerprint(currentInfoHash),
+                            "fileIdx" to currentFileIdx,
+                            "addon" to currentAddonName
+                        )
                         refreshStableProgressResetGate()
                         _uiState.update { it.copy(loadingMessage = null) }
                         hasRenderedFirstFrame = true
@@ -453,6 +506,15 @@ internal fun PlayerRuntimeController.initializePlayer(url: String, headers: Map<
                     }
 
                     override fun onPlayerError(error: PlaybackException) {
+                        PlaybackTrace.record(
+                            "player_error",
+                            "videoId" to currentVideoId,
+                            "season" to currentSeason,
+                            "episode" to currentEpisode,
+                            "filename" to currentFilename,
+                            "errorCode" to error.errorCodeName,
+                            "exceptionType" to error.cause?.javaClass?.simpleName
+                        )
                         cancelStableProgressReset()
                         val detailedError = error.toDisplayMessage(context)
 
