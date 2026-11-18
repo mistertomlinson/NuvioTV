@@ -1,5 +1,6 @@
 package com.nuvio.tv.core.debrid
 
+import com.nuvio.tv.core.diagnostics.PlaybackTrace
 import com.nuvio.tv.data.local.DebridSettingsDataStore
 import com.nuvio.tv.data.remote.api.TorboxApi
 import com.nuvio.tv.data.remote.dto.TorboxCreateTorrentDataDto
@@ -33,6 +34,13 @@ class TorboxDirectDebridResolver @Inject constructor(
             ?: buildMagnetUri(resolve)
             ?: return DirectDebridResolveResult.Stale
         val authorization = "Bearer $apiKey"
+        PlaybackTrace.stream("torbox_resolve_start", stream,
+            "requestedSeason" to season,
+            "requestedEpisode" to episode,
+            "requestedTitle" to selectionContext?.title,
+            "resolveFilename" to resolve.filename,
+            "resolveFileIdx" to resolve.fileIdx
+        )
 
         return try {
             val create = api.createTorrent(
@@ -43,6 +51,15 @@ class TorboxDirectDebridResolver @Inject constructor(
             )
             android.util.Log.d("NuvioDebrid", "TB createTorrent code=${create.code()} success=${create.body()?.success} error=${create.body()?.error} detail=${create.body()?.detail}")
             val torrentId = create.extractTorrentId()
+            PlaybackTrace.record("torbox_create_result",
+                "requestedSeason" to season, "requestedEpisode" to episode,
+                "requestedTitle" to selectionContext?.title,
+                "torrentHash" to PlaybackTrace.fingerprint(resolve.infoHash),
+                "torrentId" to torrentId,
+                "status" to create.code(),
+                "success" to create.body()?.success,
+                "details" to create.body()?.detail
+            )
             if (torrentId == null) {
                 android.util.Log.w("NuvioDebrid", "TB createTorrent no torrentId — returning ${create.toFailureForCreate()}")
                 return create.toFailureForCreate()
@@ -62,6 +79,23 @@ class TorboxDirectDebridResolver @Inject constructor(
                 return DirectDebridResolveResult.Stale
             }
             val files = torrent.body()?.data?.files.orEmpty()
+            PlaybackTrace.record("torbox_file_list",
+                "torrentId" to torrentId,
+                "requestedSeason" to season,
+                "requestedEpisode" to episode,
+                "fileCount" to files.size
+            )
+            files.filter { f -> f.displayName().lowercase().let {
+                name -> listOf(".mkv", ".mp4", ".avi", ".webm", ".m4v", ".ts", ".mov").any(name::endsWith)
+            } }.take(25).forEachIndexed { index, candidate ->
+                PlaybackTrace.record("torbox_file_candidate",
+                    "torrentId" to torrentId,
+                    "candidatePosition" to index,
+                    "fileId" to candidate.id,
+                    "fileName" to candidate.displayName(),
+                    "bytes" to candidate.size
+                )
+            }
             val file = fileSelector.selectFile(
                 files = files,
                 resolve = resolve,
@@ -70,9 +104,26 @@ class TorboxDirectDebridResolver @Inject constructor(
                 selectionContext = selectionContext
             )
             if (file == null) {
+                PlaybackTrace.record("torbox_file_rejected",
+                    "torrentId" to torrentId,
+                    "requestedSeason" to season,
+                    "requestedEpisode" to episode,
+                    "requestedTitle" to selectionContext?.title,
+                    "fileCount" to files.size
+                )
                 android.util.Log.w("NuvioDebrid", "TB fileSelector returned null from ${files.size} files for season=$season episode=$episode")
                 return DirectDebridResolveResult.Stale
             }
+            PlaybackTrace.record("torbox_file_selected",
+                "torrentId" to torrentId,
+                "requestedSeason" to season,
+                "requestedEpisode" to episode,
+                "requestedTitle" to selectionContext?.title,
+                "fileId" to file.id,
+                "filename" to file.displayName(),
+                "bytes" to file.size,
+                "resolveFileIdx" to resolve.fileIdx
+            )
             android.util.Log.d("NuvioDebrid", "TB selected file: id=${file.id} name=${file.displayName()} size=${file.size}")
             val fileId = file.id
             if (fileId == null) {
@@ -100,6 +151,14 @@ class TorboxDirectDebridResolver @Inject constructor(
                 return DirectDebridResolveResult.Stale
             }
 
+            PlaybackTrace.record("torbox_link_resolved",
+                "torrentId" to torrentId,
+                "fileId" to fileId,
+                "filename" to file.displayName(),
+                "linkHash" to PlaybackTrace.fingerprint(url),
+                "requestedSeason" to season,
+                "requestedEpisode" to episode
+            )
             DirectDebridResolveResult.Success(
                 url = url,
                 filename = file.displayName().takeIf { it.isNotBlank() },
@@ -107,6 +166,11 @@ class TorboxDirectDebridResolver @Inject constructor(
             )
         } catch (error: Exception) {
             if (error is CancellationException) throw error
+            PlaybackTrace.record("torbox_resolve_exception",
+                "requestedSeason" to season,
+                "requestedEpisode" to episode,
+                "exceptionType" to error.javaClass.simpleName
+            )
             DirectDebridResolveResult.Error
         }
     }
