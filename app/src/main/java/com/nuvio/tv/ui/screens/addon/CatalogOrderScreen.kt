@@ -1180,8 +1180,8 @@ private fun CatalogOrderCard(
                     onClick = onToggleXl,
                     modifier = Modifier.size(CatalogRowControlDiameter),
                     colors = ButtonDefaults.colors(
-                        containerColor = if (item.isXl) SettingsGlassControlSelectedColor else SettingsGlassControlIdleColor,
-                        contentColor = if (item.isXl) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+                        containerColor = if ((item.xlMode != com.nuvio.tv.domain.model.CatalogXlMode.OFF)) SettingsGlassControlSelectedColor else SettingsGlassControlIdleColor,
+                        contentColor = if ((item.xlMode != com.nuvio.tv.domain.model.CatalogXlMode.OFF)) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
                         focusedContainerColor = SettingsGlassRowFocusedColor,
                         focusedContentColor = NuvioColors.Primary
                     ),
@@ -1189,8 +1189,15 @@ private fun CatalogOrderCard(
                     contentPadding = PaddingValues(0.dp)
                 ) {
                     Icon(
-                        painter = painterResource(R.drawable.ic_xl_catalog),
-                        contentDescription = stringResource(if (item.isXl) R.string.catalog_xl_disable else R.string.catalog_xl_enable),
+                        painter = painterResource(
+                            if (item.xlMode == com.nuvio.tv.domain.model.CatalogXlMode.WITHOUT_SUMMARY) R.drawable.ic_xl_catalog_no_summary
+                            else R.drawable.ic_xl_catalog
+                        ),
+                        contentDescription = stringResource(when (item.xlMode) {
+                            com.nuvio.tv.domain.model.CatalogXlMode.OFF -> R.string.catalog_xl_enable
+                            com.nuvio.tv.domain.model.CatalogXlMode.WITH_SUMMARY -> R.string.catalog_xl_hide_summary
+                            com.nuvio.tv.domain.model.CatalogXlMode.WITHOUT_SUMMARY -> R.string.catalog_xl_disable
+                        }),
                         modifier = Modifier.size(20.dp)
                     )
                 }

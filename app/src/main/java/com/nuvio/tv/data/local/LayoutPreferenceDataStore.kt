@@ -50,6 +50,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val disabledHomeCatalogKeysKey = stringPreferencesKey("disabled_home_catalog_keys")
     private val numberedHomeCatalogKeysKey = stringPreferencesKey("numbered_home_catalog_keys")
     private val outlineNumberedHomeCatalogKeysKey = stringPreferencesKey("outline_numbered_home_catalog_keys")
+    private val xlNoSummaryHomeCatalogKeysKey = stringPreferencesKey("xl_no_summary_home_catalog_keys")
     private val xlHomeCatalogKeysKey = stringPreferencesKey("xl_home_catalog_keys")
     private val landscapeHomeCatalogKeysKey = stringPreferencesKey("landscape_home_catalog_keys")
     private val useThemeColorForNumbersKey = booleanPreferencesKey("use_theme_color_for_numbers")
@@ -176,6 +177,14 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val xlHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
         parseCatalogKeys(prefs[xlHomeCatalogKeysKey])
+    }
+
+    val xlHomeCatalogModes: Flow<Map<String, com.nuvio.tv.domain.model.CatalogXlMode>> = profileFlow { prefs ->
+        val hidden = parseCatalogKeys(prefs[xlNoSummaryHomeCatalogKeysKey]).toSet()
+        parseCatalogKeys(prefs[xlHomeCatalogKeysKey]).associateWith { key ->
+            if (key in hidden) com.nuvio.tv.domain.model.CatalogXlMode.WITHOUT_SUMMARY
+            else com.nuvio.tv.domain.model.CatalogXlMode.WITH_SUMMARY
+        }
     }
 
     val landscapeHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
@@ -470,6 +479,17 @@ class LayoutPreferenceDataStore @Inject constructor(
             } else {
                 prefs[outlineNumberedHomeCatalogKeysKey] = gson.toJson(normalizedKeys)
             }
+        }
+    }
+
+    suspend fun setXlHomeCatalogMode(key: String, mode: com.nuvio.tv.domain.model.CatalogXlMode) {
+        store().edit { prefs ->
+            val enabled = parseCatalogKeys(prefs[xlHomeCatalogKeysKey]).toMutableSet()
+            val hidden = parseCatalogKeys(prefs[xlNoSummaryHomeCatalogKeysKey]).toMutableSet()
+            if (mode == com.nuvio.tv.domain.model.CatalogXlMode.OFF) enabled.remove(key) else enabled.add(key)
+            if (mode == com.nuvio.tv.domain.model.CatalogXlMode.WITHOUT_SUMMARY) hidden.add(key) else hidden.remove(key)
+            if (enabled.isEmpty()) prefs.remove(xlHomeCatalogKeysKey) else prefs[xlHomeCatalogKeysKey] = gson.toJson(enabled.toList())
+            if (hidden.isEmpty()) prefs.remove(xlNoSummaryHomeCatalogKeysKey) else prefs[xlNoSummaryHomeCatalogKeysKey] = gson.toJson(hidden.toList())
         }
     }
 

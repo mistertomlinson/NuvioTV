@@ -35,7 +35,7 @@ class CatalogOrderViewModel @Inject constructor(
     private var disabledKeysCache: Set<String> = emptySet()
     private var numberedKeysCache: Set<String> = emptySet()
     private var outlineNumberedKeysCache: Set<String> = emptySet()
-    private var xlKeysCache: Set<String> = emptySet()
+    private var xlModesCache: Map<String, com.nuvio.tv.domain.model.CatalogXlMode> = emptyMap()
     private var landscapeKeysCache: Set<String> = emptySet()
     private var shuffleKeysCache: Set<String> = emptySet()
 
@@ -110,11 +110,10 @@ class CatalogOrderViewModel @Inject constructor(
 
     fun toggleCatalogXl(key: String) {
         val item = _uiState.value.items.find { it.key == key } ?: return
-        val targets = setOf(xlCatalogPreferenceKey(item.key))
-        val updated = xlKeysCache.toMutableSet()
-        if (targets.all { it in updated }) updated.removeAll(targets) else updated.addAll(targets)
-        xlKeysCache = updated
-        viewModelScope.launch { layoutPreferenceDataStore.setXlHomeCatalogKeys(updated.toList()) }
+        val preferenceKey = xlCatalogPreferenceKey(item.key)
+        val next = (xlModesCache[preferenceKey] ?: com.nuvio.tv.domain.model.CatalogXlMode.OFF).next()
+        xlModesCache = xlModesCache + (preferenceKey to next)
+        viewModelScope.launch { layoutPreferenceDataStore.setXlHomeCatalogMode(preferenceKey, next) }
     }
 
     fun toggleCatalogLandscape(key: String) {
@@ -404,11 +403,11 @@ Triple(
                 inner to globalLandscape
             }.combine(layoutPreferenceDataStore.hidePlatformNameInCatalogTitleEnabled) { outer, hidePlatformName ->
                 outer to hidePlatformName
-            }.combine(layoutPreferenceDataStore.xlHomeCatalogKeys) { outer, xlKeys ->
-                outer to xlKeys.toSet()
-            }.collectLatest { (outerWithName, xlKeys) ->
+            }.combine(layoutPreferenceDataStore.xlHomeCatalogModes) { outer, xlModes ->
+                outer to xlModes
+            }.collectLatest { (outerWithName, xlModes) ->
             val (outerResult, hidePlatformNameInCatalogTitle) = outerWithName
-            xlKeysCache = xlKeys
+            xlModesCache = xlModes
             val (innerResult, globalLandscapePosters) = outerResult
             val (triple, aggregatePair, platformIconPrefs) = innerResult
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
@@ -424,7 +423,7 @@ Triple(
                     it.copy(
                         isLoading = false,
                         items = orderedItems.map { item ->
-                            item.copy(isXl = xlCatalogPreferenceKey(item.key) in xlKeys)
+                            item.copy(xlMode = xlModes[xlCatalogPreferenceKey(item.key)] ?: com.nuvio.tv.domain.model.CatalogXlMode.OFF)
                         },
                         useThemeColorForNumbers = useThemeColor,
                         aggregateStreamingPlatformsEnabled = aggregatePlatforms,
@@ -790,7 +789,7 @@ data class CatalogOrderItem(
     val isDisabled: Boolean,
     val numberStyle: com.nuvio.tv.ui.screens.home.NumberStyle = com.nuvio.tv.ui.screens.home.NumberStyle.OFF,
     val isLandscape: Boolean = false,
-    val isXl: Boolean = false,
+    val xlMode: com.nuvio.tv.domain.model.CatalogXlMode = com.nuvio.tv.domain.model.CatalogXlMode.OFF,
     val isShuffled: Boolean = false,
     val canMoveUp: Boolean,
     val canMoveDown: Boolean,

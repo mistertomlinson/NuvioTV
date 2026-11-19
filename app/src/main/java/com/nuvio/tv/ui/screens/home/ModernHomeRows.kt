@@ -4049,7 +4049,7 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
 }
 
 @Composable
-private fun NumberedCatalogCardWrapper(
+internal fun NumberedCatalogCardWrapper(
     number: Int,
     cardWidth: androidx.compose.ui.unit.Dp,
     cardHeight: androidx.compose.ui.unit.Dp,
@@ -4058,11 +4058,13 @@ private fun NumberedCatalogCardWrapper(
     numberStyle: NumberStyle = NumberStyle.SOLID,
     useThemeColorForNumbers: Boolean = false,
     useLandscapePosters: Boolean = false,
+    compactXl: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val numberText = number.toString()
     val numberFontSize = androidx.compose.ui.unit.TextUnit(
-        if (useLandscapePosters) cardHeight.value * 0.80f else cardHeight.value * 0.55f,
+        if (compactXl) xlRankFontSize(cardHeight.value)
+        else if (useLandscapePosters) cardHeight.value * 0.80f else cardHeight.value * 0.55f,
         androidx.compose.ui.unit.TextUnitType.Sp
     )
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -4100,11 +4102,21 @@ private fun NumberedCatalogCardWrapper(
         number >= 10 -> "88"
         else -> "8"
     }
-    val measured = remember(referenceText, numberFontSize) { textMeasurer.measure(referenceText, baseStyle) }
-    val textWidthDp = if (preMeasuredTextWidth > 0.dp) preMeasuredTextWidth else with(density) { measured.size.width.toDp() }
-    val textHeightDp = with(density) { measured.size.height.toDp() }
+    val measured = remember(referenceText, numberFontSize, compactXl) {
+        if (compactXl) null else textMeasurer.measure(referenceText, baseStyle)
+    }
+    val textWidthDp = if (preMeasuredTextWidth > 0.dp) preMeasuredTextWidth else with(density) { (measured?.size?.width ?: 0).toDp() }
+    val textHeightDp = if (compactXl) {
+        remember(leagueSpartanTypeface, numberFontSize, density) {
+            val paint = android.graphics.Paint().apply {
+                typeface = leagueSpartanTypeface
+                textSize = numberFontSize.value * density.density
+            }
+            with(density) { (paint.fontMetrics.descent - paint.fontMetrics.ascent).toDp() }
+        }
+    } else with(density) { checkNotNull(measured).size.height.toDp() }
 
-    val overlapDp = if (useLandscapePosters) cardWidth * 0.06f else cardWidth * 0.10f
+    val overlapDp = if (compactXl) XL_RANK_OVERLAP_DP.dp else if (useLandscapePosters) cardWidth * 0.06f else cardWidth * 0.10f
     val offsetX = -(textWidthDp - overlapDp)
 
     Box(modifier = androidx.compose.ui.Modifier.padding(start = extraStartPadding)) {
@@ -4112,7 +4124,7 @@ private fun NumberedCatalogCardWrapper(
             modifier = androidx.compose.ui.Modifier
                 .height(textHeightDp)
                 .align(androidx.compose.ui.Alignment.BottomStart)
-                .offset(x = offsetX, y = if (useLandscapePosters) cardHeight * 0.14f else cardHeight * 0.105f)
+                .offset(x = offsetX, y = if (compactXl) textHeightDp * 0.12f else if (useLandscapePosters) cardHeight * 0.14f else cardHeight * 0.105f)
                 .zIndex(-1f)
                 .layout { measurable, constraints ->
                     val textWidthPx = with(density) { textWidthDp.roundToPx() }
@@ -4131,7 +4143,7 @@ private fun NumberedCatalogCardWrapper(
                     }
                     onDrawBehind {
                         val textW = paint.measureText(numberText)
-                        val oneAdjust = if (numberText == "1") 5f * density.density else 0f
+                        val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
                         val x = size.width - textW + oneAdjust
                         if (numberStyle == NumberStyle.OUTLINE) {
                             // Outline style: thin stroke with black fill inside

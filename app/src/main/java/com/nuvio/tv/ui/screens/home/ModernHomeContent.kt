@@ -398,6 +398,7 @@ fun ModernHomeContent(
         outlineNumberedCatalogKeys,
         uiState.landscapeCatalogKeys,
         uiState.xlCatalogKeys,
+        uiState.xlNoSummaryCatalogKeys,
         uiState.releaseReminderBadges,
         enrichmentReadyRowKeys,
         continueWatchingEnrichmentReady
@@ -461,7 +462,8 @@ fun ModernHomeContent(
                         cached.showCatalogTypeSuffix == showCatalogTypeSuffixInModern &&
                         cached.hidePlatformName == hidePlatformNameInModern &&
                         cached.mappedRow.numberStyle == cachedNumberStyle &&
-                        cached.mappedRow.isXl == (xlCatalogPreferenceKey(rowKey) in uiState.xlCatalogKeys)
+                        cached.mappedRow.isXl == (xlCatalogPreferenceKey(rowKey) in uiState.xlCatalogKeys) &&
+                        cached.mappedRow.showXlSummary == (xlCatalogPreferenceKey(rowKey) !in uiState.xlNoSummaryCatalogKeys)
 
                 val mappedRow = if (canReuseMappedRow) {
                     val cachedMappedRow = checkNotNull(cached).mappedRow
@@ -492,6 +494,7 @@ fun ModernHomeContent(
                         isLoading = row.isLoading,
                         enrichmentReady = rowEnrichmentReady,
                         isXl = xlCatalogPreferenceKey(rowKey) in uiState.xlCatalogKeys,
+                        showXlSummary = xlCatalogPreferenceKey(rowKey) !in uiState.xlNoSummaryCatalogKeys,
                         numberStyle = when {
                             rowKey in outlineNumberedCatalogKeys -> NumberStyle.OUTLINE
                             rowKey in numberedCatalogKeys -> NumberStyle.SOLID
@@ -1974,16 +1977,25 @@ fun ModernHomeContent(
     val hasXlRows = remember(carouselRows) { carouselRows.any { it.isXl } }
     val activeRowIsXl = (activeRow ?: carouselRows.firstOrNull())?.isXl == true
     var previousRowWasXl by remember { mutableStateOf(activeRowIsXl) }
+    var previousXlHadSummary by remember { mutableStateOf((activeRow ?: carouselRows.firstOrNull())?.showXlSummary == true) }
     val xlScrollTransitionState = remember { mutableStateOf(false) }
-    LaunchedEffect(activeRow?.key, hasXlRows) {
-        xlScrollTransitionState.value = hasXlRows && (activeRowIsXl || previousRowWasXl)
+    var xlMetadataMotionTargetKey by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(activeRow?.key, activeRow?.showXlSummary, hasXlRows) {
+        xlMetadataMotionTargetKey = activeRow?.key
+        xlScrollTransitionState.value = hasXlRows && !activeRowIsXl && previousRowWasXl && previousXlHadSummary
         previousRowWasXl = activeRowIsXl
+        previousXlHadSummary = (activeRow ?: carouselRows.firstOrNull())?.showXlSummary == true
         // Let the focus-driven BringIntoView start before watching for its stop.
         repeat(2) { withFrameNanos { } }
         snapshotFlow { verticalRowListState.isScrollInProgress }
             .debounce(80L).first { !it }
         xlScrollTransitionState.value = false
     }
+
+    val upperMetadataFollowsRow = xlUpperMetadataFollowsRow(
+        activeRowIsXl, previousRowWasXl, previousXlHadSummary,
+        xlScrollTransitionState.value && xlMetadataMotionTargetKey == activeRow?.key
+    )
 
     val latestActiveRow by rememberUpdatedState(activeRow)
     val latestActiveItemIndex by rememberUpdatedState(clampedActiveItemIndex)
@@ -3049,7 +3061,7 @@ fun ModernHomeContent(
             xlRowTopInset(carouselRows.firstOrNull()?.isXl == true, ordinaryRowsTop.value).dp
         }
         val rowsClipTopState = rememberUpdatedState(
-            if (hasXlRows && (activeRowIsXl || previousRowWasXl || xlScrollTransitionState.value)) xlRowsTop
+            if (hasXlRows && upperMetadataFollowsRow) xlRowsTop
             else if (hasXlRows) ordinaryRowsTop else 0.dp
         )
 
@@ -4382,6 +4394,8 @@ fun ModernHomeContent(
             }
         }
 
+        ModernXlBackdropDimmer(active = activeRowIsXl && !isCarouselFocused)
+
         // Unified slide+fade wrapper — HeroTitleBlock and LazyColumn animate as one
         // block so recomposition at the flip point is invisible (happens at alpha=0).
         // Only driven by platform navigation, never by catalog row focus changes.
@@ -4451,9 +4465,13 @@ fun ModernHomeContent(
             var outgoingOrdinaryHero by remember { mutableStateOf<HeroPreview?>(null) }
             var outgoingOrdinaryRowKey by remember { mutableStateOf<String?>(null) }
             val ordinaryHeroRow = (activeRow ?: carouselRows.firstOrNull())?.takeUnless { it.isXl }
+            val frozenHeroSourceKey = if (frozenHeroItem != null) frozenHeroItemRowKey else heroItemRowKey
+            val frozenPreviewWasXl = (isFastScrolling || fastScrollLandingVisualPending || heroFrozenForSlide || heroFrozenForRapidNav) &&
+                rowByKey[frozenHeroSourceKey]?.isXl == true
             val ordinaryHero = if (ordinaryHeroRow != null) {
-                if (heroItemRowKey == ordinaryHeroRow.key) resolvedHero
-                else ordinaryHeroRow.items.getOrNull(clampedActiveItemIndex)?.heroPreview
+                if (upperMetadataFollowsRow || frozenPreviewWasXl) {
+                    ordinaryHeroRow.items.getOrNull(clampedActiveItemIndex)?.heroPreview
+                } else resolvedHero
             } else null
             androidx.compose.runtime.SideEffect {
                 if (hasXlRows && ordinaryHeroRow != null && ordinaryHero != null) {
@@ -4514,17 +4532,21 @@ fun ModernHomeContent(
                         .offset(y = 6.dp)
                         .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
                 }).graphicsLayer {
-                    if (hasXlRows) {
+                    if (hasXlRows && upperMetadataFollowsRow) {
                         val info = verticalRowListState.layoutInfo
                         val owner = info.visibleItemsInfo.firstOrNull { it.key == topMetadataRowKey }
                         alpha = if (owner == null) 0f else 1f
                         translationY = if (owner == null) 0f else {
                             val ownerIndex = carouselLookups.rowIndexByKey[topMetadataRowKey] ?: -1
-                            val headroom = if (carouselRows.getOrNull(ownerIndex - 1)?.isXl == true) {
+                            val previous = carouselRows.getOrNull(ownerIndex - 1)
+                            val headroom = if (xlNeedsMetadataHeadroom(previous?.isXl == true, previous?.showXlSummary == true, false)) {
                                 (ordinaryRowsTop - xlRowsTop).coerceAtLeast(0.dp).toPx()
                             } else 0f
                             owner.offset + info.beforeContentPadding + headroom - ordinaryRowsTop.toPx()
                         }
+                    } else {
+                        alpha = 1f
+                        translationY = 0f
                     }
                 }
             )
@@ -6120,7 +6142,8 @@ private fun EnhancedModernHomeRowsListBoundary(
             }
             val followsXlRow = remember(carouselRows, row.key) {
                 val canonicalIndex = carouselRows.indexOfFirst { it.key == row.key }
-                !row.isXl && carouselRows.getOrNull(canonicalIndex - 1)?.isXl == true
+                val previous = carouselRows.getOrNull(canonicalIndex - 1)
+                xlNeedsMetadataHeadroom(previous?.isXl == true, previous?.showXlSummary == true, row.isXl)
             }
             Column {
                 if (followsXlRow && ordinaryRowHeadroom > 0.dp) {

@@ -525,7 +525,9 @@ internal fun HeroTitleContent(
     portraitMode: Boolean,
     fullWidthIconRowEnabled: Boolean = false,
     heroMetadataLarge: Boolean = false,
-    showTitleLogo: Boolean = true
+    showTitleLogo: Boolean = true,
+    showDescription: Boolean = true,
+    useFullSizeDescription: Boolean = false
 ) {
     if (preview == null) return
     val descriptionMaxLines = if (portraitMode) 4 else 5
@@ -534,7 +536,7 @@ internal fun HeroTitleContent(
     // Logo max width: large = original 220 cap; small = wider base so shrunk logos
     // still read large enough (340 * 0.7 = 238). heroScale applied below.
     val logoMaxBase = if (heroMetadataLarge) 220.dp else 340.dp
-    val descriptionScale = (if (portraitMode) 0.90f else 1f) * heroScale
+    val descriptionScale = (if (portraitMode) 0.90f else 1f) * (if (useFullSizeDescription) 1f else heroScale)
     val titleScale = (if (portraitMode) 0.92f else 1f) * heroScale
     val metaScale = 1f * heroScale
     // IMDB badge: untouched at large (heroScale 1.0 -> 30dp), gently larger than a
@@ -887,7 +889,7 @@ internal fun HeroTitleContent(
             }
         }
 
-        if (!fullWidthIconRowEnabled) {
+        if (!fullWidthIconRowEnabled && showDescription) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

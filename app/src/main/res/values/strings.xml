@@ -1468,4 +1468,5 @@
     <string name="layout_xl_preview_delay">Preview Delay</string>
     <string name="layout_xl_preview_delay_sub">How long to wait before starting a trailer or expanding a focused card.</string>
     <string name="layout_xl_trailer_location_sub">XL rows always play trailers inside the large card.</string>
+    <string name="catalog_xl_hide_summary">XL row with summary. Select to hide the summary.</string>
 </resources>

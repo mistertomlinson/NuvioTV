@@ -18,18 +18,6 @@ internal fun xlRowGeometry(screenWidth: Float, screenHeight: Float, largeMetadat
     return XlRowGeometry(height, featured, portrait, kotlin.math.ceil(remaining / (portrait + 12f)).toInt() + 1)
 }
 
-/** The selected card stays at the leading edge while upcoming portraits move one slot. */
-internal fun xlCardOffset(index: Int, selected: Int, featuredWidth: Float, portraitWidth: Float): Float = when {
-    index < selected -> (index - selected) * (portraitWidth + 12f)
-    index == selected -> 0f
-    else -> featuredWidth + 12f + (index - selected - 1) * (portraitWidth + 12f)
-}
-
-/** Compose one predecessor for Left and a bounded runway for Right, even at the end. */
-internal fun xlVisibleIndices(selected: Int, total: Int, portraitCount: Int): IntRange =
-    if (total <= 0) IntRange.EMPTY else
-        (selected - 1).coerceAtLeast(0)..minOf(total - 1, selected + portraitCount)
-
 internal fun xlRowTopInset(isXl: Boolean, ordinaryRowTop: Float): Float =
     if (isXl) 54f else ordinaryRowTop
 
@@ -64,3 +52,41 @@ internal class XlRowLeftShortcut {
         consumedDoublePress = false
     }
 }
+
+internal const val XL_RANK_OVERLAP_DP = 8f
+internal const val XL_BACKDROP_DIM_ALPHA = 0.94f
+
+internal fun xlRankFontSize(cardHeight: Float): Float = (cardHeight * 0.22f).coerceIn(40f, 56f)
+
+/** Measured once per catalog length, not while navigating its cards. */
+internal class XlRankTrack(
+    private val portraitWidth: Float,
+    val textWidths: FloatArray
+) {
+    private val outside = FloatArray(textWidths.size) { (textWidths[it] - XL_RANK_OVERLAP_DP).coerceAtLeast(0f) }
+    private val prefix = FloatArray(textWidths.size + 1).also { sums ->
+        for (i in textWidths.indices) sums[i + 1] = sums[i] + portraitWidth + 12f + outside[i]
+    }
+    val featuredLeft: Float = 52f + (outside.maxOrNull() ?: 0f)
+
+    fun portraitLeft(index: Int, selected: Int, featuredWidth: Float): Float =
+        featuredLeft + featuredWidth + 12f + prefix[index] - prefix[selected + 1] + outside[index]
+
+    fun numberLeft(index: Int, posterLeft: Float): Float = posterLeft - outside[index]
+}
+
+internal class XlHorizontalRepeatGate {
+    private var lastMoveAtMs = 0L
+    fun accept(repeatCount: Int, nowMs: Long, fast: Boolean): Boolean {
+        val gap = if (fast) 48L else 80L
+        if (repeatCount > 0 && nowMs - lastMoveAtMs < gap) return false
+        lastMoveAtMs = nowMs
+        return true
+    }
+}
+
+internal fun xlUpperMetadataFollowsRow(activeXl: Boolean, previousXl: Boolean, previousSummary: Boolean, motionPending: Boolean): Boolean =
+    if (activeXl) true else if (previousXl) previousSummary else motionPending
+
+internal fun xlNeedsMetadataHeadroom(previousXl: Boolean, previousSummary: Boolean, currentXl: Boolean): Boolean =
+    previousXl && previousSummary && !currentXl

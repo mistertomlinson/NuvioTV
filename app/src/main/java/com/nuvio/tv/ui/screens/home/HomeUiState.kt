@@ -32,6 +32,7 @@ data class HomeUiState(
     val modernLandscapePostersEnabled: Boolean = false,
     val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
     val xlCatalogKeys: Set<String> = emptySet(),
+    val xlNoSummaryCatalogKeys: Set<String> = emptySet(),
     val landscapeCatalogKeys: Set<String> = emptySet(),
     val heroItems: List<MetaPreview> = emptyList(),
     val heroCatalogKeys: List<String> = emptyList(),
