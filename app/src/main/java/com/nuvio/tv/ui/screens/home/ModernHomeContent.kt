@@ -92,6 +92,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
+import com.nuvio.tv.ui.catalog.xlCatalogPreferenceKey
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -125,6 +126,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.view.KeyEvent as AndroidKeyEvent
+import kotlinx.coroutines.flow.first
+import androidx.compose.ui.graphics.drawscope.clipRect
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -296,21 +299,6 @@ fun ModernHomeContent(
     val hidePlatformNameInModern = uiState.hidePlatformNameInCatalogTitleEnabled
     val isLandscapeModern = useLandscapePosters
     val expandControlAvailable = !isLandscapeModern
-    val trailerPlaybackTarget = uiState.focusedPosterBackdropTrailerPlaybackTarget
-    val effectiveAutoplayEnabled =
-        uiState.focusedPosterBackdropTrailerEnabled &&
-            (isLandscapeModern || uiState.focusedPosterBackdropExpandEnabled)
-    val landscapeExpandedCardMode =
-        isLandscapeModern &&
-            effectiveAutoplayEnabled &&
-            trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
-    val effectiveExpandEnabled =
-        (uiState.focusedPosterBackdropExpandEnabled && expandControlAvailable) ||
-            landscapeExpandedCardMode
-    val shouldActivateFocusedPosterFlow =
-        effectiveExpandEnabled ||
-            (effectiveAutoplayEnabled &&
-                trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
     // Flips immediately on platform change — drives metadata AnimatedContent
     var displayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
     // Lags behind by exit animation duration — drives catalog LazyColumn content
@@ -409,6 +397,7 @@ fun ModernHomeContent(
         numberedCatalogKeys,
         outlineNumberedCatalogKeys,
         uiState.landscapeCatalogKeys,
+        uiState.xlCatalogKeys,
         uiState.releaseReminderBadges,
         enrichmentReadyRowKeys,
         continueWatchingEnrichmentReady
@@ -471,7 +460,8 @@ fun ModernHomeContent(
                         cached.useLandscapePosters == rowUseLandscapePosters &&
                         cached.showCatalogTypeSuffix == showCatalogTypeSuffixInModern &&
                         cached.hidePlatformName == hidePlatformNameInModern &&
-                        cached.mappedRow.numberStyle == cachedNumberStyle
+                        cached.mappedRow.numberStyle == cachedNumberStyle &&
+                        cached.mappedRow.isXl == (xlCatalogPreferenceKey(rowKey) in uiState.xlCatalogKeys)
 
                 val mappedRow = if (canReuseMappedRow) {
                     val cachedMappedRow = checkNotNull(cached).mappedRow
@@ -501,6 +491,7 @@ fun ModernHomeContent(
                         hasMore = row.hasMore,
                         isLoading = row.isLoading,
                         enrichmentReady = rowEnrichmentReady,
+                        isXl = xlCatalogPreferenceKey(rowKey) in uiState.xlCatalogKeys,
                         numberStyle = when {
                             rowKey in outlineNumberedCatalogKeys -> NumberStyle.OUTLINE
                             rowKey in numberedCatalogKeys -> NumberStyle.SOLID
@@ -955,6 +946,25 @@ fun ModernHomeContent(
         remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var focusedCatalogSelection by
         rowsBoundaryFocusedCatalogSelectionState
+    val selectionIsXl = carouselRows.firstOrNull { it.key == activeRowKey }?.isXl == true
+    val trailerPlaybackTarget = if (selectionIsXl) {
+        FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+    } else uiState.focusedPosterBackdropTrailerPlaybackTarget
+    val effectiveAutoplayEnabled =
+        uiState.focusedPosterBackdropTrailerEnabled &&
+            (selectionIsXl || isLandscapeModern || uiState.focusedPosterBackdropExpandEnabled)
+    val landscapeExpandedCardMode =
+        isLandscapeModern &&
+            effectiveAutoplayEnabled &&
+            trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+    val effectiveExpandEnabled =
+        (uiState.focusedPosterBackdropExpandEnabled && expandControlAvailable) ||
+            landscapeExpandedCardMode || (selectionIsXl && effectiveAutoplayEnabled)
+    val shouldActivateFocusedPosterFlow =
+        effectiveExpandEnabled ||
+            (effectiveAutoplayEnabled &&
+                trailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.HERO_MEDIA)
+
     var lastRequestedTrailerFocusKey by remember { mutableStateOf<String?>(null) }
     val rowsBoundaryExpandedCatalogFocusKeyState =
         remember { mutableStateOf<String?>(null) }
@@ -1959,6 +1969,20 @@ fun ModernHomeContent(
             activeItemIndex = clampedIndex
         }
         focusedItemByRow[row.key] = clampedIndex
+    }
+
+    val hasXlRows = remember(carouselRows) { carouselRows.any { it.isXl } }
+    val activeRowIsXl = (activeRow ?: carouselRows.firstOrNull())?.isXl == true
+    var previousRowWasXl by remember { mutableStateOf(activeRowIsXl) }
+    val xlScrollTransitionState = remember { mutableStateOf(false) }
+    LaunchedEffect(activeRow?.key, hasXlRows) {
+        xlScrollTransitionState.value = hasXlRows && (activeRowIsXl || previousRowWasXl)
+        previousRowWasXl = activeRowIsXl
+        // Let the focus-driven BringIntoView start before watching for its stop.
+        repeat(2) { withFrameNanos { } }
+        snapshotFlow { verticalRowListState.isScrollInProgress }
+            .debounce(80L).first { !it }
+        xlScrollTransitionState.value = false
     }
 
     val latestActiveRow by rememberUpdatedState(activeRow)
@@ -3018,6 +3042,16 @@ fun ModernHomeContent(
         val rowTitleBottom = 14.dp
         val rowsViewportHeightFraction = if (useLandscapePosters) 0.49f else 0.52f
         val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
+        val rowsCanvasHeight = if (hasXlRows) maxHeight else rowsViewportHeight
+        val ordinaryRowsTop = maxHeight - rowsViewportHeight
+        val xlRowsTop = 54.dp
+        val rowListTopPadding = if (!hasXlRows) 0.dp else {
+            xlRowTopInset(carouselRows.firstOrNull()?.isXl == true, ordinaryRowsTop.value).dp
+        }
+        val rowsClipTopState = rememberUpdatedState(
+            if (hasXlRows && (activeRowIsXl || previousRowWasXl || xlScrollTransitionState.value)) xlRowsTop
+            else if (hasXlRows) ordinaryRowsTop else 0.dp
+        )
 
         // The configurable centered hero belongs only to the aggregate +
         // full-width icon-row mode. Aggregate-off and half-width retain the
@@ -3053,7 +3087,7 @@ fun ModernHomeContent(
          */
         val heroMediaBackgroundProgress =
             if (
-                uiState.focusedPosterBackdropTrailerPlaybackTarget ==
+                trailerPlaybackTarget ==
                     FocusedPosterTrailerPlaybackTarget.HERO_MEDIA
             ) {
                 heroTransitionProgress
@@ -3989,7 +4023,8 @@ fun ModernHomeContent(
                     )
             )
         }
-        val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec) {
+        val currentXlAlignment = rememberUpdatedState(activeRowIsXl)
+        val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec, hasXlRows, ordinaryRowsTop) {
             val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
@@ -4011,7 +4046,10 @@ fun ModernHomeContent(
                     // During fast scroll, don't bring focused item into view —
                     // it fights the drag and causes jank
                     if (isFastScrolling) return 0f
-                    return offset - topInsetPx
+                    val canvasTop = if (hasXlRows) {
+                        with(localDensity) { xlRowTopInset(currentXlAlignment.value, ordinaryRowsTop.value).dp.toPx() }
+                    } else 0f
+                    return offset - (canvasTop + topInsetPx)
                 }
             }
         }
@@ -4410,8 +4448,23 @@ fun ModernHomeContent(
                     translationX = catalogSlideOffset.value
                 }
         ) {
+            var outgoingOrdinaryHero by remember { mutableStateOf<HeroPreview?>(null) }
+            var outgoingOrdinaryRowKey by remember { mutableStateOf<String?>(null) }
+            val ordinaryHeroRow = (activeRow ?: carouselRows.firstOrNull())?.takeUnless { it.isXl }
+            val ordinaryHero = if (ordinaryHeroRow != null) {
+                if (heroItemRowKey == ordinaryHeroRow.key) resolvedHero
+                else ordinaryHeroRow.items.getOrNull(clampedActiveItemIndex)?.heroPreview
+            } else null
+            androidx.compose.runtime.SideEffect {
+                if (hasXlRows && ordinaryHeroRow != null && ordinaryHero != null) {
+                    outgoingOrdinaryHero = ordinaryHero
+                    outgoingOrdinaryRowKey = ordinaryHeroRow.key
+                }
+            }
+            val topMetadataRowKey = ordinaryHeroRow?.key ?: outgoingOrdinaryRowKey
+            val topMetadataPreview = if (hasXlRows) ordinaryHero ?: outgoingOrdinaryHero else resolvedHero
             HeroTitleBlock(
-                preview = resolvedHero,
+                preview = topMetadataPreview,
                 enrichmentActive = enrichmentActive,
                 portraitMode = !useLandscapePosters,
                 selectedPlatformId = catalogDisplayedPlatformId,
@@ -4420,7 +4473,7 @@ fun ModernHomeContent(
                 fullWidthIconRowEnabled = effectiveFullWidthIconRowEnabled,
                 heroMetadataLarge =
                     if (effectiveFullWidthIconRowEnabled) heroMetadataLarge else true,
-                modifier = if (effectiveFullWidthIconRowEnabled) {
+                modifier = (if (effectiveFullWidthIconRowEnabled) {
                     Modifier
                         // Full-width icon mode owns the newer centered hero region
                         // and its configurable Small/Large metadata scale.
@@ -4460,6 +4513,19 @@ fun ModernHomeContent(
                         )
                         .offset(y = 6.dp)
                         .fillMaxWidth(MODERN_HERO_TEXT_WIDTH_FRACTION)
+                }).graphicsLayer {
+                    if (hasXlRows) {
+                        val info = verticalRowListState.layoutInfo
+                        val owner = info.visibleItemsInfo.firstOrNull { it.key == topMetadataRowKey }
+                        alpha = if (owner == null) 0f else 1f
+                        translationY = if (owner == null) 0f else {
+                            val ownerIndex = carouselLookups.rowIndexByKey[topMetadataRowKey] ?: -1
+                            val headroom = if (carouselRows.getOrNull(ownerIndex - 1)?.isXl == true) {
+                                (ordinaryRowsTop - xlRowsTop).coerceAtLeast(0.dp).toPx()
+                            } else 0f
+                            owner.offset + info.beforeContentPadding + headroom - ordinaryRowsTop.toPx()
+                        }
+                    }
                 }
             )
 
@@ -4483,6 +4549,7 @@ fun ModernHomeContent(
              */
             val currentComingSoonGlassText =
                 resolvedHero
+                    ?.takeUnless { activeRowIsXl }
                     ?.comingSoonText
                     ?.takeIf { it.isNotBlank() }
 
@@ -4593,7 +4660,10 @@ fun ModernHomeContent(
                 doubleLeftRowShortcutEnabled =
                     uiState.doubleLeftRowShortcutEnabled,
                 rowsViewportHeight =
-                    rowsViewportHeight,
+                    rowsCanvasHeight,
+                rowListTopPadding = rowListTopPadding,
+                ordinaryRowHeadroom = if (hasXlRows) (ordinaryRowsTop - xlRowsTop).coerceAtLeast(0.dp) else 0.dp,
+                rowsClipTopState = rowsClipTopState,
                 catalogBottomPadding =
                     catalogBottomPadding,
                 rowTitleBottom =
@@ -4812,6 +4882,9 @@ private fun EnhancedModernHomeRowsListBoundary(
     doubleUpPlatformShortcutEnabled: Boolean,
     doubleLeftRowShortcutEnabled: Boolean,
     rowsViewportHeight: androidx.compose.ui.unit.Dp,
+    rowListTopPadding: androidx.compose.ui.unit.Dp,
+    ordinaryRowHeadroom: androidx.compose.ui.unit.Dp,
+    rowsClipTopState: androidx.compose.runtime.State<androidx.compose.ui.unit.Dp>,
     catalogBottomPadding: androidx.compose.ui.unit.Dp,
     rowTitleBottom: androidx.compose.ui.unit.Dp,
     useLandscapePosters: Boolean,
@@ -4953,6 +5026,11 @@ private fun EnhancedModernHomeRowsListBoundary(
         modifier = modifier
             .fillMaxWidth()
             .height(rowsViewportHeight)
+            .drawWithContent {
+                clipRect(top = rowsClipTopState.value.toPx()) {
+                    this@drawWithContent.drawContent()
+                }
+            }
             .padding(bottom = catalogBottomPadding)
             .focusRequester(contentFocusRequester)
             .focusRestorer { focusRestorerRequester }
@@ -5798,7 +5876,7 @@ private fun EnhancedModernHomeRowsListBoundary(
 
                 false
             },
-        contentPadding = PaddingValues(bottom = rowsViewportHeight),
+        contentPadding = PaddingValues(top = rowListTopPadding, bottom = rowsViewportHeight),
         verticalArrangement = Arrangement.spacedBy(24.dp)
     ) {
         itemsIndexed(
@@ -6040,6 +6118,14 @@ private fun EnhancedModernHomeRowsListBoundary(
                     )
                 }
             }
+            val followsXlRow = remember(carouselRows, row.key) {
+                val canonicalIndex = carouselRows.indexOfFirst { it.key == row.key }
+                !row.isXl && carouselRows.getOrNull(canonicalIndex - 1)?.isXl == true
+            }
+            Column {
+                if (followsXlRow && ordinaryRowHeadroom > 0.dp) {
+                    Spacer(Modifier.height(ordinaryRowHeadroom))
+                }
             ModernRowSection(
                 row = row,
                 doubleLeftRowShortcutEnabled =
@@ -6075,6 +6161,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                     } else {
                         true
                     },
+                xlPortraitMetadata = !useLandscapePosters,
                 perCatalogLandscape = !useLandscapePosters && row.key in landscapeCatalogKeys,
                 showLabels = posterLabelsEnabled,
                 posterCardCornerRadius = posterCardCornerRadius,
@@ -6105,6 +6192,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 onExpandedCatalogFocusKeyChange = stableOnExpandedCatalogFocusKeyChange,
                 useThemeColorForNumbers = useThemeColorForNumbers
             )
+            }
         }
     }
 }

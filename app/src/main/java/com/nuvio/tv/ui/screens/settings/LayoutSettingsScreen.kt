@@ -706,7 +706,7 @@ fun LayoutSettingsContent(
                             deferredBottomCornerSections
                 ) {
                     val isModernLandscape = uiState.modernLandscapePostersEnabled
-                    val showAutoplayRow = uiState.focusedPosterBackdropExpandEnabled || isModernLandscape
+                    val showAutoplayRow = uiState.focusedPosterBackdropExpandEnabled || isModernLandscape || uiState.hasXlCatalogRows
 
                     if (!isModernLandscape) {
                         CompactToggleRow(
@@ -724,11 +724,11 @@ fun LayoutSettingsContent(
                         )
                     }
 
-                    if (!isModernLandscape && uiState.focusedPosterBackdropExpandEnabled) {
+                    if ((!isModernLandscape && uiState.focusedPosterBackdropExpandEnabled) || uiState.hasXlCatalogRows) {
                         SliderSettingsItem(
                             icon = Icons.Default.Timer,
-                            title = stringResource(R.string.layout_expand_delay),
-                            subtitle = stringResource(R.string.layout_expand_delay_sub),
+                            title = stringResource(if (uiState.hasXlCatalogRows) R.string.layout_xl_preview_delay else R.string.layout_expand_delay),
+                            subtitle = stringResource(if (uiState.hasXlCatalogRows) R.string.layout_xl_preview_delay_sub else R.string.layout_expand_delay_sub),
                             value = uiState.focusedPosterBackdropExpandDelaySeconds,
                             valueText = "${uiState.focusedPosterBackdropExpandDelaySeconds}s",
                             minValue = 0,
@@ -808,6 +808,7 @@ fun LayoutSettingsContent(
                         uiState.focusedPosterBackdropTrailerEnabled
                     ) {
                         ModernTrailerPlaybackTargetRow(
+                            hasXlRows = uiState.hasXlCatalogRows,
                             selectedTarget = uiState.focusedPosterBackdropTrailerPlaybackTarget,
                             onTargetSelected = { target ->
                                 viewModel.onEvent(
@@ -1310,6 +1311,7 @@ private fun ContinueWatchingStyleCard(
 
 @Composable
 private fun ModernTrailerPlaybackTargetRow(
+    hasXlRows: Boolean = false,
     selectedTarget: FocusedPosterTrailerPlaybackTarget,
     onTargetSelected: (FocusedPosterTrailerPlaybackTarget) -> Unit,
     onFocused: () -> Unit
@@ -1327,7 +1329,8 @@ private fun ModernTrailerPlaybackTargetRow(
             color = NuvioColors.TextSecondary
         )
         Text(
-            text = stringResource(R.string.layout_trailer_location_sub),
+            text = stringResource(R.string.layout_trailer_location_sub) +
+                if (hasXlRows) " " + stringResource(R.string.layout_xl_trailer_location_sub) else "",
             style = MaterialTheme.typography.bodySmall,
             color = NuvioColors.TextTertiary
         )

@@ -309,7 +309,7 @@ private fun ModernContinueWatchingRowItem(
 
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
-private fun ModernCatalogRowItem(
+internal fun ModernCatalogRowItem(
     modifier: Modifier = Modifier,
     item: ModernCarouselItem,
     payload: ModernPayload.Catalog,
@@ -345,6 +345,7 @@ private fun ModernCatalogRowItem(
     onBackdropInteraction: () -> Unit,
     onExpandedCatalogFocusKeyChange: (String?) -> Unit,
     isNearRowEnd: Boolean = false,
+    fixedXlGeometry: Boolean = false,
     onUpPressed: (() -> Unit)? = null
 ) {
     val focusKey = payload.focusKey
@@ -584,7 +585,7 @@ private fun ModernCatalogRowItem(
                 modernCatalogCardHeight
             },
         focusedPosterBackdropExpandEnabled =
-            if (useLandscapePosters) {
+            if (fixedXlGeometry) false else if (useLandscapePosters) {
                 expandLandscapePostersEnabled &&
                     effectiveAutoplayEnabled &&
                     trailerPlaybackTarget ==
@@ -670,6 +671,7 @@ internal fun ModernRowSection(
     useLandscapePosters: Boolean,
     heroMetadataLarge: Boolean,
     perCatalogLandscape: Boolean = false,
+    xlPortraitMetadata: Boolean = true,
     showLabels: Boolean,
     posterCardCornerRadius: Dp,
     focusedPosterBackdropTrailerMuted: Boolean,
@@ -704,6 +706,41 @@ internal fun ModernRowSection(
     onRequestCarouselFocus: () -> Unit = {},
     catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null
 ) {
+    if (row.isXl && row.items.isNotEmpty()) {
+        ModernXlRowSection(
+            row = row,
+            slotGeneration = myListSlotGeneration,
+            uiCaches = uiCaches,
+            pendingRowFocus = pendingRowFocus,
+            savedRowIndices = focusStateCatalogRowScrollStates,
+            onPendingRowFocusCleared = onPendingRowFocusCleared,
+            onRowItemFocused = onRowItemFocused,
+            rowTitleBottom = rowTitleBottom,
+            heroMetadataLarge = heroMetadataLarge,
+            portraitMetadata = xlPortraitMetadata,
+            cornerRadius = posterCardCornerRadius,
+            autoplayEnabled = effectiveAutoplayEnabled,
+            muted = focusedPosterBackdropTrailerMuted,
+            expandedFocusKey = expandedCatalogFocusKey,
+            trailerUrl = expandedTrailerPreviewUrl,
+            trailerAudioUrl = expandedTrailerPreviewAudioUrl,
+            heavyOverlayAlpha = heavyOverlayAlpha,
+            cardDepthAlpha = cardDepthAlpha,
+            hideNewSeasonBadge = hideNewSeasonBadge,
+            onItemFocus = onItemFocus,
+            onPreloadAdjacentItem = onPreloadAdjacentItem,
+            onCatalogSelectionFocused = onCatalogSelectionFocused,
+            onNavigateToDetail = onNavigateToDetail,
+            onLoadMoreCatalog = onLoadMoreCatalog,
+            onCatalogItemLongPress = onCatalogItemLongPress,
+            onBackdropInteraction = onBackdropInteraction,
+            onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange,
+            useThemeColorForNumbers = useThemeColorForNumbers,
+            doubleLeftRowShortcutEnabled = doubleLeftRowShortcutEnabled,
+            onUpPressed = if (isFirstRow) onRequestCarouselFocus else null
+        )
+        return
+    }
     val focusedItemByRow = uiCaches.focusedItemByRow
     val itemFocusRequesters = uiCaches.itemFocusRequesters
     val sidebarOpenRequest = LocalSidebarOpenRequest.current
@@ -2907,7 +2944,7 @@ private fun ModernCarouselCard(
     if (hasLandscapeLogoInstant && !frozenHasLandscapeLogo.value) {
         frozenHasLandscapeLogo.value = true
     }
-    val hasLandscapeLogo = frozenHasLandscapeLogo.value && !landscapeLogoLoadFailed
+    val hasLandscapeLogo = useLandscapePosters && frozenHasLandscapeLogo.value && !landscapeLogoLoadFailed
     var longPressTriggered by remember { mutableStateOf(false) }
 
     /*

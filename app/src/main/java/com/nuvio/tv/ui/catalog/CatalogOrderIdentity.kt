@@ -353,3 +353,9 @@ fun reconcileDynamicCatalogOrder(
 
     return mergedOrder
 }
+
+/** Persist XL for a logical dynamic catalog group, so replacement rows inherit it. */
+fun xlCatalogPreferenceKey(key: String): String = when {
+    seasonalSpotlightGroup(key) != null -> SEASONAL_SPOTLIGHT_ORDER_ANCHOR
+    else -> watchlySavedGroup(key)?.let(::watchlyOrderAnchor) ?: key
+}

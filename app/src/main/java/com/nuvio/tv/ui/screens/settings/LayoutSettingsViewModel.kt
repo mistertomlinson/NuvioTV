@@ -28,6 +28,7 @@ data class LayoutSettingsUiState(
     val modernSidebarEnabled: Boolean = false,
     val modernSidebarBlurEnabled: Boolean = false,
     val modernLandscapePostersEnabled: Boolean = false,
+    val hasXlCatalogRows: Boolean = false,
     val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
     val heroSectionEnabled: Boolean = true,
     val searchDiscoverEnabled: Boolean = true,
@@ -170,6 +171,11 @@ class LayoutSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             layoutPreferenceDataStore.modernLandscapePostersEnabled.distinctUntilChanged().collectLatest { enabled ->
                 updateUiStateIfChanged { it.copy(modernLandscapePostersEnabled = enabled) }
+            }
+        }
+        viewModelScope.launch {
+            layoutPreferenceDataStore.xlHomeCatalogKeys.distinctUntilChanged().collectLatest { keys ->
+                updateUiStateIfChanged { it.copy(hasXlCatalogRows = keys.isNotEmpty()) }
             }
         }
         viewModelScope.launch {

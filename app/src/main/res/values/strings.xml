@@ -1463,4 +1463,9 @@
     <string name="playback_codec_filters_summary">Filtered: %1$s</string>
     <string name="playback_codec_filters_note">Hide streams with these codec labels. Unknown codecs remain available.</string>
 
+    <string name="catalog_xl_enable">Enable XL row</string>
+    <string name="catalog_xl_disable">Disable XL row</string>
+    <string name="layout_xl_preview_delay">Preview Delay</string>
+    <string name="layout_xl_preview_delay_sub">How long to wait before starting a trailer or expanding a focused card.</string>
+    <string name="layout_xl_trailer_location_sub">XL rows always play trailers inside the large card.</string>
 </resources>

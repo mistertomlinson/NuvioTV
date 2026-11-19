@@ -217,9 +217,11 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             .combine(themeDataStore.selectedPosterStatusIconStyle) { outerPair7, posterStatusIconStyle ->
                 Pair(outerPair7, posterStatusIconStyle)
             }
+            .combine(layoutPreferenceDataStore.xlHomeCatalogKeys) { outer, xlKeys -> outer to xlKeys.toSet() }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (outerPairVal7, posterStatusIconStyle) ->
+            .collectLatest { (outerWithStatus, xlCatalogKeys) ->
+            val (outerPairVal7, posterStatusIconStyle) = outerWithStatus
             val (outerPairVal6, hidePlatformIconsOnRowExitEnabled) = outerPairVal7
             val (outerPairVal5, heroMetadataLarge) = outerPairVal6
             val (outerPairVal4, landscapeCatalogKeys) = outerPairVal5
@@ -276,6 +278,7 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         doubleUpPlatformShortcutEnabled = doubleUpPlatformShortcutEnabled,
                         doubleLeftRowShortcutEnabled = doubleLeftRowShortcutEnabled,
                         landscapeCatalogKeys = landscapeCatalogKeys + addonSignaledLandscapeKeys,
+                        xlCatalogKeys = xlCatalogKeys,
                         layoutPreferencesReady = true
                     )
                 }

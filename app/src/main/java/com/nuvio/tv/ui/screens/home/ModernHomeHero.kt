@@ -520,11 +520,12 @@ internal fun HeroTitleBlock(
 
 
 @Composable
-private fun HeroTitleContent(
+internal fun HeroTitleContent(
     preview: HeroPreview?,
     portraitMode: Boolean,
     fullWidthIconRowEnabled: Boolean = false,
-    heroMetadataLarge: Boolean = false
+    heroMetadataLarge: Boolean = false,
+    showTitleLogo: Boolean = true
 ) {
     if (preview == null) return
     val descriptionMaxLines = if (portraitMode) 4 else 5
@@ -599,93 +600,96 @@ private fun HeroTitleContent(
         modifier = Modifier,
         verticalArrangement = Arrangement.spacedBy(titleSpacing)
     ) {
-        var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
-        // Hold the displayed logo URL until the new one is in memory cache,
-        // so Crossfade always transitions between two loaded images.
-        var displayedLogo by remember { mutableStateOf(preview.logo) }
-        val localContext2 = LocalContext.current
-        val imageLoader2 = remember(localContext2) { coil.Coil.imageLoader(localContext2) }
-        LaunchedEffect(preview.logo) {
-            val target = preview.logo
-            if (target.isNullOrBlank()) {
+        if (showTitleLogo) {
+            var logoLoadFailed by remember(preview.logo) { mutableStateOf(false) }
+            // Hold the displayed logo URL until the new one is in memory cache,
+            // so Crossfade always transitions between two loaded images.
+            var displayedLogo by remember { mutableStateOf(preview.logo) }
+            val localContext2 = LocalContext.current
+            val imageLoader2 = remember(localContext2) { coil.Coil.imageLoader(localContext2) }
+            LaunchedEffect(preview.logo) {
+                val target = preview.logo
+                if (target.isNullOrBlank()) {
+                    displayedLogo = target
+                    return@LaunchedEffect
+                }
+                val cleanedUrl = if (target.endsWith('.')) target + "png" else target
+                val preload = ImageRequest.Builder(localContext2)
+                    .data(cleanedUrl)
+                    .size(width = logoMaxWidthPx, height = logoHeightPx)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .build()
+                kotlinx.coroutines.withTimeoutOrNull(2_000L) {
+                    imageLoader2.execute(preload)
+                }
                 displayedLogo = target
-                return@LaunchedEffect
             }
-            val cleanedUrl = if (target.endsWith('.')) target + "png" else target
-            val preload = ImageRequest.Builder(localContext2)
-                .data(cleanedUrl)
-                .size(width = logoMaxWidthPx, height = logoHeightPx)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .build()
-            kotlinx.coroutines.withTimeoutOrNull(2_000L) {
-                imageLoader2.execute(preload)
-            }
-            displayedLogo = target
-        }
-        // showLogo: preview has a logo AND it's been preloaded into cache (displayedLogo matches)
-        // This prevents the text flash when navigating from a no-logo title to a logo title.
-        val hasLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
-        val logoReady = hasLogo && displayedLogo == preview.logo
-        // Key ONLY on the logo URL when ready, else a stable null. Previously
-        // the key was (logoReady to displayedLogo): on a logo->null focus,
-        // logoReady flips false immediately but displayedLogo updates one frame
-        // later via LaunchedEffect, so the key changed twice — (false, oldLogo)
-        // then (false, null) — restarting the crossfade mid-transition and
-        // producing the "fade in, dim, reappear" flicker on null-logo titles.
-        // Collapsing every no-logo state to a single null key makes logo->null
-        // (and null->null) a single clean crossfade.
-        Crossfade(
-            targetState = if (logoReady) displayedLogo else null,
-            animationSpec = tween(durationMillis = 300),
-            label = "heroLogoFade"
-        ) { logoUrl ->
-            if (logoUrl != null) {
-                val displayedLogoModel = remember(localContext2, logoUrl, logoMaxWidthPx, logoHeightPx) {
-                    val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
-                    ImageRequest.Builder(localContext2)
-                        .data(cleanedUrl)
-                        .crossfade(false)
-                        .size(width = logoMaxWidthPx, height = logoHeightPx)
-                        .build()
-                }
-                AsyncImage(
-                    model = displayedLogoModel,
-                    contentDescription = preview.title,
-                    onError = { logoLoadFailed = true },
-                    modifier = Modifier
-                        .height(100.dp * heroScale)
-                        .widthIn(min = 100.dp * heroScale, max = logoMaxBase * heroScale)
-                        .fillMaxWidth(),
-                    contentScale = ContentScale.Fit,
-                    alignment = Alignment.CenterStart
-                )
-            } else {
-                // Fixed height box so text doesn't jump position
-                Box(
-                    modifier = Modifier
-                        .height(100.dp * heroScale)
-                        .widthIn(min = 100.dp * heroScale, max = logoMaxBase * heroScale)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.CenterStart
-                ) {
-                    if (!hasLogo) {
-                        FallbackTitleLogo(
-                            title = preview.title,
-                            geometry =
-                                if (heroMetadataLarge) {
-                                    FallbackTitleLogoGeometry.LargeMetadata
-                                } else {
-                                    FallbackTitleLogoGeometry.SmallMetadata
-                                },
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment =
-                                FallbackTitleLogoHorizontalAlignment.Start,
-                        )
+            // showLogo: preview has a logo AND it's been preloaded into cache (displayedLogo matches)
+            // This prevents the text flash when navigating from a no-logo title to a logo title.
+            val hasLogo = !preview.logo.isNullOrBlank() && !logoLoadFailed
+            val logoReady = hasLogo && displayedLogo == preview.logo
+            // Key ONLY on the logo URL when ready, else a stable null. Previously
+            // the key was (logoReady to displayedLogo): on a logo->null focus,
+            // logoReady flips false immediately but displayedLogo updates one frame
+            // later via LaunchedEffect, so the key changed twice — (false, oldLogo)
+            // then (false, null) — restarting the crossfade mid-transition and
+            // producing the "fade in, dim, reappear" flicker on null-logo titles.
+            // Collapsing every no-logo state to a single null key makes logo->null
+            // (and null->null) a single clean crossfade.
+            Crossfade(
+                targetState = if (logoReady) displayedLogo else null,
+                animationSpec = tween(durationMillis = 300),
+                label = "heroLogoFade"
+            ) { logoUrl ->
+                if (logoUrl != null) {
+                    val displayedLogoModel = remember(localContext2, logoUrl, logoMaxWidthPx, logoHeightPx) {
+                        val cleanedUrl = if (logoUrl.endsWith('.')) logoUrl + "png" else logoUrl
+                        ImageRequest.Builder(localContext2)
+                            .data(cleanedUrl)
+                            .crossfade(false)
+                            .size(width = logoMaxWidthPx, height = logoHeightPx)
+                            .build()
                     }
-                    // If hasLogo but not ready yet — empty box holds space, no text flash
+                    AsyncImage(
+                        model = displayedLogoModel,
+                        contentDescription = preview.title,
+                        onError = { logoLoadFailed = true },
+                        modifier = Modifier
+                            .height(100.dp * heroScale)
+                            .widthIn(min = 100.dp * heroScale, max = logoMaxBase * heroScale)
+                            .fillMaxWidth(),
+                        contentScale = ContentScale.Fit,
+                        alignment = Alignment.CenterStart
+                    )
+                } else {
+                    // Fixed height box so text doesn't jump position
+                    Box(
+                        modifier = Modifier
+                            .height(100.dp * heroScale)
+                            .widthIn(min = 100.dp * heroScale, max = logoMaxBase * heroScale)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (!hasLogo) {
+                            FallbackTitleLogo(
+                                title = preview.title,
+                                geometry =
+                                    if (heroMetadataLarge) {
+                                        FallbackTitleLogoGeometry.LargeMetadata
+                                    } else {
+                                        FallbackTitleLogoGeometry.SmallMetadata
+                                    },
+                                modifier = Modifier.fillMaxSize(),
+                                horizontalAlignment =
+                                    FallbackTitleLogoHorizontalAlignment.Start,
+                            )
+                        }
+                        // If hasLogo but not ready yet — empty box holds space, no text flash
+                    }
                 }
             }
-        }
+
+        } // title/logo slot
 
         val strStatusEnded = stringResource(R.string.series_status_ended)
         val strStatusContinuing = stringResource(R.string.series_status_continuing)

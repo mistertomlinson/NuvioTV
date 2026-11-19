@@ -50,6 +50,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val disabledHomeCatalogKeysKey = stringPreferencesKey("disabled_home_catalog_keys")
     private val numberedHomeCatalogKeysKey = stringPreferencesKey("numbered_home_catalog_keys")
     private val outlineNumberedHomeCatalogKeysKey = stringPreferencesKey("outline_numbered_home_catalog_keys")
+    private val xlHomeCatalogKeysKey = stringPreferencesKey("xl_home_catalog_keys")
     private val landscapeHomeCatalogKeysKey = stringPreferencesKey("landscape_home_catalog_keys")
     private val useThemeColorForNumbersKey = booleanPreferencesKey("use_theme_color_for_numbers")
     private val sidebarCollapsedKey = booleanPreferencesKey("sidebar_collapsed_by_default")
@@ -171,6 +172,10 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val outlineNumberedHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
         parseCatalogKeys(prefs[outlineNumberedHomeCatalogKeysKey])
+    }
+
+    val xlHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
+        parseCatalogKeys(prefs[xlHomeCatalogKeysKey])
     }
 
     val landscapeHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
@@ -465,6 +470,14 @@ class LayoutPreferenceDataStore @Inject constructor(
             } else {
                 prefs[outlineNumberedHomeCatalogKeysKey] = gson.toJson(normalizedKeys)
             }
+        }
+    }
+
+    suspend fun setXlHomeCatalogKeys(keys: List<String>) {
+        val normalizedKeys = normalizeCatalogOrderKeys(keys)
+        store().edit { prefs ->
+            if (normalizedKeys.isEmpty()) prefs.remove(xlHomeCatalogKeysKey)
+            else prefs[xlHomeCatalogKeysKey] = gson.toJson(normalizedKeys)
         }
     }
 

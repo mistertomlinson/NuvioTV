@@ -725,6 +725,7 @@ private fun CatalogOrderScreenContent(
                             onToggleEnabled = { viewModel.toggleCatalogEnabled(item.disableKey) },
                             onToggleNumbered = { viewModel.toggleCatalogNumbered(item.key) },
                             onToggleLandscape = { viewModel.toggleCatalogLandscape(item.key) },
+                            onToggleXl = { viewModel.toggleCatalogXl(item.key) },
                             onToggleShuffle = { viewModel.toggleCatalogShuffle(item.key) },
                             globalLandscapeEnabled = uiState.globalLandscapePostersEnabled
                         )
@@ -749,6 +750,7 @@ private fun CatalogOrderCard(
     onToggleEnabled: () -> Unit,
     onToggleNumbered: () -> Unit,
     onToggleLandscape: () -> Unit,
+    onToggleXl: () -> Unit,
     onToggleShuffle: () -> Unit,
     globalLandscapeEnabled: Boolean
 ) {
@@ -1171,6 +1173,25 @@ private fun CatalogOrderCard(
                         painter = painterResource(id = R.drawable.ic_landscape_poster),
                         contentDescription = "Toggle landscape posters",
                         modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Button(
+                    onClick = onToggleXl,
+                    modifier = Modifier.size(CatalogRowControlDiameter),
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (item.isXl) SettingsGlassControlSelectedColor else SettingsGlassControlIdleColor,
+                        contentColor = if (item.isXl) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
+                        focusedContainerColor = SettingsGlassRowFocusedColor,
+                        focusedContentColor = NuvioColors.Primary
+                    ),
+                    shape = ButtonDefaults.shape(CircleShape),
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_xl_catalog),
+                        contentDescription = stringResource(if (item.isXl) R.string.catalog_xl_disable else R.string.catalog_xl_enable),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
 
