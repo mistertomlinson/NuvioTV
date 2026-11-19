@@ -1469,4 +1469,12 @@
     <string name="layout_xl_preview_delay_sub">How long to wait before starting a trailer or expanding a focused card.</string>
     <string name="layout_xl_trailer_location_sub">XL rows always play trailers inside the large card.</string>
     <string name="catalog_xl_hide_summary">XL row with summary. Select to hide the summary.</string>
+    <string name="catalog_poster_portrait">Portrait</string>
+    <string name="catalog_poster_landscape">Landscape</string>
+    <string name="catalog_poster_xl_summary">XL with summary</string>
+    <string name="catalog_poster_xl_no_summary">XL without summary</string>
+    <string name="catalog_poster_cycle">Poster style: %1$s. Select for %2$s.</string>
+    <string name="catalog_numbers_off">Row numbers off. Select for solid numbers.</string>
+    <string name="catalog_numbers_solid">Solid row numbers. Select for outline numbers.</string>
+    <string name="catalog_numbers_outline">Outline row numbers. Select to turn off.</string>
 </resources>

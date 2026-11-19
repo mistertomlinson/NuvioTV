@@ -31,6 +31,7 @@ data class HomeUiState(
     val homeLayout: HomeLayout = HomeLayout.MODERN,
     val modernLandscapePostersEnabled: Boolean = false,
     val continueWatchingCardStyle: ContinueWatchingCardStyle = ContinueWatchingCardStyle.CARD,
+    val catalogPosterModes: Map<String, com.nuvio.tv.domain.model.CatalogPosterMode> = emptyMap(),
     val xlCatalogKeys: Set<String> = emptySet(),
     val xlNoSummaryCatalogKeys: Set<String> = emptySet(),
     val landscapeCatalogKeys: Set<String> = emptySet(),

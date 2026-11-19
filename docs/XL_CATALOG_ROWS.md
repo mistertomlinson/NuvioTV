@@ -1,12 +1,30 @@
 # XL catalog rows
 
 Experimental Modern Home presentation on `feat/netflix-xl-catalog-rows-20261118`.
-Catalog Management cycles Off → XL with summary → XL without summary → Off.
-The no-summary icon omits the lower horizontal bar. Both XL variants retain
-metadata lines beneath the selected landscape image and omit the title/logo
-slot there. No-summary mode removes the synopsis and its reserved height so the
-next row can peek through. Preferences are per profile; existing XL preferences
-continue to mean summary enabled. Seasonal/Watchly replacement keys stay stable.
+Catalog Management uses one poster control: Portrait → Landscape → XL with
+summary → XL without summary → Portrait. Portrait is the muted default icon;
+landscape and either XL choice are white, including while focused. The portrait
+photo frame is slightly taller and contains scaled mountain/sun artwork. XL
+reuses the existing landscape photograph artwork at a larger size, with its
+right portrait strip and optional horizontal summary strip.
+
+The four choices are saved atomically and cannot retain conflicting row
+landscape/XL overrides. Existing landscape and XL choices migrate naturally;
+XL takes precedence when both legacy flags were set. Explicit portrait overrides
+the global landscape default for that row without changing other rows or the
+global preference. Group keys remain stable for Seasonal Spotlight and Watchly.
+Rapid queued presses cycle the stored value inside the DataStore transaction.
+
+Both XL variants retain metadata lines beneath the selected landscape image and
+omit its title/logo slot. No-summary mode removes the synopsis and its reserved
+height so the next row can peek through. Preferences remain per profile.
+
+The catalog number control now uses matching vector number-sign artwork derived
+from its original solid glyph. Its outlined version uses a uniform-width inset outline inside
+that same shape, so both versions have identical size, position and outer bounds,
+independent of font line height and baseline clipping. This
+changes only the setting icon; the actual numbered posters retain Jost and the
+existing solid/outline rendering.
 
 ## Focus and numbering
 

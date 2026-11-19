@@ -16,6 +16,10 @@ import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 import javax.inject.Singleton
 import com.nuvio.tv.domain.model.CardDepthStyle
+import com.nuvio.tv.domain.model.CatalogPosterMode
+import com.nuvio.tv.ui.catalog.xlCatalogPreferenceKey
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.MutablePreferences
 import com.nuvio.tv.domain.model.CardDepthSurface
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_COVERAGE
 import com.nuvio.tv.domain.model.DEFAULT_CARD_DEPTH_EDGE_STRENGTH
@@ -53,6 +57,7 @@ class LayoutPreferenceDataStore @Inject constructor(
     private val xlNoSummaryHomeCatalogKeysKey = stringPreferencesKey("xl_no_summary_home_catalog_keys")
     private val xlHomeCatalogKeysKey = stringPreferencesKey("xl_home_catalog_keys")
     private val landscapeHomeCatalogKeysKey = stringPreferencesKey("landscape_home_catalog_keys")
+    private val portraitHomeCatalogKeysKey = stringPreferencesKey("portrait_home_catalog_keys")
     private val useThemeColorForNumbersKey = booleanPreferencesKey("use_theme_color_for_numbers")
     private val sidebarCollapsedKey = booleanPreferencesKey("sidebar_collapsed_by_default")
     private val modernSidebarEnabledKey = booleanPreferencesKey("modern_sidebar_enabled")
@@ -189,6 +194,43 @@ class LayoutPreferenceDataStore @Inject constructor(
 
     val landscapeHomeCatalogKeys: Flow<List<String>> = profileFlow { prefs ->
         parseCatalogKeys(prefs[landscapeHomeCatalogKeysKey])
+    }
+
+    /** One snapshot resolves legacy conflicts and publishes the four mutually exclusive modes. */
+    val catalogPosterModes: Flow<Map<String, CatalogPosterMode>> = profileFlow(::posterModes)
+
+    private fun posterModes(prefs: Preferences): Map<String, CatalogPosterMode> = buildMap {
+        parseCatalogKeys(prefs[landscapeHomeCatalogKeysKey]).forEach { put(xlCatalogPreferenceKey(it), CatalogPosterMode.LANDSCAPE) }
+        parseCatalogKeys(prefs[portraitHomeCatalogKeysKey]).forEach { put(xlCatalogPreferenceKey(it), CatalogPosterMode.PORTRAIT) }
+        val hidden = parseCatalogKeys(prefs[xlNoSummaryHomeCatalogKeysKey]).map(::xlCatalogPreferenceKey).toSet()
+        parseCatalogKeys(prefs[xlHomeCatalogKeysKey]).forEach {
+            val key = xlCatalogPreferenceKey(it)
+            put(key, if (key in hidden) CatalogPosterMode.XL_WITHOUT_SUMMARY else CatalogPosterMode.XL_WITH_SUMMARY)
+        }
+    }
+
+    private fun writePosterMode(prefs: MutablePreferences, key: String, mode: CatalogPosterMode) {
+        val canonical = xlCatalogPreferenceKey(key)
+        fun update(preference: Preferences.Key<String>, enabled: Boolean) {
+            val keys = parseCatalogKeys(prefs[preference]).filterNot { xlCatalogPreferenceKey(it) == canonical }.toMutableList()
+            if (enabled) keys.add(canonical)
+            if (keys.isEmpty()) prefs.remove(preference) else prefs[preference] = gson.toJson(keys)
+        }
+        update(landscapeHomeCatalogKeysKey, mode == CatalogPosterMode.LANDSCAPE)
+        update(portraitHomeCatalogKeysKey, mode == CatalogPosterMode.PORTRAIT)
+        update(xlHomeCatalogKeysKey, mode.isXl)
+        update(xlNoSummaryHomeCatalogKeysKey, mode == CatalogPosterMode.XL_WITHOUT_SUMMARY)
+    }
+
+    suspend fun setCatalogPosterMode(key: String, mode: CatalogPosterMode) {
+        store().edit { writePosterMode(it, key, mode) }
+    }
+
+    suspend fun cycleCatalogPosterMode(key: String, defaultMode: CatalogPosterMode = CatalogPosterMode.PORTRAIT) {
+        store().edit { prefs ->
+            val current = posterModes(prefs)[xlCatalogPreferenceKey(key)] ?: defaultMode
+            writePosterMode(prefs, key, current.next())
+        }
     }
 
     val sidebarCollapsedByDefault: Flow<Boolean> = profileFlow { prefs ->

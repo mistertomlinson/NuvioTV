@@ -142,7 +142,8 @@ internal data class HeroCarouselRow(
     val numberStyle: NumberStyle = NumberStyle.OFF,
     val enrichmentReady: Boolean = true,
     val isXl: Boolean = false,
-    val showXlSummary: Boolean = true
+    val showXlSummary: Boolean = true,
+    val landscapePosters: Boolean = false
 )
 
 @Immutable

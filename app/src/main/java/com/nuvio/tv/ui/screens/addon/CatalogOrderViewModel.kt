@@ -35,8 +35,6 @@ class CatalogOrderViewModel @Inject constructor(
     private var disabledKeysCache: Set<String> = emptySet()
     private var numberedKeysCache: Set<String> = emptySet()
     private var outlineNumberedKeysCache: Set<String> = emptySet()
-    private var xlModesCache: Map<String, com.nuvio.tv.domain.model.CatalogXlMode> = emptyMap()
-    private var landscapeKeysCache: Set<String> = emptySet()
     private var shuffleKeysCache: Set<String> = emptySet()
 
     private data class CatalogPreferenceSnapshot(
@@ -108,35 +106,13 @@ class CatalogOrderViewModel @Inject constructor(
         }
     }
 
-    fun toggleCatalogXl(key: String) {
+    fun cycleCatalogPosterMode(key: String) {
         val item = _uiState.value.items.find { it.key == key } ?: return
-        val preferenceKey = xlCatalogPreferenceKey(item.key)
-        val next = (xlModesCache[preferenceKey] ?: com.nuvio.tv.domain.model.CatalogXlMode.OFF).next()
-        xlModesCache = xlModesCache + (preferenceKey to next)
-        viewModelScope.launch { layoutPreferenceDataStore.setXlHomeCatalogMode(preferenceKey, next) }
-    }
-
-    fun toggleCatalogLandscape(key: String) {
-        val item = _uiState.value.items.find { it.key == key }
-        val targetKeys =
-            if (item?.isGroup == true && seasonalSpotlightGroup(key) != null) {
-                seasonalSpotlightPreferenceKeys()
-            } else {
-                setOf(key)
-            }
-
-        val enableLandscape = targetKeys.any { it !in landscapeKeysCache }
-
-        val updatedLandscape = landscapeKeysCache.toMutableSet().apply {
-            if (enableLandscape) {
-                addAll(targetKeys)
-            } else {
-                removeAll(targetKeys)
-            }
-        }
-
+        val fallback = if (_uiState.value.globalLandscapePostersEnabled || item.isLandscape) {
+            com.nuvio.tv.domain.model.CatalogPosterMode.LANDSCAPE
+        } else com.nuvio.tv.domain.model.CatalogPosterMode.PORTRAIT
         viewModelScope.launch {
-            layoutPreferenceDataStore.setLandscapeHomeCatalogKeys(updatedLandscape.toList())
+            layoutPreferenceDataStore.cycleCatalogPosterMode(xlCatalogPreferenceKey(item.key), fallback)
         }
     }
 
@@ -403,11 +379,10 @@ Triple(
                 inner to globalLandscape
             }.combine(layoutPreferenceDataStore.hidePlatformNameInCatalogTitleEnabled) { outer, hidePlatformName ->
                 outer to hidePlatformName
-            }.combine(layoutPreferenceDataStore.xlHomeCatalogModes) { outer, xlModes ->
-                outer to xlModes
-            }.collectLatest { (outerWithName, xlModes) ->
+            }.combine(layoutPreferenceDataStore.catalogPosterModes) { outer, posterModes ->
+                outer to posterModes
+            }.collectLatest { (outerWithName, posterModes) ->
             val (outerResult, hidePlatformNameInCatalogTitle) = outerWithName
-            xlModesCache = xlModes
             val (innerResult, globalLandscapePosters) = outerResult
             val (triple, aggregatePair, platformIconPrefs) = innerResult
                 val (aggregatePlatforms, showAllOnHome) = aggregatePair
@@ -417,13 +392,14 @@ Triple(
                 disabledKeysCache = preferenceSnapshot.disabledKeys
                 numberedKeysCache = preferenceSnapshot.numberedKeys
                 outlineNumberedKeysCache = preferenceSnapshot.outlineNumberedKeys
-                landscapeKeysCache = preferenceSnapshot.landscapeKeys
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         items = orderedItems.map { item ->
-                            item.copy(xlMode = xlModes[xlCatalogPreferenceKey(item.key)] ?: com.nuvio.tv.domain.model.CatalogXlMode.OFF)
+                            item.copy(posterMode = posterModes[xlCatalogPreferenceKey(item.key)]
+                                ?: if (globalLandscapePosters || item.isLandscape) com.nuvio.tv.domain.model.CatalogPosterMode.LANDSCAPE
+                                else com.nuvio.tv.domain.model.CatalogPosterMode.PORTRAIT)
                         },
                         useThemeColorForNumbers = useThemeColor,
                         aggregateStreamingPlatformsEnabled = aggregatePlatforms,
@@ -789,7 +765,7 @@ data class CatalogOrderItem(
     val isDisabled: Boolean,
     val numberStyle: com.nuvio.tv.ui.screens.home.NumberStyle = com.nuvio.tv.ui.screens.home.NumberStyle.OFF,
     val isLandscape: Boolean = false,
-    val xlMode: com.nuvio.tv.domain.model.CatalogXlMode = com.nuvio.tv.domain.model.CatalogXlMode.OFF,
+    val posterMode: com.nuvio.tv.domain.model.CatalogPosterMode = com.nuvio.tv.domain.model.CatalogPosterMode.PORTRAIT,
     val isShuffled: Boolean = false,
     val canMoveUp: Boolean,
     val canMoveDown: Boolean,

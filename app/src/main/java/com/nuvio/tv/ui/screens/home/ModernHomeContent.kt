@@ -93,6 +93,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.catalog.xlCatalogPreferenceKey
+import com.nuvio.tv.domain.model.usesLandscape
 import androidx.tv.material3.Border
 import androidx.tv.material3.Card
 import androidx.tv.material3.CardDefaults
@@ -297,8 +298,6 @@ fun ModernHomeContent(
     val useLandscapePosters = uiState.modernLandscapePostersEnabled
     val showCatalogTypeSuffixInModern = uiState.catalogTypeSuffixEnabled
     val hidePlatformNameInModern = uiState.hidePlatformNameInCatalogTitleEnabled
-    val isLandscapeModern = useLandscapePosters
-    val expandControlAvailable = !isLandscapeModern
     // Flips immediately on platform change — drives metadata AnimatedContent
     var displayedPlatformId by remember { mutableStateOf(selectedPlatformId) }
     // Lags behind by exit animation duration — drives catalog LazyColumn content
@@ -397,6 +396,7 @@ fun ModernHomeContent(
         numberedCatalogKeys,
         outlineNumberedCatalogKeys,
         uiState.landscapeCatalogKeys,
+        uiState.catalogPosterModes,
         uiState.xlCatalogKeys,
         uiState.xlNoSummaryCatalogKeys,
         uiState.releaseReminderBadges,
@@ -446,7 +446,8 @@ fun ModernHomeContent(
 
             visibleCatalogRows.forEachIndexed { index, row ->
                 val rowKey = catalogRowKey(row)
-                val rowUseLandscapePosters = useLandscapePosters || rowKey in uiState.landscapeCatalogKeys
+                val rowUseLandscapePosters = uiState.catalogPosterModes[xlCatalogPreferenceKey(rowKey)]
+                    .usesLandscape(useLandscapePosters || rowKey in uiState.landscapeCatalogKeys)
                 activeCatalogKeys += rowKey
                 val cached = rowBuildCache.catalogRows[rowKey]
                 val cachedNumberStyle = when {
@@ -493,6 +494,7 @@ fun ModernHomeContent(
                         hasMore = row.hasMore,
                         isLoading = row.isLoading,
                         enrichmentReady = rowEnrichmentReady,
+                        landscapePosters = rowUseLandscapePosters,
                         isXl = xlCatalogPreferenceKey(rowKey) in uiState.xlCatalogKeys,
                         showXlSummary = xlCatalogPreferenceKey(rowKey) !in uiState.xlNoSummaryCatalogKeys,
                         numberStyle = when {
@@ -949,7 +951,10 @@ fun ModernHomeContent(
         remember { mutableStateOf<FocusedCatalogSelection?>(null) }
     var focusedCatalogSelection by
         rowsBoundaryFocusedCatalogSelectionState
-    val selectionIsXl = carouselRows.firstOrNull { it.key == activeRowKey }?.isXl == true
+    val selectedPosterRow = carouselRows.firstOrNull { it.key == activeRowKey }
+    val selectionIsXl = selectedPosterRow?.isXl == true
+    val isLandscapeModern = selectedPosterRow?.takeUnless { it.key == "continue_watching" }?.landscapePosters ?: useLandscapePosters
+    val expandControlAvailable = !isLandscapeModern
     val trailerPlaybackTarget = if (selectionIsXl) {
         FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
     } else uiState.focusedPosterBackdropTrailerPlaybackTarget
@@ -2053,11 +2058,11 @@ fun ModernHomeContent(
             val targets = homeExposureRows(
                 rows = rows,
                 focusedRowIndex = rows.indexOfFirst { it.key == snapshot.activeRowKey },
-                isLandscape = { it.key in snapshot.landscapeKeys },
+                isLandscape = { it.landscapePosters },
                 canPrewarm = { it.key != "continue_watching" && it.items.isNotEmpty() }
             )
             val windows = targets.mapNotNull { targetRow ->
-                val rowLandscape = targetRow.key in snapshot.landscapeKeys
+                val rowLandscape = targetRow.landscapePosters
                 val cardWidth = if (rowLandscape) {
                     portraitWidth * 1.24f * 1.34f
                 } else {
@@ -6139,7 +6144,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 pendingRowFocus = pendingRowFocus,
                 onPendingRowFocusCleared = stableOnPendingRowFocusCleared,
                 onRowItemFocused = stableOnRowItemFocused,
-                useLandscapePosters = useLandscapePosters || row.key in landscapeCatalogKeys,
+                useLandscapePosters = row.landscapePosters,
                 heroMetadataLarge =
                     if (effectiveFullWidthIconRowEnabled) {
                         heroMetadataLarge
@@ -6147,7 +6152,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                         true
                     },
                 xlPortraitMetadata = !useLandscapePosters,
-                perCatalogLandscape = !useLandscapePosters && row.key in landscapeCatalogKeys,
+                perCatalogLandscape = !useLandscapePosters && row.landscapePosters,
                 showLabels = posterLabelsEnabled,
                 posterCardCornerRadius = posterCardCornerRadius,
                 focusedPosterBackdropTrailerMuted = focusedPosterBackdropTrailerMuted,
@@ -6158,8 +6163,8 @@ private fun EnhancedModernHomeRowsListBoundary(
                 expandedCatalogFocusKey = rowExpandedFocusKey,
                 expandedTrailerPreviewUrl = if (rowHasExpanded) expandedCatalogTrailerUrl else null,
                 expandedTrailerPreviewAudioUrl = if (rowHasExpanded) expandedCatalogTrailerAudioUrl else null,
-                modernCatalogCardWidth = if (useLandscapePosters || row.key in landscapeCatalogKeys) portraitBaseWidth * 1.24f * 1.34f else modernCatalogCardWidth,
-                modernCatalogCardHeight = if (useLandscapePosters || row.key in landscapeCatalogKeys) (portraitBaseWidth * 1.24f * 1.34f) / 1.77f else modernCatalogCardHeight,
+                modernCatalogCardWidth = if (row.landscapePosters) portraitBaseWidth * 1.24f * 1.34f else portraitBaseWidth * 0.84f * 1.08f,
+                modernCatalogCardHeight = if (row.landscapePosters) (portraitBaseWidth * 1.24f * 1.34f) / 1.77f else portraitBaseHeight * 0.84f * 1.08f,
                 landscapeTrailerExpandedHeight = portraitBaseHeight * 0.84f * 1.08f,
                 continueWatchingCardWidth = continueWatchingCardWidth,
                 continueWatchingCardHeight = continueWatchingCardHeight,

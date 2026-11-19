@@ -628,10 +628,9 @@ class HomeViewModel @Inject constructor(
                     row: CatalogRow,
                     item: MetaPreview
                 ): String? {
-                    val landscape =
-                        state.modernLandscapePostersEnabled ||
-                            row.key() in
-                            state.landscapeCatalogKeys
+                    val landscape = state.catalogPosterModes[com.nuvio.tv.ui.catalog.xlCatalogPreferenceKey(row.key())]?.let {
+                        it == com.nuvio.tv.domain.model.CatalogPosterMode.LANDSCAPE
+                    } ?: (state.modernLandscapePostersEnabled || row.key() in state.landscapeCatalogKeys)
 
                     return if (landscape) {
                         item.landscapePoster

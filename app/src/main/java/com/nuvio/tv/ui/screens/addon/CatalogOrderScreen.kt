@@ -31,9 +31,6 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.font.Font
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.foundation.lazy.LazyColumn
@@ -724,10 +721,8 @@ private fun CatalogOrderScreenContent(
                             },
                             onToggleEnabled = { viewModel.toggleCatalogEnabled(item.disableKey) },
                             onToggleNumbered = { viewModel.toggleCatalogNumbered(item.key) },
-                            onToggleLandscape = { viewModel.toggleCatalogLandscape(item.key) },
-                            onToggleXl = { viewModel.toggleCatalogXl(item.key) },
-                            onToggleShuffle = { viewModel.toggleCatalogShuffle(item.key) },
-                            globalLandscapeEnabled = uiState.globalLandscapePostersEnabled
+                            onCyclePosterMode = { viewModel.cycleCatalogPosterMode(item.key) },
+                            onToggleShuffle = { viewModel.toggleCatalogShuffle(item.key) }
                         )
                     }
                 }
@@ -749,10 +744,8 @@ private fun CatalogOrderCard(
     onMoveDown: () -> Unit,
     onToggleEnabled: () -> Unit,
     onToggleNumbered: () -> Unit,
-    onToggleLandscape: () -> Unit,
-    onToggleXl: () -> Unit,
-    onToggleShuffle: () -> Unit,
-    globalLandscapeEnabled: Boolean
+    onCyclePosterMode: () -> Unit,
+    onToggleShuffle: () -> Unit
 ) {
     val lastPickedMoveTime = remember(item.key) { longArrayOf(0L) }
     val cardShape = animatedSettingsGroupShape(
@@ -1108,99 +1101,8 @@ private fun CatalogOrderCard(
                     )
                 }
 
-                Button(
-                    onClick = onToggleNumbered,
-                    modifier = Modifier.size(
-                        CatalogRowControlDiameter
-                    ),
-                    colors = ButtonDefaults.colors(
-                        containerColor =
-                            if (
-                                item.numberStyle !=
-                                com.nuvio.tv.ui.screens.home.NumberStyle.OFF
-                            ) {
-                                SettingsGlassControlSelectedColor
-                            } else {
-                                SettingsGlassControlIdleColor
-                            },
-                        contentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
-                        focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = if (item.numberStyle != com.nuvio.tv.ui.screens.home.NumberStyle.OFF) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
-                    ),
-                    shape = ButtonDefaults.shape(CircleShape),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    val hashFont = when (item.numberStyle) {
-                        com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE -> FontFamily(Font(R.font.sf_distant_galaxy_outline))
-                        else -> FontFamily(Font(R.font.sf_distant_galaxy_alternate))
-                    }
-                    Text(
-                        text = "#",
-                        style = TextStyle(
-                            fontFamily = hashFont,
-                            fontSize = 22.sp,
-                            lineHeight = 22.sp
-                        ),
-                        modifier = Modifier.padding(
-                            top = if (
-                                item.numberStyle ==
-                                com.nuvio.tv.ui.screens.home.NumberStyle.OUTLINE
-                            ) 4.dp else 5.dp
-                        )
-                    )
-                }
-
-                if (!globalLandscapeEnabled) Button(
-                    onClick = onToggleLandscape,
-                    modifier = Modifier.size(
-                        CatalogRowControlDiameter
-                    ),
-                    colors = ButtonDefaults.colors(
-                        containerColor =
-                            if (item.isLandscape) {
-                                SettingsGlassControlSelectedColor
-                            } else {
-                                SettingsGlassControlIdleColor
-                            },
-                        contentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
-                        focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = if (item.isLandscape) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f)
-                    ),
-                    shape = ButtonDefaults.shape(CircleShape),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_landscape_poster),
-                        contentDescription = "Toggle landscape posters",
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-
-                Button(
-                    onClick = onToggleXl,
-                    modifier = Modifier.size(CatalogRowControlDiameter),
-                    colors = ButtonDefaults.colors(
-                        containerColor = if ((item.xlMode != com.nuvio.tv.domain.model.CatalogXlMode.OFF)) SettingsGlassControlSelectedColor else SettingsGlassControlIdleColor,
-                        contentColor = if ((item.xlMode != com.nuvio.tv.domain.model.CatalogXlMode.OFF)) NuvioColors.TextPrimary.copy(alpha = 0.85f) else NuvioColors.TextSecondary.copy(alpha = 0.4f),
-                        focusedContainerColor = SettingsGlassRowFocusedColor,
-                        focusedContentColor = NuvioColors.Primary
-                    ),
-                    shape = ButtonDefaults.shape(CircleShape),
-                    contentPadding = PaddingValues(0.dp)
-                ) {
-                    Icon(
-                        painter = painterResource(
-                            if (item.xlMode == com.nuvio.tv.domain.model.CatalogXlMode.WITHOUT_SUMMARY) R.drawable.ic_xl_catalog_no_summary
-                            else R.drawable.ic_xl_catalog
-                        ),
-                        contentDescription = stringResource(when (item.xlMode) {
-                            com.nuvio.tv.domain.model.CatalogXlMode.OFF -> R.string.catalog_xl_enable
-                            com.nuvio.tv.domain.model.CatalogXlMode.WITH_SUMMARY -> R.string.catalog_xl_hide_summary
-                            com.nuvio.tv.domain.model.CatalogXlMode.WITHOUT_SUMMARY -> R.string.catalog_xl_disable
-                        }),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
+                CatalogNumberStyleControl(item.numberStyle, onToggleNumbered)
+                CatalogPosterModeControl(item.posterMode, onCyclePosterMode)
 
                 if (!item.isGroup) Button(
                     onClick = onToggleShuffle,

@@ -217,10 +217,10 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
             .combine(themeDataStore.selectedPosterStatusIconStyle) { outerPair7, posterStatusIconStyle ->
                 Pair(outerPair7, posterStatusIconStyle)
             }
-            .combine(layoutPreferenceDataStore.xlHomeCatalogModes) { outer, xlModes -> outer to xlModes }
+            .combine(layoutPreferenceDataStore.catalogPosterModes) { outer, posterModes -> outer to posterModes }
             .distinctUntilChanged()
             .debounce(300)
-            .collectLatest { (outerWithStatus, xlCatalogModes) ->
+            .collectLatest { (outerWithStatus, posterModes) ->
             val (outerPairVal7, posterStatusIconStyle) = outerWithStatus
             val (outerPairVal6, hidePlatformIconsOnRowExitEnabled) = outerPairVal7
             val (outerPairVal5, heroMetadataLarge) = outerPairVal6
@@ -278,9 +278,10 @@ internal fun HomeViewModel.observeLayoutPreferencesPipeline() {
                         doubleUpPlatformShortcutEnabled = doubleUpPlatformShortcutEnabled,
                         doubleLeftRowShortcutEnabled = doubleLeftRowShortcutEnabled,
                         landscapeCatalogKeys = landscapeCatalogKeys + addonSignaledLandscapeKeys,
-                        xlCatalogKeys = xlCatalogModes.keys,
-                        xlNoSummaryCatalogKeys = xlCatalogModes.filterValues {
-                            it == com.nuvio.tv.domain.model.CatalogXlMode.WITHOUT_SUMMARY
+                        catalogPosterModes = posterModes,
+                        xlCatalogKeys = posterModes.filterValues { it.isXl }.keys,
+                        xlNoSummaryCatalogKeys = posterModes.filterValues {
+                            it == com.nuvio.tv.domain.model.CatalogPosterMode.XL_WITHOUT_SUMMARY
                         }.keys,
                         layoutPreferencesReady = true
                     )
