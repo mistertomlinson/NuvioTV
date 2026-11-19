@@ -170,10 +170,14 @@ internal fun ModernXlRowSection(
             typeface = rankTypeface
             textSize = xlRankFontSize(geometry.cardHeight) * density.density
         }
+        val maximumWidth = row.items.indices.maxOfOrNull { paint.measureText((it + 1).toString()) / density.density } ?: 0f
+        // Keep even three-digit ranks inside the existing 52dp left gutter.
+        val gutterTextWidth = 50f + XL_RANK_OVERLAP_DP // leave room for the outline stroke
+        if (maximumWidth > gutterTextWidth) paint.textSize *= gutterTextWidth / maximumWidth
         val widths = FloatArray(row.items.size) { index ->
             if (numbered) paint.measureText((index + 1).toString()) / density.density else 0f
         }
-        XlRankTrack(geometry.portraitWidth, widths)
+        XlRankTrack(geometry.portraitWidth, widths, paint.textSize / density.density)
     }
     val lastSelected = remember(row.key) { intArrayOf(selected) }
     val previousIndex = lastSelected[0]
@@ -243,6 +247,7 @@ internal fun ModernXlRowSection(
                     numberStyle = row.numberStyle,
                     useThemeColorForNumbers = useThemeColorForNumbers,
                     compactXl = true,
+                    compactXlFontSize = rankTrack.fontSize,
                     content = card
                 )
             } else card()
@@ -259,14 +264,18 @@ internal fun ModernXlRowSection(
                 val native = event.nativeKeyEvent
                 val left = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT
                 val right = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
-                if (!left && !right) return@onPreviewKeyEvent false
+                if (!left && !right) {
+                    if (native.action == AndroidKeyEvent.ACTION_DOWN) leftShortcut.reset()
+                    return@onPreviewKeyEvent false
+                }
                 if (right && native.action == AndroidKeyEvent.ACTION_DOWN) leftShortcut.reset()
                 if (native.action == AndroidKeyEvent.ACTION_UP) {
-                    if (left) leftShortcut.onUp(android.os.SystemClock.uptimeMillis())
+                    if (left) leftShortcut.onUp(native.eventTime)
                     return@onPreviewKeyEvent true
                 }
                 if (native.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent true
-                val now = android.os.SystemClock.uptimeMillis()
+                val now = native.eventTime
+                if (left && native.repeatCount > 0) leftShortcut.reset()
                 if (!repeatGate.accept(native.repeatCount, now, fastNavigation)) return@onPreviewKeyEvent true
                 val doubleLeft = left && leftShortcut.onDown(selected, native.repeatCount, doubleLeftRowShortcutEnabled, now)
                 when {
@@ -284,11 +293,10 @@ internal fun ModernXlRowSection(
             color = NuvioColors.TextPrimary,
             modifier = Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
         )
-        val leadingPx = with(density) { 52.dp.toPx() }
         Box(
             modifier = Modifier.fillMaxWidth().height(geometry.cardHeight.dp)
                 .drawWithContent {
-                    clipRect(left = leadingPx - 3.dp.toPx(), top = -3.dp.toPx(), bottom = size.height + 3.dp.toPx()) {
+                    clipRect(left = 0f, top = -3.dp.toPx(), bottom = size.height + 3.dp.toPx()) {
                         this@drawWithContent.drawContent()
                     }
                 }

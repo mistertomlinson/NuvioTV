@@ -9,13 +9,13 @@ class XlRowLeftShortcutTest {
         val gesture = XlRowLeftShortcut()
         assertFalse(gesture.onDown(5, 0, true, 100L))
         gesture.onUp(120L)
-        assertTrue(gesture.onDown(4, 0, true, 220L))
+        assertTrue(gesture.onDown(4, 0, true, 180L))
     }
     @Test fun `second press from item one is consumed at item zero instead of opening sidebar`() {
         val gesture = XlRowLeftShortcut()
         assertFalse(gesture.onDown(1, 0, true, 100L))
         gesture.onUp(120L)
-        assertTrue(gesture.onDown(0, 0, true, 200L))
+        assertTrue(gesture.onDown(0, 0, true, 180L))
         gesture.onUp(220L)
         assertFalse(gesture.onDown(0, 0, true, 260L))
     }
@@ -45,5 +45,24 @@ class XlRowLeftShortcutTest {
         gesture.onUp(120L)
         gesture.reset()
         assertFalse(gesture.onDown(4, 0, true, 200L))
+    }
+    @Test fun `a hundred millisecond release gap is already too slow for the original shortcut`() {
+        val gesture = XlRowLeftShortcut()
+        assertFalse(gesture.onDown(9, 0, true, 100L))
+        gesture.onUp(120L)
+        assertFalse(gesture.onDown(8, 0, true, 220L))
+    }
+    @Test fun `a held left cannot arm a jump after release`() {
+        val gesture = XlRowLeftShortcut()
+        gesture.onDown(9, 0, true, 100L)
+        gesture.onDown(8, 1, true, 180L)
+        gesture.onUp(200L)
+        assertFalse(gesture.onDown(7, 0, true, 240L))
+    }
+    @Test fun `a long press without repeat events is not a rapid tap`() {
+        val gesture = XlRowLeftShortcut()
+        gesture.onDown(9, 0, true, 100L)
+        gesture.onUp(500L)
+        assertFalse(gesture.onDown(8, 0, true, 540L))
     }
 }

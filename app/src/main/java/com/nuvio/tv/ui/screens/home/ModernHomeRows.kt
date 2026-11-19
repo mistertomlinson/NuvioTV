@@ -4059,11 +4059,12 @@ internal fun NumberedCatalogCardWrapper(
     useThemeColorForNumbers: Boolean = false,
     useLandscapePosters: Boolean = false,
     compactXl: Boolean = false,
+    compactXlFontSize: Float? = null,
     content: @Composable () -> Unit
 ) {
     val numberText = number.toString()
     val numberFontSize = androidx.compose.ui.unit.TextUnit(
-        if (compactXl) xlRankFontSize(cardHeight.value)
+        if (compactXl) compactXlFontSize ?: xlRankFontSize(cardHeight.value)
         else if (useLandscapePosters) cardHeight.value * 0.80f else cardHeight.value * 0.55f,
         androidx.compose.ui.unit.TextUnitType.Sp
     )

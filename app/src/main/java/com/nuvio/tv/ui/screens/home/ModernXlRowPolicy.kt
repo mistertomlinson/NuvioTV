@@ -24,15 +24,22 @@ internal fun xlRowTopInset(isXl: Boolean, ordinaryRowTop: Float): Float =
 /** Keep a double Left from item 1 from becoming a sidebar-open at item 0. */
 internal class XlRowLeftShortcut {
     private var lastReleaseAtMs = 0L
+    private var pressStartedAtMs = 0L
     private var previousPressStartedAfterFirst = false
     private var currentPressStartedAfterFirst = false
     private var consumedDoublePress = false
 
     fun onDown(index: Int, repeatCount: Int, enabled: Boolean, nowMs: Long): Boolean {
-        if (repeatCount != 0) return false
+        if (repeatCount != 0) {
+            // A held press cannot arm the next fresh Left as a double tap.
+            reset()
+            return false
+        }
         val elapsed = nowMs - lastReleaseAtMs
         val doublePress = enabled && previousPressStartedAfterFirst &&
-            lastReleaseAtMs != 0L && elapsed in 0 until 300L
+            lastReleaseAtMs != 0L && elapsed in 0..HOME_DOUBLE_UP_GAP_MS &&
+            nowMs - pressStartedAtMs in 0..250L
+        pressStartedAtMs = nowMs
         currentPressStartedAfterFirst = index > 0
         consumedDoublePress = doublePress
         if (doublePress) lastReleaseAtMs = 0L
@@ -40,13 +47,15 @@ internal class XlRowLeftShortcut {
     }
 
     fun onUp(nowMs: Long) {
-        lastReleaseAtMs = if (consumedDoublePress) 0L else nowMs
-        previousPressStartedAfterFirst = currentPressStartedAfterFirst
+        val quickTap = pressStartedAtMs > 0L && nowMs - pressStartedAtMs in 0..250L
+        lastReleaseAtMs = if (consumedDoublePress || !quickTap) 0L else nowMs
+        previousPressStartedAfterFirst = quickTap && currentPressStartedAfterFirst
         consumedDoublePress = false
     }
 
     fun reset() {
         lastReleaseAtMs = 0L
+        pressStartedAtMs = 0L
         previousPressStartedAfterFirst = false
         currentPressStartedAfterFirst = false
         consumedDoublePress = false
@@ -61,13 +70,14 @@ internal fun xlRankFontSize(cardHeight: Float): Float = (cardHeight * 0.22f).coe
 /** Measured once per catalog length, not while navigating its cards. */
 internal class XlRankTrack(
     private val portraitWidth: Float,
-    val textWidths: FloatArray
+    val textWidths: FloatArray,
+    val fontSize: Float = 0f
 ) {
     private val outside = FloatArray(textWidths.size) { (textWidths[it] - XL_RANK_OVERLAP_DP).coerceAtLeast(0f) }
     private val prefix = FloatArray(textWidths.size + 1).also { sums ->
         for (i in textWidths.indices) sums[i + 1] = sums[i] + portraitWidth + 12f + outside[i]
     }
-    val featuredLeft: Float = 52f + (outside.maxOrNull() ?: 0f)
+    val featuredLeft: Float = 52f
 
     fun portraitLeft(index: Int, selected: Int, featuredWidth: Float): Float =
         featuredLeft + featuredWidth + 12f + prefix[index] - prefix[selected + 1] + outside[index]
@@ -84,9 +94,3 @@ internal class XlHorizontalRepeatGate {
         return true
     }
 }
-
-internal fun xlUpperMetadataFollowsRow(activeXl: Boolean, previousXl: Boolean, previousSummary: Boolean, motionPending: Boolean): Boolean =
-    if (activeXl) true else if (previousXl) previousSummary else motionPending
-
-internal fun xlNeedsMetadataHeadroom(previousXl: Boolean, previousSummary: Boolean, currentXl: Boolean): Boolean =
-    previousXl && previousSummary && !currentXl

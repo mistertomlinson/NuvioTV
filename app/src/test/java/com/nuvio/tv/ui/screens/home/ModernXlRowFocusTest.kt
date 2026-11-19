@@ -86,7 +86,7 @@ class ModernXlRowFocusTest {
         compose.runOnUiThread { activity.pause().stop().destroy(); models.viewModelStore.clear() }
     }
 
-    private fun content(fast: Boolean = false) {
+    private fun content(fast: Boolean = false, doubleLeft: Boolean = false) {
         compose.runOnUiThread {
             activity.get().setContent {
                 MaterialTheme {
@@ -117,7 +117,7 @@ class ModernXlRowFocusTest {
                                 onNavigateToDetail = { id, _, _ -> detailsId = id }, onLoadMoreCatalog = { _, _, _ -> },
                                 onCatalogItemLongPress = { _, _ -> }, onBackdropInteraction = {},
                                 onExpandedCatalogFocusKeyChange = {}, useThemeColorForNumbers = false,
-                                doubleLeftRowShortcutEnabled = false, onUpPressed = { platform.requestFocus() }
+                                doubleLeftRowShortcutEnabled = doubleLeft, onUpPressed = { platform.requestFocus() }
                             )
                             Button(onClick = {}, modifier = Modifier.focusRequester(below).testTag("below")) { Text("Next row") }
                         }
@@ -131,9 +131,9 @@ class ModernXlRowFocusTest {
         compose.runOnIdle { assertEquals(0, selected.intValue); assertFalse(platformHasFocus) }
     }
 
-    private fun down(keyCode: Int, repeat: Int = 0) {
+    private fun down(keyCode: Int, repeat: Int = 0, gapMs: Long = 90) {
         compose.runOnUiThread {
-            ShadowSystemClock.advanceBy(Duration.ofMillis(90))
+            ShadowSystemClock.advanceBy(Duration.ofMillis(gapMs))
             val now = SystemClock.uptimeMillis()
             activity.get().dispatchKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, keyCode, repeat))
         }
@@ -191,6 +191,43 @@ class ModernXlRowFocusTest {
         compose.runOnIdle { assertTrue(platformHasFocus) }
         tap(KeyEvent.KEYCODE_DPAD_DOWN)
         assertXlFocus(3)
+    }
+
+    @Test fun doubleLeftRequiresTheOriginalRapidTiming() {
+        content(doubleLeft = true)
+        repeat(8) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        compose.mainClock.autoAdvance = false
+        down(KeyEvent.KEYCODE_DPAD_LEFT); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertXlFocus(7)
+        down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 120); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertXlFocus(6)
+        down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertXlFocus(0)
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun numberedFeaturedPosterKeepsTheOrdinaryHeadingAndMetadataAnchor() {
+        rowState.value = row().copy(numberStyle = NumberStyle.OUTLINE)
+        content()
+        val poster = compose.onNodeWithTag("xl-featured-test-xl").fetchSemanticsNode().boundsInRoot.left
+        assertEquals(52f, poster, 0.01f)
+        assertEquals(poster, compose.onNodeWithText("Movie").fetchSemanticsNode().boundsInRoot.left, 0.01f)
+        repeat(9) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        assertEquals(poster, compose.onNodeWithTag("xl-featured-test-xl").fetchSemanticsNode().boundsInRoot.left, 0.01f)
+    }
+
+    @Test fun evenAThrottledHeldRepeatCancelsTheDoubleLeftGesture() {
+        content(doubleLeft = true)
+        repeat(8) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        compose.mainClock.autoAdvance = false
+        down(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertXlFocus(7)
+        down(KeyEvent.KEYCODE_DPAD_LEFT, repeat = 1, gapMs = 0)
+        assertXlFocus(7)
+        up(KeyEvent.KEYCODE_DPAD_LEFT)
+        down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertXlFocus(6)
+        compose.mainClock.autoAdvance = true
     }
 
     @Test fun summaryOffRemovesItsSpaceAndShowsTheFollowingRow() {

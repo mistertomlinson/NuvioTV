@@ -1,75 +1,91 @@
 # XL catalog rows
 
-Experimental Modern Home presentation on its own feature branch.
-Catalog Management cycles its wide-card/portrait control through:
+Experimental Modern Home presentation on `feat/netflix-xl-catalog-rows-20261118`.
+Catalog Management cycles Off → XL with summary → XL without summary → Off.
+The no-summary icon omits the lower horizontal bar. Both XL variants retain
+metadata lines beneath the selected landscape image and omit the title/logo
+slot there. No-summary mode removes the synopsis and its reserved height so the
+next row can peek through. Preferences are per profile; existing XL preferences
+continue to mean summary enabled. Seasonal/Watchly replacement keys stay stable.
 
-1. Off — ordinary catalog presentation.
-2. XL with summary — the original XL icon with its lower bar.
-3. XL without summary — the same icon without its lower bar.
+## Focus and numbering
 
-Existing XL preferences migrate to the summary mode. Both XL variants retain
-metadata lines below the selected image; the second omits the synopsis and its
-reserved height. The next catalog's actual heading and upper posters can then
-appear below it. Preferences remain per profile and use stable group keys for
-Seasonal Spotlight and Watchly replacements.
+Physical focus stays on one permanent featured card while Left/Right change its
+title. Portrait previews cannot take focus. The complete existing card renderer
+retains Select, long press, details/options/sidebar return, configured corners,
+focus borders, trailers, mute/delay and pagination behavior. XL geometry stays
+fixed while trailers load or play.
 
-## Focus and row navigation
+Double Left now uses the ordinary row shortcut's 80 ms release-to-next-press
+window, measured with native input timestamps. Both presses must be quick taps;
+a held press/repeat cannot arm the next fresh Left as a shortcut. Slow Lefts
+remain individual moves. A fresh Left at item zero can still open the sidebar.
 
-There is one permanent featured-card focus target per XL row. Left/Right update
-its selected title while preserving that physical focus node. Upcoming portraits
-are visual previews, not alternate focus targets. Held horizontal keys use an
-XL-local time gate and never invoke generic spatial focus search.
+Numbered XL posters and their lower metadata retain the ordinary 52 dp heading
+anchor. Ranks extend into the existing left gutter, with eight dp behind the
+poster edge; upcoming posters reserve measured rank gaps. The original Jost
+solid/outline renderer and theme color are reused at a smaller size. Long ranks
+scale down enough to fit the gutter rather than pushing the featured card right.
 
-The complete existing card renderer still owns Select, Details, long press,
-rounded corners, focus outlines, artwork fallback and inline trailer playback.
-Logical selection publishes the current item/index to the normal Home focus and
-trailer pipeline. Per-item FocusRequesters attach to the permanent slot as its
-title changes. Pending restoration selects the requested title before requesting
-focus. Up/Down retain ordinary row movement; fresh Left at item zero can open the
-sidebar. The double-Left shortcut remains independent of held-key repeats.
+## Vertical presentation
 
-## Layout and metadata
+`XlSceneState` owns each XL boundary explicitly. It captures the metadata block
+that was actually presented before the focus change, including its preview and
+scroll position. That snapshot moves with measured LazyColumn displacement;
+virtualizing its original row cannot replace it with another row's metadata.
+A second direction press carries any still-visible outgoing snapshot forward;
+it cannot disappear merely because focus has already crossed an XL boundary.
+Returning directly to that same visible owner preserves its logo composition.
+At rest, an XL row has only its own inline metadata. The ordinary hero block is
+unmounted, so a retained logo cannot remain behind the XL image.
 
-The selected image stays 16:9; upcoming portraits stay 2:3 with equal image height.
-Only the visible portrait runway is composed. Summary text uses the full-size
-half-width synopsis typography even when other metadata is set to Small. The
-logo/title slot is omitted from XL metadata; image logos remain part of the
-existing landscape-card artwork treatment.
+On entering XL from an ordinary row, the outgoing ordinary block and posters
+move together. On leaving XL upward, the incoming ordinary block is attached to
+its row's measured header position. During XL motion a moving exclusion mask keeps older posters out of the
+travelling ordinary hero space. It never uncovers a hidden row behind that
+metadata. Outside that moving space the catalog clips only at the screen edge,
+so an outgoing XL image can cross the former logo area intact. A 30 dp inset
+before a non-first XL row ensures the preceding row clears y=0 when XL lands. Ordinary-to-ordinary
+navigation keeps the stationary upper metadata and ordinary clipping.
 
-Ordinary-to-ordinary navigation retains stationary upper metadata. Its scroll
-translation is active only while entering XL or handing off from a summary XL
-row. The transition is scoped to its destination row so a rapid subsequent move
-cannot animate an unrelated ordinary row. Summary-free XL exits return to the
-ordinary lower viewport; they do not insert the summary-mode metadata runway.
+An ordinary row following a summary XL row has real space for its upper metadata.
+For a summary-free downward exit, that space grows during the movement: the next
+row moves toward its normal position while the entire outgoing XL row travels
+off screen. The incoming ordinary metadata remains transparent until the rows
+land and the incoming backdrop frame is available. The gap stays open while
+browsing ordinary rows below it, allowing a later upward return to bring the
+whole scene down together. Once XL is back in place and outgoing metadata is off
+screen, the gap closes to restore the next-row peek.
 
-An animated 94%-black layer dims the backdrop below XL artwork and metadata.
-It fades away on ordinary rows or when the platform icon row receives focus.
-Cards, metadata, focus rings, and platform controls remain above that layer.
+## Backdrop handoff
 
-Numbered XL rows reuse the original Jost number renderer, including its solid
-and outline paint and theme-color treatment. Smaller ranks sit at the bottom
-left, eight dp behind the poster edge. Measured rank widths reserve room before
-each poster; a stable leading inset keeps the featured slot from shifting when
-the selected rank changes digit count. Ordinary numbered rows retain their
-existing geometry.
+XL uses a faint backdrop under a 94%-black layer. Each managed image handoff
+first reaches black, commits the new backdrop without a second image crossfade,
+and waits for the target image renderer's success/error acknowledgement. A
+bounded two-second wait avoids stranding the screen if a renderer never replies.
+A stale outgoing frame cannot release the new handoff.
 
-XL overrides landscape presentation while enabled without rewriting that saved
-preference. Enabled trailers play inside the featured card with the existing
-delay, mute, popup/sidebar preservation and backgrounding behavior. XL geometry
-does not resize for trailer loading/playback. Autoplay and delay settings remain
-available when ordinary poster expansion is disabled.
+The backdrop then fades to 94% black for XL, or to the ordinary background when
+leaving. Row landing and image readiness gate this reveal. A summary-free exit's
+ordinary metadata uses that same opacity clock. The new metadata composition
+starts with the destination logo, so its internal logo crossfade cannot retain
+the previous XL/ordinary title. Platform navigation keeps its existing separate
+whole-page transition.
 
-## Validation and device review
+## Verification and TV review
 
-Robolectric Compose UI tests render the actual XL row/card. They cover fresh and
-held Left/Right events during animation, stable physical focus identity, matching
-selected-title navigation, deliberate Up to platform controls and return,
-summary-free next-row visibility, and synopsis size. JVM tests cover rank gaps,
-metadata transition boundaries, three-state persistence/profile isolation, and
-existing app behavior. These supplement physical-TV validation.
+Robolectric tests exercise the real XL card and horizontal navigation, plus a
+real focusable LazyColumn harness using the production scene controller, hero
+metadata, headroom and backdrop timing. They cover synchronized vertical motion,
+no retained upper metadata at rest, the summary-free exit/return, delayed-frame
+handoffs, strict double-Left timing, and numbered-card anchoring. JVM tests cover
+snapshot ownership, recycling, interrupted transitions, gap lifetime, frame
+identity, preferences and existing app behavior. These supplement TV review.
 
-On the TV check ordinary → ordinary, ordinary → XL → ordinary, consecutive XL
-rows, and both XL summary modes. Traverse the first/last title and the 9 → 10
-rank boundary. Open Details/options/sidebar and return, including while a trailer
-plays. Confirm corner radius, number styles, theme color, autoplay/mute/delay,
-platform changes, pagination, and the next-row peek in summary-free mode.
+On the TV check ordinary → ordinary, ordinary → XL → ordinary in both directions,
+summary/no-summary variants, consecutive XL rows, and rapid reversals mid-slide.
+Confirm each slow Left moves one title, only rapid double Left jumps to the start,
+and a held Left cannot arm a jump after release. Check numbered ranks 1/9/10/100,
+corner radius, number styles/theme color, artwork, live trailers and popup/sidebar
+return. A slow or unavailable image should remain dark until ready or the bounded
+fallback, then reveal the destination metadata and backdrop together.

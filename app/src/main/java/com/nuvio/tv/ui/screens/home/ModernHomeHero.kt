@@ -109,7 +109,8 @@ internal fun ModernHeroMediaLayer(
     parallaxOffsetX: Float = 0f,
     cinematicMode: Boolean = false,
     backdropCrossfadeDuration: Int = 400,
-    cinematicScale: Float = 1.1f
+    cinematicScale: Float = 1.1f,
+    onBackdropFrameReady: (String?) -> Unit = {}
 ) {
     val localContext = LocalContext.current
 
@@ -143,6 +144,10 @@ internal fun ModernHeroMediaLayer(
             )
         }
 
+    LaunchedEffect(targetBackdropFrame.url) {
+        if (targetBackdropFrame.url.isNullOrBlank()) onBackdropFrameReady(targetBackdropFrame.url)
+    }
+
     Box(modifier = modifier.clipToBounds()) {
         Crossfade(
             targetState = targetBackdropFrame,
@@ -163,6 +168,8 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
+                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
+                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
@@ -178,6 +185,8 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
+                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
+                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                     alignment =
