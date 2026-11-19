@@ -90,6 +90,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -704,7 +705,9 @@ internal fun ModernRowSection(
     isFirstRow: Boolean = false,
     isSecondRow: Boolean = false,
     onRequestCarouselFocus: () -> Unit = {},
-    catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null
+    catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null,
+    onHeaderMeasured: (Float) -> Unit = {},
+    onXlRowMeasured: (Dp, Dp) -> Unit = { _, _ -> }
 ) {
     if (row.isXl && row.items.isNotEmpty()) {
         ModernXlRowSection(
@@ -737,7 +740,9 @@ internal fun ModernRowSection(
             onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange,
             useThemeColorForNumbers = useThemeColorForNumbers,
             doubleLeftRowShortcutEnabled = doubleLeftRowShortcutEnabled,
-            onUpPressed = if (isFirstRow) onRequestCarouselFocus else null
+            onUpPressed = if (isFirstRow) onRequestCarouselFocus else null,
+            onHeaderMeasured = onHeaderMeasured,
+            onRowMeasured = onXlRowMeasured
         )
         return
     }
@@ -892,7 +897,7 @@ internal fun ModernRowSection(
             text = row.title,
             style = rowTitleStyle,
             color = NuvioColors.TextPrimary,
-            modifier = Modifier.padding(
+            modifier = Modifier.onSizeChanged { onHeaderMeasured(it.height.toFloat()) }.padding(
                 start = 52.dp,
                 bottom = rowTitleBottom
             )
@@ -4125,7 +4130,8 @@ internal fun NumberedCatalogCardWrapper(
             modifier = androidx.compose.ui.Modifier
                 .height(textHeightDp)
                 .align(androidx.compose.ui.Alignment.BottomStart)
-                .offset(x = offsetX, y = if (compactXl) textHeightDp * 0.12f else if (useLandscapePosters) cardHeight * 0.14f else cardHeight * 0.105f)
+                .offset(x = offsetX, y = if (compactXl) textHeightDp * 0.12f + xlRankBaselineDrop(numberFontSize.value).dp
+                    else if (useLandscapePosters) cardHeight * 0.14f else cardHeight * 0.105f)
                 .zIndex(-1f)
                 .layout { measurable, constraints ->
                     val textWidthPx = with(density) { textWidthDp.roundToPx() }

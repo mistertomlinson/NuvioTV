@@ -2,6 +2,7 @@ package com.nuvio.tv.ui.screens.home
 
 import android.view.KeyEvent as AndroidKeyEvent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
@@ -16,10 +17,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -28,10 +31,12 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -51,6 +56,8 @@ import com.nuvio.tv.domain.model.MetaPreview
 import com.nuvio.tv.ui.theme.NuvioColors
 import com.nuvio.tv.ui.util.LocalFastHorizontalNavigationEnabled
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 private class XlPublishedSelection {
     var key: String? = null
@@ -93,7 +100,9 @@ internal fun ModernXlRowSection(
     onExpandedCatalogFocusKeyChange: (String?) -> Unit,
     useThemeColorForNumbers: Boolean,
     doubleLeftRowShortcutEnabled: Boolean,
-    onUpPressed: (() -> Unit)?
+    onUpPressed: (() -> Unit)?,
+    onHeaderMeasured: (Float) -> Unit = {},
+    onRowMeasured: (Dp, Dp) -> Unit = { _, _ -> }
 ) {
     if (row.items.isEmpty()) return
     val configuration = LocalConfiguration.current
@@ -112,6 +121,10 @@ internal fun ModernXlRowSection(
     val fastNavigation = LocalFastHorizontalNavigationEnabled.current
     val leftShortcut = remember(row.key) { XlRowLeftShortcut() }
     val repeatGate = remember(row.key) { XlHorizontalRepeatGate() }
+    val scope = rememberCoroutineScope()
+    val jumpOrigin = remember(row.key) { Animatable(0f) }
+    var jumping by remember(row.key) { mutableStateOf(false) }
+    val jumpJob = remember(row.key) { arrayOfNulls<Job>(1) }
     val published = remember(row.key) { XlPublishedSelection() }
     var rowHasFocus by remember(row.key) { mutableStateOf(false) }
     val selectedItem = row.items[selected]
@@ -119,6 +132,7 @@ internal fun ModernXlRowSection(
     LaunchedEffect(rowHasFocus, selected, selectedItem.key) {
         if (!rowHasFocus) {
             leftShortcut.reset()
+            jumpJob[0]?.cancel()
         } else if (published.key != selectedItem.key || published.index != selected) {
             // The existing focus target remains focused during logical moves.
             published.key = selectedItem.key
@@ -135,6 +149,7 @@ internal fun ModernXlRowSection(
         snapshotFlow { Triple(pendingRowFocus.nonce, pendingRowFocus.key, pendingRowFocus.index) }
             .collectLatest { (_, rowKey, index) ->
                 if (rowKey != row.key || currentRow.items.isEmpty()) return@collectLatest
+                jumpJob[0]?.cancel()
                 val target = (index ?: 0).coerceIn(0, currentRow.items.lastIndex)
                 selectedKey = currentRow.items[target].key
                 repeat(20) {
@@ -179,9 +194,14 @@ internal fun ModernXlRowSection(
         }
         XlRankTrack(geometry.portraitWidth, widths, paint.textSize / density.density)
     }
+    val jumpFirstPortrait by remember(rankTrack) { derivedStateOf { rankTrack.firstPortrait(jumpOrigin.value) } }
     val lastSelected = remember(row.key) { intArrayOf(selected) }
     val previousIndex = lastSelected[0]
     SideEffect { lastSelected[0] = selected }
+    val descriptionLineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+    val summaryExtra = with(density) {
+        (descriptionLineHeight * (if (portraitMetadata) 0.90f else 1f) * (if (portraitMetadata) 4 else 5)).toDp()
+    } + 8.dp * (if (portraitMetadata) 0.92f else 1f) * (if (heroMetadataLarge) 1f else 0.7f)
 
     val renderCard: @Composable (Int, Boolean) -> Unit = { index, featured ->
         val item = row.items[index]
@@ -197,7 +217,7 @@ internal fun ModernXlRowSection(
                     modifier = if (featured) Modifier else Modifier.focusProperties { canFocus = false },
                     item = cardItem,
                     payload = payload,
-                    requester = uiCaches.requesterFor(row.key, item.key),
+                    requester = if (featured) uiCaches.requesterFor(row.key, item.key) else remember { FocusRequester() },
                     useLandscapePosters = featured,
                     perCatalogLandscape = featured,
                     heroMetadataLarge = heroMetadataLarge,
@@ -257,6 +277,10 @@ internal fun ModernXlRowSection(
     Column(
         modifier = Modifier
             .testTag("xl-row-${row.key}")
+            .onSizeChanged {
+                val height = with(density) { it.height.toDp() }
+                onRowMeasured(height, height + if (row.showXlSummary) 0.dp else summaryExtra)
+            }
             .focusRestorer { uiCaches.requesterFor(row.key, row.items[selected].key) }
             .onFocusChanged { rowHasFocus = it.hasFocus }
             .focusGroup()
@@ -265,7 +289,11 @@ internal fun ModernXlRowSection(
                 val left = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_LEFT
                 val right = native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_RIGHT
                 if (!left && !right) {
-                    if (native.action == AndroidKeyEvent.ACTION_DOWN) leftShortcut.reset()
+                    if (native.action == AndroidKeyEvent.ACTION_DOWN) {
+                        leftShortcut.reset()
+                        if (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)
+                            jumpJob[0]?.cancel()
+                    }
                     return@onPreviewKeyEvent false
                 }
                 if (right && native.action == AndroidKeyEvent.ACTION_DOWN) leftShortcut.reset()
@@ -274,12 +302,33 @@ internal fun ModernXlRowSection(
                     return@onPreviewKeyEvent true
                 }
                 if (native.action != AndroidKeyEvent.ACTION_DOWN) return@onPreviewKeyEvent true
+                if (jumping) {
+                    leftShortcut.reset()
+                    return@onPreviewKeyEvent true
+                }
                 val now = native.eventTime
                 if (left && native.repeatCount > 0) leftShortcut.reset()
                 if (!repeatGate.accept(native.repeatCount, now, fastNavigation)) return@onPreviewKeyEvent true
                 val doubleLeft = left && leftShortcut.onDown(selected, native.repeatCount, doubleLeftRowShortcutEnabled, now)
                 when {
-                    doubleLeft -> selectedKey = row.items.first().key
+                    doubleLeft -> {
+                        // Keep the featured slot, details, metadata and trailer on
+                        // the painted title while a bounded portrait window scrolls.
+                        jumping = true
+                        jumpJob[0] = scope.launch {
+                            try {
+                                jumpOrigin.snapTo(rankTrack.origin(selected))
+                                jumpOrigin.animateTo(rankTrack.origin(0), tween(
+                                    ((selected.coerceAtMost(24) / if (numbered) 20f else 32f) * 1000).toInt().coerceAtLeast(220),
+                                    easing = LinearEasing
+                                ))
+                                lastSelected[0] = 0
+                                selectedKey = currentRow.items.first().key
+                            } finally {
+                                jumping = false
+                            }
+                        }
+                    }
                     left && selected == 0 -> if (native.repeatCount == 0) sidebarOpen()
                     left -> selectedKey = row.items[selected - 1].key
                     right && selected < row.items.lastIndex -> selectedKey = row.items[selected + 1].key
@@ -291,25 +340,39 @@ internal fun ModernXlRowSection(
             text = row.title,
             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
             color = NuvioColors.TextPrimary,
-            modifier = Modifier.padding(start = 52.dp, bottom = rowTitleBottom)
+            modifier = Modifier.onSizeChanged { onHeaderMeasured(it.height.toFloat()) }
+                .padding(start = 52.dp, bottom = rowTitleBottom)
         )
         Box(
             modifier = Modifier.fillMaxWidth().height(geometry.cardHeight.dp)
                 .drawWithContent {
-                    clipRect(left = 0f, top = -3.dp.toPx(), bottom = size.height + 3.dp.toPx()) {
+                    val rankDrop = if (numbered) xlRankBaselineDrop(rankTrack.fontSize).dp.toPx() else 0f
+                    clipRect(left = 0f, top = -3.dp.toPx(), bottom = size.height + rankDrop + 3.dp.toPx()) {
                         this@drawWithContent.drawContent()
                     }
                 }
         ) {
-            for (index in (selected + 1)..minOf(row.items.lastIndex, selected + geometry.visiblePortraitCount)) {
+            val firstPortrait = if (jumping) jumpFirstPortrait else selected + 1
+            val lastPortrait = minOf(row.items.lastIndex, firstPortrait + geometry.visiblePortraitCount)
+            for (index in firstPortrait..lastPortrait) {
                 key(row.items[index].key) {
                     val targetX = rankTrack.portraitLeft(index, selected, geometry.featuredWidth)
                     val animatedX = remember {
                         Animatable(if (selected < previousIndex && index == previousIndex) rankTrack.featuredLeft else targetX)
                     }
-                    LaunchedEffect(targetX) { animatedX.animateTo(targetX, tween(220)) }
-                    Box(Modifier.absoluteOffset { IntOffset(with(density) { animatedX.value.dp.roundToPx() }, 0) }
-                        .width(geometry.portraitWidth.dp)) {
+                    val wasJumping = remember { booleanArrayOf(jumping) }
+                    LaunchedEffect(targetX, jumping) {
+                        if (jumping) wasJumping[0] = true
+                        else if (wasJumping[0]) {
+                            animatedX.snapTo(targetX)
+                            wasJumping[0] = false
+                        } else animatedX.animateTo(targetX, tween(220))
+                    }
+                    Box(Modifier.absoluteOffset {
+                        val x = if (jumping) rankTrack.portraitLeftAtOrigin(index, jumpOrigin.value, geometry.featuredWidth)
+                            else if (wasJumping[0]) targetX else animatedX.value
+                        IntOffset(with(density) { x.dp.roundToPx() }, 0)
+                    }.width(geometry.portraitWidth.dp).testTag("xl-portrait-${row.key}-$index")) {
                         renderCard(index, false)
                     }
                 }

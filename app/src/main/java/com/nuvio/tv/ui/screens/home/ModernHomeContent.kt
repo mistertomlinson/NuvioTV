@@ -2818,7 +2818,8 @@ fun ModernHomeContent(
         androidx.compose.runtime.SideEffect {
             sceneSelection?.let { xlScene.focus(it, verticalRowListState.layoutInfo, hasXlRows && !isPlatformTransitioning, carouselRows) }
         }
-        val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused)
+        val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
+            pageStartsWithXl = carouselRows.firstOrNull()?.isXl == true)
         val visualHero = if (xlBackdrop.owned) xlBackdrop.preview
             else xlScene.transition?.outgoingBackdrop ?: resolvedHero
         androidx.compose.runtime.SideEffect { xlScene.recordBackdrop(visualHero) }
@@ -3057,9 +3058,6 @@ fun ModernHomeContent(
         val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
         val rowsCanvasHeight = if (hasXlRows) maxHeight else rowsViewportHeight
         val ordinaryRowsTop = maxHeight - rowsViewportHeight
-        val rowListTopPadding = if (!hasXlRows) 0.dp else {
-            xlRowTopInset(carouselRows.firstOrNull()?.isXl == true, ordinaryRowsTop.value).dp
-        }
 
         // The configurable centered hero belongs only to the aggregate +
         // full-width icon-row mode. Aggregate-off and half-width retain the
@@ -3078,6 +3076,38 @@ fun ModernHomeContent(
         // maxHeight - rowsViewportHeight from screen top). Hero centers in this.
         val heroRegionHeight = (maxHeight - rowsViewportHeight) - heroRegionTopInset
         val localDensity = LocalDensity.current
+        val xlLargeMetadata = if (effectiveFullWidthIconRowEnabled) heroMetadataLarge else true
+        val estimatedXlHeight = 40.dp + xlRowGeometry(maxWidth.value, maxHeight.value, xlLargeMetadata).cardHeight.dp +
+            12.dp + if (xlLargeMetadata) 178.dp else 142.dp
+        // An XL-first page has not mounted an ordinary hero yet. Estimate its
+        // normal logo/two-line metadata/description slots until measured, rather
+        // than placing that future hero as if it had zero height.
+        val ordinaryHeroScale = if (effectiveFullWidthIconRowEnabled && !heroMetadataLarge) 0.7f else 1f
+        val ordinaryTitleSpacing = 8.dp * (if (useLandscapePosters) 1f else 0.92f) * ordinaryHeroScale
+        val estimatedHeroHeight = 100.dp * ordinaryHeroScale + 60.dp * ((1f + ordinaryHeroScale) / 2f) +
+            ordinaryTitleSpacing * 2 + if (effectiveFullWidthIconRowEnabled) 0.dp else {
+                ordinaryTitleSpacing + with(localDensity) {
+                    (MaterialTheme.typography.bodyMedium.lineHeight * ordinaryHeroScale *
+                        (if (useLandscapePosters) 1f else 0.90f) * (if (useLandscapePosters) 5 else 4)).toDp()
+                }
+            }
+        val measuredHeroHeight = if (xlScene.metadataHeightPx > 0f)
+            with(localDensity) { xlScene.metadataHeightPx.toDp() } else estimatedHeroHeight
+        androidx.compose.runtime.SideEffect {
+            xlScene.screenHeight = maxHeight
+            xlScene.fullWidthIcons = effectiveFullWidthIconRowEnabled
+            xlScene.estimatedXlHeight = estimatedXlHeight
+            xlScene.ordinaryTop = ordinaryRowsTop
+            xlScene.metadataRestingTop = if (effectiveFullWidthIconRowEnabled) {
+                heroRegionTopInset + (heroRegionHeight - measuredHeroHeight) / 2 -
+                    if (uiState.hidePlatformIconsOnRowExitEnabled) 6.dp else 0.dp
+            } else ordinaryRowsTop - heroToCatalogGap + 6.dp - measuredHeroHeight
+        }
+        val firstRow = carouselRows.firstOrNull()
+        val rowListTopPadding = if (!hasXlRows) 0.dp else if (firstRow?.isXl == true) {
+            xlBalancedTop(maxHeight.value, (xlScene.summaryRowHeights[firstRow.key] ?: estimatedXlHeight).value,
+                effectiveFullWidthIconRowEnabled).dp
+        } else ordinaryRowsTop
         val rowTitleLineHeight = MaterialTheme.typography.titleMedium.lineHeight
         val rowTitleHeight = with(localDensity) {
             runCatching { rowTitleLineHeight.toDp() }
@@ -3242,7 +3272,8 @@ fun ModernHomeContent(
          * right of the current focus and the remembered-focus item in the row
          * immediately below (falling back to item 0). The left item and row above
          * are intentionally omitted because those destinations were already
-         * visited and should normally already be warm in Coil's cache.
+         * visited and should normally already be warm in Coil's cache. XL also
+         * warms the row above, including during entry, for its immediate exit.
          *
          * Requests use the exact hero render size so Coil's memory-cache entry can
          * be reused directly by ModernHeroMediaLayer. Vertical and held-DPAD
@@ -3256,9 +3287,10 @@ fun ModernHomeContent(
                 snapshotFlow { verticalRowListState.isScrollInProgress },
                 isFastScrollingRef
             ) { selection, verticalScrolling, fastScrolling ->
-                selection to (verticalScrolling || fastScrolling)
-            }.collectLatest { (selection, blocked) ->
-                if (blocked) return@collectLatest
+                selection to (verticalScrolling to fastScrolling)
+            }.collectLatest { (selection, motion) ->
+                val (verticalScrolling, fastScrolling) = motion
+                if (fastScrolling) return@collectLatest
 
                 val (rowKey, index) = selection
                 if (rowKey == null) return@collectLatest
@@ -3266,6 +3298,7 @@ fun ModernHomeContent(
                 val rowIndex = latestCarouselRows.indexOfFirst { it.key == rowKey }
                 if (rowIndex < 0) return@collectLatest
                 val row = latestCarouselRows[rowIndex]
+                if (verticalScrolling && !row.isXl) return@collectLatest
 
                 val urls = buildList {
                     row.items.getOrNull(index + 1)?.heroPreview?.let {
@@ -3279,6 +3312,18 @@ fun ModernHomeContent(
                         belowRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
                             firstNonBlank(it.backdrop, it.imageUrl)
                         }?.takeIf { it.isNotBlank() }?.let(::add)
+                    }
+                    // An XL exit has no settle delay. Its preceding row can be
+                    // cold after a restore or platform switch, so warm both
+                    // vertical destinations at the actual hero render size.
+                    if (row.isXl) {
+                        val aboveRow = latestCarouselRows.getOrNull(rowIndex - 1)
+                        if (aboveRow != null && aboveRow.items.isNotEmpty()) {
+                            val rememberedIndex = (focusedItemByRow[aboveRow.key] ?: 0).coerceIn(0, aboveRow.items.lastIndex)
+                            aboveRow.items[rememberedIndex].heroPreview.let {
+                                firstNonBlank(it.backdrop, it.imageUrl)
+                            }?.takeIf { it.isNotBlank() }?.let(::add)
+                        }
                     }
                 }.distinct()
                 kotlinx.coroutines.coroutineScope {
@@ -4033,7 +4078,12 @@ fun ModernHomeContent(
                     )
             )
         }
-        val currentXlAlignment = rememberUpdatedState(activeRowIsXl)
+        val currentXlAlignment = rememberUpdatedState(
+            if (activeRowIsXl) xlScene.xlTop((activeRow ?: carouselRows.firstOrNull())?.key.orEmpty()) else ordinaryRowsTop)
+        val currentXlHeader = rememberUpdatedState(
+            if (activeRowIsXl) xlScene.headerHeights[(activeRow ?: carouselRows.firstOrNull())?.key]
+                ?: with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
+            else with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() })
         val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec, hasXlRows, ordinaryRowsTop) {
             val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -4057,9 +4107,9 @@ fun ModernHomeContent(
                     // it fights the drag and causes jank
                     if (isFastScrolling) return 0f
                     val canvasTop = if (hasXlRows) {
-                        with(localDensity) { xlRowTopInset(currentXlAlignment.value, ordinaryRowsTop.value).dp.toPx() }
+                        with(localDensity) { currentXlAlignment.value.toPx() }
                     } else 0f
-                    return offset - (canvasTop + topInsetPx)
+                    return offset - (canvasTop + if (hasXlRows) currentXlHeader.value else topInsetPx)
                 }
             }
         }
@@ -4651,7 +4701,6 @@ fun ModernHomeContent(
                 rowsViewportHeight =
                     rowsCanvasHeight,
                 rowListTopPadding = rowListTopPadding,
-                ordinaryRowHeadroom = if (hasXlRows) ordinaryRowsTop + heroRegionHeight else 0.dp,
                 xlScene = xlScene,
                 ordinaryRowTop = ordinaryRowsTop,
                 xlSceneEnabled = hasXlRows,
@@ -4874,7 +4923,6 @@ private fun EnhancedModernHomeRowsListBoundary(
     doubleLeftRowShortcutEnabled: Boolean,
     rowsViewportHeight: androidx.compose.ui.unit.Dp,
     rowListTopPadding: androidx.compose.ui.unit.Dp,
-    ordinaryRowHeadroom: androidx.compose.ui.unit.Dp,
     xlScene: XlSceneState,
     ordinaryRowTop: androidx.compose.ui.unit.Dp,
     xlSceneEnabled: Boolean,
@@ -6115,9 +6163,14 @@ private fun EnhancedModernHomeRowsListBoundary(
                 carouselRows.getOrNull(carouselRows.indexOfFirst { it.key == row.key } - 1)
             }
             Column {
-                XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl, ordinaryRowHeadroom)
+                XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
             ModernRowSection(
                 row = row,
+                onHeaderMeasured = remember(xlScene, row.key) { { height -> xlScene.headerHeights[row.key] = height } },
+                onXlRowMeasured = remember(xlScene, row.key) { { height, withSummary ->
+                    xlScene.rowHeights[row.key] = height
+                    xlScene.summaryRowHeights[row.key] = withSummary
+                } },
                 doubleLeftRowShortcutEnabled =
                     doubleLeftRowShortcutEnabled,
                 myListSlotGeneration = myListSlotGeneration,

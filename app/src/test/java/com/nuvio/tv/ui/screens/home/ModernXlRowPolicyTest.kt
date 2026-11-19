@@ -53,4 +53,38 @@ class ModernXlRowPolicyTest {
         assertFalse(gate.accept(1,230L,false))
         assertTrue(gate.accept(2,250L,true))
     }
+    @Test fun `balanced full width placement leaves equal margins and preserves compact anchor`() {
+        for ((screen, row) in listOf(540f to 430f, 720f to 530f, 1080f to 740f)) {
+            val top = xlBalancedTop(screen, row, true)
+            assertEquals(top - HOME_PLATFORM_SELECTOR_BOTTOM_DP, screen - top - row, 0.001f)
+            assertEquals(54f, xlBalancedTop(screen, row, false), 0f)
+        }
+    }
+
+    @Test fun `following hero starts just off screen while the XL tail can clear completely`() {
+        val gap = xlFollowingHeadroom(540f, 470f, 260f, 30f, 6f)
+        val heroTop = 470f + 24f + gap - 260f + 30f + 6f
+        assertEquals(548f, heroTop, 0.001f)
+        assertTrue(260f - 24f - gap < 0f)
+    }
+
+    @Test fun `a centered ordinary hero starts just off screen and only gains clearance during exit`() {
+        val previewGap = xlFollowingHeadroom(540f, 505f, 260f, 96f, -2f, clearXl = false)
+        assertEquals(548f, 505f + 24f + previewGap - 260f + 96f - 2f, 0.001f)
+        val exitGap = xlFollowingHeadroom(540f, 505f, 260f, 96f, -2f, clearXl = true)
+        assertTrue(exitGap > previewGap)
+        assertTrue(260f - 24f - exitGap < 0f)
+    }
+
+    @Test fun `long jump runway only needs a visible window at each scroll position`() {
+        val track = XlRankTrack(160f, FloatArray(10_000) { 40f })
+        for (fraction in listOf(1f, 0.75f, 0.5f, 0.25f, 0f)) {
+            val origin = track.origin(9999) * fraction + track.origin(0) * (1f - fraction)
+            val first = track.firstPortrait(origin)
+            val x = track.portraitLeftAtOrigin(first, origin, 430f)
+            assertTrue(x in 200f..500f)
+            assertTrue(first in 0..9999)
+        }
+    }
+
 }

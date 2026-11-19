@@ -476,7 +476,8 @@ internal fun HeroTitleBlock(
     platformTransitionSnap: Boolean = false,
     fullWidthIconRowEnabled: Boolean = false,
     heroMetadataLarge: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    contentModifier: Modifier = Modifier
 ) {
     if (preview == null) return
 
@@ -522,7 +523,8 @@ internal fun HeroTitleBlock(
             label = "heroTitleSlide"
         ) { pid ->
             val frozenPreview = previewByPlatform[pid] ?: return@AnimatedContent
-            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled, heroMetadataLarge = heroMetadataLarge)
+            HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled,
+                heroMetadataLarge = heroMetadataLarge, modifier = contentModifier)
         }
     }
 }
@@ -536,7 +538,8 @@ internal fun HeroTitleContent(
     heroMetadataLarge: Boolean = false,
     showTitleLogo: Boolean = true,
     showDescription: Boolean = true,
-    useFullSizeDescription: Boolean = false
+    useFullSizeDescription: Boolean = false,
+    modifier: Modifier = Modifier
 ) {
     if (preview == null) return
     val descriptionMaxLines = if (portraitMode) 4 else 5
@@ -608,7 +611,7 @@ internal fun HeroTitleContent(
     // platforms. Focusing different titles within a platform uses plain fade (key unchanged).
 
     Column(
-        modifier = Modifier,
+        modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(titleSpacing)
     ) {
         if (showTitleLogo) {

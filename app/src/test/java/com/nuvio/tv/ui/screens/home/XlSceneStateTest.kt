@@ -48,18 +48,19 @@ class XlSceneStateTest {
         val scene = XlSceneState(xl)
         scene.focus(selection("C", 3), layout())
         assertTrue(scene.transition?.compactExit == true)
-        assertEquals(true, scene.expandedCompactRows["XL"])
+        assertEquals(true, scene.expandedXlRows["XL"])
         assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        assertFalse(checkNotNull(scene.transition).deferOrdinaryReveal)
         val exit = checkNotNull(scene.transition).id
         scene.rowsSettled(exit); scene.complete(exit)
-        assertEquals(true, scene.expandedCompactRows["XL"])
+        assertEquals(true, scene.expandedXlRows["XL"])
         scene.focus(selection("D", 4), layout())
-        assertEquals(true, scene.expandedCompactRows["XL"])
+        assertEquals(true, scene.expandedXlRows["XL"])
         scene.focus(xl, layout())
-        assertEquals(true, scene.expandedCompactRows["XL"])
+        assertEquals(true, scene.expandedXlRows["XL"])
         val enter = checkNotNull(scene.transition).id
         scene.rowsSettled(enter); scene.complete(enter)
-        assertNull(scene.expandedCompactRows["XL"])
+        assertNull(scene.expandedXlRows["XL"])
     }
 
     @Test fun `an interrupted transition cannot complete a newer one`() {

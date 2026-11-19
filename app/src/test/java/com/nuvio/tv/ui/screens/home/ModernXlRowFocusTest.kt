@@ -5,6 +5,10 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
@@ -13,6 +17,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -195,6 +201,7 @@ class ModernXlRowFocusTest {
 
     @Test fun doubleLeftRequiresTheOriginalRapidTiming() {
         content(doubleLeft = true)
+        val focusNode = compose.onNode(isFocused()).fetchSemanticsNode().id
         repeat(8) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
         compose.mainClock.autoAdvance = false
         down(KeyEvent.KEYCODE_DPAD_LEFT); up(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -202,7 +209,19 @@ class ModernXlRowFocusTest {
         down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 120); up(KeyEvent.KEYCODE_DPAD_LEFT)
         assertXlFocus(6)
         down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertXlFocus(6)
+        val portraits = compose.onAllNodes(hasTestTag("xl-portrait-test-xl-6"), useUnmergedTree = true)
+        portraits.assertCountEquals(1)
+        val before = portraits.fetchSemanticsNodes().single().boundsInRoot.left
+        compose.mainClock.advanceTimeBy(32); compose.waitForIdle()
+        val after = portraits.fetchSemanticsNodes().single().boundsInRoot.left
+        assertTrue("The portrait runway must scroll, before=$before after=$after", after > before)
+        assertXlFocus(6)
+        tap(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.runOnIdle { assertEquals("Select must still open the held featured title", "id-6", detailsId) }
+        compose.mainClock.advanceTimeBy(400); compose.waitForIdle()
         assertXlFocus(0)
+        assertEquals(focusNode, compose.onNode(isFocused()).fetchSemanticsNode().id)
         compose.mainClock.autoAdvance = true
     }
 
@@ -228,6 +247,68 @@ class ModernXlRowFocusTest {
         down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
         assertXlFocus(6)
         compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun xlRankBottomMatchesTheOrdinaryNumberedPosterGeometry() {
+        compose.runOnUiThread {
+            activity.get().setContent {
+                MaterialTheme {
+                    Column(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                        Box(Modifier.padding(start = 52.dp).testTag("regular-number")) {
+                            NumberedCatalogCardWrapper(8, 140.dp, 200.dp) {
+                                Box(Modifier.width(140.dp).height(200.dp).background(Color.Cyan))
+                            }
+                        }
+                        Spacer(Modifier.height(24.dp))
+                        Box(Modifier.padding(start = 52.dp).testTag("xl-number")) {
+                            NumberedCatalogCardWrapper(8, 163.dp, 244.dp, preMeasuredTextWidth = 32.dp,
+                                compactXl = true, compactXlFontSize = xlRankFontSize(244f)) {
+                                Box(Modifier.width(163.dp).height(244.dp).background(Color.Cyan))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        fun bottom(tag: String, height: Float) = compose.onNodeWithTag(tag).fetchSemanticsNode()
+            .layoutInfo.coordinates.positionInRoot().y + height
+        val ordinaryBottom = bottom("regular-number", 200f)
+        val xlBottom = bottom("xl-number", 244f)
+        val inkBottoms = mutableListOf<Int>()
+        compose.runOnUiThread {
+            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            bitmap.eraseColor(android.graphics.Color.BLACK)
+            view.draw(android.graphics.Canvas(bitmap))
+            for (posterBottom in listOf(ordinaryBottom, xlBottom)) {
+                val lastInk = ((posterBottom - 35).toInt()..(posterBottom + 14).toInt()).last { y ->
+                    (0..50).any { x -> bitmap.getPixel(x, y) == android.graphics.Color.rgb(136, 136, 136) }
+                }
+                inkBottoms += lastInk
+            }
+            bitmap.recycle()
+        }
+        val ordinaryDrop = inkBottoms[0] - ordinaryBottom
+        val xlDrop = inkBottoms[1] - xlBottom
+        assertTrue("XL rank ink should reach below its poster, drop=$xlDrop", xlDrop > 0f)
+        assertEquals("XL and ordinary ranks should sit at the same lower edge", ordinaryDrop, xlDrop, 3f)
+    }
+
+    @Test fun leavingDuringAnAnimatedJumpCannotChangeTheRememberedTitleLater() {
+        content(doubleLeft = true)
+        repeat(8) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        compose.mainClock.autoAdvance = false
+        down(KeyEvent.KEYCODE_DPAD_LEFT); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        assertXlFocus(7)
+        down(KeyEvent.KEYCODE_DPAD_UP); up(KeyEvent.KEYCODE_DPAD_UP)
+        compose.runOnIdle { assertTrue(platformHasFocus) }
+        compose.mainClock.advanceTimeBy(700); compose.waitForIdle()
+        compose.runOnIdle { assertTrue(platformHasFocus); assertEquals(7, selected.intValue) }
+        compose.mainClock.autoAdvance = true
+        tap(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertXlFocus(7)
     }
 
     @Test fun summaryOffRemovesItsSpaceAndShowsTheFollowingRow() {

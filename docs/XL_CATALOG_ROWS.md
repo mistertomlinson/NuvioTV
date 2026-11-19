@@ -38,12 +38,18 @@ Double Left now uses the ordinary row shortcut's 80 ms release-to-next-press
 window, measured with native input timestamps. Both presses must be quick taps;
 a held press/repeat cannot arm the next fresh Left as a shortcut. Slow Lefts
 remain individual moves. A fresh Left at item zero can still open the sidebar.
+The shortcut scrolls a bounded portrait runway at ordinary-row speed (compressing
+very long trips), then changes the featured title. The landscape image, inline
+metadata, trailer and Select target stay on the same title until that scroll
+finishes. Vertical navigation cancels a running jump without moving focus later.
 
 Numbered XL posters and their lower metadata retain the ordinary 52 dp heading
 anchor. Ranks extend into the existing left gutter, with eight dp behind the
 poster edge; upcoming posters reserve measured rank gaps. The original Jost
 solid/outline renderer and theme color are reused at a smaller size. Long ranks
 scale down enough to fit the gutter rather than pushing the featured card right.
+Their baseline sits slightly below the poster bottom, following the ordinary
+number layout; the artwork viewport allows that lower ink and outline to draw.
 
 ## Vertical presentation
 
@@ -51,8 +57,9 @@ scale down enough to fit the gutter rather than pushing the featured card right.
 that was actually presented before the focus change, including its preview and
 scroll position. That snapshot moves with measured LazyColumn displacement;
 virtualizing its original row cannot replace it with another row's metadata.
-A second direction press carries any still-visible outgoing snapshot forward;
-it cannot disappear merely because focus has already crossed an XL boundary.
+Rapidly crossing an XL row preserves any still-visible original outgoing
+snapshot. A second ordinary-row focus after an XL exit instead resumes the
+stationary hero presentation, transitioning to the new ordinary title in place.
 Returning directly to that same visible owner preserves its logo composition.
 At rest, an XL row has only its own inline metadata. The ordinary hero block is
 unmounted, so a retained logo cannot remain behind the XL image.
@@ -62,15 +69,24 @@ move together. On leaving XL upward, the incoming ordinary block is attached to
 its row's measured header position. During XL motion a moving exclusion mask keeps older posters out of the
 travelling ordinary hero space. It never uncovers a hidden row behind that
 metadata. Outside that moving space the catalog clips only at the screen edge,
-so an outgoing XL image can cross the former logo area intact. A 30 dp inset
-before a non-first XL row ensures the preceding row clears y=0 when XL lands. Ordinary-to-ordinary
+so an outgoing XL image can cross the former logo area intact. Measured title
+heights share the poster focus anchor with moving metadata, preventing a final
+few-pixel correction when the transition completes. In full-width platform mode,
+the summary row is centered between the selector's bottom (42 dp) and the screen
+bottom. Compact XL keeps that same poster anchor while exposing the following
+row. Each non-first XL row reserves enough prefix to place preceding posters
+entirely above the screen at landing. Ordinary-to-ordinary
 navigation keeps the stationary upper metadata and ordinary clipping.
 
-An ordinary row following a summary XL row has real space for its upper metadata.
-For a summary-free downward exit, that space grows during the movement: the next
-row moves toward its normal position while the entire outgoing XL row travels
-off screen. The incoming ordinary metadata remains transparent until the rows
-land and the incoming backdrop frame is available. The gap stays open while
+The space before a following ordinary row is calculated from the XL row's
+measured bottom, the viewport, and the ordinary hero's resting position, keeping
+the next hero just below the screen instead of leaving a second oversized gap.
+On either downward exit, the gap grows only as much as needed during movement:
+the next row moves toward its normal position while the entire outgoing XL row
+travels off screen. A summary XL starts with its following hero 8 dp below the
+viewport, and compact XL starts with its normal next-row peek. The incoming metadata reveals below the departing XL's bottom edge,
+using the backdrop's fade clock as soon as its frame is ready. Neither the
+metadata nor the row mask can clip the XL artwork. The gap stays open while
 browsing ordinary rows below it, allowing a later upward return to bring the
 whole scene down together. Once XL is back in place and outgoing metadata is off
 screen, the gap closes to restore the next-row peek.
@@ -83,9 +99,17 @@ and waits for the target image renderer's success/error acknowledgement. A
 bounded two-second wait avoids stranding the screen if a renderer never replies.
 A stale outgoing frame cannot release the new handoff.
 
-The backdrop then fades to 94% black for XL, or to the ordinary background when
-leaving. Row landing and image readiness gate this reveal. A summary-free exit's
-ordinary metadata uses that same opacity clock. The new metadata composition
+Entering XL waits for the new frame and row landing before returning to 94%
+black. Exiting XL immediately commits its destination behind the dark layer,
+waits only for that image's frame, and fades to the ordinary backdrop while rows
+are still scrolling. Above and below backdrops are prewarmed at hero render size
+while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinary
+metadata uses the same opacity clock. Row ownership survives until landing so
+finishing the image fade cannot snap moving metadata into place.
+
+On the platform icon row, pages whose first catalog is XL already use the 94%
+dark layer. Moving Down into that XL does not add another darkening animation;
+ordinary-first pages keep their normal backdrop. The new metadata composition
 starts with the destination logo, so its internal logo crossfade cannot retain
 the previous XL/ordinary title. Platform navigation keeps its existing separate
 whole-page transition.
@@ -95,8 +119,11 @@ whole-page transition.
 Robolectric tests exercise the real XL card and horizontal navigation, plus a
 real focusable LazyColumn harness using the production scene controller, hero
 metadata, headroom and backdrop timing. They cover synchronized vertical motion,
-no retained upper metadata at rest, the summary-free exit/return, delayed-frame
-handoffs, strict double-Left timing, and numbered-card anchoring. JVM tests cover
+no retained upper metadata at rest, measured-heading landing without a jump,
+full-width balance and preceding-row clearance, tighter following-hero spacing,
+reveal before row settlement, a second rapid Up, XL-first platform darkness,
+the summary-free exit/return, delayed-frame handoffs, strict double-Left timing,
+animated portrait return, and numbered-card anchoring. JVM tests cover
 snapshot ownership, recycling, interrupted transitions, gap lifetime, frame
 identity, preferences and existing app behavior. These supplement TV review.
 

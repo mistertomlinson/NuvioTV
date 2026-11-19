@@ -22,6 +22,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
@@ -58,6 +59,8 @@ class ModernXlSceneTransitionTest {
     private lateinit var list: LazyListState
     private lateinit var backdrop: XlBackdropPresentation
     private val frameReady = mutableStateOf(true)
+    private val carouselFocused = mutableStateOf(false)
+    private val startsWithXl = mutableStateOf(false)
     private val resolved = mutableStateOf<HeroPreview?>(null)
     private val requesters = List(5) { FocusRequester() }
     private lateinit var rows: List<HeroCarouselRow>
@@ -66,9 +69,12 @@ class ModernXlSceneTransitionTest {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(start: Int = 1, summary: Boolean = true) {
+    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24) {
         rows = listOf(row("Earlier", 0), row("A", 1), row("XL", 2, true, summary), row("C", 3), row("D", 4))
-        scene = XlSceneState(rows[start].sceneSelection(0, start), rows)
+        scene = XlSceneState(rows[start].sceneSelection(0, start), rows).apply {
+            fullWidthIcons = fullWidth
+            metadataRestingTop = metadataTop.dp
+        }
         list = LazyListState(start)
         resolved.value = scene.selection?.preview
         lateinit var seek: () -> Unit
@@ -76,7 +82,7 @@ class ModernXlSceneTransitionTest {
             activity = Robolectric.buildActivity(ComponentActivity::class.java).setup()
             activity.get().setContent {
                 MaterialTheme {
-                    backdrop = rememberXlBackdropPresentation(scene, true, resolved.value, false)
+                    backdrop = rememberXlBackdropPresentation(scene, true, resolved.value, carouselFocused.value, startsWithXl.value)
                     val visibleBackdrop = if (backdrop.owned) backdrop.preview else scene.transition?.outgoingBackdrop ?: resolved.value
                     val token = backdrop.token
                     SideEffect {
@@ -90,7 +96,8 @@ class ModernXlSceneTransitionTest {
                     val spec = remember {
                         object : BringIntoViewSpec {
                             override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
-                                offset - (if (scene.selection?.isXl == true) 54f else 260f) - 40f
+                                offset - (if (scene.selection?.isXl == true) scene.xlTop(checkNotNull(scene.selection).rowKey).value else 260f) -
+                                    (if (scene.selection?.isXl == true) header.toFloat() else 40f)
                         }
                     }
                     Box(Modifier.width(960.dp).height(540.dp).background(Color.Black).testTag("scene")) {
@@ -103,8 +110,15 @@ class ModernXlSceneTransitionTest {
                             ) {
                                 itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
                                     Column(Modifier.testTag("row-${row.key}")) {
-                                        XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl, 466.dp)
-                                        Text(row.title, Modifier.height(40.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
+                                        XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl)
+                                        Column(Modifier.onSizeChanged {
+                                            if (row.isXl) {
+                                                scene.rowHeights[row.key] = it.height.dp
+                                                // The compact mode uses the same visual anchor as summary mode.
+                                                scene.summaryRowHeights[row.key] = it.height.dp + if (summary) 0.dp else 80.dp
+                                            }
+                                        }) {
+                                        Text(row.title, Modifier.onSizeChanged { scene.headerHeights[row.key] = it.height.toFloat() }.height(header.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
                                         Box(Modifier.padding(start = 52.dp).width(700.dp)
                                             .height(if (row.isXl) 244.dp else 200.dp)
                                             .background(if (row.isXl) Color.Magenta else Color.Blue)
@@ -113,7 +127,7 @@ class ModernXlSceneTransitionTest {
                                                 if (it.isFocused) {
                                                     val selected = checkNotNull(row.sceneSelection(0, index))
                                                     scene.focus(selected, list.layoutInfo, rows = rows)
-                                                    resolved.value = selected.preview
+                                                    if (!freezeHero) resolved.value = selected.preview
                                                 }
                                             }.focusable().testTag("poster-${row.key}"))
                                         if (row.isXl) Box(Modifier.padding(start = 52.dp, top = 12.dp).width(430.dp)) {
@@ -121,14 +135,15 @@ class ModernXlSceneTransitionTest {
                                                 showTitleLogo = false, showDescription = row.showXlSummary,
                                                 useFullSizeDescription = true)
                                         }
+                                        }
                                     }
                                 }
                             }
                         }
                         ModernXlAwareHeroTitleBlock(
                             scene, backdrop, true, resolved.value, list, 260f, 1f,
-                            true, "home", 0, false, false, true,
-                            Modifier.padding(start = 52.dp, top = 24.dp).width(430.dp)
+                            true, "home", 0, false, fullWidth, !fullWidth,
+                            Modifier.padding(start = 52.dp, top = metadataTop.dp).width(430.dp)
                         )
                     }
                 }
@@ -183,6 +198,86 @@ class ModernXlSceneTransitionTest {
     }
     private fun metadataCount() = compose.onAllNodes(hasTestTag("ordinary-metadata-A") or
         hasTestTag("ordinary-metadata-C") or hasTestTag("ordinary-metadata-XL"), useUnmergedTree = true).fetchSemanticsNodes().size
+
+    @Test fun measuredHeadingHasNoCorrectionJumpAtTheEndOfAnXlExit() {
+        content(start = 2, header = 46)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        awaitRows()
+        val landing = y("ordinary-metadata-A")
+        settle()
+        assertEquals("The travelling block must land at its exact resting position", landing, y("ordinary-metadata-A"), 0.6f)
+        assertEquals(24f, landing, 0.6f)
+    }
+
+    @Test fun xlExitRevealsTheReadyDestinationBeforeTheRowsSettle() {
+        content(start = 2)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(112)
+        assertEquals("Backdrop A", backdrop.preview?.backdrop)
+        assertTrue("The image must reveal during the scroll", backdrop.revealing)
+        assertTrue(backdrop.dim.value < 0.95f)
+        assertFalse(checkNotNull(scene.transition).rowsSettled)
+        settle()
+    }
+
+    @Test fun aSecondUpResumesAStationaryOrdinaryHero() {
+        content(start = 2, freezeHero = true)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(80)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        assertEquals("Earlier", scene.selection?.rowKey)
+        assertNull(scene.transition)
+        advance(32)
+        val top = y("ordinary-metadata-Earlier")
+        advance(112)
+        assertEquals(top, y("ordinary-metadata-Earlier"), 0.1f)
+        compose.runOnIdle { resolved.value = scene.selection?.preview }
+        advance(32)
+        assertEquals(top, y("ordinary-metadata-Earlier"), 0.1f)
+        advance(360)
+        assertFalse(backdrop.owned)
+        assertNull(scene.stationaryMetadata)
+        settle()
+    }
+
+    @Test fun fullWidthXlBalancesItsSummaryAndClearsThePreviousRow() {
+        content(start = 2, fullWidth = true, metadataTop = 96)
+        settle()
+        val xlTop = y("heading-XL")
+        val xlBodyHeight = checkNotNull(scene.rowHeights["XL"]).value
+        assertEquals(xlTop - HOME_PLATFORM_SELECTOR_BOTTOM_DP, 540f - xlTop - xlBodyHeight, 2f)
+        val previous = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "A" }
+        assertTrue(previous == null || previous.offset + list.layoutInfo.beforeContentPadding + previous.size <= 0)
+        // The next ordinary hero begins only a few pixels below the viewport.
+        val next = checkNotNull(list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "C" })
+        val nextMeta = next.offset + list.layoutInfo.beforeContentPadding + checkNotNull(scene.headroomValues["C"]).value - 260f + 96f
+        assertEquals("Incoming hero should start just off screen", 548f, nextMeta, 1f)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(112)
+        val edge = checkNotNull(scene.outgoingXlBottom(list.layoutInfo))
+        val mask = xlSceneMetadataMask(scene, list.layoutInfo, true, 260f, 1f)
+        assertTrue("The mask must preserve the outgoing summary", mask == null || mask.first >= edge)
+        settle()
+        val outgoing = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "XL" }
+        assertTrue(outgoing == null || outgoing.offset + list.layoutInfo.beforeContentPadding + outgoing.size <= 0)
+    }
+
+    @Test fun anXlFirstPlatformPageStaysDarkOnThePlatformIcons() {
+        startsWithXl.value = true
+        carouselFocused.value = true
+        content(start = 2)
+        settle()
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        carouselFocused.value = false
+        advance(64)
+        assertEquals("Down must not cause a second darkening", XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        settle()
+        carouselFocused.value = true
+        startsWithXl.value = false
+        advance(160)
+        assertTrue("Ordinary-first pages return to the visible backdrop", backdrop.dim.value < 0.9f)
+        settle()
+    }
 
     @Test fun enteringXlKeepsThePaintedOutgoingBlockAndSlidesItWithTheRow() {
         content()
@@ -310,7 +405,7 @@ class ModernXlSceneTransitionTest {
 
     @Test fun restoredOrdinaryFocusBelowCompactXlCanReturnUpAsOneScene() {
         content(start = 3, summary = false)
-        assertEquals(true, scene.expandedCompactRows["XL"])
+        assertEquals(true, scene.expandedXlRows["XL"])
         assertEquals(260f, y("heading-C"), 2f)
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(32)
@@ -341,12 +436,37 @@ class ModernXlSceneTransitionTest {
         content(start = 2, summary = false)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(64)
-        assertNull(xlSceneMetadataMask(scene, list.layoutInfo, true, 260f, 1f))
+        val mask = xlSceneMetadataMask(scene, list.layoutInfo, true, 260f, 1f)
+        val outgoingBottom = checkNotNull(scene.outgoingXlBottom(list.layoutInfo))
+        assertTrue(mask == null || mask.first >= outgoingBottom)
         val posterTop = y("poster-XL")
         val top = posterTop.coerceAtLeast(0f)
         val bottom = (posterTop + 244f).coerceAtMost(250f)
         assertTrue("The outgoing XL image crosses the ordinary hero region", bottom > top)
         assertEquals(android.graphics.Color.MAGENTA, pixel(700, ((top + bottom) / 2).toInt()))
+        settle()
+    }
+
+    @Test fun compactExitRevealsEarlyWithoutPaintingMetadataOverTheDepartingPoster() {
+        content(start = 2, summary = false)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(112)
+        assertTrue(backdrop.revealing)
+        assertFalse(checkNotNull(scene.transition).rowsSettled)
+        val posterTop = y("poster-XL")
+        val top = (posterTop + 3f).coerceAtLeast(0f).toInt()
+        val bottom = (posterTop + 241f).coerceAtMost(250f).toInt()
+        assertTrue(bottom > top)
+        compose.runOnUiThread {
+            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            view.draw(android.graphics.Canvas(bitmap))
+            var altered = 0
+            for (py in top until bottom) for (px in 60 until 440)
+                if (bitmap.getPixel(px, py) != android.graphics.Color.MAGENTA) altered++
+            bitmap.recycle()
+            assertEquals("The whole departing poster must stay intact during early reveal", 0, altered)
+        }
         settle()
     }
 

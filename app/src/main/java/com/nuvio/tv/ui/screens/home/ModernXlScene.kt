@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -67,8 +69,9 @@ internal data class XlSceneTransition(
     val keepMetadataVisible: Boolean,
     val rowsSettled: Boolean = false
 ) {
-    val compactExit = from.isXl && !from.summary && !to.isXl && to.rowIndex > from.rowIndex
-    val deferOrdinaryReveal = !keepMetadataVisible && (compactExit || outgoingMetadata != null && !to.isXl)
+    val downwardExit = from.isXl && !to.isXl && to.rowIndex > from.rowIndex
+    val compactExit = downwardExit && !from.summary
+    val deferOrdinaryReveal = !keepMetadataVisible && outgoingMetadata != null && !to.isXl
 }
 
 @Stable
@@ -85,16 +88,40 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private var paintedAlpha = 0f
     private var paintedEpoch = 0
     private var paintedBackdrop: HeroPreview? = null
-    val expandedCompactRows = mutableStateMapOf<String, Boolean>()
+    val expandedXlRows = mutableStateMapOf<String, Boolean>()
     val headroomValues = mutableStateMapOf<String, Dp>()
     val headroomMoving = mutableStateMapOf<String, Boolean>()
+    val headerHeights = mutableStateMapOf<String, Float>()
+    val rowHeights = mutableStateMapOf<String, Dp>()
+    val summaryRowHeights = mutableStateMapOf<String, Dp>()
+    var screenHeight by mutableStateOf(540.dp)
+    var fullWidthIcons by mutableStateOf(false)
+    var estimatedXlHeight by mutableStateOf(440.dp)
+    var ordinaryTop by mutableStateOf(260.dp)
+    var metadataRestingTop by mutableStateOf(54.dp)
+    var metadataHeightPx by mutableFloatStateOf(0f)
+    var stationaryMetadata by mutableStateOf<XlMetadataSnapshot?>(null)
+        private set
 
-    init { initial?.let { openEarlierCompactGaps(it, rows) } }
+    fun xlTop(rowKey: String): Dp = xlBalancedTop(screenHeight.value,
+        (summaryRowHeights[rowKey] ?: estimatedXlHeight).value, fullWidthIcons).dp
 
-    private fun openEarlierCompactGaps(next: XlSceneSelection, rows: List<HeroCarouselRow>) {
+    fun followingHeadroom(previousKey: String, rowKey: String, density: Float, clearXl: Boolean): Dp {
+        val bottom = xlTop(previousKey) + (rowHeights[previousKey] ?: estimatedXlHeight)
+        return xlFollowingHeadroom(screenHeight.value, bottom.value, ordinaryTop.value,
+            metadataRestingTop.value, (headerHeights[rowKey] ?: 40f * density) / density - 40f, clearXl).dp
+    }
+
+    fun resolveStationaryMetadata(preview: HeroPreview?) {
+        if (stationaryMetadata?.preview == preview) stationaryMetadata = null
+    }
+
+    init { initial?.let { openEarlierXlGaps(it, rows) } }
+
+    private fun openEarlierXlGaps(next: XlSceneSelection, rows: List<HeroCarouselRow>) {
         for (index in 0 until next.rowIndex.coerceIn(0, rows.size)) {
             val row = rows[index]
-            if (row.isXl && !row.showXlSummary) expandedCompactRows[row.key] = true
+            if (row.isXl) expandedXlRows[row.key] = true
         }
     }
 
@@ -112,14 +139,24 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun focus(next: XlSceneSelection, layout: LazyListLayoutInfo, animate: Boolean = true, rows: List<HeroCarouselRow> = emptyList()) {
         val previous = selection
         val previousMove = transition
-        if (previous?.rowKey != next.rowKey) openEarlierCompactGaps(next, rows)
+        if (previous?.rowKey != next.rowKey) openEarlierXlGaps(next, rows)
         selection = next
         if (previous?.rowKey == next.rowKey) return
+        // Once an XL exit reaches a second ordinary row, that hero resumes the
+        // normal stationary presentation. Never drag the first incoming logo
+        // down with an unrelated row on a rapid second Up.
+        if (animate && previous != null && !previous.isXl && !next.isXl &&
+            (previousMove?.from?.isXl == true && previousMove.outgoingMetadata == null || stationaryMetadata != null)) {
+            stationaryMetadata = XlMetadataSnapshot(next.rowKey, next.preview)
+            transition = null
+            return
+        }
+        stationaryMetadata = null
         val carrying = previousMove != null && paintedAlpha > 0f && paintedMetadata != null &&
             (paintedMetadata?.rowKey == previous?.rowKey || paintedMetadata?.rowKey == previousMove.outgoingMetadata?.rowKey)
         if (!animate || previous == null || (!previous.isXl && !next.isXl && !carrying)) {
             transition = null
-            if (next.isXl) expandedCompactRows.remove(next.rowKey)
+            if (next.isXl) expandedXlRows.remove(next.rowKey)
             return
         }
         val sameOwnerReturn = paintedMetadata?.rowKey == next.rowKey && paintedAlpha > 0f
@@ -135,7 +172,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             paintedEpoch, sameOwnerReturn
         )
         transition = move
-        if (move.compactExit) expandedCompactRows[previous.rowKey] = true
+        if (move.downwardExit) expandedXlRows[previous.rowKey] = true
     }
 
     fun rowsSettled(id: Int) {
@@ -147,7 +184,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         transition = null
         // Close the preview gap only after the outgoing ordinary metadata has
         // left the screen. It cannot reappear while the next-row peek returns.
-        selection?.takeIf { it.isXl }?.let { expandedCompactRows.remove(it.rowKey) }
+        selection?.takeIf { it.isXl }?.let { expandedXlRows.remove(it.rowKey) }
     }
 
     fun outgoingTranslation(layout: LazyListLayoutInfo): Float = transition?.let {
@@ -157,7 +194,17 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun incomingTranslation(layout: LazyListLayoutInfo, ordinaryTopPx: Float, density: Float): Float? {
         val key = selection?.rowKey ?: return null
         val owner = layout.visibleItemsInfo.firstOrNull { it.key == key } ?: return null
-        return owner.offset + layout.beforeContentPadding + (headroomValues[key]?.value ?: 0f) * density - ordinaryTopPx
+        // BringIntoView aligns the focused poster at ordinaryTop + 40dp. A
+        // measured heading may be a few pixels taller/shorter than that inset.
+        // Use the very same poster anchor so the final moving frame is zero.
+        return owner.offset + layout.beforeContentPadding + (headroomValues[key]?.value ?: 0f) * density +
+            (headerHeights[key] ?: 40f * density) - ordinaryTopPx - 40f * density
+    }
+
+    fun outgoingXlBottom(layout: LazyListLayoutInfo): Float? {
+        val move = transition?.takeIf { it.downwardExit } ?: return null
+        val owner = layout.visibleItemsInfo.firstOrNull { it.key == move.from.rowKey } ?: return 0f
+        return (owner.offset + layout.beforeContentPadding + owner.size).toFloat().coerceAtLeast(0f)
     }
 }
 
@@ -180,7 +227,10 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
         move != null -> scene.incomingTranslation(layout, ordinaryTopPx, density) ?: return null
         else -> 0f
     }
-    return offset to offset + ordinaryTopPx
+    val edge = if (xlSceneOutgoingMetadataVisible(scene, layout, ordinaryTopPx, viewportHeightPx)) null
+        else scene.outgoingXlBottom(layout)
+    val top = edge?.let { maxOf(offset, it) } ?: offset
+    return if (top < offset + ordinaryTopPx) top to offset + ordinaryTopPx else null
 }
 
 /** Keep the hero's empty space attached to its row; never uncover an older row behind it. */
@@ -196,26 +246,28 @@ internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListSta
     }
 }
 
-/** The real gap grows during a compact downward exit, so XL can leave the screen. */
+/** Start the next hero just off screen, then grow enough space for XL to clear. */
 @Composable
 internal fun XlSceneRowHeadroom(
     scene: XlSceneState,
     rowKey: String,
     previous: HeroCarouselRow?,
-    currentXl: Boolean,
-    fullHeadroom: Dp
+    currentXl: Boolean
 ) {
     val followsXl = previous?.isXl == true && !currentXl
     val compact = followsXl && previous?.showXlSummary == false
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val expanded = previous?.key?.let { scene.expandedXlRows[it] } == true
     val target = when {
-        // The preceding row must be entirely above y=0 when XL's heading lands
-        // at y=54: the shared 24dp gap plus this inset supplies those 54dp.
-        currentXl && previous != null -> 30.dp
-        followsXl && (!compact || previous?.key?.let { scene.expandedCompactRows[it] } == true) -> fullHeadroom
+        // The gap and prefix together clear the previous row beyond y=0 at
+        // XL's measured landing position, including the balanced full-width mode.
+        currentXl && previous != null -> (scene.xlTop(rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+        followsXl && (expanded || !compact) ->
+            scene.followingHeadroom(checkNotNull(previous).key, rowKey, density, clearXl = expanded)
         else -> 0.dp
     }
     val animated = animateDpAsState(target, tween(360), label = "xlMetadataHeadroom")
-    val height = if (compact) animated.value else target
+    val height = if (followsXl) animated.value else target
     SideEffect {
         scene.headroomValues[rowKey] = height
         scene.headroomMoving[rowKey] = height != target
@@ -265,32 +317,42 @@ internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolea
     fun ready(): Boolean = renderedToken == token && readyToken == token && readyUrl == expectedUrl
 }
 
-/** Swap while black, wait for the actual frame and row landing, then reveal together. */
+/** Enter behind black; an XL exit reveals its prewarmed destination during the scroll. */
 @Composable
 internal fun rememberXlBackdropPresentation(
     scene: XlSceneState,
     enabled: Boolean,
     resolvedHero: HeroPreview?,
-    carouselFocused: Boolean
+    carouselFocused: Boolean,
+    pageStartsWithXl: Boolean = false
 ): XlBackdropPresentation {
     val selected = scene.selection
-    val state = remember(scene) { XlBackdropPresentation(resolvedHero, selected?.isXl == true && !carouselFocused) }
+    val darkTarget = enabled && if (carouselFocused) pageStartsWithXl else selected?.isXl == true
+    val state = remember(scene) { XlBackdropPresentation(resolvedHero, darkTarget) }
     val latestResolved by rememberUpdatedState(resolvedHero)
     val selectionKey = selected?.let { it.rowKey to it.itemKey }
     LaunchedEffect(scene, selectionKey, selected?.preview?.backdrop, selected?.preview?.imageUrl,
-        selected?.preview?.poster, carouselFocused, enabled) {
+        selected?.preview?.poster, carouselFocused, pageStartsWithXl, enabled) {
         val target = selected ?: return@LaunchedEffect
-        val boundaryId = scene.transition?.id
-        val dark = enabled && target.isXl && !carouselFocused
+        val boundary = scene.transition
+        val boundaryId = boundary?.id
+        val exitingXl = boundary?.from?.isXl == true && !target.isXl
+        val dark = enabled && if (carouselFocused) pageStartsWithXl else target.isXl
         if (!enabled) {
             state.owned = false
             state.dim.snapTo(0f)
             if (boundaryId != null) scene.complete(boundaryId)
             return@LaunchedEffect
         }
-        if (!target.isXl && boundaryId == null) {
-            state.owned = false
+        if (!target.isXl && !dark && boundaryId == null) {
+            if (scene.stationaryMetadata != null) {
+                state.preview = target.preview
+                state.owned = true
+            } else if (latestResolved == target.preview) state.owned = false
+            state.revealing = true
             state.dim.animateTo(0f, tween(280))
+            scene.resolveStationaryMetadata(latestResolved)
+            if (latestResolved == target.preview) state.owned = false
             return@LaunchedEffect
         }
         if (!state.owned && !dark && boundaryId == null) return@LaunchedEffect
@@ -299,22 +361,29 @@ internal fun rememberXlBackdropPresentation(
         state.revealing = false
         if (state.preview != target.preview || boundaryId != null) {
             // A true black beat masks both the outgoing frame and image loading.
-            state.dim.animateTo(1f, tween(if (state.dim.value > 0.9f) 80 else 240))
+            if (exitingXl) state.dim.snapTo(1f)
+            else state.dim.animateTo(1f, tween(if (state.dim.value > 0.9f) 80 else 240))
             state.token++
             state.preview = target.preview
             // Let the renderer bind the committed token before checking readiness.
             repeat(2) { withFrameNanos { } }
             withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
         }
-        if (boundaryId != null) {
+        if (boundaryId != null && !exitingXl) {
             snapshotFlow { scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true }.first { it }
         }
         state.revealing = true
         state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f, tween(280))
+        // Keep row-attached metadata and the viewport mask alive until landing,
+        // even when the destination image has already faded in.
+        if (boundaryId != null && exitingXl) {
+            snapshotFlow { scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true }.first { it }
+        }
         if (boundaryId != null) scene.complete(boundaryId)
         if (!dark && latestResolved == target.preview) state.owned = false
     }
     LaunchedEffect(resolvedHero, state.owned, scene.transition, selected?.isXl) {
+        scene.resolveStationaryMetadata(resolvedHero)
         if (scene.transition == null && selected?.isXl != true && state.dim.value == 0f &&
             resolvedHero == selected?.preview) state.owned = false
     }
@@ -350,7 +419,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         outgoing -> move?.outgoingMetadata
         selected?.isXl == true -> null
         move != null -> selected?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
-        else -> (if (backdrop.owned) selected?.preview else resolvedHero)?.let {
+        else -> (scene.stationaryMetadata?.preview ?: if (backdrop.owned) selected?.preview else resolvedHero)?.let {
             XlMetadataSnapshot(selected?.rowKey.orEmpty(), it)
         }
     }
@@ -359,6 +428,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         return
     }
     val epoch = if (outgoing) move?.outgoingMetadataEpoch ?: scene.metadataEpoch else scene.metadataEpoch
+    val metadataLayoutTop = remember(scene) { floatArrayOf(0f) }
     key(epoch) {
         HeroTitleBlock(
             preview = snapshot.preview,
@@ -368,6 +438,7 @@ internal fun ModernXlAwareHeroTitleBlock(
             platformTransitionSnap = platformTransitionSnap,
             fullWidthIconRowEnabled = fullWidthIconRowEnabled,
             heroMetadataLarge = heroMetadataLarge,
+            contentModifier = Modifier.onGloballyPositioned { scene.metadataHeightPx = it.size.height.toFloat() },
             modifier = modifier.testTag("ordinary-metadata-${snapshot.rowKey}").graphicsLayer {
                 val incomingOffset = if (enabled && move != null && !outgoing && !move.deferOrdinaryReveal)
                     scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) else 0f
@@ -378,8 +449,25 @@ internal fun ModernXlAwareHeroTitleBlock(
                 }
                 alpha = if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled && backdrop.revealing) (1f - backdrop.dim.value).coerceIn(0f, 1f) else 0f
+                } else if (enabled && backdrop.owned && selected?.isXl == false && !outgoing) {
+                    if (backdrop.revealing) (1f - backdrop.dim.value).coerceIn(0f, 1f) else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
                 scene.recordMetadata(snapshot, translationY, alpha, epoch)
+            }.onGloballyPositioned {
+                val translation = if (outgoing) scene.outgoingTranslation(list.layoutInfo)
+                    else if (move != null && !move.deferOrdinaryReveal)
+                        scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) ?: 0f else 0f
+                metadataLayoutTop[0] = it.positionInRoot().y - translation
+            }.drawWithContent {
+                // Reveal below the departing row's edge. The next hero may be
+                // nearer than a full hero-height gap, especially in compact XL.
+                // Never cut its artwork or final summary lines with that mask.
+                val edge = scene.outgoingXlBottom(list.layoutInfo)
+                if (enabled && edge != null && !outgoing) {
+                    val offset = scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) ?: 0f
+                    val top = (edge - metadataLayoutTop[0] - offset).coerceAtLeast(0f)
+                    if (top < size.height) clipRect(top = top) { this@drawWithContent.drawContent() }
+                } else drawContent()
             }
         )
     }
