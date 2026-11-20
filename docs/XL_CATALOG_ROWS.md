@@ -82,7 +82,12 @@ scroll position. That snapshot moves with measured LazyColumn displacement;
 virtualizing its original row cannot replace it with another row's metadata.
 Rapidly crossing an XL row preserves any still-visible original outgoing
 snapshot. A second ordinary-row focus after an XL exit instead resumes the
-stationary hero presentation, transitioning to the new ordinary title in place.
+stationary hero presentation. It holds the actually painted first ordinary block
+until the normal resolved/debounced hero reaches the latest selected row, then
+transitions to that title in place. This also applies when the immediate XL exit
+has already completed. Older intermediate results cannot release the hold.
+Returning into XL during that hold carries the visible snapshot, even if its
+owner differs from the most recent logical focus.
 Returning directly to that same visible owner preserves its logo composition.
 Reversals retain the metadata's painted clip as well as its position, so a
 prepared but hidden logo cannot flash into view over the departing poster.
@@ -103,15 +108,20 @@ row. Each non-first XL row reserves enough prefix to place preceding posters
 entirely above the screen at landing. Ordinary-to-ordinary
 navigation keeps the stationary upper metadata and ordinary clipping.
 
-Ordinary posters now disappear through a 20 dp alpha gradient just above the
-metadata cutoff. The resting heading and poster positions are unchanged: pages
+Ordinary poster bodies now disappear through a 20 dp alpha gradient below the
+metadata cutoff, reaching complete transparency 12 dp below it. Headings remain
+outside this body-only layer. Short headings can leave a previous poster bottom
+inside or just below the old viewport feather; that artwork is now fully clear
+instead of leaving residual pixels. The resting heading and poster positions are unchanged: pages
 without XL gain an equal 20 dp of viewport height, content padding and focus
 inset. The gradient moves with the existing ordinary metadata exclusion band
 during XL handoffs. A departing XL image still crosses the old logo region
 intact. The strip also respects each row's measured bounds: focus-scale and rank
 overhang cannot reappear in the empty gap after the preceding row clears it.
-Only the narrow fade strip uses an offscreen surface; the backdrop is
-preserved beneath its transparent pixels and metadata draws above it. Brushes
+Each visible ordinary horizontal row records its body position once per layout;
+mask geometry is read during drawing, without per-card position state. Only the
+narrow fade strip uses an offscreen surface; the backdrop is preserved beneath
+its transparent pixels and metadata draws above it. Brushes
 and paint are cached, with no full-screen poster-mask texture or per-frame blur.
 The default vertical BringIntoView animation, held-scroll velocity (1200 dp/s)
 and existing 360 ms following-row headroom adjustment are unchanged.
@@ -140,7 +150,11 @@ the ordinary hero's black gradients. Those gradients are restored for ordinary
 rows. The fixed blur runs on one background CPU lane, with cancellation checks
 between scanlines. It cannot grow with a full-size decode or tall poster fallback.
 Coil caches this separately from the original image; no sharp placeholder is
-used for a blurred frame. No live GPU blur or animated blur radius is attached
+used for a blurred frame. The frame's scale and alignment are fixed before its
+first crossfade, independently of ordinary overscan membership and poster
+fallback changes. Its request dimensions stay 160x90 through later hero
+measurements, so an incoming field cannot settle into a second crop or scale.
+No live GPU blur or animated blur radius is attached
 to scrolling artwork, text, trailers or controls.
 
 Horizontal XL changes have **no idle/debounce timer**. The selected destination's
@@ -154,11 +168,21 @@ window; that window never delays an active selection. During double Left the
 landscape shuffles normally, while the blur holds until the final destination
 is prepared rather than processing every transient image.
 
-Vertical managed handoffs first reach black, commit the appropriate sharp or
-blurred image, and wait for the matching renderer's success/error acknowledgement.
+Upward entry into XL keeps the current ordinary backdrop visible until the
+matching landscape and blur are prepared, then starts a direct 220 ms crossfade
+while the row is moving. It has no black stage, idle debounce or row-settle wait.
+The ordinary gradient fades away concurrently and its geometry remains in the
+outgoing layout until fully transparent. An outgoing compact raw image retains
+its captured dimensions and layout inside the new full-screen XL canvas. The
+image transition is owned outside the two trailer-layout containers, so moving
+from a letterboxed hero into XL does not destroy its outgoing bitmap or reset
+the crossfade.
+
+Downward managed entry still reaches black, commits the blurred image, and waits
+for the matching renderer's success/error acknowledgement.
 Tokens include the image variant so a sharp callback cannot release a blurred
 frame using the same URL. A bounded two-second wait protects against a missing
-renderer acknowledgement. Entering XL waits for frame/row readiness before
+renderer acknowledgement. Downward entry waits for frame/row readiness before
 returning to the light 12% tint. Exiting XL immediately commits its sharp destination
 behind black and reveals it over a **180 ms linear fade** during row movement,
 shorter than v7's 400 ms. Above and below backdrops are prewarmed at hero render
@@ -187,7 +211,11 @@ real focusable LazyColumn harness using the production scene controller, hero
 metadata, headroom and backdrop timing. They cover synchronized vertical motion,
 no retained upper metadata at rest, measured-heading landing without a jump,
 full-width balance and preceding-row clearance, tighter following-hero spacing,
-reveal before row settlement, a second rapid Up, XL-first platform darkness,
+reveal before row settlement, a second rapid Up with normal metadata debounce,
+fully transparent poster bottoms with short headings in both viewport styles,
+a real loaded blur staying pixel-identical after late ordinary measurements,
+direct upward entry before row settlement, delayed pair readiness without black,
+concurrent gradient fading and platform alpha pinning, XL-first platform darkness,
 the summary-free exit/return, delayed-frame handoffs, strict double-Left timing,
 animated portrait return, and numbered-card anchoring. JVM tests cover
 snapshot ownership, recycling, interrupted transitions, gap lifetime, frame

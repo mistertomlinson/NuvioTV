@@ -707,6 +707,7 @@ internal fun ModernRowSection(
     onRequestCarouselFocus: () -> Unit = {},
     catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null,
     xlArtworkPresentation: XlArtworkPresentation? = null,
+    posterFadeViewport: HomePosterFadeViewport? = null,
     onHeaderMeasured: (Float) -> Unit = {},
     onXlRowMeasured: (Dp, Dp) -> Unit = { _, _ -> }
 ) {
@@ -941,6 +942,7 @@ internal fun ModernRowSection(
                 rememberPosterShimmerTranslateState()
 
             ModernSkeletonRow(
+                posterFadeViewport = posterFadeViewport,
                 rowKey = row.key,
                 cardWidth = skeletonCardWidth,
                 cardHeight = skeletonCardHeight,
@@ -1466,6 +1468,7 @@ internal fun ModernRowSection(
             LazyRow(
                 state = rowListState,
                 modifier = Modifier
+                    .homePosterFade(posterFadeViewport)
                     .onPreviewKeyEvent { event ->
                         val native =
                             event.nativeKeyEvent
@@ -2349,7 +2352,8 @@ private fun ModernSkeletonRow(
     onRowItemFocused: (String, Int, Boolean, Boolean) -> Unit,
     retainForHandoff: Boolean,
     onFocusProxyChanged: (Int, Boolean) -> Unit,
-    onRequestCarouselFocus: () -> Unit
+    onRequestCarouselFocus: () -> Unit,
+    posterFadeViewport: HomePosterFadeViewport? = null
 ) {
     val density = LocalDensity.current
     val screenWidthPx = with(density) { LocalConfiguration.current.screenWidthDp.dp.roundToPx().toFloat() }
@@ -2424,6 +2428,7 @@ private fun ModernSkeletonRow(
     LazyRow(
         state = rowListState,
         modifier = handoffModifier
+            .homePosterFade(posterFadeViewport)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {

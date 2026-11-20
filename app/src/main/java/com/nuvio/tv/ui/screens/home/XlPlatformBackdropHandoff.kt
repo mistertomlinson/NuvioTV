@@ -11,11 +11,15 @@ internal class XlPlatformBackdropHandoff {
         private set
     var outgoingBlurred by mutableStateOf(false)
         private set
+    var outgoingGradientAlpha by mutableFloatStateOf(1f)
+        private set
 
-    fun capture(dim: Float, startsWithXl: Boolean, blurred: Boolean = startsWithXl) {
+    fun capture(dim: Float, startsWithXl: Boolean, blurred: Boolean = startsWithXl,
+        gradientAlpha: Float = if (blurred) 0f else 1f) {
         outgoingDim = dim
         outgoingXl = startsWithXl
         outgoingBlurred = blurred
+        outgoingGradientAlpha = gradientAlpha
     }
 
     fun involvesXl(incomingXl: Boolean): Boolean = outgoingXl || incomingXl
@@ -35,4 +39,10 @@ internal fun rememberXlPlatformBackdropDim(
 internal fun rememberXlPlatformBackdropBlurred(backdrop: XlBackdropPresentation,
     handoff: XlPlatformBackdropHandoff, ghostVisible: Boolean): State<Boolean> = remember(backdrop, handoff, ghostVisible) {
     derivedStateOf { if (ghostVisible) handoff.outgoingBlurred else backdrop.blurred }
+}
+
+@Composable
+internal fun rememberXlPlatformGradientAlpha(backdrop: XlBackdropPresentation,
+    handoff: XlPlatformBackdropHandoff, ghostVisible: Boolean): State<Float> = remember(backdrop, handoff, ghostVisible) {
+    derivedStateOf { if (ghostVisible) handoff.outgoingGradientAlpha else backdrop.gradientAlpha.value }
 }

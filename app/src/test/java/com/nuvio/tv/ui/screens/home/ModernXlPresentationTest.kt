@@ -75,6 +75,161 @@ class ModernXlPresentationTest {
     private fun snapshot(name: String) = XlMetadataSnapshot(name,
         HeroPreview(name, null, name, "Movie", yearText = null, genres = emptyList(), poster = null, backdrop = null, imageUrl = null))
 
+    private fun colorArtworkUrl(): String {
+        val context = org.robolectric.RuntimeEnvironment.getApplication()
+        val image = java.io.File(context.cacheDir, "xl-final-blur.png")
+        val source = android.graphics.Bitmap.createBitmap(160, 90, android.graphics.Bitmap.Config.ARGB_8888)
+        for (y in 0 until 90) for (x in 0 until 160)
+            source.setPixel(x, y, android.graphics.Color.rgb(if (x < 80) 255 else 30, y * 2, if (x < 80) 30 else 255))
+        image.outputStream().use { source.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+        source.recycle()
+        val url = image.toURI().toString()
+        return url
+    }
+
+    @Composable private fun PreparedArtwork(url: String, body: @Composable () -> Unit) {
+        val context = androidx.compose.ui.platform.LocalContext.current
+        var ready by remember { mutableStateOf(false) }
+        LaunchedEffect(url) {
+            val loader = coil.Coil.imageLoader(context)
+            listOf(xlBlurredBackdropRequest(context, url),
+                coil.request.ImageRequest.Builder(context).data(url).size(576, 324).build()).forEach { request ->
+                val result = loader.execute(request)
+                assertTrue("Fixture artwork must decode successfully: $result", result is coil.request.SuccessResult)
+            }
+            ready = true
+        }
+        if (ready) body()
+    }
+
+    private fun awaitImage(ready: () -> Boolean) {
+        // Pump Compose's test main dispatcher while Coil uses its real worker lane.
+        compose.waitUntil(10_000) {
+            compose.mainClock.advanceTimeBy(16)
+            compose.waitForIdle()
+            ready()
+        }
+    }
+
+    @Test fun aLoadedBlurDoesNotChangePixelsOrReloadAfterOrdinaryMeasurementsSettle() {
+        val settled = mutableStateOf(false)
+        var callbacks = 0
+        val url = colorArtworkUrl()
+        content {
+            PreparedArtwork(url) {
+            Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                ModernHeroMediaLayer(heroBackdrop = url, heroBackdropIsPosterFallback = !settled.value,
+                    heroBackdropAlpha = 1f, shouldPlayHeroTrailer = false, heroTrailerUrl = null,
+                    heroTrailerAudioUrl = null, heroTrailerAlpha = 0f, muted = true,
+                    onTrailerEnded = {}, onFirstFrameRendered = {},
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp),
+                    requestWidthPx = if (settled.value) 1056 else 576,
+                    requestHeightPx = if (settled.value) 594 else 324,
+                    cinematicMode = true, cinematicScale = if (settled.value) 1f else 1.1f,
+                    blurredBackdrop = true, viewportWidth = 960.dp, viewportHeight = 540.dp,
+                    onBackdropFrameReady = { _, _ -> callbacks++ })
+            }
+            }
+        }
+        awaitImage { callbacks > 0 }
+        compose.waitForIdle()
+        val first = pixels()
+        assertTrue("Fixture must render the real prepared blur", android.graphics.Color.red(first.getPixel(100, 200)) > 100)
+        val before = callbacks
+        compose.runOnIdle { settled.value = true }
+        compose.waitForIdle()
+        val final = pixels()
+        assertEquals("Late ordinary measurements must not reload the blurred request", before, callbacks)
+        assertTrue("The first blurred image must already have its final crop and scale", first.sameAs(final))
+        first.recycle(); final.recycle()
+    }
+
+    @Test fun changingFromTheLetterboxedContainerKeepsTheOutgoingFrameInTheCrossfade() {
+        val blur = mutableStateOf(false)
+        var callbacks = 0
+        val url = colorArtworkUrl()
+        content {
+            PreparedArtwork(url) {
+            val transition = rememberModernHeroBackdropTransition(url, 1f, false, blur.value,
+                blur.value, 576, 324)
+            val media: @Composable (Modifier) -> Unit = { modifier ->
+                ModernHeroMediaLayer(url, heroBackdropAlpha = 1f, shouldPlayHeroTrailer = false,
+                    heroTrailerUrl = null, heroTrailerAudioUrl = null, heroTrailerAlpha = 0f, muted = true,
+                    onTrailerEnded = {}, onFirstFrameRendered = {}, modifier = modifier,
+                    requestWidthPx = 576, requestHeightPx = 324, cinematicMode = blur.value,
+                    blurredBackdrop = blur.value, backdropCrossfadeDuration = 220,
+                    backdropTransition = transition, viewportWidth = 960.dp, viewportHeight = 540.dp,
+                    onBackdropFrameReady = { _, _ -> callbacks++ })
+            }
+            Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                if (blur.value) {
+                    Box(Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp)) {
+                        media(Modifier.fillMaxSize())
+                    }
+                } else {
+                    Box(Modifier.align(androidx.compose.ui.Alignment.TopEnd).offset(x = 56.dp).width(576.dp).height(324.dp)) {
+                        media(Modifier.fillMaxSize())
+                    }
+                }
+            }
+            }
+        }
+        awaitImage { callbacks > 0 }
+        compose.waitForIdle()
+        val initial = pixels()
+        assertEquals(0, android.graphics.Color.red(initial.getPixel(100, 200)))
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { blur.value = true }
+        compose.waitForIdle()
+        val beginning = pixels()
+        assertTrue("Recreating the container must preserve its old image at the start of the fade", initial.sameAs(beginning))
+        repeat(7) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle() }
+        val middle = pixels()
+        repeat(12) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle() }
+        val final = pixels()
+        val midRed = android.graphics.Color.red(middle.getPixel(100, 200))
+        val finalRed = android.graphics.Color.red(final.getPixel(100, 200))
+        assertTrue("The incoming blur must fade through an intermediate brightness", midRed in 1 until finalRed)
+        assertTrue(finalRed > 100)
+        initial.recycle(); beginning.recycle(); middle.recycle(); final.recycle()
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun ordinaryGradientFadesWithTheNewBlurAndItsAlphaStaysPinnedForThePlatformGhost() {
+        val blur = mutableStateOf(false)
+        val ghost = mutableStateOf(false)
+        val handoff = XlPlatformBackdropHandoff()
+        lateinit var backdrop: XlBackdropPresentation
+        content {
+            backdrop = remember { XlBackdropPresentation(null, false) }
+            Box(Modifier.width(960.dp).height(540.dp).background(Color.White)) {
+                ModernHeroGradientLayer(Color.Black, false, 0f, Modifier.fillMaxSize(),
+                    cinematicMode = true, blurredBackdrop = blur,
+                    visibility = rememberXlPlatformGradientAlpha(backdrop, handoff, ghost.value))
+            }
+        }
+        val dark = brightness()
+        compose.runOnIdle { blur.value = true }
+        compose.waitForIdle()
+        assertEquals("Committing the blur must not snap the outgoing gradient away", dark, brightness())
+        compose.runOnIdle { kotlinx.coroutines.runBlocking { backdrop.gradientAlpha.snapTo(0.5f) } }
+        compose.waitForIdle()
+        assertTrue("The ordinary gradient must have an intermediate opacity", brightness() in 110..150)
+        compose.runOnIdle { kotlinx.coroutines.runBlocking { backdrop.gradientAlpha.snapTo(0f) } }
+        compose.waitForIdle()
+        assertEquals(255, brightness())
+        compose.runOnIdle {
+            handoff.capture(0.12f, true, true, 0f)
+            ghost.value = true
+            kotlinx.coroutines.runBlocking { backdrop.gradientAlpha.snapTo(1f) }
+        }
+        compose.waitForIdle()
+        assertEquals("An incoming ordinary page must not add its gradient to the XL ghost", 255, brightness())
+        compose.runOnIdle { ghost.value = false }
+        compose.waitForIdle()
+        assertEquals(dark, brightness())
+    }
+
     @Test fun neighborsAreMeasuredButInvisibleAndTheChosenSlotIsReused() {
         val neighbors = listOf(snapshot("Above"), snapshot("Below"), snapshot("Too far"))
         val active = mutableStateOf<XlMetadataSnapshot?>(null)

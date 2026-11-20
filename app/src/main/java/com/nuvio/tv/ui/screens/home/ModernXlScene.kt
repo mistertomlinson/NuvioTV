@@ -29,6 +29,8 @@ import androidx.compose.ui.zIndex
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
 internal val HOME_POSTER_FADE_HEIGHT = 20.dp
@@ -128,6 +130,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var ordinaryTop by mutableStateOf(260.dp)
     var metadataRestingTop by mutableStateOf(54.dp)
     var metadataHeightPx by mutableFloatStateOf(0f)
+    var rowsViewportTopPx by mutableFloatStateOf(0f)
+    var rowsViewportHeightPx by mutableFloatStateOf(0f)
     var stationaryMetadata by mutableStateOf<XlMetadataSnapshot?>(null)
         private set
 
@@ -141,7 +145,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun resolveStationaryMetadata(preview: HeroPreview?) {
-        if (stationaryMetadata?.preview == preview) stationaryMetadata = null
+        if (selection?.isXl == false && selection?.preview == preview) stationaryMetadata = null
     }
 
     init { initial?.let { openEarlierXlGaps(it, rows) } }
@@ -169,6 +173,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun focus(next: XlSceneSelection, layout: LazyListLayoutInfo, animate: Boolean = true, rows: List<HeroCarouselRow> = emptyList()) {
         val previous = selection
         val previousMove = transition
+        val heldMetadata = stationaryMetadata
         if (previous?.rowKey != next.rowKey) openEarlierXlGaps(next, rows)
         selection = next
         if (previous?.rowKey == next.rowKey) return
@@ -177,13 +182,19 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         // down with an unrelated row on a rapid second Up.
         if (animate && previous != null && !previous.isXl && !next.isXl &&
             (previousMove?.from?.isXl == true && previousMove.outgoingMetadata == null || stationaryMetadata != null)) {
-            stationaryMetadata = XlMetadataSnapshot(next.rowKey, next.preview)
+            // The first XL exit is immediate. Further ordinary navigation uses
+            // the normal resolved/debounced hero, holding the last painted block.
+            if (stationaryMetadata == null) stationaryMetadata = paintedMetadata
+                ?.takeIf { paintedAlpha > 0f && it.rowKey == previous.rowKey }
+                ?: XlMetadataSnapshot(previous.rowKey, previous.preview)
             transition = null
             return
         }
         stationaryMetadata = null
-        val carrying = previousMove != null && paintedAlpha > 0f && paintedMetadata != null &&
-            (paintedMetadata?.rowKey == previous?.rowKey || paintedMetadata?.rowKey == previousMove.outgoingMetadata?.rowKey)
+        val carrying = paintedAlpha > 0f && paintedMetadata != null &&
+            (previousMove != null && (paintedMetadata?.rowKey == previous?.rowKey ||
+                paintedMetadata?.rowKey == previousMove.outgoingMetadata?.rowKey) ||
+                heldMetadata != null && paintedMetadata?.rowKey == heldMetadata.rowKey)
         if (!animate || previous == null || (!previous.isXl && !next.isXl && !carrying)) {
             transition = null
             if (next.isXl) expandedXlRows.remove(next.rowKey)
@@ -211,7 +222,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun complete(id: Int) {
         if (transition?.id != id) return
+        val move = transition
         transition = null
+        if (move?.from?.isXl == true && selection?.isXl == false) {
+            val selected = checkNotNull(selection)
+            stationaryMetadata = paintedMetadata?.takeIf { paintedAlpha > 0f && it.rowKey == selected.rowKey }
+                ?: XlMetadataSnapshot(selected.rowKey, selected.preview)
+        }
         // Close the preview gap only after the outgoing ordinary metadata has
         // left the screen. It cannot reappear while the next-row peek returns.
         selection?.takeIf { it.isXl }?.let { expandedXlRows.remove(it.rowKey) }
@@ -269,7 +286,10 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
 
 /** Keep the hero's empty space attached to its row; never uncover an older row behind it. */
 internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListState, enabled: Boolean,
-    ordinaryTop: Dp): Modifier = drawWithCache {
+    ordinaryTop: Dp): Modifier = onGloballyPositioned {
+        scene.rowsViewportTopPx = it.positionInRoot().y
+        scene.rowsViewportHeightPx = it.size.height.toFloat()
+    }.drawWithCache {
     val fadeHeight = HOME_POSTER_FADE_HEIGHT.toPx()
     val fadePaint = android.graphics.Paint().apply {
         shader = android.graphics.LinearGradient(0f, 0f, 0f, 1f,
@@ -366,11 +386,13 @@ internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
 @Stable
 internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolean) {
     val dim = Animatable(if (initiallyXl) XL_BACKDROP_DIM_ALPHA else 0f)
+    val gradientAlpha = Animatable(if (initiallyXl) 0f else 1f)
     var preview by mutableStateOf(initial)
     var owned by mutableStateOf(initiallyXl)
     var revealing by mutableStateOf(false)
     var token by mutableIntStateOf(0)
     var blurred by mutableStateOf(initiallyXl)
+    var directEntry by mutableStateOf(false)
     private var renderedToken by mutableIntStateOf(-1)
     private var expectedUrl by mutableStateOf<String?>(null)
     private var readyToken by mutableIntStateOf(-1)
@@ -396,7 +418,7 @@ internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolea
         readyBlurred == expectedBlurred
 }
 
-/** Enter behind black; an XL exit reveals its prewarmed destination during the scroll. */
+/** Upward XL entry crossfades directly; an XL exit reveals its destination during the scroll. */
 @Composable
 internal fun rememberXlBackdropPresentation(
     scene: XlSceneState,
@@ -417,16 +439,18 @@ internal fun rememberXlBackdropPresentation(
         val boundaryId = boundary?.id
         val dark = enabled && if (carouselFocused) pageStartsWithXl else target.isXl
         val exitingXl = !dark && (state.blurred || boundary?.from?.isXl == true)
+        state.directEntry = false
         if (!enabled) {
             state.owned = false
             state.blurred = false
             state.dim.snapTo(0f)
+            state.gradientAlpha.snapTo(1f)
             if (boundaryId != null) scene.complete(boundaryId)
             return@LaunchedEffect
         }
         if (!target.isXl && !dark && boundaryId == null && !state.blurred) {
             if (scene.stationaryMetadata != null) {
-                state.preview = target.preview
+                state.preview = scene.stationaryMetadata?.preview
                 state.owned = true
             } else if (latestResolved == target.preview) state.owned = false
             state.revealing = true
@@ -436,6 +460,27 @@ internal fun rememberXlBackdropPresentation(
             return@LaunchedEffect
         }
         if (!state.owned && !dark && boundaryId == null) return@LaunchedEffect
+        if (dark && target.isXl && boundary != null && target.rowIndex < boundary.from.rowIndex) {
+            if (!state.owned) state.preview = boundary.outgoingBackdrop ?: latestResolved
+            state.owned = true
+            // Keep the current composite visible while the prepared landscape
+            // and blur are pending. Upward entry has no black beat or row-settle wait.
+            if (!carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
+                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
+            state.token++
+            state.preview = target.preview
+            state.blurred = true
+            state.directEntry = true
+            state.revealing = true
+            coroutineScope {
+                launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing)) }
+                launch { state.gradientAlpha.animateTo(0f, tween(220)) }
+            }
+            snapshotFlow { scene.transition?.let { it.id != boundary.id || it.rowsSettled } ?: true }.first { it }
+            scene.complete(boundary.id)
+            state.directEntry = false
+            return@LaunchedEffect
+        }
         if (dark && state.blurred && boundaryId == null) {
             // No normal-row debounce or fade-to-black on a horizontal XL move.
             // The row releases this barrier when its matching landscape and
@@ -443,9 +488,10 @@ internal fun rememberXlBackdropPresentation(
             if (!carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
                 firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
             state.token++
+            state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
+            state.gradientAlpha.snapTo(0f)
             state.preview = target.preview
             state.revealing = true
-            state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing))
             return@LaunchedEffect
         }
         if (!state.owned) state.preview = scene.transition?.outgoingBackdrop ?: latestResolved
@@ -460,6 +506,7 @@ internal fun rememberXlBackdropPresentation(
             state.token++
             state.preview = target.preview
             state.blurred = dark
+            state.gradientAlpha.snapTo(if (dark) 0f else 1f)
             // Let the renderer bind the committed token before checking readiness.
             repeat(2) { withFrameNanos { } }
             withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
@@ -516,7 +563,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         outgoing -> move?.outgoingMetadata
         selected?.isXl == true -> null
         move != null -> selected?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
-        else -> (scene.stationaryMetadata?.preview ?: if (backdrop.owned) selected?.preview else resolvedHero)?.let {
+        else -> scene.stationaryMetadata ?: (if (backdrop.owned) selected?.preview else resolvedHero)?.let {
             XlMetadataSnapshot(selected?.rowKey.orEmpty(), it)
         }
     }

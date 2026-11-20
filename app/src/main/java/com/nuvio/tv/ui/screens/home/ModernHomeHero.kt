@@ -7,6 +7,9 @@ import com.nuvio.tv.ui.components.FallbackTitleLogo
 import com.nuvio.tv.ui.components.FallbackTitleLogoGeometry
 import com.nuvio.tv.ui.components.FallbackTitleLogoHorizontalAlignment
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -53,7 +56,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -89,6 +91,39 @@ private data class ModernHeroSecondaryMeta(
     val details: List<String>
 )
 
+internal data class ModernHeroBackdropFrame(val url: String?, val scale: Float,
+    val isPosterFallback: Boolean, val blurred: Boolean) {
+    // Preserve an outgoing compact frame's layout without making later layout
+    // measurements a new image/crossfade identity.
+    var sourceCinematic = true
+    var sourceWidthPx = 0
+    var sourceHeightPx = 0
+}
+
+internal fun modernHeroBackdropFrame(url: String?, scale: Float, posterFallback: Boolean, blurred: Boolean) =
+    ModernHeroBackdropFrame(url, if (blurred) 1f / 1.1f else scale, !blurred && posterFallback, blurred)
+
+@Composable
+internal fun rememberModernHeroBackdropTransition(url: String?, scale: Float, posterFallback: Boolean,
+    blurred: Boolean, cinematic: Boolean, width: Int, height: Int): Transition<ModernHeroBackdropFrame> {
+    val frame = remember(url, scale, posterFallback, blurred) {
+        modernHeroBackdropFrame(url, scale, posterFallback, blurred).apply {
+            sourceCinematic = blurred || cinematic
+            sourceWidthPx = width
+            sourceHeightPx = height
+        }
+    }
+    androidx.compose.runtime.SideEffect {
+        if (!frame.blurred) {
+            frame.sourceCinematic = cinematic
+            frame.sourceWidthPx = width
+            frame.sourceHeightPx = height
+        }
+    }
+    return updateTransition(frame, label = "modernHeroBackground")
+}
+
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 internal fun ModernHeroMediaLayer(
     heroBackdrop: String?,
@@ -111,6 +146,9 @@ internal fun ModernHeroMediaLayer(
     backdropCrossfadeDuration: Int = 400,
     cinematicScale: Float = 1.1f,
     blurredBackdrop: Boolean = false,
+    viewportWidth: androidx.compose.ui.unit.Dp = 0.dp,
+    viewportHeight: androidx.compose.ui.unit.Dp = 0.dp,
+    backdropTransition: Transition<ModernHeroBackdropFrame>? = null,
     onBackdropFrameReady: (String?, Boolean) -> Unit = { _, _ -> }
 ) {
     val localContext = LocalContext.current
@@ -126,57 +164,51 @@ internal fun ModernHeroMediaLayer(
      * That produces the characteristic black handoff with, at most, a tiny
      * flash of A.
      */
-    data class BackdropFrame(
-        val url: String?,
-        val scale: Float,
-        val isPosterFallback: Boolean,
-        val blurred: Boolean
-    )
-
-    val targetBackdropFrame =
-        remember(
-            heroBackdrop,
-            cinematicScale,
-            heroBackdropIsPosterFallback,
-            blurredBackdrop
-        ) {
-            BackdropFrame(
-                url = heroBackdrop,
-                scale = cinematicScale,
-                isPosterFallback = heroBackdropIsPosterFallback,
-                blurred = blurredBackdrop
-            )
-        }
+    val transition = backdropTransition ?: rememberModernHeroBackdropTransition(heroBackdrop, cinematicScale,
+        heroBackdropIsPosterFallback, blurredBackdrop, cinematicMode, requestWidthPx, requestHeightPx)
+    val targetBackdropFrame = transition.targetState
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val rootWidth = viewportWidth.takeIf { it > 0.dp } ?: configuration.screenWidthDp.dp
+    val rootHeight = viewportHeight.takeIf { it > 0.dp } ?: configuration.screenHeightDp.dp
 
     LaunchedEffect(targetBackdropFrame) {
         if (targetBackdropFrame.url.isNullOrBlank()) onBackdropFrameReady(targetBackdropFrame.url, targetBackdropFrame.blurred)
     }
 
     Box(modifier = modifier.clipToBounds()) {
-        Crossfade(
-            targetState = targetBackdropFrame,
+        transition.Crossfade(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer { alpha = heroBackdropAlpha },
-            animationSpec = tween(durationMillis = backdropCrossfadeDuration),
-            label = "modernHeroBackground"
+                .graphicsLayer { alpha = if (targetBackdropFrame.blurred) 1f else heroBackdropAlpha },
+            animationSpec = tween(durationMillis = backdropCrossfadeDuration)
         ) { frame ->
-            val imageModel = remember(localContext, frame.url, frame.blurred, requestWidthPx, requestHeightPx) {
+            val modelWidth = if (frame.blurred) XL_BLUR_WIDTH else if (targetBackdropFrame.blurred)
+                frame.sourceWidthPx.takeIf { it > 0 } ?: requestWidthPx else requestWidthPx
+            val modelHeight = if (frame.blurred) XL_BLUR_HEIGHT else if (targetBackdropFrame.blurred)
+                frame.sourceHeightPx.takeIf { it > 0 } ?: requestHeightPx else requestHeightPx
+            val imageModel = remember(localContext, frame.url, frame.blurred, modelWidth, modelHeight) {
                 if (frame.blurred) xlBlurredBackdropRequest(localContext, frame.url)
                 else ImageRequest.Builder(localContext)
                     .data(frame.url)
                     .crossfade(false)
-                    .size(width = requestWidthPx, height = requestHeightPx)
+                    .size(width = modelWidth, height = modelHeight)
                     .build()
             }
-            if (cinematicMode) {
+            val renderCinematic = if (targetBackdropFrame.blurred) frame.sourceCinematic else cinematicMode
+            val frameModifier = if (targetBackdropFrame.blurred && !renderCinematic && cinematicMode) {
+                Modifier.absoluteOffset(x = rootWidth * 0.45f + 56.dp, y = rootHeight * 0.05f)
+                    .width(rootWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION)
+                    .height(with(density) { frame.sourceHeightPx.toDp() })
+            } else Modifier.fillMaxSize()
+            if (renderCinematic) {
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
                     onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     modifier = Modifier
-                        .fillMaxSize()
+                        .then(frameModifier)
                         .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
                     contentScale = ContentScale.Crop,
                     alignment =
@@ -192,7 +224,7 @@ internal fun ModernHeroMediaLayer(
                     contentDescription = null,
                     onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = frameModifier,
                     contentScale = ContentScale.Crop,
                     alignment =
                         if (frame.isPosterFallback) {
@@ -234,17 +266,21 @@ internal fun ModernHeroGradientLayer(
     shouldPlayHeroTrailer: Boolean = false,
     compactContentStartOffset: androidx.compose.ui.unit.Dp = 0.dp,
     drawVerticalBottomGradient: Boolean = true,
-    blurredBackdrop: androidx.compose.runtime.State<Boolean>? = null
+    blurredBackdrop: androidx.compose.runtime.State<Boolean>? = null,
+    visibility: androidx.compose.runtime.State<Float>? = null
 ) {
     // XL's cached color field has its own light tint. The ordinary hero's
     // black gradients would change its palette and hide most of the color.
-    if (blurredBackdrop?.value == true) return
+    val visible by remember(blurredBackdrop, visibility) {
+        androidx.compose.runtime.derivedStateOf { visibility?.value?.let { it > 0f } ?: (blurredBackdrop?.value != true) }
+    }
+    if (!visible) return
     val compactContentStartOffsetPx =
         with(LocalDensity.current) {
             compactContentStartOffset.toPx()
         }
 
-    Canvas(modifier = modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
+    Canvas(modifier = modifier.graphicsLayer { alpha = visibility?.value ?: 1f }) {
         /*
          * Compact mode uses a stationary canvas that extends to the left of
          * the actual backdrop. Keep that extension opaque, then preserve the

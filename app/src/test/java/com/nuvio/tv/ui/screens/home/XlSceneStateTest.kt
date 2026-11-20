@@ -13,6 +13,46 @@ class XlSceneStateTest {
             HeroPreview(key, null, key, "Movie", yearText = null, genres = emptyList(), poster = null, backdrop = key, imageUrl = null))
     private fun layout() = mockk<LazyListLayoutInfo> { every { visibleItemsInfo } returns emptyList() }
 
+    @Test fun `rapid ordinary navigation holds the last painted XL exit until the latest resolved hero`() {
+        val scene = XlSceneState(selection("XL", 2, true))
+        val first = selection("C", 3)
+        val painted = first.preview.copy(description = "Enriched visible metadata")
+        scene.focus(first, layout())
+        scene.recordMetadata(XlMetadataSnapshot("C", painted))
+        scene.focus(selection("D", 4), layout())
+        scene.focus(selection("E", 5), layout())
+        assertNull(scene.transition)
+        assertEquals(XlMetadataSnapshot("C", painted), scene.stationaryMetadata)
+        scene.resolveStationaryMetadata(first.preview)
+        assertEquals("C", scene.stationaryMetadata?.rowKey)
+        scene.resolveStationaryMetadata(scene.selection?.preview)
+        assertNull(scene.stationaryMetadata)
+    }
+
+    @Test fun `a completed immediate exit does not keep bypassing the ordinary debounce`() {
+        val scene = XlSceneState(selection("XL", 2, true))
+        val first = selection("C", 3)
+        scene.focus(first, layout())
+        scene.recordMetadata(XlMetadataSnapshot("C", first.preview))
+        scene.complete(checkNotNull(scene.transition).id)
+        assertEquals("C", scene.stationaryMetadata?.rowKey)
+        scene.focus(selection("D", 4), layout())
+        assertNull(scene.transition)
+        assertEquals("C", scene.stationaryMetadata?.rowKey)
+    }
+
+    @Test fun `returning into XL carries the actually visible held hero`() {
+        val xl = selection("XL", 2, true)
+        val scene = XlSceneState(xl)
+        val first = selection("C", 3)
+        scene.focus(first, layout())
+        scene.recordMetadata(XlMetadataSnapshot("C", first.preview))
+        scene.focus(selection("D", 4), layout())
+        scene.focus(xl, layout())
+        assertEquals("C", scene.transition?.outgoingMetadata?.rowKey)
+        assertNull(scene.stationaryMetadata)
+    }
+
     @Test fun `boundary preserves the painted ordinary preview rather than substituting an adjacent row`() {
         val ordinary = selection("A", 1)
         val scene = XlSceneState(ordinary)

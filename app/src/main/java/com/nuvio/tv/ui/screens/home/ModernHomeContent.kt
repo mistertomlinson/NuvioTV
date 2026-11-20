@@ -3420,10 +3420,16 @@ fun ModernHomeContent(
         val ghostOffset = remember { androidx.compose.animation.core.Animatable(0f) }
         val ghostParallax = remember { androidx.compose.animation.core.Animatable(0f) }
         val presentedBackdropBlurred = rememberXlPlatformBackdropBlurred(xlBackdrop, xlPlatformBackdrop, ghostVisible)
+        val presentedGradientAlpha = rememberXlPlatformGradientAlpha(xlBackdrop, xlPlatformBackdrop, ghostVisible)
 
         // Cinematic mode: trailers off OR target is expanded card → full-screen backdrop + detail-style gradient
-        val cinematicHeroMode = presentedBackdropBlurred.value || !uiState.focusedPosterBackdropTrailerEnabled ||
+        val baseCinematicHeroMode = !uiState.focusedPosterBackdropTrailerEnabled ||
             uiState.focusedPosterBackdropTrailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
+        val cinematicHeroMode = presentedBackdropBlurred.value || baseCinematicHeroMode
+        val retainingOrdinaryGradient by remember(presentedBackdropBlurred, presentedGradientAlpha) {
+            derivedStateOf { presentedBackdropBlurred.value && presentedGradientAlpha.value > 0f }
+        }
+        val gradientCinematicMode = if (retainingOrdinaryGradient) baseCinematicHeroMode else cinematicHeroMode
 
         /*
          * The scale passed into ModernHeroMediaLayer is final before the
@@ -3458,6 +3464,7 @@ fun ModernHomeContent(
         // Capture the outer BoxWithConstraints width before entering nested
         // Box scopes, where Compose's DSL marker hides the implicit receiver.
         val compactHeroAvailableWidth = maxWidth
+        val heroAvailableHeight = maxHeight
 
         val instantTopRowTrailerExitBackdropSwap =
             instantTopRowBackdropSwapFocusKey != null &&
@@ -3465,6 +3472,12 @@ fun ModernHomeContent(
                     instantTopRowBackdropSwapFocusKey &&
                 heroTransitionTarget == 0f &&
                 heroTransitionProgress > 0.001f
+
+        // Letterboxed HERO_MEDIA changes containers on XL entry. Keep the
+        // transition outside both branches so its outgoing raw frame survives.
+        val heroBackdropTransition = rememberModernHeroBackdropTransition(heroBackdrop,
+            if (shouldOverscanCinematicBackdrop) 1f else 1f / 1.1f, heroBackdropIsPosterFallback,
+            xlBackdropBlurred, cinematicHeroMode, heroMediaWidthPx, heroMediaHeightPx)
 
         if (
             cinematicHeroMode ||
@@ -3474,9 +3487,12 @@ fun ModernHomeContent(
                 heroBackdrop = heroBackdrop,
                 heroBackdropIsPosterFallback = heroBackdropIsPosterFallback,
                 blurredBackdrop = xlBackdropBlurred,
+                viewportWidth = compactHeroAvailableWidth,
+                viewportHeight = heroAvailableHeight,
+                backdropTransition = heroBackdropTransition,
                 onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                 backdropCrossfadeDuration =
-                    if (xlBackdropBlurred && !isPlatformTransitioning && xlScene.transition == null) 220
+                    if (xlBackdropBlurred && !isPlatformTransitioning && (xlScene.transition == null || xlBackdrop.directEntry)) 220
                     else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
                 heroBackdropAlpha = heroBackdropAlpha,
                 parallaxOffsetX = backdropParallaxOffset.value,
@@ -3581,9 +3597,12 @@ fun ModernHomeContent(
                     heroBackdropIsPosterFallback =
                         heroBackdropIsPosterFallback,
                     blurredBackdrop = xlBackdropBlurred,
+                    viewportWidth = compactHeroAvailableWidth,
+                    viewportHeight = heroAvailableHeight,
+                    backdropTransition = heroBackdropTransition,
                     onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                     backdropCrossfadeDuration =
-                        if (xlBackdropBlurred && !isPlatformTransitioning && xlScene.transition == null) 220
+                        if (xlBackdropBlurred && !isPlatformTransitioning && (xlScene.transition == null || xlBackdrop.directEntry)) 220
                         else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
 
                     // The parent owns the backdrop + gradient fade.
@@ -3681,6 +3700,7 @@ fun ModernHomeContent(
                 if (backdropGradientInsideComposite) {
                     ModernHeroGradientLayer(
                         blurredBackdrop = presentedBackdropBlurred,
+                        visibility = presentedGradientAlpha,
                         bgColor = bgColor,
                         allowLetterboxing = false,
                         trailerTransitionProgress = 0f,
@@ -3943,12 +3963,13 @@ fun ModernHomeContent(
 
             ModernHeroGradientLayer(
                 blurredBackdrop = presentedBackdropBlurred,
+                visibility = presentedGradientAlpha,
                 bgColor = bgColor,
                 allowLetterboxing = trailerGradientPresented,
                 trailerTransitionProgress =
                     if (trailerGradientPresented) 1f else 0f,
                 modifier =
-                    if (cinematicHeroMode) {
+                    if (gradientCinematicMode) {
                         heroMediaModifier.graphicsLayer {
                             translationX =
                                 if (ghostVisible) {
@@ -3971,10 +3992,10 @@ fun ModernHomeContent(
                                 alpha = heroGradientFadeAlpha.value
                             }
                     },
-                cinematicMode = cinematicHeroMode,
+                cinematicMode = gradientCinematicMode,
                 shouldPlayHeroTrailer = trailerGradientPresented,
                 compactContentStartOffset =
-                    if (cinematicHeroMode) {
+                    if (gradientCinematicMode) {
                         0.dp
                     } else {
                         compactHeroGradientLeftExtension
@@ -4008,6 +4029,7 @@ fun ModernHomeContent(
                 compactTrailerGradientPresented -> {
                     ModernHeroGradientLayer(
                         blurredBackdrop = presentedBackdropBlurred,
+                        visibility = presentedGradientAlpha,
                         bgColor = bgColor,
                         allowLetterboxing = true,
                         trailerTransitionProgress = 1f,
@@ -4030,6 +4052,7 @@ fun ModernHomeContent(
                 compactExitBackdropGradientPresented -> {
                     ModernHeroGradientLayer(
                         blurredBackdrop = presentedBackdropBlurred,
+                        visibility = presentedGradientAlpha,
                         bgColor = bgColor,
                         allowLetterboxing = false,
                         trailerTransitionProgress = 0f,
@@ -4229,7 +4252,7 @@ fun ModernHomeContent(
                 heroGhostBitmap = heroGhostLayer.toImageBitmap()
                 catalogGhostBitmap = catalogGhostLayer.toImageBitmap()
                 xlPlatformBackdrop.capture(latestXlBackdrop.dim.value, latestCarouselRows.firstOrNull()?.isXl == true,
-                    latestXlBackdrop.blurred)
+                    latestXlBackdrop.blurred, latestXlBackdrop.gradientAlpha.value)
                 ghostAlpha.snapTo(1f)
                 ghostOffset.snapTo(0f)
                 ghostParallax.snapTo(0f)
@@ -5009,6 +5032,9 @@ private fun EnhancedModernHomeRowsListBoundary(
      * dependency explicit at the rows composition boundary.
      */
     val currentXlScene by rememberUpdatedState(xlScene)
+    val posterFadeViewport = remember(xlScene, verticalRowListState, xlSceneEnabled, ordinaryRowTop) {
+        HomePosterFadeViewport(xlScene, verticalRowListState, xlSceneEnabled, ordinaryRowTop)
+    }
     var activeRowKey by activeRowKeyState
     var activeItemIndex by activeItemIndexState
     var isFastScrolling by isFastScrollingState
@@ -6188,6 +6214,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
             ModernRowSection(
                 row = row,
+                posterFadeViewport = posterFadeViewport,
                 xlArtworkPresentation = xlScene.artwork,
                 onHeaderMeasured = remember(xlScene, row.key) { { height -> xlScene.headerHeights[row.key] = height } },
                 onXlRowMeasured = remember(xlScene, row.key) { { height, withSummary ->

@@ -121,6 +121,7 @@ class ModernXlSceneTransitionTest {
                                         Text(row.title, Modifier.onSizeChanged { scene.headerHeights[row.key] = it.height.toFloat() }.height(header.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
                                         Box(Modifier.padding(start = 52.dp).width(700.dp)
                                             .height(if (row.isXl) 244.dp else 200.dp)
+                                            .homePosterFade(if (row.isXl) null else HomePosterFadeViewport(scene, list, true, 260.dp))
                                             .background(if (row.isXl) Color.Magenta else Color.Blue)
                                             .focusRequester(requesters[index])
                                             .onFocusChanged {
@@ -304,15 +305,79 @@ class ModernXlSceneTransitionTest {
         assertEquals("Earlier", scene.selection?.rowKey)
         assertNull(scene.transition)
         advance(32)
-        val top = y("ordinary-metadata-Earlier")
+        val top = y("ordinary-metadata-A")
+        compose.onNodeWithTag("ordinary-metadata-Earlier", useUnmergedTree = true).assertDoesNotExist()
         advance(112)
-        assertEquals(top, y("ordinary-metadata-Earlier"), 0.1f)
+        assertEquals(top, y("ordinary-metadata-A"), 0.1f)
         compose.runOnIdle { resolved.value = scene.selection?.preview }
         advance(32)
         assertEquals(top, y("ordinary-metadata-Earlier"), 0.1f)
         advance(700)
         assertFalse(backdrop.owned)
         assertNull(scene.stationaryMetadata)
+        settle()
+    }
+
+    @Test fun ordinaryNavigationAfterACompletedXlExitStillWaitsForItsResolvedHero() {
+        content(start = 2, freezeHero = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        settle()
+        val top = y("ordinary-metadata-C")
+        assertEquals("C", scene.stationaryMetadata?.rowKey)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(96)
+        assertEquals("D", scene.selection?.rowKey)
+        assertNull(scene.transition)
+        assertEquals(top, y("ordinary-metadata-C"), 0.1f)
+        compose.onNodeWithTag("ordinary-metadata-D", useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle { resolved.value = rows[3].items.first().heroPreview }
+        advance(32)
+        assertEquals("An older resolved result must not release a newer pending row", "C", scene.stationaryMetadata?.rowKey)
+        compose.runOnIdle { resolved.value = scene.selection?.preview }
+        advance(32)
+        assertEquals(top, y("ordinary-metadata-D"), 0.1f)
+        assertNull(scene.stationaryMetadata)
+        settle()
+    }
+
+    @Test fun upwardXlEntryCrossfadesImmediatelyWithoutBlackOrWaitingForRows() {
+        content(start = 3)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(32)
+        assertEquals("XL", backdrop.preview?.title)
+        assertTrue(backdrop.blurred)
+        assertTrue(backdrop.directEntry)
+        assertTrue(backdrop.revealing)
+        assertFalse(checkNotNull(scene.transition).rowsSettled)
+        var sawGradientFade = false
+        repeat(16) {
+            assertTrue("Upward entry must never dim through black", backdrop.dim.value in 0f..XL_BACKDROP_DIM_ALPHA + 0.001f)
+            if (backdrop.gradientAlpha.value > 0f && backdrop.gradientAlpha.value < 1f) sawGradientFade = true
+            advance(16)
+        }
+        assertTrue("The old ordinary gradient should fade with the image", sawGradientFade)
+        assertEquals(0f, backdrop.gradientAlpha.value, 0.001f)
+        settle()
+    }
+
+    @Test fun upwardXlEntryKeepsTheOldFrameUntilTheLandscapeAndBlurAreReady() {
+        content(start = 3)
+        compose.runOnIdle { scene.artwork.renderers["XL"] = true }
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(80)
+        assertEquals("C", backdrop.preview?.title)
+        assertFalse(backdrop.blurred)
+        assertEquals(0f, backdrop.dim.value, 0.001f)
+        assertEquals(1f, backdrop.gradientAlpha.value, 0.001f)
+        compose.runOnIdle {
+            val target = checkNotNull(scene.selection)
+            scene.artwork.frame = XlArtworkFrame(target.rowKey, target.itemKey, target.preview.backdrop)
+        }
+        advance(32)
+        assertEquals("XL", backdrop.preview?.title)
+        assertTrue(backdrop.directEntry)
+        assertFalse(checkNotNull(scene.transition).rowsSettled)
+        assertTrue(backdrop.dim.value <= XL_BACKDROP_DIM_ALPHA)
         settle()
     }
 
