@@ -86,15 +86,26 @@ class XlNumberContrastTest {
         val image = pixels()
         val reference = reference()
         val edge = exterior(image, reference)
-        if (xl) assertTrue("XL needs a dark contour beyond the original glyph", edge.size >= 4)
-        else assertTrue("Regular numbers must be pixel-identical", image.sameAs(reference))
+        if (xl && style == NumberStyle.SOLID) assertTrue("Solid XL needs a dark contour beyond the original glyph", edge.size >= 4)
+        else assertTrue("Outline and regular styles must not gain the added contour", image.sameAs(reference))
         image.recycle(); reference.recycle()
     }
 
     @Test fun xlSolidHasAThinDarkExterior() = verify(NumberStyle.SOLID, true)
-    @Test fun xlOutlineHasAThinDarkExterior() = verify(NumberStyle.OUTLINE, true)
+    @Test fun xlOutlineHasNoAddedDarkContour() = verify(NumberStyle.OUTLINE, true)
     @Test fun regularSolidHasNoAddedContour() = verify(NumberStyle.SOLID, false)
     @Test fun regularOutlineHasNoAddedContour() = verify(NumberStyle.OUTLINE, false)
+
+    @Test fun xlOutlinedNumbersRetainTheirOriginalOpaqueBlackInteriors() {
+        content(NumberStyle.OUTLINE, true)
+        val image = pixels()
+        var black = 0
+        for (y in 40..340) for (x in 0..200) {
+            if (image.getPixel(x, y) == android.graphics.Color.BLACK) black++
+        }
+        assertTrue("The original outlined style retains black fill", black > 20)
+        image.recycle()
+    }
 
     @Test fun theContrastContourFadesTogetherWithTheNumber() {
         content(NumberStyle.SOLID, true)

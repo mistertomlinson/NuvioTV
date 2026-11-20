@@ -145,6 +145,7 @@ internal fun ModernHeroMediaLayer(
     requestWidthPx: Int,
     requestHeightPx: Int,
     parallaxOffsetX: Float = 0f,
+    parallaxOffsetState: androidx.compose.runtime.State<Float>? = null,
     cinematicMode: Boolean = false,
     backdropCrossfadeDuration: Int = 400,
     cinematicScale: Float = 1.1f,
@@ -217,7 +218,7 @@ internal fun ModernHeroMediaLayer(
                             // XL's oversized media canvas already carries the
                             // platform parallax. Applying it twice consumes
                             // more than the existing 10% overhang.
-                            translationX = if (frame.blurred) 0f else parallaxOffsetX
+                            translationX = if (frame.blurred) 0f else parallaxOffsetState?.value ?: parallaxOffsetX
                             scaleX = frame.scale; scaleY = frame.scale
                         },
                     contentScale = ContentScale.Crop,

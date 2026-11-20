@@ -18,9 +18,16 @@ class XlSceneStateTest {
         val first = selection("C", 3)
         val painted = first.preview.copy(description = "Enriched visible metadata")
         scene.focus(first, layout())
-        scene.recordMetadata(XlMetadataSnapshot("C", painted))
+        val exit = checkNotNull(scene.transition).id
+        scene.exitMetadataAlpha = 0.25f
+        scene.recordMetadata(XlMetadataSnapshot("C", painted), alpha = 0.25f)
         scene.focus(selection("D", 4), layout())
         scene.focus(selection("E", 5), layout())
+        assertEquals("Keep clearance ownership through rapid navigation", exit, scene.transition?.id)
+        assertEquals("Further keys cannot restart a running fade", 0.25f, scene.exitMetadataAlpha, 0f)
+        assertEquals(XlMetadataSnapshot("C", painted), scene.stationaryMetadata)
+        scene.exitMetadataAlpha = 1f
+        scene.rowsSettled(exit); scene.complete(exit)
         assertNull(scene.transition)
         assertEquals(XlMetadataSnapshot("C", painted), scene.stationaryMetadata)
         scene.resolveStationaryMetadata(first.preview)
@@ -102,9 +109,13 @@ class XlSceneStateTest {
         scene.focus(selection("C", 3), layout())
         assertTrue(scene.transition?.compactExit == true)
         assertEquals(true, scene.expandedXlRows["XL"])
-        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        // No XL item remains in this layout; normal poster exclusion can
+        // resume while the prepared metadata is still waiting to fade.
+        assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        assertEquals(0f, scene.exitMetadataAlpha, 0f)
         assertFalse(checkNotNull(scene.transition).deferOrdinaryReveal)
         val exit = checkNotNull(scene.transition).id
+        scene.exitMetadataAlpha = 1f
         scene.rowsSettled(exit); scene.complete(exit)
         assertEquals(true, scene.expandedXlRows["XL"])
         scene.focus(selection("D", 4), layout())

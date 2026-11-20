@@ -3507,7 +3507,7 @@ fun ModernHomeContent(
                     if ((xlBackdropBlurred || xlBackdrop.directExit) && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
                     else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
                 heroBackdropAlpha = heroBackdropAlpha,
-                parallaxOffsetX = backdropParallaxOffset.value,
+                parallaxOffsetState = backdropParallaxOffset.asState(),
                 cinematicMode = cinematicHeroMode,
                 shouldPlayHeroTrailer = shouldPlayHeroTrailer && !uiState.heroTrailerAllowLetterboxing,
                 heroTrailerUrl = heroTrailerUrl,
@@ -3623,8 +3623,7 @@ fun ModernHomeContent(
                     // The parent owns the backdrop + gradient fade.
                     heroBackdropAlpha = 1f,
 
-                    parallaxOffsetX =
-                        backdropParallaxOffset.value,
+                    parallaxOffsetState = backdropParallaxOffset.asState(),
                     cinematicMode = false,
 
                     // Letterboxed trailer remains in its dedicated path below.

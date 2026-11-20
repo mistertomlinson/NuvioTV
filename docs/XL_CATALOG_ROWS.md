@@ -28,9 +28,10 @@ from its original solid glyph. Its outlined version uses a uniform-width inset o
 that same shape, so both versions have identical size, position and outer bounds,
 independent of font line height and baseline clipping. This
 changes only the setting icon; the actual numbered posters retain Jost and the
-existing solid/outline rendering. XL alone adds a one-dp dark contour to both
-styles for contrast over the blurred field. Its ink shares the number
-opacity/mask; ordinary-row numbering is unchanged.
+existing solid/outline rendering. Solid XL numbers add a one-dp dark contour
+for contrast over the blurred field. Outline XL numbers keep their original light
+stroke and opaque black interior, without that extra dark contour. The contour
+shares the solid number's opacity/mask; regular-row numbering is unchanged.
 
 ## Focus and numbering
 
@@ -90,7 +91,9 @@ Rapidly crossing an XL row preserves any still-visible original outgoing
 snapshot. A second ordinary-row focus after an XL exit instead resumes the
 stationary hero presentation. It holds the actually painted first ordinary block
 until the normal resolved/debounced hero reaches the latest selected row, then
-transitions to that title in place. This also applies when the immediate XL exit
+transitions to that title in place. A rapid second Down during the exit retains
+XL clearance/fade ownership until completion; it cannot reveal metadata early
+or reset an already running metadata fade. This also applies when the immediate XL exit
 has already completed. Older intermediate results cannot release the hold.
 Returning into XL during that hold carries the visible snapshot, even if its
 owner differs from the most recent logical focus.
@@ -114,46 +117,37 @@ row. Each non-first XL row reserves enough prefix to place preceding posters
 entirely above the screen at landing. Ordinary-to-ordinary
 navigation keeps the stationary upper metadata and ordinary clipping.
 
-Ordinary poster bodies now disappear through a 20 dp alpha gradient below the
-metadata cutoff, reaching complete transparency 12 dp below it. Headings remain
-outside this body-only layer. Short headings can leave a previous poster bottom
-inside or just below the old viewport feather; that artwork is now fully clear
-instead of leaving residual pixels. The resting heading and poster positions are unchanged: pages
-without XL gain an equal 20 dp of viewport height, content padding and focus
-inset. The gradient moves with the existing ordinary metadata exclusion band
-during XL handoffs. A departing XL image still crosses the old logo region
-intact. The strip also respects each row's measured bounds: focus-scale and rank
-overhang cannot reappear in the empty gap after the preceding row clears it.
-The viewport records the catalog only once, using a simple metadata exclusion.
-A crossing poster body draws once into a clipped temporary surface; only its
-feather strip receives the alpha mask. Body
-coordinates are derived from the list's existing offsets, header measurements
-and headroom during drawing, with no per-row global-position callbacks or
-scroll-frame coordinate state writes. Fully hidden bodies skip their drawing. Only the
-crossing body uses a clipped offscreen surface; the backdrop is preserved beneath
-its transparent pixels and metadata draws above it. Brushes
-and paint are cached, with no full-screen poster-mask texture or per-frame blur.
+Ordinary poster bodies now fade their last visible strip as their logical bottom
+approaches the metadata cutoff. The fade spans the last 20 dp, and a 12 dp clear
+margin removes scaled poster/rank slivers. It modulates primitive opacity in
+a graphics layer using `CompositingStrategy.ModulateAlpha`, and draws
+the body once. It has no temporary bitmap surface, destination-in blend, or
+per-frame gradient shader. The stationary and travelling metadata exclusions
+remain cheap rectangle clips. Current posters and headings keep their positions;
+artwork above a moving hero remains part of the outgoing scene. Fully transparent
+bodies cannot leave their lower overhang visible.
+
 The default vertical BringIntoView animation and held-scroll velocity (1200 dp/s)
-are unchanged. Ordinary metadata uses a simple Box again instead of the
-unconditional SubcomposeLayout introduced in v6. XL still premeasures adjacent
-metadata; movable content carries the same loaded logo/state into the ordinary
-layout on selection. Following-row preview-gap closure retains its 360 ms tween.
-A compact exit instead uses the same animation clock as list travel, with no
-independent gap animation chasing focus relocation.
+are unchanged. Ordinary metadata uses a simple Box instead of the unconditional
+SubcomposeLayout introduced in v6. XL still premeasures adjacent metadata;
+movable content carries the same loaded logo/state into the ordinary layout.
+Following-row preview-gap closure retains its existing 360 ms tween. Compact
+exit gap/list movement shares one clock, without a separate gap tween chasing
+focus relocation.
 
 The space before a following ordinary row is calculated from the XL row's
 measured bottom, the viewport, and the ordinary hero's resting position, keeping
 the next hero just below the screen instead of leaving a second oversized gap.
-On a downward summary-XL exit, the next row and its fully opaque metadata move
+On a downward summary-XL exit, the next row and its prepared metadata move
 up together while the outgoing XL artwork clears the screen. A summary XL starts
 with its following hero 8 dp below the viewport.
 
 Compact XL starts with its normal next-row peek. On Down, the incoming row and
 XL initially move at the same speed. Once the incoming row reaches its ordinary
 poster anchor it stays there; list travel continues while the intervening gap
-grows by the same displacement, letting XL finish leaving the screen. Only then,
-after the incoming row lands, its prepared metadata starts a 150 ms fade at its
-resting position. The departing XL's lower edge masks any overlap, preserving
+grows by the same displacement, letting XL finish leaving the screen. On both downward XL exit styles, the incoming metadata stays invisible until
+the entire outgoing XL row is above the screen, then starts a 220 ms fade. Compact
+metadata also waits for the incoming row to land and stays at its resting position. The departing XL's lower edge masks any overlap, preserving
 its complete image. Gap and travel are quantized together to physical pixels,
 avoiding direction reversals or a late spring correction. Changing focus cancels
 the shared motion and retains the actual current gap for a continuous reversal.
@@ -162,11 +156,14 @@ releases the list. A partly expanded gap regains the outgoing hero's clearance
 while returning to XL, and its metadata follows the measured gap displacement.
 
 The gap stays open while browsing ordinary rows below XL, allowing a later
-upward return to bring the scene down together. On entering XL, its following
-gap starts closing as soon as the outgoing metadata's measured content is fully
-offscreen. It does not wait for XL's landing, the backdrop, or full transition
-completion before the preview row begins returning. The mask and snapshot still
-preserve outgoing metadata ownership during that movement.
+upward return to bring the scene down together. On Up into XL, its following gap starts the existing return tween immediately,
+before XL settles and while outgoing metadata is still leaving. That metadata
+keeps moving with XL and does not follow the contracting preview gap. The
+preview can approach its resting position without pulling old text upward.
+A partly completed compact-exit reversal first preserves its original clearance
+to prevent a clipped logo from appearing over XL. Down into XL retains the
+measured outgoing-metadata clearance trigger. Neither direction waits for the
+backdrop before returning the preview.
 Cleared outgoing metadata stays unmounted while the preview returns. If a short
 block leaves upward before its reserved hero space clears, that remaining space
 still excludes older posters until it too is offscreen.
@@ -232,9 +229,10 @@ size while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinar
 metadata is precomposed/measured for the two neighboring ordinary rows while
 XL is displayed. Those slots are never placed or drawn until chosen. The chosen
 slot retains its loaded logo, and its logo transition is disabled during the
-vertical handoff. Summary exits and upward exits keep sliding text/logo fully opaque; compact
-downward exits fade their prepared metadata only after the incoming row lands.
-Ordinary metadata is not faded during other XL handoffs. Row ownership survives until
+vertical handoff. Upward exits keep sliding text/logo fully opaque. Both downward exits keep
+prepared metadata invisible until all XL row pixels leave, then fade it in over
+220 ms. Compact exit also requires the incoming row to be parked. The scene
+keeps metadata ownership until that fade finishes to avoid an opacity snap. Row ownership survives until
 landing so image timing cannot snap moving metadata into place.
 
 On return from Details, the saved row key and selected title seed the XL scene
@@ -251,7 +249,9 @@ and retains the outgoing page's dim amount until its ghost reaches black. A new
 scene cannot brighten an outgoing XL bitmap or abruptly dim an ordinary bitmap.
 All platform switches use the original timings/easing again: 150 ms outgoing
 fade/travel, 250 ms incoming fade, and 330 ms incoming parallax/travel. There is
-no XL-specific slowdown. The outgoing dim snapshot and gradient style remain
+no XL-specific slowdown. Media receives parallax as state and reads it only
+inside its graphics layer; the Home composition no longer reads an animated
+Float for every platform frame. The outgoing dim snapshot and gradient style remain
 pinned until black, so flipping the incoming scene cannot darken the old field
 or expose a bright ordinary frame.
 

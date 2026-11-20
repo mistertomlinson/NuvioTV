@@ -4176,18 +4176,19 @@ internal fun NumberedCatalogCardWrapper(
                     val fillPaint = if (numberStyle == NumberStyle.OUTLINE) android.graphics.Paint(paint).apply {
                         color = android.graphics.Color.BLACK
                     } else paint
-                    // One visible dp outside the existing glyph/stroke. XL only;
-                    // this shares the rank's opacity and soft-edge mask.
-                    val contrastPaint = if (compactXl && xlContrastStrokeWidth > 0.dp) android.graphics.Paint(paint).apply {
+                    // One visible dp outside solid XL glyphs. Outline style keeps
+                    // its original light stroke and opaque black interior.
+                    val contrastPaint = if (compactXl && numberStyle == NumberStyle.SOLID && xlContrastStrokeWidth > 0.dp) android.graphics.Paint(paint).apply {
                         color = android.graphics.Color.rgb(22, 22, 22)
                         style = android.graphics.Paint.Style.STROKE
-                        strokeWidth = (if (numberStyle == NumberStyle.OUTLINE) 1.5f * density.density else 0f) + 2f * xlContrastStrokeWidth.toPx()
+                        strokeWidth = 2f * xlContrastStrokeWidth.toPx()
                         strokeJoin = android.graphics.Paint.Join.ROUND
                         strokeCap = android.graphics.Paint.Cap.ROUND
                     } else null
                     val textW = paint.measureText(numberText)
                     val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
                     val x = size.width - textW + oneAdjust
+                    val baseline = size.height * 0.88f
                     val edgeMatrix = android.graphics.Matrix()
                     onDrawBehind {
                         val opacity = numberOpacity?.value ?: 1f
@@ -4203,7 +4204,6 @@ internal fun NumberedCatalogCardWrapper(
                         val savedAlpha = if (opacity < 1f || softenEdge) nativeCanvas.saveLayerAlpha(
                             -inkPad, -inkPad, size.width + inkPad, size.height + inkPad,
                             (opacity.coerceIn(0f, 1f) * 255).toInt()) else null
-                        val baseline = size.height * 0.88f
                         contrastPaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
                         strokePaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
                         nativeCanvas.drawText(numberText, x, baseline, fillPaint)

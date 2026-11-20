@@ -97,7 +97,8 @@ internal data class XlSceneTransition(
     val outgoingMetadataClipTop: Float = 0f,
     val rowsSettled: Boolean = false,
     val outgoingHeadroomPx: Float = 0f,
-    val outgoingMetadataCleared: Boolean = false
+    val outgoingMetadataCleared: Boolean = false,
+    val earlyPreviewReturn: Boolean = false
 ) {
     val downwardExit = from.isXl && !to.isXl && to.rowIndex > from.rowIndex
     val compactExit = downwardExit && !from.summary
@@ -128,7 +129,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var interruptedRelocation by mutableStateOf<XlInterruptedRelocation?>(null)
     internal var rowCount = rows.size
     var compactRowRested by mutableStateOf(false)
-    var compactMetadataAlpha by mutableFloatStateOf(0f)
+    var exitMetadataAlpha by mutableFloatStateOf(0f)
     val heldHeadroomGoals = mutableStateMapOf<String, Dp>()
     var density by mutableFloatStateOf(1f)
     val headroomValues = mutableStateMapOf<String, Dp>()
@@ -194,6 +195,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val previous = selection
         val previousMove = transition
         val heldMetadata = stationaryMetadata
+        val interruptedReturn = verticalMotion != null && previousMove?.compactExit == true && next.rowKey == previousMove.from.rowKey
         if (previous?.rowKey != next.rowKey) {
             val interrupted = verticalMotion
             val previousJob = verticalJob
@@ -205,7 +207,6 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 heldHeadroomGoals[interrupted.rowKey] = interrupted.toGap
             }
             compactRowRested = false
-            compactMetadataAlpha = 0f
             openEarlierXlGaps(next, rows)
         }
         selection = next
@@ -220,7 +221,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (stationaryMetadata == null) stationaryMetadata = paintedMetadata
                 ?.takeIf { paintedAlpha > 0f && it.rowKey == previous.rowKey }
                 ?: XlMetadataSnapshot(previous.rowKey, previous.preview)
-            transition = null
+            // Keep XL clearance/fade ownership through a rapid second Down.
+            // The held ordinary title still resumes its normal debounce.
+            if (previousMove?.downwardExit != true || exitMetadataAlpha >= 1f) transition = null
             return
         }
         stationaryMetadata = null
@@ -244,9 +247,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (outgoing == paintedMetadata) paintedTranslation else 0f,
             if (outgoing == paintedMetadata) paintedAlpha else 0f,
             paintedEpoch, sameOwnerReturn, if (outgoing == paintedMetadata) paintedClipTop else 0f,
-            outgoingHeadroomPx = (headroomValues[outgoing?.rowKey]?.value ?: 0f) * density
+            outgoingHeadroomPx = (headroomValues[outgoing?.rowKey]?.value ?: 0f) * density,
+            earlyPreviewReturn = next.isXl && next.rowIndex < previous.rowIndex && !interruptedReturn
         )
         transition = move
+        if (move.downwardExit) exitMetadataAlpha = 0f
         if (move.downwardExit) expandedXlRows[previous.rowKey] = true
         if (move.compactExit) {
             val owner = layout.visibleItemsInfo.firstOrNull { it.key == next.rowKey }
@@ -283,13 +288,17 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         }
     }
 
+    fun startPreviewReturn(id: Int) {
+        transition?.takeIf { it.id == id && it.to.isXl }?.let { expandedXlRows.remove(it.to.rowKey) }
+    }
+
     fun complete(id: Int) {
         if (transition?.id != id) return
         val move = transition
         transition = null
         if (move?.from?.isXl == true && selection?.isXl == false) {
             val selected = checkNotNull(selection)
-            stationaryMetadata = paintedMetadata?.takeIf { paintedAlpha > 0f && it.rowKey == selected.rowKey }
+            stationaryMetadata = stationaryMetadata ?: paintedMetadata?.takeIf { paintedAlpha > 0f && it.rowKey == selected.rowKey }
                 ?: XlMetadataSnapshot(selected.rowKey, selected.preview)
         }
         // Close the preview gap only after the outgoing ordinary metadata has
@@ -299,7 +308,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun outgoingTranslation(layout: LazyListLayoutInfo): Float = transition?.let {
         val gap = (headroomValues[it.outgoingMetadata?.rowKey]?.value ?: 0f) * density
-        it.initialMetadataTranslation + it.scrollAnchor.displacement(layout.rowPositions()) + gap - it.outgoingHeadroomPx
+        val delta = gap - it.outgoingHeadroomPx
+        it.initialMetadataTranslation + it.scrollAnchor.displacement(layout.rowPositions()) +
+            if (it.earlyPreviewReturn) delta.coerceAtLeast(0f) else delta
     } ?: 0f
 
     fun outgoingMetadataOffscreen(layout: LazyListLayoutInfo): Boolean {
@@ -347,7 +358,7 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     val offset = when {
         xlSceneOutgoingMetadataVisible(scene, layout, ordinaryTopPx, viewportHeightPx, density, reserveSpace = true) -> scene.outgoingTranslation(layout)
         scene.selection?.isXl == true -> return null
-        move?.compactExit == true -> if (scene.compactRowRested) 0f else return null
+        move?.compactExit == true -> if (scene.compactRowRested || (scene.outgoingXlBottom(layout) ?: 0f) <= 0f) 0f else return null
         move?.deferOrdinaryReveal == true -> if (move.rowsSettled) 0f else return null
         move != null -> scene.incomingTranslation(layout, ordinaryTopPx, density) ?: return null
         else -> 0f
@@ -430,14 +441,20 @@ internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
     val id = move?.id
     LaunchedEffect(scene, list, id) {
         if (move?.to?.isXl != true) return@LaunchedEffect
+        // Start the preview's normal tween with Up entry. Its old metadata
+        // continues downward with XL, independently of the contracting gap.
+        if (move.earlyPreviewReturn) scene.startPreviewReturn(move.id)
         snapshotFlow { scene.outgoingMetadataOffscreen(list.layoutInfo) }.first { it }
         scene.releasePreviewGap(move.id)
     }
-    LaunchedEffect(scene, id, scene.compactRowRested) {
-        if (move?.compactExit != true) return@LaunchedEffect
-        if (!scene.compactRowRested) scene.compactMetadataAlpha = 0f
-        else animate(scene.compactMetadataAlpha, 1f, animationSpec = tween(150)) { value, _ ->
-            scene.compactMetadataAlpha = value
+    LaunchedEffect(scene, list, id) {
+        if (move?.downwardExit != true) return@LaunchedEffect
+        scene.exitMetadataAlpha = 0f
+        snapshotFlow {
+            (scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f && (!move.compactExit || scene.compactRowRested)
+        }.first { it }
+        animate(0f, 1f, animationSpec = tween(220)) { value, _ ->
+            scene.exitMetadataAlpha = value
         }
     }
     LaunchedEffect(scene, list, id) {
@@ -551,6 +568,9 @@ internal fun rememberXlBackdropPresentation(
             state.gradientAlpha.snapTo(1f)
             if (boundaryId != null) {
                 snapshotFlow { scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true }.first { it }
+                if (boundary?.downwardExit == true) snapshotFlow {
+                    scene.transition?.id != boundaryId || scene.exitMetadataAlpha >= 1f
+                }.first { it }
                 scene.complete(boundaryId)
             }
             if (latestResolved == target.preview) state.owned = false
@@ -688,7 +708,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         !enabled -> resolvedHero?.let { XlMetadataSnapshot(selected?.rowKey.orEmpty(), it) }
         outgoing -> move?.outgoingMetadata
         selected?.isXl == true -> null
-        move != null -> selected?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
+        move != null -> scene.stationaryMetadata ?: selected?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
         else -> scene.stationaryMetadata ?: (if (backdrop.owned) selected?.preview else resolvedHero)?.let {
             XlMetadataSnapshot(selected?.rowKey.orEmpty(), it)
         }
@@ -720,7 +740,7 @@ internal fun ModernXlAwareHeroTitleBlock(
             animateTitleLogo = isActive && (!enabled || (move == null && !backdrop.owned)),
             contentModifier = if (isActive) Modifier.onGloballyPositioned { scene.metadataHeightPx = it.size.height.toFloat() } else Modifier,
             modifier = if (!isActive) Modifier else Modifier.testTag("ordinary-metadata-${active.rowKey}").graphicsLayer {
-                val incomingOffset = if (enabled && move != null && !outgoing && !move.deferOrdinaryReveal && !move.compactExit)
+                val incomingOffset = if (enabled && move != null && !outgoing && !move.deferOrdinaryReveal && !move.compactExit && scene.stationaryMetadata == null)
                     scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) else 0f
                 translationY = when {
                     outgoing -> scene.outgoingTranslation(list.layoutInfo)
@@ -728,7 +748,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (enabled && move?.compactExit == true && !outgoing) scene.compactMetadataAlpha
+                alpha = if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
@@ -742,7 +762,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 scene.recordMetadata(active, translationY, if (visible) alpha else 0f, epoch, clipTop)
             }.onGloballyPositioned {
                 val translation = if (outgoing) scene.outgoingTranslation(list.layoutInfo)
-                    else if (move != null && !move.deferOrdinaryReveal && !move.compactExit)
+                    else if (move != null && !move.deferOrdinaryReveal && !move.compactExit && scene.stationaryMetadata == null)
                         scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) ?: 0f else 0f
                 metadataLayoutTop[0] = it.positionInRoot().y - translation
             }.drawWithContent {

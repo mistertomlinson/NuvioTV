@@ -257,7 +257,7 @@ class ModernXlSceneTransitionTest {
             val next = y("heading-C")
             if (!scene.compactRowRested) {
                 assertEquals("Both rows must travel at the same speed", next - startNext, y("heading-XL") - startXl, 1.1f)
-                assertEquals("The prepared hero remains invisible before landing", 0f, scene.compactMetadataAlpha, 0f)
+                assertEquals("The prepared hero remains invisible before landing", 0f, scene.exitMetadataAlpha, 0f)
                 sharedFrames++
             } else {
                 assertEquals("The incoming row remains at rest", 260f, next, 1.1f)
@@ -268,35 +268,70 @@ class ModernXlSceneTransitionTest {
         }
         assertTrue("Observe the initial shared travel", sharedFrames > 0)
         assertTrue("XL must continue after the incoming row lands", parkedWhileXlMoves)
-        assertTrue("Metadata fades in after landing", scene.compactMetadataAlpha > 0.99f)
+        assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
         settle()
     }
 
-    @Test fun theNextRowPreviewStartsReturningAsSoonAsTheOutgoingMetadataClears() {
+    @Test fun upwardXlEntryStartsReturningThePreviewWhileTheOutgoingMetadataIsStillSliding() {
         content(start = 3, summary = false)
         frameReady.value = false
+        val originalGap = checkNotNull(scene.headroomValues["C"])
         press(KeyEvent.KEYCODE_DPAD_UP)
-        var releasedBeforeLanding = false
-        var released = false
-        repeat(24) {
-            advance(16)
-            val move = scene.transition
-            if (move != null && scene.outgoingMetadataOffscreen(list.layoutInfo)) {
-                assertFalse("Preview must not wait for the backdrop", scene.expandedXlRows["XL"] == true)
-                if (!released) {
-                    val owner = checkNotNull(list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "C" })
-                    val heroTop = owner.offset + list.layoutInfo.beforeContentPadding +
-                        checkNotNull(scene.headroomValues["C"]).value - 260f + 24f
-                    assertTrue("The outgoing content must already be below the screen: $heroTop", heroTop >= 540f)
-                    released = true
-                }
-                if (!move.rowsSettled) releasedBeforeLanding = true
-            }
-        }
-        assertTrue(releasedBeforeLanding)
+        advance(64)
+        val move = checkNotNull(scene.transition)
+        assertTrue("The preview starts during XL movement", checkNotNull(scene.headroomValues["C"]) < originalGap)
+        assertFalse(move.rowsSettled)
+        assertFalse("The old metadata keeps sliding independently", move.outgoingMetadataCleared)
+        val top = y("ordinary-metadata-C")
+        assertTrue(top in 24f..539f)
+        assertTrue("XL is still approaching its resting position", kotlin.math.abs(y("heading-XL") - scene.xlTop("XL").value) > 1f)
         frameReady.value = true
         settle()
         assertEquals(0.dp, scene.headroomValues["C"])
+        assertEquals(0, metadataCount())
+    }
+
+    private fun verifyDownwardMetadataWaitsForXlClearance(summary: Boolean) {
+        content(start = 2, summary = summary)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var sawXl = false
+        var sawFade = false
+        repeat(40) {
+            advance(16)
+            val bottom = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
+            if (bottom > 0f) {
+                sawXl = true
+                assertEquals("Metadata must stay invisible while any XL row remains: bottom=$bottom", 0f, scene.exitMetadataAlpha, 0f)
+            } else if (scene.exitMetadataAlpha > 0f && scene.exitMetadataAlpha < 1f) sawFade = true
+        }
+        assertTrue(sawXl)
+        assertTrue("Metadata fades after XL has cleared", sawFade)
+        settle()
+        assertEquals(1f, scene.exitMetadataAlpha, 0f)
+    }
+
+    @Test fun compactMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(false)
+    @Test fun summaryMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(true)
+
+    @Test fun aRapidSecondDownKeepsXlClearanceAndTheOrdinaryMetadataDebounce() {
+        content(start = 2, summary = false, freezeHero = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(32)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertEquals("D", scene.selection?.rowKey)
+        assertEquals("C", scene.stationaryMetadata?.rowKey)
+        repeat(24) {
+            advance(16)
+            if ((scene.outgoingXlBottom(list.layoutInfo) ?: 0f) > 0f) {
+                assertEquals("A second key cannot reveal metadata over XL", 0f, scene.exitMetadataAlpha, 0f)
+            }
+            compose.onNodeWithTag("ordinary-metadata-D", useUnmergedTree = true).assertDoesNotExist()
+        }
+        settle()
+        compose.onNodeWithTag("ordinary-metadata-C", useUnmergedTree = true).assertExists()
+        compose.runOnIdle { resolved.value = rows[4].items.first().heroPreview }
+        advance(64)
+        compose.onNodeWithTag("ordinary-metadata-D", useUnmergedTree = true).assertExists()
     }
 
     @Test fun measuredHeadingHasNoCorrectionJumpAtTheEndOfAnXlExit() {

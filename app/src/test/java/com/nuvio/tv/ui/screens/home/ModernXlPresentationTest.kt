@@ -281,9 +281,11 @@ class ModernXlPresentationTest {
     @Test fun blurredPlatformArtworkRetainsItsTenPercentOverhangDuringParallax() {
         val offset = mutableFloatStateOf(0f)
         var callbacks = 0
+        var parentCompositions = 0
         val url = colorArtworkUrl()
         content {
             PreparedArtwork(url) {
+                SideEffect { parentCompositions++ }
                 Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
                     ModernHeroMediaLayer(url, heroBackdropAlpha = 1f, shouldPlayHeroTrailer = false,
                         heroTrailerUrl = null, heroTrailerAudioUrl = null, heroTrailerAlpha = 0f, muted = true,
@@ -291,7 +293,7 @@ class ModernXlPresentationTest {
                         modifier = Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp)
                             .graphicsLayer { translationX = offset.floatValue },
                         requestWidthPx = 576, requestHeightPx = 324, cinematicMode = true,
-                        blurredBackdrop = true, parallaxOffsetX = offset.floatValue,
+                        blurredBackdrop = true, parallaxOffsetState = offset,
                         viewportWidth = 960.dp, viewportHeight = 540.dp,
                         onBackdropFrameReady = { _, _ -> callbacks++ })
                 }
@@ -299,6 +301,7 @@ class ModernXlPresentationTest {
         }
         awaitImage { callbacks > 0 }
         val loaded = callbacks
+        val composed = parentCompositions
         for (travel in listOf(-44f, 44f, 0f)) {
             compose.runOnIdle { offset.floatValue = travel }
             compose.waitForIdle()
@@ -311,6 +314,7 @@ class ModernXlPresentationTest {
             image.recycle()
         }
         assertEquals("Parallax must not reload the blur", loaded, callbacks)
+        assertEquals("Parallax must update drawing without recomposing Home", composed, parentCompositions)
     }
 
     private fun verifyXlExitDissolve(compact: Boolean) {
