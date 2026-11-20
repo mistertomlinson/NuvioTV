@@ -29,6 +29,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
 internal val HOME_POSTER_FADE_HEIGHT = 20.dp
+internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
 internal data class XlSceneSelection(
     val rowKey: String,
@@ -371,17 +372,39 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     return if (top < offset + ordinaryTopPx) top to offset + ordinaryTopPx else null
 }
 
-/** One viewport draw; only the crossing poster bodies need the soft fade layer. */
+/** Ordinary masks and settled XL pages don't depend on the scrolling layout. */
+@Composable
+internal fun rememberHomePosterMask(scene: XlSceneState, list: LazyListState, enabled: Boolean,
+    ordinaryTop: Dp): State<Pair<Float, Float>?> {
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    return remember(scene, list, enabled, ordinaryTop, density) {
+        derivedStateOf {
+            with(density) {
+                when {
+                    !enabled -> 0f to HOME_POSTER_FADE_HEIGHT.toPx()
+                    scene.transition == null -> if (scene.selection?.isXl == true) null else 0f to ordinaryTop.toPx()
+                    else -> list.layoutInfo.let { info ->
+                        xlSceneMetadataMask(scene, info, true, ordinaryTop.toPx(), this.density, info.viewportSize.height.toFloat())
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** One viewport draw; only a changing metadata boundary invalidates its mask. */
+@Composable
 internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListState, enabled: Boolean,
-    ordinaryTop: Dp): Modifier = drawWithContent {
-    val mask = if (enabled) xlSceneMetadataMask(scene, list.layoutInfo, true,
-        ordinaryTop.toPx(), density, size.height) else 0f to HOME_POSTER_FADE_HEIGHT.toPx()
-    clipRect {
-        val top = mask?.first?.coerceAtLeast(0f) ?: 0f
-        val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
-        if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
-            this@drawWithContent.drawContent()
-        } else this@drawWithContent.drawContent()
+    ordinaryTop: Dp): Modifier {
+    val mask by rememberHomePosterMask(scene, list, enabled, ordinaryTop)
+    return drawWithContent {
+        clipRect {
+            val top = mask?.first?.coerceAtLeast(0f) ?: 0f
+            val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
+            if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
+                this@drawWithContent.drawContent()
+            } else this@drawWithContent.drawContent()
+        }
     }
 }
 
@@ -391,7 +414,8 @@ internal fun XlSceneRowHeadroom(
     scene: XlSceneState,
     rowKey: String,
     previous: HeroCarouselRow?,
-    currentXl: Boolean
+    currentXl: Boolean,
+    list: LazyListState? = null
 ) {
     val followsXl = previous?.isXl == true && !currentXl
     val compact = followsXl && previous?.showXlSummary == false
@@ -407,15 +431,36 @@ internal fun XlSceneRowHeadroom(
     }
     val target = if (compact && expanded) scene.heldHeadroomGoals[rowKey] ?: computedTarget else computedTarget
     val managed = scene.verticalMotion?.takeIf { it.rowKey == rowKey }
+    val previewReturn = scene.transition?.takeIf {
+        compact && it.earlyPreviewReturn && it.to.rowKey == previous?.key && it.outgoingMetadataCleared
+    }
     remember(scene, rowKey) {
         scene.headroomValues[rowKey] = target
     }
-    LaunchedEffect(scene, rowKey, target, managed?.id) {
+    LaunchedEffect(scene, rowKey, target, managed?.id, previewReturn?.id, list) {
         if (managed != null) return@LaunchedEffect
         val initial = scene.headroomValues[rowKey] ?: target
         scene.headroomMoving[rowKey] = followsXl && initial != target
         try {
-            if (followsXl && initial != target) animate(initial.value, target.value, animationSpec = tween(360)) { value, _ ->
+            if (previewReturn != null && list != null && initial != target) {
+                val info = list.layoutInfo
+                val owner = info.visibleItemsInfo.firstOrNull { it.key == rowKey }
+                val finalTop = (scene.xlTop(previous!!.key).value +
+                    (scene.rowHeights[previous.key] ?: scene.estimatedXlHeight).value + 24f + target.value) * density
+                val currentTop = owner?.let { it.offset + info.beforeContentPadding + initial.value * density } ?: finalTop
+                // The first part still leaves with the outgoing scene. Once its
+                // metadata clears, bring the preview from just beyond the screen
+                // through a full 360ms visible return, compensating list travel.
+                val fromTop = currentTop.coerceAtMost((scene.screenHeight.value + 8f) * density).coerceAtLeast(finalTop)
+                animate(fromTop, finalTop, animationSpec = tween(360)) { top, _ ->
+                    val layout = list.layoutInfo
+                    layout.visibleItemsInfo.firstOrNull { it.key == rowKey }?.let {
+                        scene.headroomValues[rowKey] = ((top - it.offset - layout.beforeContentPadding) / density)
+                            .coerceAtLeast(target.value).dp
+                    }
+                }
+                scene.headroomValues[rowKey] = target
+            } else if (followsXl && initial != target) animate(initial.value, target.value, animationSpec = tween(360)) { value, _ ->
                 scene.headroomValues[rowKey] = value.dp
             } else scene.headroomValues[rowKey] = target
         } finally {
@@ -436,6 +481,7 @@ internal fun XlSceneRowHeadroom(
 @OptIn(kotlinx.coroutines.FlowPreview::class)
 @Composable
 internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
+    LocalHomeSceneInspection.current?.let { inspect -> SideEffect { inspect(scene, list) } }
     AnimateXlVerticalMotion(scene, list)
     val move = scene.transition
     val id = move?.id
@@ -702,7 +748,8 @@ internal fun ModernXlAwareHeroTitleBlock(
     val move = scene.transition
     val viewportHeight = LocalConfiguration.current.screenHeightDp * density
     val outgoing by remember(scene, list, enabled, ordinaryTopPx, viewportHeight) {
-        derivedStateOf { enabled && xlSceneOutgoingMetadataVisible(scene, list.layoutInfo, ordinaryTopPx, viewportHeight, density) }
+        derivedStateOf { enabled && scene.transition?.outgoingMetadata != null &&
+            xlSceneOutgoingMetadataVisible(scene, list.layoutInfo, ordinaryTopPx, viewportHeight, density) }
     }
     val snapshot = when {
         !enabled -> resolvedHero?.let { XlMetadataSnapshot(selected?.rowKey.orEmpty(), it) }
@@ -754,7 +801,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
                 paintedLayer[0] = translationY
                 paintedLayer[1] = alpha
-                val edge = if (!outgoing) scene.outgoingXlBottom(list.layoutInfo) else null
+                val edge = if (!outgoing && move?.downwardExit == true) scene.outgoingXlBottom(list.layoutInfo) else null
                 val clipTop = if (outgoing) move?.outgoingMetadataClipTop ?: 0f
                     else if (edge != null) (edge - metadataLayoutTop[0] - translationY).coerceAtLeast(0f) else 0f
                 val top = metadataLayoutTop[0] + translationY
@@ -770,7 +817,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 // nearer than a full hero-height gap, especially in compact XL.
                 // Never cut its artwork or final summary lines with that mask.
                 val offset = paintedLayer[0]
-                val edge = scene.outgoingXlBottom(list.layoutInfo)
+                val edge = if (move?.downwardExit == true) scene.outgoingXlBottom(list.layoutInfo) else null
                 val top = when {
                     enabled && outgoing -> move?.outgoingMetadataClipTop ?: 0f
                     enabled && edge != null -> (edge - metadataLayoutTop[0] - offset).coerceAtLeast(0f)

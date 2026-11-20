@@ -32,7 +32,7 @@ internal fun xlBalancedTop(screenHeight: Float, summaryRowHeight: Float, fullWid
 internal fun xlFollowingHeadroom(screenHeight: Float, xlBottom: Float, ordinaryTop: Float,
     metadataTop: Float, headerCorrection: Float, clearXl: Boolean = true): Float {
     val previewGap = (screenHeight + 8f - xlBottom - 24f + ordinaryTop - metadataTop - headerCorrection).coerceAtLeast(0f)
-    return if (clearXl) maxOf(ordinaryTop - 24f + 1f, previewGap) else previewGap
+    return if (clearXl) maxOf(ordinaryTop - 24f + 1f - headerCorrection, previewGap) else previewGap
 }
 
 /** Keep a double Left from item 1 from becoming a sidebar-open at item 0. */

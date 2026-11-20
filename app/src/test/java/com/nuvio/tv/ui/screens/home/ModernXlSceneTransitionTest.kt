@@ -112,7 +112,7 @@ class ModernXlSceneTransitionTest {
                             ) {
                                 itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
                                     Column(Modifier.testTag("row-${row.key}")) {
-                                        XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl)
+                                        XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl, list)
                                         Column(Modifier.onSizeChanged {
                                             if (row.isXl) {
                                                 scene.rowHeights[row.key] = it.height.dp

@@ -74,6 +74,11 @@ import androidx.tv.material3.Text
 import coil.compose.AsyncImage
 import coil.decode.SvgDecoder
 import coil.request.ImageRequest
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.CompositingStrategy
 import com.nuvio.tv.R
 import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
@@ -81,6 +86,7 @@ import androidx.compose.ui.res.stringResource
 
 // Experimental XL color-field shading: one switch to remove after TV review.
 internal const val XL_BLUR_GRADIENT_PREVIEW = true
+internal const val XL_BLUR_GRADIENT_OPACITY = 0.92f
 
 internal data class HeroPlatformSnapshot(
     val platformId: String,
@@ -101,6 +107,9 @@ internal data class ModernHeroBackdropFrame(val url: String?, val scale: Float,
     var sourceCinematic = true
     var sourceWidthPx = 0
     var sourceHeightPx = 0
+    var blurredBitmap: Bitmap? = null
+    var compositedBitmap: Bitmap? = null
+    var compositedColors: FloatArray? = null
 }
 
 internal fun modernHeroBackdropFrame(url: String?, scale: Float, posterFallback: Boolean, blurred: Boolean) =
@@ -206,11 +215,19 @@ internal fun ModernHeroMediaLayer(
                     .width(rootWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION)
                     .height(with(density) { frame.sourceHeightPx.toDp() })
             } else Modifier.fillMaxSize()
-            if (renderCinematic) {
+            val composite = frame.compositedBitmap
+            if (renderCinematic && composite != null) {
+                LaunchedEffect(frame) { ready() }
+                Image(bitmap = remember(composite) { composite.asImageBitmap() }, contentDescription = null,
+                    modifier = frameModifier, contentScale = ContentScale.Crop, alignment = Alignment.Center)
+            } else if (renderCinematic) {
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
-                    onSuccess = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onSuccess = {
+                        if (frame.blurred) frame.blurredBitmap = (it.result.drawable as? BitmapDrawable)?.bitmap
+                        ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred)
+                    },
                     onError = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     modifier = Modifier
                         .then(frameModifier)
@@ -253,7 +270,8 @@ internal fun ModernHeroMediaLayer(
                         .height(with(density) { frame.sourceHeightPx.toDp() })
                 } else Modifier.fillMaxSize()
                 ModernHeroGradientLayer(backdropGradientColor, false, 0f, gradientModifier,
-                    cinematicMode = renderCinematic, compactContentStartOffset = if (renderCinematic) 0.dp else extension)
+                    cinematicMode = renderCinematic, compactContentStartOffset = if (renderCinematic) 0.dp else extension,
+                    opacity = if (frame.blurred) XL_BLUR_GRADIENT_OPACITY else 1f)
             }
         }
         if (usingXlDissolve) {
@@ -297,7 +315,8 @@ internal fun ModernHeroGradientLayer(
     compactContentStartOffset: androidx.compose.ui.unit.Dp = 0.dp,
     drawVerticalBottomGradient: Boolean = true,
     blurredBackdrop: androidx.compose.runtime.State<Boolean>? = null,
-    visibility: androidx.compose.runtime.State<Float>? = null
+    visibility: androidx.compose.runtime.State<Float>? = null,
+    opacity: Float = 1f
 ) {
     // XL's optional gradient lives inside each dissolve frame. Suppress this
     // external copy so it cannot stack or change after the image lands.
@@ -310,7 +329,10 @@ internal fun ModernHeroGradientLayer(
             compactContentStartOffset.toPx()
         }
 
-    Canvas(modifier = modifier.graphicsLayer { alpha = visibility?.value ?: 1f }) {
+    Canvas(modifier = modifier.graphicsLayer {
+        compositingStrategy = if (opacity < 1f) CompositingStrategy.ModulateAlpha else CompositingStrategy.Auto
+        alpha = (visibility?.value ?: 1f) * opacity
+    }) {
         /*
          * Compact mode uses a stationary canvas that extends to the left of
          * the actual backdrop. Keep that extension opaque, then preserve the

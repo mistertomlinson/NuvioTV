@@ -4076,7 +4076,6 @@ internal fun NumberedCatalogCardWrapper(
     useLandscapePosters: Boolean = false,
     compactXl: Boolean = false,
     compactXlFontSize: Float? = null,
-    xlContrastStrokeWidth: Dp = 1.dp,
     numberOpacity: State<Float>? = null,
     numberFadeEdge: State<Float>? = null,
     content: @Composable () -> Unit
@@ -4176,15 +4175,6 @@ internal fun NumberedCatalogCardWrapper(
                     val fillPaint = if (numberStyle == NumberStyle.OUTLINE) android.graphics.Paint(paint).apply {
                         color = android.graphics.Color.BLACK
                     } else paint
-                    // One visible dp outside solid XL glyphs. Outline style keeps
-                    // its original light stroke and opaque black interior.
-                    val contrastPaint = if (compactXl && numberStyle == NumberStyle.SOLID && xlContrastStrokeWidth > 0.dp) android.graphics.Paint(paint).apply {
-                        color = android.graphics.Color.rgb(22, 22, 22)
-                        style = android.graphics.Paint.Style.STROKE
-                        strokeWidth = 2f * xlContrastStrokeWidth.toPx()
-                        strokeJoin = android.graphics.Paint.Join.ROUND
-                        strokeCap = android.graphics.Paint.Cap.ROUND
-                    } else null
                     val textW = paint.measureText(numberText)
                     val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
                     val x = size.width - textW + oneAdjust
@@ -4204,7 +4194,6 @@ internal fun NumberedCatalogCardWrapper(
                         val savedAlpha = if (opacity < 1f || softenEdge) nativeCanvas.saveLayerAlpha(
                             -inkPad, -inkPad, size.width + inkPad, size.height + inkPad,
                             (opacity.coerceIn(0f, 1f) * 255).toInt()) else null
-                        contrastPaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
                         strokePaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
                         nativeCanvas.drawText(numberText, x, baseline, fillPaint)
                         if (softenEdge) {

@@ -6,10 +6,12 @@ import android.graphics.Canvas
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.unit.dp
 import org.junit.After
@@ -34,6 +36,7 @@ class XlBackdropDissolveTest {
     private val target = mutableStateOf("A")
     private val readyCallbacks = mutableMapOf<String, () -> Unit>()
     private val finished = mutableListOf<String?>()
+    private val activeFrames = mutableSetOf<ModernHeroBackdropFrame>()
     @After fun cleanup() {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
@@ -44,12 +47,18 @@ class XlBackdropDissolveTest {
                 val transition = rememberModernHeroBackdropTransition(target.value, 1f, false, true, true, 160, 90)
                 Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
                     XlBackdropDissolve(transition, 180, onFinished = { finished += it.url }) { frame, ready ->
+                        val color = when (frame.url) { "A" -> android.graphics.Color.RED; "B" -> android.graphics.Color.BLUE; else -> android.graphics.Color.GREEN }
+                        val image = frame.compositedBitmap ?: remember(frame) {
+                            Bitmap.createBitmap(160, 90, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
+                        }
+                        SideEffect { frame.blurredBitmap = image }
+                        DisposableEffect(frame) {
+                            activeFrames += frame
+                            onDispose { activeFrames -= frame }
+                        }
                         SideEffect { readyCallbacks[checkNotNull(frame.url)] = ready }
-                        Box(Modifier.fillMaxSize().background(when (frame.url) {
-                            "A" -> Color.Red
-                            "B" -> Color.Blue
-                            else -> Color.Green
-                        }))
+                        Image(image.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                        if (frame.compositedBitmap != null) SideEffect { ready() }
                     }
                 }
             }
@@ -102,5 +111,33 @@ class XlBackdropDissolveTest {
         advance(128)
         assertEquals(android.graphics.Color.GREEN, pixel())
         assertEquals(listOf("C"), finished)
+    }
+
+    @Test fun rapidPreparedBlursRetainOneBackgroundAndOneIncomingLayer() {
+        content()
+        var merges = 0
+        for (name in listOf("B", "C", "A", "B", "C", "A")) {
+            val before = pixel()
+            compose.runOnIdle { target.value = name }
+            compose.waitUntil(10_000) {
+                compose.mainClock.advanceTimeBy(16); compose.waitForIdle()
+                activeFrames.any { it.url == name }
+            }
+            val retained = pixel()
+            // The pending target takes effect on the next animation frame.
+            // Permit that one frame of the old fade, never an extra dark beat.
+            for (shift in listOf(0, 8, 16)) assertEquals("Retargeting $name keeps the visible blend",
+                ((before shr shift) and 255).toDouble(), ((retained shr shift) and 255).toDouble(), 26.0)
+            assertEquals("Opaque color fields never reveal black", 255.0,
+                (android.graphics.Color.red(retained) + android.graphics.Color.green(retained) + android.graphics.Color.blue(retained)).toDouble(), 3.0)
+            assertTrue("Prepared blur layers must not accumulate: ${activeFrames.map { it.url }}", activeFrames.size <= 2)
+            if (activeFrames.any { it.compositedBitmap != null }) merges++
+            compose.runOnIdle { checkNotNull(readyCallbacks[name])() }
+            advance(64)
+        }
+        assertTrue("Exercise interrupted partial blends", merges >= 4)
+        advance(240)
+        assertEquals(1, activeFrames.size)
+        assertEquals(android.graphics.Color.RED, pixel())
     }
 }

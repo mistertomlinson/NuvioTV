@@ -28,10 +28,10 @@ from its original solid glyph. Its outlined version uses a uniform-width inset o
 that same shape, so both versions have identical size, position and outer bounds,
 independent of font line height and baseline clipping. This
 changes only the setting icon; the actual numbered posters retain Jost and the
-existing solid/outline rendering. Solid XL numbers add a one-dp dark contour
-for contrast over the blurred field. Outline XL numbers keep their original light
-stroke and opaque black interior, without that extra dark contour. The contour
-shares the solid number's opacity/mask; regular-row numbering is unchanged.
+existing solid/outline rendering. Both XL number options now omit the added dark
+contrast contour. Solid numbers retain their original gray/theme fill; outlined
+numbers retain their original light stroke and opaque black interior. Number
+geometry, edge fades and regular-row numbering are unchanged.
 
 ## Focus and numbering
 
@@ -117,15 +117,17 @@ row. Each non-first XL row reserves enough prefix to place preceding posters
 entirely above the screen at landing. Ordinary-to-ordinary
 navigation keeps the stationary upper metadata and ordinary clipping.
 
-Ordinary poster bodies now fade their last visible strip as their logical bottom
-approaches the metadata cutoff. The fade spans the last 20 dp, and a 12 dp clear
-margin removes scaled poster/rank slivers. It modulates primitive opacity in
-a graphics layer using `CompositingStrategy.ModulateAlpha`, and draws
-the body once. It has no temporary bitmap surface, destination-in blend, or
-per-frame gradient shader. The stationary and travelling metadata exclusions
-remain cheap rectangle clips. Current posters and headings keep their positions;
-artwork above a moving hero remains part of the outgoing scene. Fully transparent
-bodies cannot leave their lower overhang visible.
+Ordinary poster bodies have a spatial alpha gradient at the upper exit edge.
+The 20 dp feather follows a 12 dp clear margin so lower poster/rank slivers cannot
+remain behind the metadata. Actual card content has a cached graphics layer.
+The opaque region draws that display list directly; only the 20 dp feather
+replays it through a narrow destination-in surface. There is no whole-row or
+whole-screen fade surface. Unaffected rows share stable mask results and do not
+invalidate their card display lists on every scroll update. The viewport mask
+also reads scroll layout only during an actual moving metadata boundary, and
+stationary metadata does not observe scroll layout. These changes apply with
+all XL preferences disabled as well as on mixed pages. Current headings and
+poster anchors remain unchanged.
 
 The default vertical BringIntoView animation and held-scroll velocity (1200 dp/s)
 are unchanged. Ordinary metadata uses a simple Box instead of the unconditional
@@ -138,6 +140,9 @@ focus relocation.
 The space before a following ordinary row is calculated from the XL row's
 measured bottom, the viewport, and the ordinary hero's resting position, keeping
 the next hero just below the screen instead of leaving a second oversized gap.
+The minimum exit clearance includes the measured heading correction as well as
+the preview-gap calculation; a short heading cannot strand the XL tail a few
+pixels on screen and prevent the metadata fade from starting.
 On a downward summary-XL exit, the next row and its prepared metadata move
 up together while the outgoing XL artwork clears the screen. A summary XL starts
 with its following hero 8 dp below the viewport.
@@ -160,6 +165,10 @@ upward return to bring the scene down together. On Up into XL, its following gap
 before XL settles and while outgoing metadata is still leaving. That metadata
 keeps moving with XL and does not follow the contracting preview gap. The
 preview can approach its resting position without pulling old text upward.
+Once that metadata clears, compact Up entry preserves a complete 360 ms return
+from just below the screen to the row's final preview position. The gap
+compensates for the list's remaining travel, so most of the tween is no longer
+consumed below the screen. Numbered and unnumbered rows share this geometry.
 A partly completed compact-exit reversal first preserves its original clearance
 to prevent a clipped logo from appearing over XL. Down into XL retains the
 measured outgoing-metadata clearance trigger. Neither direction waits for the
@@ -177,6 +186,9 @@ potentially different ordinary fanart image for that title. The XL field fills
 the screen in either trailer-layout mode. The ordinary hero's left/bottom
 gradient now shades each blurred frame as an experiment controlled by
 `XL_BLUR_GRADIENT_PREVIEW`; disabling that switch removes only this shading.
+Only blurred frames use the modestly lighter 0.92 gradient opacity; ordinary
+backdrops retain their existing gradient strength. Alpha modulation avoids a
+new full-screen offscreen surface for this static shading adjustment.
 The gradient dissolves with its own image rather than changing after it lands. The fixed blur runs on one background CPU lane, with cancellation checks
 between scanlines. It cannot grow with a full-size decode or tall poster fallback.
 Coil caches this separately from the original image; no sharp placeholder is
@@ -197,11 +209,15 @@ starts a 220 ms background dissolve. The outgoing composite stays underneath
 while the incoming image fades over it; fading both images toward transparency
 would let black leak through at the midpoint. A rapid retarget freezes the
 current blend until the new image has faded over it. Movable content preserves
-the existing image painters when they become part of the retained blend. Only
-an interrupted dissolve with multiple frozen images caches that static group
-in an offscreen graphics layer, outside the active opacity animation. Old
-frames are discarded when the latest fade finishes. No new window capture,
-bitmap readback or live blur is used. Cold images retain the preceding artwork
+the existing image painters when they become part of the retained blend.
+Cancelled zero-opacity targets are discarded immediately. Multiple prepared
+opaque blur fields are blended on a background worker into one 160x90 retained
+field before adding the next incoming image. A float RGB sidecar avoids repeated
+8-bit rounding darkening during rapid retargets. This bounds prepared blur-only
+transitions to one retained field plus one incoming image; mixed sharp/blur
+transitions retain their existing exact composite. Old frames are discarded
+when the latest fade finishes. No new window capture, GPU readback or live blur
+is used. Cold images retain the preceding artwork
 while loading, bounded at two seconds for failures; input and the portrait
 runway remain responsive. Select commits the title currently displayed. Only
 one item to the right is speculatively warmed, after the existing quiet lookahead
@@ -267,7 +283,7 @@ fully transparent poster bottoms with short headings in both viewport styles,
 a real loaded blur staying pixel-identical after late ordinary measurements,
 10% parallax overhang without exposed screen edges, compact two-phase travel,
 metadata fade only after landing, early preview return while artwork is cold,
-XL-only number contour/fade, loaded-logo reuse through the simple ordinary host,
+original XL number styles/fades, loaded-logo reuse through the simple ordinary host,
 direct entry in either direction before row settlement, delayed pair readiness
 without black, constant RGB brightness throughout real-image dissolves and
 rapid reversal, a single viewport draw pass, restored XL focus without a new
@@ -276,7 +292,13 @@ concurrent gradient fading and platform alpha pinning, XL-first platform darknes
 the summary-free exit/return, delayed-frame handoffs, strict double-Left timing,
 animated portrait return, and numbered-card anchoring. JVM tests cover
 snapshot ownership, recycling, interrupted transitions, gap lifetime, frame
-identity, preferences and existing app behavior. These supplement TV review.
+identity, preferences and existing app behavior. A separate integration suite mounts actual ModernHomeContent and real catalog
+cards for numbered/plain, summary/compact, first/middle XL, ordinary landscape,
+full/half-width icons and XL-disabled pages. Native RecordingCanvas checks
+exercise RenderNode reuse through scroll mask changes; native bitmap captures
+check spatial fading and final metadata pixels. A counting Coil transformation
+checks cache reuse and worker-thread execution. These supplement TV review and
+do not measure physical TV frame pacing.
 
 On the TV check ordinary → ordinary, ordinary → XL → ordinary in both directions,
 summary/no-summary variants, consecutive XL rows, and rapid reversals mid-slide.

@@ -33,7 +33,6 @@ class XlNumberContrastTest {
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var activity: ActivityController<ComponentActivity>
     private val opacity = mutableStateOf(1f)
-    private val contour = mutableStateOf(1.dp)
     @After fun cleanup() {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
@@ -47,7 +46,7 @@ class XlNumberContrastTest {
                         Box(Modifier.padding(start = 80.dp, top = 40.dp)) {
                             NumberedCatalogCardWrapper(8, 163.dp, 244.dp,
                                 preMeasuredTextWidth = 48.dp, numberStyle = style,
-                                compactXl = xl, xlContrastStrokeWidth = contour.value, numberOpacity = opacity) {
+                                compactXl = xl, numberOpacity = opacity) {
                                 Spacer(Modifier.width(163.dp).height(244.dp))
                             }
                         }
@@ -68,62 +67,47 @@ class XlNumberContrastTest {
         return bitmap
     }
 
-    private fun exterior(actual: Bitmap, reference: Bitmap): List<Pair<Int, Int>> = buildList {
-        for (y in 40..340) for (x in 0..200) {
-            if (reference.getPixel(x, y) == android.graphics.Color.WHITE &&
-                android.graphics.Color.red(actual.getPixel(x, y)) < 200) add(x to y)
-        }
-    }
-
-    private fun reference(): Bitmap {
-        compose.runOnIdle { contour.value = 0.dp }
-        compose.waitForIdle()
-        return pixels()
-    }
-
     private fun verify(style: NumberStyle, xl: Boolean) {
         content(style, xl)
         val image = pixels()
-        val reference = reference()
-        val edge = exterior(image, reference)
-        if (xl && style == NumberStyle.SOLID) assertTrue("Solid XL needs a dark contour beyond the original glyph", edge.size >= 4)
-        else assertTrue("Outline and regular styles must not gain the added contour", image.sameAs(reference))
-        image.recycle(); reference.recycle()
-    }
-
-    @Test fun xlSolidHasAThinDarkExterior() = verify(NumberStyle.SOLID, true)
-    @Test fun xlOutlineHasNoAddedDarkContour() = verify(NumberStyle.OUTLINE, true)
-    @Test fun regularSolidHasNoAddedContour() = verify(NumberStyle.SOLID, false)
-    @Test fun regularOutlineHasNoAddedContour() = verify(NumberStyle.OUTLINE, false)
-
-    @Test fun xlOutlinedNumbersRetainTheirOriginalOpaqueBlackInteriors() {
-        content(NumberStyle.OUTLINE, true)
-        val image = pixels()
-        var black = 0
+        var gray = 0
+        var dark = 0
         for (y in 40..340) for (x in 0..200) {
-            if (image.getPixel(x, y) == android.graphics.Color.BLACK) black++
+            val red = android.graphics.Color.red(image.getPixel(x, y))
+            if (red in 100..200) gray++
+            if (red < 100) dark++
         }
-        assertTrue("The original outlined style retains black fill", black > 20)
+        assertTrue("Original gray glyph remains: $gray", gray > 20)
+        if (style == NumberStyle.SOLID) assertEquals("No added solid rank contour", 0, dark)
+        else assertTrue("Original outlined style keeps black fill", dark > 20)
         image.recycle()
     }
+    @Test fun xlSolidHasNoAddedDarkContour() = verify(NumberStyle.SOLID, true)
+    @Test fun xlOutlineRetainsItsOriginalStyle() = verify(NumberStyle.OUTLINE, true)
+    @Test fun regularSolidHasNoAddedContour() = verify(NumberStyle.SOLID, false)
+    @Test fun regularOutlineRetainsItsOriginalStyle() = verify(NumberStyle.OUTLINE, false)
 
-    @Test fun theContrastContourFadesTogetherWithTheNumber() {
-        content(NumberStyle.SOLID, true)
+    private fun verifyFade(style: NumberStyle) {
+        content(style, true)
         val full = pixels()
-        val reference = reference()
-        val edge = exterior(full, reference)
-        assertTrue(edge.isNotEmpty())
-        compose.runOnIdle { contour.value = 1.dp; opacity.value = 0.5f }
+        val ink = buildList {
+            for (y in 40..340) for (x in 0..200)
+                if (android.graphics.Color.red(full.getPixel(x, y)) < 140) add(x to y)
+        }
+        assertTrue(ink.isNotEmpty())
+        compose.runOnIdle { opacity.value = 0.5f }
         compose.waitForIdle()
         val half = pixels()
-        edge.forEach { (x, y) ->
-            assertEquals("Dark ink must use the same fade as the glyph", (255.0 + android.graphics.Color.red(full.getPixel(x, y))) / 2,
+        ink.forEach { (x, y) ->
+            assertEquals("All ink shares the number fade", (255.0 + android.graphics.Color.red(full.getPixel(x, y))) / 2,
                 android.graphics.Color.red(half.getPixel(x, y)).toDouble(), 3.0)
         }
         compose.runOnIdle { opacity.value = 0f }
         compose.waitForIdle()
         val gone = pixels()
-        edge.forEach { (x, y) -> assertEquals(android.graphics.Color.WHITE, gone.getPixel(x, y)) }
-        full.recycle(); reference.recycle(); half.recycle(); gone.recycle()
+        ink.forEach { (x, y) -> assertEquals(android.graphics.Color.WHITE, gone.getPixel(x, y)) }
+        full.recycle(); half.recycle(); gone.recycle()
     }
+    @Test fun solidRanksFadeAsOneGlyph() = verifyFade(NumberStyle.SOLID)
+    @Test fun outlinedRanksFadeAsOneGlyph() = verifyFade(NumberStyle.OUTLINE)
 }

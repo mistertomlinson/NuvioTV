@@ -87,4 +87,12 @@ class ModernXlRowPolicyTest {
         }
     }
 
+    @Test fun `short headings cannot strand the XL tail above hidden metadata`() {
+        for (header in listOf(28f, 32f, 40f, 46f)) {
+            val correction = header - 40f
+            val gap = xlFollowingHeadroom(540f, 495f, 259f, 106f, correction)
+            assertTrue(259f - correction - 24f - gap <= 0f)
+        }
+    }
+
 }

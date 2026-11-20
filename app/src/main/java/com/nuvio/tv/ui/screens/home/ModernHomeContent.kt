@@ -6191,7 +6191,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 carouselRows.getOrNull(carouselRows.indexOfFirst { it.key == row.key } - 1)
             }
             Column {
-                XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
+                XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl, verticalRowListState)
             ModernRowSection(
                 row = row,
                 posterFadeViewport = posterFadeViewport,
