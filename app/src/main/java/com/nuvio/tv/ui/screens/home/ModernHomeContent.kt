@@ -3419,9 +3419,10 @@ fun ModernHomeContent(
         val ghostAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
         val ghostOffset = remember { androidx.compose.animation.core.Animatable(0f) }
         val ghostParallax = remember { androidx.compose.animation.core.Animatable(0f) }
+        val presentedBackdropBlurred = rememberXlPlatformBackdropBlurred(xlBackdrop, xlPlatformBackdrop, ghostVisible)
 
         // Cinematic mode: trailers off OR target is expanded card → full-screen backdrop + detail-style gradient
-        val cinematicHeroMode = !uiState.focusedPosterBackdropTrailerEnabled ||
+        val cinematicHeroMode = presentedBackdropBlurred.value || !uiState.focusedPosterBackdropTrailerEnabled ||
             uiState.focusedPosterBackdropTrailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
 
         /*
@@ -3679,6 +3680,7 @@ fun ModernHomeContent(
 
                 if (backdropGradientInsideComposite) {
                     ModernHeroGradientLayer(
+                        blurredBackdrop = presentedBackdropBlurred,
                         bgColor = bgColor,
                         allowLetterboxing = false,
                         trailerTransitionProgress = 0f,
@@ -3940,6 +3942,7 @@ fun ModernHomeContent(
             }
 
             ModernHeroGradientLayer(
+                blurredBackdrop = presentedBackdropBlurred,
                 bgColor = bgColor,
                 allowLetterboxing = trailerGradientPresented,
                 trailerTransitionProgress =
@@ -4004,6 +4007,7 @@ fun ModernHomeContent(
             when {
                 compactTrailerGradientPresented -> {
                     ModernHeroGradientLayer(
+                        blurredBackdrop = presentedBackdropBlurred,
                         bgColor = bgColor,
                         allowLetterboxing = true,
                         trailerTransitionProgress = 1f,
@@ -4025,6 +4029,7 @@ fun ModernHomeContent(
 
                 compactExitBackdropGradientPresented -> {
                     ModernHeroGradientLayer(
+                        blurredBackdrop = presentedBackdropBlurred,
                         bgColor = bgColor,
                         allowLetterboxing = false,
                         trailerTransitionProgress = 0f,
@@ -4223,7 +4228,8 @@ fun ModernHomeContent(
                 withFrameNanos {}
                 heroGhostBitmap = heroGhostLayer.toImageBitmap()
                 catalogGhostBitmap = catalogGhostLayer.toImageBitmap()
-                xlPlatformBackdrop.capture(latestXlBackdrop.dim.value, latestCarouselRows.firstOrNull()?.isXl == true)
+                xlPlatformBackdrop.capture(latestXlBackdrop.dim.value, latestCarouselRows.firstOrNull()?.isXl == true,
+                    latestXlBackdrop.blurred)
                 ghostAlpha.snapTo(1f)
                 ghostOffset.snapTo(0f)
                 ghostParallax.snapTo(0f)

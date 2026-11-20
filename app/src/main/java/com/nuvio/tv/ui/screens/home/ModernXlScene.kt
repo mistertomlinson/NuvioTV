@@ -13,6 +13,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalConfiguration
@@ -27,7 +30,7 @@ import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
-internal const val XL_BACKDROP_REVEAL_MS = 400
+internal const val XL_BACKDROP_REVEAL_MS = 180
 internal val HOME_POSTER_FADE_HEIGHT = 20.dp
 
 internal data class XlSceneSelection(
@@ -41,7 +44,8 @@ internal data class XlSceneSelection(
 
 internal fun HeroCarouselRow.sceneSelection(index: Int, rowIndex: Int): XlSceneSelection? =
     items.getOrNull(index.coerceIn(0, items.lastIndex.coerceAtLeast(0)))?.let {
-        XlSceneSelection(key, it.key, rowIndex, isXl, showXlSummary, it.heroPreview)
+        XlSceneSelection(key, it.key, rowIndex, isXl, showXlSummary,
+            if (isXl) it.xlBackdropPreview() else it.heroPreview)
     }
 
 /** Never resurrect XL's retained date in the ordinary badge during its exit. */
@@ -273,6 +277,7 @@ internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListSta
         xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
     }
     val matrix = android.graphics.Matrix()
+    val itemClip = Path()
     onDrawWithContent {
         val mask = if (enabled) xlSceneMetadataMask(scene, list.layoutInfo, true, ordinaryTop.toPx(), density, size.height)
             else 0f to fadeHeight
@@ -286,7 +291,19 @@ internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListSta
                 // Only this narrow band needs an offscreen surface. Keep the
                 // backdrop outside it untouched, and never mask departing XL.
                 val fadeTop = maxOf(top, bottom - fadeHeight)
-                clipRect(top = fadeTop, bottom = bottom) {
+                // A focused card can draw beyond its row's measured bottom.
+                // Do not reintroduce that overhang in the empty gap after the
+                // row has cleared the cutoff; it leaves a stationary sliver.
+                itemClip.reset()
+                val layout = list.layoutInfo
+                if (layout.visibleItemsInfo.isEmpty()) itemClip.addRect(Rect(0f, fadeTop, size.width, bottom))
+                else layout.visibleItemsInfo.forEach { item ->
+                    val itemTop = (item.offset + layout.beforeContentPadding).toFloat()
+                    val from = maxOf(fadeTop, itemTop)
+                    val to = minOf(bottom, itemTop + item.size)
+                    if (from < to) itemClip.addRect(Rect(0f, from, size.width, to))
+                }
+                if (!itemClip.isEmpty) clipPath(itemClip) {
                     val canvas = drawContext.canvas.nativeCanvas
                     val layer = canvas.saveLayer(0f, fadeTop, size.width, bottom, null)
                     this@onDrawWithContent.drawContent()
@@ -390,7 +407,7 @@ internal fun rememberXlBackdropPresentation(
 ): XlBackdropPresentation {
     val selected = scene.selection
     val darkTarget = enabled && if (carouselFocused) pageStartsWithXl else selected?.isXl == true
-    val state = remember(scene) { XlBackdropPresentation(resolvedHero, darkTarget) }
+    val state = remember(scene) { XlBackdropPresentation(if (darkTarget) selected?.preview ?: resolvedHero else resolvedHero, darkTarget) }
     val latestResolved by rememberUpdatedState(resolvedHero)
     val selectionKey = selected?.let { it.rowKey to it.itemKey }
     LaunchedEffect(scene, selectionKey, selected?.preview?.backdrop, selected?.preview?.imageUrl,

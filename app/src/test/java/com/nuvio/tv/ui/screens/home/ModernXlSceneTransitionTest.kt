@@ -183,7 +183,11 @@ class ModernXlSceneTransitionTest {
         fail("Scene did not settle: ${scene.transition}, dim=${backdrop.dim.value}, gap=${scene.headroomValues}")
     }
     private fun awaitRows() {
-        repeat(240) { advance(16); if (scene.transition?.rowsSettled == true) return }
+        repeat(240) {
+            advance(16)
+            if (scene.transition?.rowsSettled == true || scene.transition == null && !list.isScrollInProgress &&
+                scene.headroomMoving.values.none { it }) return
+        }
         fail("Rows did not settle: ${scene.transition}, gap=${scene.headroomValues}")
     }
     private fun y(tag: String) = compose.onNodeWithTag(tag, useUnmergedTree = true)
@@ -223,15 +227,15 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun theXlExitBackdropRevealsDuringMotionAndFinishesWithinFourHundredMilliseconds() {
+    @Test fun theXlExitBackdropHasAVisibleFadeAndFinishesBeforeTheOldFourHundredMillisecondReveal() {
         content(start = 2)
         press(KeyEvent.KEYCODE_DPAD_UP)
-        advance(208)
-        assertTrue("The background should still be halfway through its reveal", backdrop.dim.value in 0.4f..0.7f)
-        advance(160)
-        assertTrue(backdrop.dim.value in 0.01f..0.25f)
         advance(112)
-        assertEquals("A ready backdrop must not retain v6's slow 650ms reveal", 0f, backdrop.dim.value, 0.001f)
+        assertTrue("The shortened reveal must still fade through intermediate brightness", backdrop.dim.value in 0.5f..0.9f)
+        advance(80)
+        assertTrue(backdrop.dim.value in 0.1f..0.45f)
+        advance(96)
+        assertEquals("A ready backdrop must not retain v7's 400ms reveal", 0f, backdrop.dim.value, 0.001f)
         settle()
         assertEquals(0f, backdrop.dim.value, 0.001f)
     }

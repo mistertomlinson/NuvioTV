@@ -16,8 +16,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
-internal const val XL_BLUR_WIDTH = 640
-internal const val XL_BLUR_HEIGHT = 360
+internal const val XL_BLUR_WIDTH = 160
+internal const val XL_BLUR_HEIGHT = 90
 
 // Share one CPU lane across rendering and lookahead. No blur runs on the main
 // thread, in a draw callback, or once per animation frame.
@@ -38,7 +38,7 @@ internal fun xlBlurredBackdropRequest(context: Context, url: String?): ImageRequ
 
 /** Bounded, cancellation-aware three-pass box blur, cached by Coil as its own variant. */
 internal object XlBackdropBlur : Transformation {
-    override val cacheKey = "nuvio-xl-blur-v1-640x360-r10-p3"
+    override val cacheKey = "nuvio-xl-blur-v2-160x90-r24-p3"
 
     override suspend fun transform(input: Bitmap, size: Size): Bitmap = withContext(xlBlurDispatcher) {
         // Exact crop bounds also protect against an original-size cache hit or
@@ -68,7 +68,7 @@ internal object XlBackdropBlur : Transformation {
     }
 
     private suspend fun blurPass(source: IntArray, target: IntArray, width: Int, height: Int, horizontal: Boolean) {
-        val radius = 10
+        val radius = 24
         val samples = radius * 2 + 1
         val length = if (horizontal) width else height
         val lines = if (horizontal) height else width

@@ -151,7 +151,7 @@ internal fun ModernXlRowSection(
     }
     LaunchedEffect(rowHasFocus, jumping, selectedItem, artworkPresentation, geometry, density) {
         if (!rowHasFocus || jumping || artworkPresentation == null) return@LaunchedEffect
-        val blurUrl = firstNonBlank(selectedItem.heroPreview.backdrop, selectedItem.heroPreview.imageUrl)
+        val blurUrl = selectedItem.xlLandscapeImageUrl()
         val requests = buildList {
             selectedItem.xlLandscapeImageUrl()?.let { add(homePosterImageRequest(context, it,
                 with(density) { geometry.featuredWidth.dp.roundToPx() }, with(density) { geometry.cardHeight.dp.roundToPx() })) }
@@ -168,7 +168,7 @@ internal fun ModernXlRowSection(
             with(density) { geometry.featuredWidth.dp.roundToPx() },
             with(density) { geometry.cardHeight.dp.roundToPx() })
     }
-    val nextBlurUrl = row.items.getOrNull(selected + 1)?.heroPreview?.let { firstNonBlank(it.backdrop, it.imageUrl) }
+    val nextBlurUrl = row.items.getOrNull(selected + 1)?.xlLandscapeImageUrl()
     LaunchedEffect(rowHasFocus, jumping, nextLandscape, nextBlurUrl) {
         if (!rowHasFocus || jumping || nextLandscape == null) return@LaunchedEffect
         // Conflate held D-pad presses; decode only one likely destination, on
@@ -269,6 +269,11 @@ internal fun ModernXlRowSection(
         if (jumping) jumpOrigin.value else if (runwayWasJumping[0]) rankTrack.origin(latestSelected) else animatedOrigin.value
     } }
     val runwayFirst by remember(rankTrack) { derivedStateOf { rankTrack.firstPortrait(runwayOrigin.value) } }
+    val firstSlidingPortrait by remember(rankTrack) { derivedStateOf {
+        val index = rankTrack.firstPortrait(runwayOrigin.value)
+        val right = rankTrack.portraitLeftAtOrigin(index, runwayOrigin.value, geometry.featuredWidth) + geometry.portraitWidth
+        if (right <= rankTrack.featuredLeft + geometry.featuredWidth + 0.5f) index + 1 else index
+    } }
     val descriptionLineHeight = MaterialTheme.typography.bodyMedium.lineHeight
     val summaryExtra = with(density) {
         (descriptionLineHeight * (if (portraitMetadata) 0.90f else 1f) * (if (portraitMetadata) 4 else 5)).toDp()
@@ -450,7 +455,10 @@ internal fun ModernXlRowSection(
                     }
                 }
             }
-            val firstPortrait = if (jumping) jumpFirstPortrait else selected + 1
+            // Keep the incoming featured title's portrait in the moving runway
+            // until it actually passes behind XL. Its number stays attached and
+            // never loses the image that normally covers the overlap strip.
+            val firstPortrait = if (jumping) jumpFirstPortrait else firstSlidingPortrait
             val lastPortrait = minOf(row.items.lastIndex, firstPortrait + geometry.visiblePortraitCount)
             for (index in firstPortrait..lastPortrait) {
                 key(row.items[index].key) {

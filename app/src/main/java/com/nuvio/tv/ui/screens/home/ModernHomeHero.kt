@@ -233,8 +233,12 @@ internal fun ModernHeroGradientLayer(
     cinematicMode: Boolean = false,
     shouldPlayHeroTrailer: Boolean = false,
     compactContentStartOffset: androidx.compose.ui.unit.Dp = 0.dp,
-    drawVerticalBottomGradient: Boolean = true
+    drawVerticalBottomGradient: Boolean = true,
+    blurredBackdrop: androidx.compose.runtime.State<Boolean>? = null
 ) {
+    // XL's cached color field has its own light tint. The ordinary hero's
+    // black gradients would change its palette and hide most of the color.
+    if (blurredBackdrop?.value == true) return
     val compactContentStartOffsetPx =
         with(LocalDensity.current) {
             compactContentStartOffset.toPx()

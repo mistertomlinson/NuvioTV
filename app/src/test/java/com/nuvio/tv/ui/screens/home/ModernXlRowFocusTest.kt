@@ -387,6 +387,35 @@ class ModernXlRowFocusTest {
         }
     }
 
+    @Test fun rightMoveKeepsThePortraitAndItsNumberTogetherUntilTheyPassBehindXl() {
+        rowState.value = row().copy(numberStyle = NumberStyle.SOLID)
+        content()
+        fun x(tag: String) = compose.onNodeWithTag(tag).fetchSemanticsNode().layoutInfo.coordinates.positionInRoot().x
+        val slot = compose.onNodeWithTag("xl-featured-test-xl").fetchSemanticsNode().layoutInfo.coordinates
+        val featuredRight = slot.positionInRoot().x + slot.size.width
+        compose.mainClock.autoAdvance = false
+        down(KeyEvent.KEYCODE_DPAD_RIGHT); up(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertXlFocus(1)
+        compose.onNodeWithTag("xl-portrait-test-xl-1").assertExists()
+        var movingFrames = 0
+        repeat(24) {
+            val nodes = compose.onAllNodes(hasTestTag("xl-portrait-test-xl-1"), useUnmergedTree = true).fetchSemanticsNodes()
+            if (nodes.isNotEmpty()) {
+                val poster = nodes.single().layoutInfo.coordinates
+                assertEquals("The rank must travel with its own portrait without a stationary hold",
+                    poster.positionInRoot().x, x("xl-rank-test-xl-1"), 0.1f)
+                assertTrue("The portrait must only unmount after the XL card covers it",
+                    poster.positionInRoot().x + poster.size.width > featuredRight - 0.6f)
+                movingFrames++
+            }
+            compose.mainClock.advanceTimeBy(16); compose.waitForIdle()
+        }
+        assertTrue(movingFrames > 0)
+        compose.onNodeWithTag("xl-portrait-test-xl-1").assertDoesNotExist()
+        assertXlFocus(1)
+        compose.mainClock.autoAdvance = true
+    }
+
     @Test fun xlRankBottomMatchesTheOrdinaryNumberedPosterGeometry() {
         compose.runOnUiThread {
             activity.get().setContent {

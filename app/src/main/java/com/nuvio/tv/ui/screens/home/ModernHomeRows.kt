@@ -4068,6 +4068,7 @@ internal fun NumberedCatalogCardWrapper(
     compactXl: Boolean = false,
     compactXlFontSize: Float? = null,
     numberOpacity: State<Float>? = null,
+    numberFadeEdge: State<Float>? = null,
     content: @Composable () -> Unit
 ) {
     val numberText = number.toString()
@@ -4151,13 +4152,25 @@ internal fun NumberedCatalogCardWrapper(
                         color = numberColor
                         style = android.graphics.Paint.Style.FILL
                     }
+                    val edgePaint = if (compactXl && numberFadeEdge != null) android.graphics.Paint().apply {
+                        shader = android.graphics.LinearGradient(0f, 0f, 1f, 0f,
+                            android.graphics.Color.TRANSPARENT, android.graphics.Color.WHITE, android.graphics.Shader.TileMode.CLAMP)
+                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+                    } else null
+                    val edgeMatrix = android.graphics.Matrix()
                     onDrawBehind {
                         val opacity = numberOpacity?.value ?: 1f
                         if (opacity <= 0f) return@onDrawBehind
                         // Fade stroke and fill as one glyph without a bounded
                         // graphics layer clipping the rank's lower overhang.
                         val nativeCanvas = drawContext.canvas.nativeCanvas
-                        val savedAlpha = if (opacity < 1f) nativeCanvas.saveLayerAlpha(null,
+                        val edge = numberFadeEdge?.value
+                        val softenEdge = edgePaint != null && edge != null && edge > -12f
+                        val inkPad = 2.dp.toPx()
+                        // A glyph-sized layer includes its outline and lower
+                        // overhang. No full-row layer or hard number clip.
+                        val savedAlpha = if (opacity < 1f || softenEdge) nativeCanvas.saveLayerAlpha(
+                            -inkPad, -inkPad, size.width + inkPad, size.height + inkPad,
                             (opacity.coerceIn(0f, 1f) * 255).toInt()) else null
                         val textW = paint.measureText(numberText)
                         val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
@@ -4185,6 +4198,12 @@ internal fun NumberedCatalogCardWrapper(
                             drawContext.canvas.nativeCanvas.drawText(numberText, x, size.height * 0.88f, fillPaint)
                         } else {
                             drawContext.canvas.nativeCanvas.drawText(numberText, x, size.height * 0.88f, paint)
+                        }
+                        if (softenEdge) {
+                            edgeMatrix.setScale(12.dp.toPx(), 1f)
+                            edgeMatrix.postTranslate(checkNotNull(edge).dp.toPx(), 0f)
+                            checkNotNull(edgePaint).shader.setLocalMatrix(edgeMatrix)
+                            nativeCanvas.drawRect(-inkPad, -inkPad, size.width + inkPad, size.height + inkPad, edgePaint)
                         }
                         if (savedAlpha != null) nativeCanvas.restoreToCount(savedAlpha)
                     }

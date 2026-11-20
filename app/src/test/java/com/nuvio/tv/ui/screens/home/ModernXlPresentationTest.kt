@@ -10,6 +10,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
@@ -58,6 +61,16 @@ class ModernXlPresentationTest {
             bitmap.recycle()
         }
         return red
+    }
+    private fun pixels(): android.graphics.Bitmap {
+        lateinit var result: android.graphics.Bitmap
+        compose.runOnUiThread {
+            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+            result = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            result.eraseColor(android.graphics.Color.BLACK)
+            view.draw(android.graphics.Canvas(result))
+        }
+        return result
     }
     private fun snapshot(name: String) = XlMetadataSnapshot(name,
         HeroPreview(name, null, name, "Movie", yearText = null, genres = emptyList(), poster = null, backdrop = null, imageUrl = null))
@@ -151,7 +164,7 @@ class ModernXlPresentationTest {
             }
         }
         val original = brightness()
-        assertTrue(original in 35..45)
+        assertTrue(original in 220..230)
         compose.runOnIdle {
             handoff.capture(backdrop.dim.value, true)
             ghost.value = true
@@ -199,7 +212,7 @@ class ModernXlPresentationTest {
         assertEquals(0, brightness())
         compose.runOnIdle { black.value = 0f }
         compose.waitForIdle()
-        assertTrue(brightness() in 35..45)
+        assertTrue(brightness() in 220..230)
     }
 
     @Test fun onlyTheRankPassingTheFeaturedEdgeFadesAndItsLowerInkNeverSlidesUnderXl() {
@@ -235,24 +248,26 @@ class ModernXlPresentationTest {
         assertEquals(136, lowerInk(8)); assertEquals(136, lowerInk(9))
         val farX = x(9)
         compose.mainClock.autoAdvance = false
-        compose.runOnIdle { origin.value += 20f }
         var passedThroughPartialAlpha = false
-        repeat(10) {
+        for (distance in 4..52 step 4) {
+            compose.runOnIdle { origin.value = track.origin(7) + distance }
             advance(16)
             if (lowerInk(8) in 1..135) passedThroughPartialAlpha = true
             assertEquals("All other ranks must stay opaque through every fade frame", 136, lowerInk(9))
+            assertEquals("The passing number must stay attached to its moving poster",
+                track.portraitLeftAtOrigin(8, origin.value, geometry.featuredWidth), x(8), 0.6f)
         }
         assertTrue("The passing glyph must actually fade through intermediate opacity", passedThroughPartialAlpha)
         assertEquals("All other ranks must remain fully opaque", 136, lowerInk(9))
-        assertEquals("Unaffected ranks keep sliding with their cards", farX - 20f, x(9), 0.1f)
+        assertEquals("Unaffected ranks keep sliding with their cards", farX - 52f, x(9), 0.1f)
         advance(64)
         compose.runOnIdle { origin.value = track.origin(7) + 180f }
         advance(16)
         assertEquals(0, lowerInk(8))
         for (px in 80..480 step 20) assertEquals("No lower rank ink may slide below the landscape", 0, brightness(px, 287))
-        compose.runOnIdle { origin.value = track.origin(7) }
         var emergedThroughPartialAlpha = false
-        repeat(10) {
+        for (distance in 52 downTo 0 step 4) {
+            compose.runOnIdle { origin.value = track.origin(7) + distance }
             advance(16)
             if (lowerInk(8) in 1..135) emergedThroughPartialAlpha = true
         }
@@ -295,5 +310,111 @@ class ModernXlPresentationTest {
         compose.waitForIdle()
         assertEquals("An XL row must keep the whole artwork through the old metadata region", 255, brightness(500, 250))
         assertEquals(255, brightness(500, 0))
+    }
+
+    @Test fun scaledPosterBottomsDoNotLeaveSliversInsideTheEmptyGapAboveTheHeading() {
+        val scene = XlSceneState()
+        val list = LazyListState(1)
+        content {
+            Box(Modifier.width(960.dp).height(540.dp).background(Color.Blue)) {
+                LazyColumn(state = list, contentPadding = PaddingValues(top = 260.dp, bottom = 540.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                    modifier = Modifier.fillMaxSize().xlSceneRowsViewport(scene, list, true, 260.dp)) {
+                    items((0..2).toList(), key = { it }) { index ->
+                        Column {
+                            Spacer(Modifier.height(40.dp))
+                            Box(Modifier.padding(start = 52.dp).width(200.dp).height(200.dp)
+                                .graphicsLayer { scaleY = if (index == 0) 1.2f else 1f }
+                                .background(Color.White).testTag("scaled-poster-$index"))
+                        }
+                    }
+                }
+            }
+        }
+        val oldBottom = compose.onNodeWithTag("scaled-poster-0").fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("The scaled poster must extend into the fade band to exercise the regression", oldBottom in 245f..259f)
+        val actualRowBottom = list.layoutInfo.visibleItemsInfo.first { it.key == 0 }.let {
+            it.offset + list.layoutInfo.beforeContentPadding + it.size
+        }
+        assertTrue(actualRowBottom < 240)
+        val bitmap = pixels()
+        for (y in 240..259) for (x in 70..220) {
+            assertEquals("The gap must contain only the backdrop after the row clears it", 0,
+                android.graphics.Color.red(bitmap.getPixel(x, y)))
+        }
+        bitmap.recycle()
+        assertEquals("The next poster remains opaque at its normal position", 255, brightness(100, 320))
+    }
+
+    @Test fun anEmergingRankStartsItsFadeBeforeThePortraitClearsXlAndIsReadyWhenItDoes() {
+        val track = XlRankTrack(163f, FloatArray(12) { 32f }, 53.68f)
+        val origin = mutableStateOf(track.origin(7) + 100f)
+        val geometry = XlRowGeometry(244f, 434f, 163f, 3)
+        content {
+            Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                Box(Modifier.offset(y = 40.dp)) {
+                    XlPortraitRank(8, "early", track, origin, geometry, NumberStyle.SOLID, false)
+                }
+            }
+        }
+        fun ink(): Int {
+            val x = compose.onNodeWithTag("xl-rank-early-8").fetchSemanticsNode()
+                .layoutInfo.coordinates.positionInRoot().x.toInt()
+            val bitmap = pixels()
+            val brightest = (x - 32..x - 2).maxOf { px -> (285..291).maxOf { py ->
+                android.graphics.Color.red(bitmap.getPixel(px, py))
+            } }
+            for (px in 80..485) assertEquals("The entire lower overhang must disappear softly behind XL", 0,
+                android.graphics.Color.red(bitmap.getPixel(px, 287)))
+            bitmap.recycle()
+            return brightest
+        }
+        assertEquals(0, ink())
+        compose.mainClock.autoAdvance = false
+        var beganBeforeClearing = false
+        for (distance in 44 downTo 0 step 4) {
+            compose.runOnIdle { origin.value = track.origin(7) + distance }
+            compose.mainClock.advanceTimeBy(16); compose.waitForIdle()
+            val left = track.numberLeft(8, track.portraitLeftAtOrigin(8, origin.value, 434f))
+            if (left < 486f && ink() > 0) beganBeforeClearing = true
+        }
+        assertTrue("The incoming rank must begin fading before the full glyph clears XL", beganBeforeClearing)
+        assertEquals(136, ink())
+        val bitmap = pixels()
+        for (x in 80..485) assertEquals("No early ink may slide below the landscape", 0,
+            android.graphics.Color.red(bitmap.getPixel(x, 287)))
+        bitmap.recycle()
+        compose.runOnIdle { origin.value = track.origin(7) }
+        compose.mainClock.advanceTimeBy(16); compose.waitForIdle()
+        assertEquals("The revealed portrait must already have its number", 136, ink())
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun xlColorFieldsKeepTheirRedWithoutOrdinaryGradientsAndPinThatStyleDuringPlatformExit() {
+        val xl = mutableStateOf(true)
+        val ghost = mutableStateOf(false)
+        val black = mutableStateOf(0f)
+        val handoff = XlPlatformBackdropHandoff()
+        lateinit var backdrop: XlBackdropPresentation
+        content {
+            backdrop = remember(xl.value) { XlBackdropPresentation(null, xl.value) }
+            val blurred = rememberXlPlatformBackdropBlurred(backdrop, handoff, ghost.value)
+            Box(Modifier.width(960.dp).height(540.dp).background(Color.Red)) {
+                ModernHeroGradientLayer(Color.Black, false, 0f, Modifier.fillMaxSize(), cinematicMode = true,
+                    blurredBackdrop = blurred)
+                ModernXlBackdropDimmer(rememberXlPlatformBackdropDim(backdrop, handoff, ghost.value))
+                Box(Modifier.fillMaxSize().graphicsLayer { alpha = black.value }.background(Color.Black))
+            }
+        }
+        for (x in listOf(50, 500, 900)) assertTrue("The red field should keep most of its original brightness", brightness(x, 150) in 220..230)
+        compose.runOnIdle { handoff.capture(backdrop.dim.value, true, backdrop.blurred); ghost.value = true; xl.value = false }
+        compose.waitForIdle()
+        assertTrue("The incoming ordinary page must not add black gradients to the captured color field", brightness(50, 150) in 220..230)
+        compose.runOnIdle { black.value = 1f; ghost.value = false }
+        compose.waitForIdle()
+        assertEquals(0, brightness(50, 150))
+        compose.runOnIdle { black.value = 0f }
+        compose.waitForIdle()
+        assertTrue("Ordinary rows retain their original hero gradient", brightness(50, 150) < 10)
     }
 }
