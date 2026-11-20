@@ -4065,6 +4065,7 @@ internal fun NumberedCatalogCardWrapper(
     useLandscapePosters: Boolean = false,
     compactXl: Boolean = false,
     compactXlFontSize: Float? = null,
+    numberOpacity: State<Float>? = null,
     content: @Composable () -> Unit
 ) {
     val numberText = number.toString()
@@ -4149,6 +4150,13 @@ internal fun NumberedCatalogCardWrapper(
                         style = android.graphics.Paint.Style.FILL
                     }
                     onDrawBehind {
+                        val opacity = numberOpacity?.value ?: 1f
+                        if (opacity <= 0f) return@onDrawBehind
+                        // Fade stroke and fill as one glyph without a bounded
+                        // graphics layer clipping the rank's lower overhang.
+                        val nativeCanvas = drawContext.canvas.nativeCanvas
+                        val savedAlpha = if (opacity < 1f) nativeCanvas.saveLayerAlpha(null,
+                            (opacity.coerceIn(0f, 1f) * 255).toInt()) else null
                         val textW = paint.measureText(numberText)
                         val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
                         val x = size.width - textW + oneAdjust
@@ -4176,6 +4184,7 @@ internal fun NumberedCatalogCardWrapper(
                         } else {
                             drawContext.canvas.nativeCanvas.drawText(numberText, x, size.height * 0.88f, paint)
                         }
+                        if (savedAlpha != null) nativeCanvas.restoreToCount(savedAlpha)
                     }
                 }
         ) {}

@@ -477,7 +477,8 @@ internal fun HeroTitleBlock(
     fullWidthIconRowEnabled: Boolean = false,
     heroMetadataLarge: Boolean = false,
     modifier: Modifier = Modifier,
-    contentModifier: Modifier = Modifier
+    contentModifier: Modifier = Modifier,
+    animateTitleLogo: Boolean = true
 ) {
     if (preview == null) return
 
@@ -524,7 +525,7 @@ internal fun HeroTitleBlock(
         ) { pid ->
             val frozenPreview = previewByPlatform[pid] ?: return@AnimatedContent
             HeroTitleContent(preview = frozenPreview, portraitMode = portraitMode, fullWidthIconRowEnabled = fullWidthIconRowEnabled,
-                heroMetadataLarge = heroMetadataLarge, modifier = contentModifier)
+                heroMetadataLarge = heroMetadataLarge, modifier = contentModifier, animateTitleLogo = animateTitleLogo)
         }
     }
 }
@@ -539,7 +540,9 @@ internal fun HeroTitleContent(
     showTitleLogo: Boolean = true,
     showDescription: Boolean = true,
     useFullSizeDescription: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    primaryMetadataModifier: Modifier = Modifier,
+    animateTitleLogo: Boolean = true
 ) {
     if (preview == null) return
     val descriptionMaxLines = if (portraitMode) 4 else 5
@@ -652,7 +655,7 @@ internal fun HeroTitleContent(
             // (and null->null) a single clean crossfade.
             Crossfade(
                 targetState = if (logoReady) displayedLogo else null,
-                animationSpec = tween(durationMillis = 300),
+                animationSpec = tween(durationMillis = if (animateTitleLogo) 300 else 0),
                 label = "heroLogoFade"
             ) { logoUrl ->
                 if (logoUrl != null) {
@@ -753,7 +756,7 @@ internal fun HeroTitleContent(
             (preview.isSeries || hasSecondaryBadge || secondaryHighlightText != null)
 
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = primaryMetadataModifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(metaSpacing)
         ) {

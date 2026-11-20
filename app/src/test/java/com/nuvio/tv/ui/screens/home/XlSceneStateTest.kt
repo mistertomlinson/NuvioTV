@@ -119,4 +119,41 @@ class XlSceneStateTest {
         assertTrue(checkNotNull(scene.transition).keepMetadataVisible)
         assertFalse(checkNotNull(scene.transition).deferOrdinaryReveal)
     }
+    @Test fun `exiting XL cannot revive its date in the ordinary badge from a frozen hero`() {
+        val xl = selection("XL", 1, true).let { it.copy(preview = it.preview.copy(comingSoonText = "NOVEMBER 30")) }
+        val normal = selection("C", 2)
+        val scene = XlSceneState(xl)
+        val backdrop = XlBackdropPresentation(xl.preview, true)
+        scene.focus(normal, layout())
+        assertNull(ordinaryComingSoonText(scene, backdrop, xl.preview, false))
+        val id = checkNotNull(scene.transition).id
+        scene.rowsSettled(id)
+        assertNull(ordinaryComingSoonText(scene, backdrop, xl.preview, false))
+        scene.complete(id)
+        assertNull(ordinaryComingSoonText(scene, backdrop, xl.preview, false))
+    }
+
+    @Test fun `a following ordinary coming soon badge uses its own date only after landing`() {
+        val xl = selection("XL", 1, true).let { it.copy(preview = it.preview.copy(comingSoonText = "NOVEMBER 30")) }
+        val next = selection("C", 2).let { it.copy(preview = it.preview.copy(comingSoonText = "DECEMBER 4")) }
+        val scene = XlSceneState(xl)
+        val backdrop = XlBackdropPresentation(xl.preview, true)
+        scene.focus(next, layout())
+        assertNull(ordinaryComingSoonText(scene, backdrop, xl.preview, false))
+        scene.rowsSettled(checkNotNull(scene.transition).id)
+        assertEquals("DECEMBER 4", ordinaryComingSoonText(scene, backdrop, xl.preview, false))
+        assertNull(ordinaryComingSoonText(scene, backdrop, xl.preview, true))
+    }
+
+    @Test fun `a reversal retains the visible portion of a clipped incoming metadata block`() {
+        val xl = selection("XL", 1, true, false)
+        val normal = selection("C", 2)
+        val scene = XlSceneState(xl)
+        scene.focus(normal, layout())
+        scene.recordMetadata(XlMetadataSnapshot("C", normal.preview), 130f, 1f, clipTop = 180f)
+        scene.focus(xl, layout())
+        assertEquals("C", scene.transition?.outgoingMetadata?.rowKey)
+        assertEquals(180f, checkNotNull(scene.transition).outgoingMetadataClipTop, 0f)
+    }
+
 }

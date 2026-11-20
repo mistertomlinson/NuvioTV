@@ -19,6 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -92,7 +95,7 @@ class ModernXlRowFocusTest {
         compose.runOnUiThread { activity.pause().stop().destroy(); models.viewModelStore.clear() }
     }
 
-    private fun content(fast: Boolean = false, doubleLeft: Boolean = false) {
+    private fun content(fast: Boolean = false, doubleLeft: Boolean = false, wideCanvas: Boolean = false) {
         compose.runOnUiThread {
             activity.get().setContent {
                 MaterialTheme {
@@ -101,7 +104,10 @@ class ModernXlRowFocusTest {
                         LocalSidebarOpenRequest provides { sidebarOpens++ },
                         LocalFastHorizontalNavigationEnabled provides fast
                     ) {
-                        Column(Modifier.width(960.dp).height(540.dp).onPreviewKeyEvent {
+                        Column(Modifier.width(960.dp).height(540.dp).layout { measurable, constraints ->
+                            val child = measurable.measure(if (wideCanvas) constraints.copy(maxWidth = constraints.maxWidth + 144) else constraints)
+                            layout(constraints.maxWidth, child.height) { child.place(0, 0) }
+                        }.onPreviewKeyEvent {
                             events += "key=${it.nativeKeyEvent.keyCode}, repeat=${it.nativeKeyEvent.repeatCount}, time=${SystemClock.uptimeMillis()}, selected=${selected.intValue}"
                             false
                         }) {
@@ -217,8 +223,10 @@ class ModernXlRowFocusTest {
         val after = portraits.fetchSemanticsNodes().single().boundsInRoot.left
         assertTrue("The portrait runway must scroll, before=$before after=$after", after > before)
         assertXlFocus(6)
-        tap(KeyEvent.KEYCODE_DPAD_CENTER)
-        compose.runOnIdle { assertEquals("Select must still open the held featured title", "id-6", detailsId) }
+        val firstArtwork = artworkIndex()
+        assertTrue("Landscape artwork should shuffle during the jump", firstArtwork < 6)
+        compose.mainClock.advanceTimeBy(32); compose.waitForIdle()
+        assertTrue(artworkIndex() < firstArtwork)
         compose.mainClock.advanceTimeBy(400); compose.waitForIdle()
         assertXlFocus(0)
         assertEquals(focusNode, compose.onNode(isFocused()).fetchSemanticsNode().id)
@@ -246,6 +254,85 @@ class ModernXlRowFocusTest {
         up(KeyEvent.KEYCODE_DPAD_LEFT)
         down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
         assertXlFocus(6)
+        compose.mainClock.autoAdvance = true
+    }
+
+    private fun artworkIndex(): Int {
+        val matcher = SemanticsMatcher("featured artwork") {
+            it.config.getOrNull(SemanticsProperties.TestTag)?.startsWith("xl-artwork-test-xl-") == true
+        }
+        return compose.onNode(matcher, useUnmergedTree = true).fetchSemanticsNode()
+            .config[SemanticsProperties.TestTag].substringAfterLast('-').toInt()
+    }
+
+    @Test fun selectDuringJumpOpensTheLandscapeTitleCurrentlyShown() {
+        content(doubleLeft = true)
+        repeat(8) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        compose.mainClock.autoAdvance = false
+        down(KeyEvent.KEYCODE_DPAD_LEFT); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
+        val shown = artworkIndex()
+        assertTrue(shown < 7)
+        tap(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.runOnIdle { assertEquals("id-$shown", detailsId) }
+        compose.mainClock.advanceTimeBy(500); compose.waitForIdle()
+        assertXlFocus(shown)
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun comingSoonBadgeMirrorsTheMetadataInsetOnThePhysicalViewport() {
+        rowState.value = row().let { r -> r.copy(items = r.items.mapIndexed { i, item ->
+            item.copy(heroPreview = item.heroPreview.copy(comingSoonText = if (i == 0) "NOVEMBER 30" else "DECEMBER 1"))
+        }) }
+        content(wideCanvas = true)
+        val badge = compose.onNodeWithTag("xl-release-badge-test-xl").fetchSemanticsNode().boundsInRoot
+        val meta = compose.onNodeWithTag("xl-primary-metadata-test-xl").fetchSemanticsNode().boundsInRoot
+        val poster = compose.onNodeWithTag("xl-featured-test-xl").fetchSemanticsNode().boundsInRoot
+        assertEquals(52f, meta.left, 0.5f)
+        assertEquals(meta.left, 960f - badge.right, 0.5f)
+        assertEquals(meta.center.y, badge.center.y, 0.6f)
+        assertTrue(badge.top > poster.bottom)
+        compose.mainClock.autoAdvance = false
+        tap(KeyEvent.KEYCODE_DPAD_UP)
+        compose.mainClock.advanceTimeBy(200); compose.waitForIdle()
+        compose.onNodeWithTag("xl-release-badge-test-xl").assertDoesNotExist()
+        compose.mainClock.autoAdvance = true
+        tap(KeyEvent.KEYCODE_DPAD_DOWN)
+        tap(KeyEvent.KEYCODE_DPAD_RIGHT)
+        compose.onNodeWithText("DECEMBER 1").assertExists()
+        assertXlFocus(1)
+    }
+
+    @Test fun summaryFreeBadgeAddsNoHeightToTheNextRowPeek() {
+        rowState.value = row().copy(showXlSummary = false)
+        content()
+        fun nextTop() = compose.onNodeWithTag("below").fetchSemanticsNode().boundsInRoot.top
+        val oldTop = nextTop()
+        compose.runOnIdle {
+            rowState.value = rowState.value.let { r -> r.copy(items = r.items.map { item ->
+                item.copy(heroPreview = item.heroPreview.copy(comingSoonText = "COMING 2027"))
+            }) }
+        }
+        compose.waitForIdle()
+        assertEquals(oldTop, nextTop(), 0.1f)
+        compose.onNodeWithTag("xl-release-badge-test-xl").assertExists()
+        compose.onNodeWithText("Next row").assertIsDisplayed()
+    }
+
+    @Test fun xlRanksStayStillWhileFadingBeforeTheirNewPositionsAppear() {
+        rowState.value = row().copy(numberStyle = NumberStyle.SOLID)
+        content()
+        repeat(7) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
+        fun rankX() = compose.onNodeWithTag("xl-rank-test-xl-8").fetchSemanticsNode()
+            .layoutInfo.coordinates.positionInRoot().x
+        val oldX = rankX()
+        compose.mainClock.autoAdvance = false
+        down(KeyEvent.KEYCODE_DPAD_RIGHT); up(KeyEvent.KEYCODE_DPAD_RIGHT)
+        assertEquals("The fading numbers must not slide below the featured card", oldX, rankX(), 0.1f)
+        compose.mainClock.advanceTimeBy(110); compose.waitForIdle()
+        assertEquals(52f, rankX(), 0.1f)
+        compose.mainClock.advanceTimeBy(400); compose.waitForIdle()
+        assertXlFocus(8)
         compose.mainClock.autoAdvance = true
     }
 

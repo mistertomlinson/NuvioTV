@@ -39,9 +39,16 @@ window, measured with native input timestamps. Both presses must be quick taps;
 a held press/repeat cannot arm the next fresh Left as a shortcut. Slow Lefts
 remain individual moves. A fresh Left at item zero can still open the sidebar.
 The shortcut scrolls a bounded portrait runway at ordinary-row speed (compressing
-very long trips), then changes the featured title. The landscape image, inline
-metadata, trailer and Select target stay on the same title until that scroll
-finishes. Vertical navigation cancels a running jump without moving focus later.
+very long trips), shuffling the landscape artwork through the same titles.
+Trailers pause during the jump. Select/long press commits the landscape title
+currently shown before the permanent card handles the action. Vertical navigation
+cancels a running jump without moving focus later.
+
+Only the next landscape image to the right is preloaded, using the featured
+card's exact URL, size, Crop scale and inexact decode policy. An 80 ms quiet
+window conflates held presses. Coil loads on the background path; leaving the row,
+changing selection, or starting a jump cancels that request. No left lookahead
+or wide landscape window is added.
 
 Numbered XL posters and their lower metadata retain the ordinary 52 dp heading
 anchor. Ranks extend into the existing left gutter, with eight dp behind the
@@ -50,6 +57,10 @@ solid/outline renderer and theme color are reused at a smaller size. Long ranks
 scale down enough to fit the gutter rather than pushing the featured card right.
 Their baseline sits slightly below the poster bottom, following the ordinary
 number layout; the artwork viewport allows that lower ink and outline to draw.
+During horizontal navigation, numbers remain at their old positions for a 70 ms
+fade-out, relocate while transparent, then fade in over 140 ms once portrait
+movement settles. A jump keeps them transparent until the runway stops. Stroke
+and fill fade together, including the lower overhang; no clipping mask is added.
 
 ## Vertical presentation
 
@@ -61,6 +72,8 @@ Rapidly crossing an XL row preserves any still-visible original outgoing
 snapshot. A second ordinary-row focus after an XL exit instead resumes the
 stationary hero presentation, transitioning to the new ordinary title in place.
 Returning directly to that same visible owner preserves its logo composition.
+Reversals retain the metadata's painted clip as well as its position, so a
+prepared but hidden logo cannot flash into view over the departing poster.
 At rest, an XL row has only its own inline metadata. The ordinary hero block is
 unmounted, so a retained logo cannot remain behind the XL image.
 
@@ -84,8 +97,8 @@ the next hero just below the screen instead of leaving a second oversized gap.
 On either downward exit, the gap grows only as much as needed during movement:
 the next row moves toward its normal position while the entire outgoing XL row
 travels off screen. A summary XL starts with its following hero 8 dp below the
-viewport, and compact XL starts with its normal next-row peek. The incoming metadata reveals below the departing XL's bottom edge,
-using the backdrop's fade clock as soon as its frame is ready. Neither the
+viewport, and compact XL starts with its normal next-row peek. The incoming metadata is fully opaque and reveals below the departing XL's
+bottom edge as it slides in, independently of backdrop brightness. Neither the
 metadata nor the row mask can clip the XL artwork. The gap stays open while
 browsing ordinary rows below it, allowing a later upward return to bring the
 whole scene down together. Once XL is back in place and outgoing metadata is off
@@ -101,18 +114,22 @@ A stale outgoing frame cannot release the new handoff.
 
 Entering XL waits for the new frame and row landing before returning to 94%
 black. Exiting XL immediately commits its destination behind the dark layer,
-waits only for that image's frame, and fades to the ordinary backdrop while rows
-are still scrolling. Above and below backdrops are prewarmed at hero render size
+waits only for that image's frame, and reveals the ordinary backdrop over a
+650 ms linear fade while rows are still scrolling. Above and below backdrops are prewarmed at hero render size
 while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinary
-metadata uses the same opacity clock. Row ownership survives until landing so
-finishing the image fade cannot snap moving metadata into place.
+metadata is precomposed/measured for the two neighboring ordinary rows while
+XL is displayed. Those slots are never placed or drawn until chosen. The chosen
+slot retains its loaded logo, and its logo transition is disabled during the
+vertical handoff. Text and logo arrive fully opaque. Row ownership survives until
+landing so image timing cannot snap moving metadata into place.
 
 On the platform icon row, pages whose first catalog is XL already use the 94%
 dark layer. Moving Down into that XL does not add another darkening animation;
-ordinary-first pages keep their normal backdrop. The new metadata composition
-starts with the destination logo, so its internal logo crossfade cannot retain
-the previous XL/ordinary title. Platform navigation keeps its existing separate
-whole-page transition.
+ordinary-first pages keep their normal backdrop. Platform parallax captures
+and retains the outgoing page's dim amount until its ghost reaches black. A new
+scene cannot brighten an outgoing XL bitmap or abruptly dim an ordinary bitmap.
+Switches involving XL use a 280 ms outgoing fade and 350 ms incoming fade; normal
+platform switches retain their existing timing.
 
 ## Verification and TV review
 
@@ -134,3 +151,13 @@ and a held Left cannot arm a jump after release. Check numbered ranks 1/9/10/100
 corner radius, number styles/theme color, artwork, live trailers and popup/sidebar
 return. A slow or unavailable image should remain dark until ready or the bounded
 fallback, then reveal the destination metadata and backdrop together.
+
+## Coming Soon badge
+
+XL uses the existing Coming Soon glass, border, font and width/text animations.
+It sits below the posters, centered vertically on the first metadata line and
+inset 52 dp from the physical screen's right edge, mirroring the left metadata
+inset. The extra-width parallax canvas cannot push it off screen. Its overlay
+never increases row height, including compact XL. It fades out over 150 ms as
+soon as the row loses focus. The ordinary global badge stays suppressed while XL
+is active and cannot revive an old XL date from a frozen hero during exit.

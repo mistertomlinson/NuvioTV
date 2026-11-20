@@ -143,7 +143,10 @@ class ModernXlSceneTransitionTest {
                         ModernXlAwareHeroTitleBlock(
                             scene, backdrop, true, resolved.value, list, 260f, 1f,
                             true, "home", 0, false, fullWidth, !fullWidth,
-                            Modifier.padding(start = 52.dp, top = metadataTop.dp).width(430.dp)
+                            Modifier.padding(start = 52.dp, top = metadataTop.dp).width(430.dp),
+                            adjacentMetadata = if (scene.selection?.isXl == true) listOf(rows[1], rows[3]).map {
+                                XlMetadataSnapshot(it.key, it.items.first().heroPreview)
+                            } else emptyList()
                         )
                     }
                 }
@@ -220,6 +223,40 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
+    @Test fun theXlExitBackdropRevealsGraduallyOverTheLongerInterval() {
+        content(start = 2)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(320)
+        assertTrue("The background should still be halfway through its reveal", backdrop.dim.value in 0.4f..0.7f)
+        advance(240)
+        assertTrue(backdrop.dim.value in 0.05f..0.35f)
+        settle()
+        assertEquals(0f, backdrop.dim.value, 0.001f)
+    }
+
+    @Test fun incomingMetadataIsOpaqueWhileItsBackdropIsStillBlack() {
+        content(start = 2)
+        frameReady.value = false
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(144)
+        assertEquals(1f, backdrop.dim.value, 0.001f)
+        val bounds = compose.onNodeWithText("Synopsis A", substring = true).fetchSemanticsNode().boundsInRoot
+        assertTrue(bounds.bottom > 0f && bounds.top < 540f)
+        var brightest = 0
+        compose.runOnUiThread {
+            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            view.draw(android.graphics.Canvas(bitmap))
+            for (py in bounds.top.toInt().coerceAtLeast(0) until bounds.bottom.toInt().coerceAtMost(bitmap.height))
+                for (px in bounds.left.toInt().coerceAtLeast(0) until bounds.right.toInt().coerceAtMost(bitmap.width))
+                    brightest = maxOf(brightest, android.graphics.Color.red(bitmap.getPixel(px, py)))
+            bitmap.recycle()
+        }
+        assertEquals("Metadata must arrive at its normal text brightness", 255.0, brightest.toDouble(), 3.0)
+        frameReady.value = true
+        settle()
+    }
+
     @Test fun aSecondUpResumesAStationaryOrdinaryHero() {
         content(start = 2, freezeHero = true)
         press(KeyEvent.KEYCODE_DPAD_UP)
@@ -234,7 +271,7 @@ class ModernXlSceneTransitionTest {
         compose.runOnIdle { resolved.value = scene.selection?.preview }
         advance(32)
         assertEquals(top, y("ordinary-metadata-Earlier"), 0.1f)
-        advance(360)
+        advance(700)
         assertFalse(backdrop.owned)
         assertNull(scene.stationaryMetadata)
         settle()
@@ -388,15 +425,29 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun reversingBeforeCompactMetadataAppearsCannotFlashItIntoView() {
+    @Test fun reversingACompactExitCannotRevealTheHiddenPartOfItsPreparedHero() {
         content(start = 2, summary = false)
         frameReady.value = false
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(80)
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(32)
-        assertNull(scene.transition?.outgoingMetadata)
-        assertEquals(0, metadataCount())
+        val move = checkNotNull(scene.transition)
+        if (move.outgoingMetadata != null) assertTrue(move.outgoingMetadataClipTop > 0f)
+        val posterTop = y("poster-XL")
+        val top = (posterTop + 3f).coerceAtLeast(0f).toInt()
+        val bottom = (posterTop + 241f).coerceAtMost(540f).toInt()
+        assertTrue(bottom > top)
+        compose.runOnUiThread {
+            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+            val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            view.draw(android.graphics.Canvas(bitmap))
+            var altered = 0
+            for (py in top until bottom) for (px in 60 until 440)
+                if (bitmap.getPixel(px, py) != android.graphics.Color.MAGENTA) altered++
+            bitmap.recycle()
+            assertEquals("A reversed hero must not flash its clipped logo over XL", 0, altered)
+        }
         frameReady.value = true
         settle()
         assertEquals("XL", scene.selection?.rowKey)

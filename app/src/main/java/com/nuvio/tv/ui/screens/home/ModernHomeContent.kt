@@ -3412,6 +3412,7 @@ fun ModernHomeContent(
         val heroGhostCapturedTick = remember { java.util.concurrent.atomic.AtomicInteger(0) }
         val catalogGhostCapturedTick = remember { java.util.concurrent.atomic.AtomicInteger(0) }
         var ghostVisible by remember { mutableStateOf(false) }
+        val xlPlatformBackdrop = remember { XlPlatformBackdropHandoff() }
         var heroGhostBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
         var catalogGhostBitmap by remember { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
         val ghostAlpha = remember { androidx.compose.animation.core.Animatable(1f) }
@@ -4138,6 +4139,7 @@ fun ModernHomeContent(
 
         // Shared transition logic — used by both fast and debounced modes.
         val latestHeroBackdrop by rememberUpdatedState(heroBackdrop)
+        val latestXlBackdrop by rememberUpdatedState(xlBackdrop)
         // Preload the incoming platform's hero backdrop while old content is
         // still on screen so the at-black wait is a memory-cache hit and the
         // black gap stays ~1 frame cold, warm, and after idle.
@@ -4214,6 +4216,7 @@ fun ModernHomeContent(
                 withFrameNanos {}
                 heroGhostBitmap = heroGhostLayer.toImageBitmap()
                 catalogGhostBitmap = catalogGhostLayer.toImageBitmap()
+                xlPlatformBackdrop.capture(latestXlBackdrop.dim.value, latestCarouselRows.firstOrNull()?.isXl == true)
                 ghostAlpha.snapTo(1f)
                 ghostOffset.snapTo(0f)
                 ghostParallax.snapTo(0f)
@@ -4271,15 +4274,19 @@ fun ModernHomeContent(
                 } else {
                     // EXIT — ghost slides and fades to black. All heavy work is
                     // done, so the black that follows is only the swap (~1 frame).
+                    val xlPageSwitch = xlPlatformBackdrop.involvesXl(latestCarouselRows.firstOrNull()?.isXl == true)
+                    val exitDuration = if (xlPageSwitch) 280 else 150
+                    val exitEasing = if (xlPageSwitch) androidx.compose.animation.core.LinearEasing
+                        else androidx.compose.animation.core.FastOutLinearInEasing
                     coroutineScope {
-                        launch { ghostAlpha.animateTo(0f, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                        launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
-                        launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                        launch { ghostAlpha.animateTo(0f, tween(exitDuration, easing = exitEasing)) }
+                        launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(exitDuration, easing = exitEasing)) }
+                        launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(exitDuration, easing = exitEasing)) }
                     }
                     ghostVisible = false
                     // ENTER — new content slides in decelerating to a stop.
                     coroutineScope {
-                        launch { catalogSlideAlpha.animateTo(1f, tween(250, easing = androidx.compose.animation.core.LinearEasing)) }
+                        launch { catalogSlideAlpha.animateTo(1f, tween(if (xlPageSwitch) 350 else 250, easing = androidx.compose.animation.core.LinearEasing)) }
                         launch { catalogSlideOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
                         launch { backdropParallaxOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
                     }
@@ -4442,7 +4449,9 @@ fun ModernHomeContent(
             }
         }
 
-        ModernXlBackdropDimmer(alpha = xlBackdrop.dim.asState())
+        // Keep the outgoing page's dimming on its captured bitmap until the
+        // parallax reaches black. The incoming scene may have different XL rows.
+        ModernXlBackdropDimmer(alpha = rememberXlPlatformBackdropDim(xlBackdrop, xlPlatformBackdrop, ghostVisible))
 
         // Unified slide+fade wrapper — HeroTitleBlock and LazyColumn animate as one
         // block so recomposition at the flip point is invisible (happens at alpha=0).
@@ -4525,6 +4534,14 @@ fun ModernHomeContent(
                 fullWidthIconRowEnabled = effectiveFullWidthIconRowEnabled,
                 heroMetadataLarge =
                     if (effectiveFullWidthIconRowEnabled) heroMetadataLarge else true,
+                adjacentMetadata = if (sceneRow?.isXl == true) {
+                    val rowIndex = carouselRows.indexOf(sceneRow)
+                    listOfNotNull(carouselRows.getOrNull(rowIndex - 1), carouselRows.getOrNull(rowIndex + 1))
+                        .filterNot { it.isXl }.mapNotNull { neighbor ->
+                            neighbor.sceneSelection(focusedItemByRow[neighbor.key] ?: 0, carouselRows.indexOf(neighbor))
+                                ?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
+                        }
+                } else emptyList(),
                 modifier = (if (effectiveFullWidthIconRowEnabled) {
                     Modifier
                         // Full-width icon mode owns the newer centered hero region
@@ -4586,11 +4603,7 @@ fun ModernHomeContent(
              * Modern Home remains authoritative for WHICH label belongs to the
              * currently presented Hero.
              */
-            val currentComingSoonGlassText =
-                resolvedHero
-                    ?.takeUnless { activeRowIsXl }
-                    ?.comingSoonText
-                    ?.takeIf { it.isNotBlank() }
+            val currentComingSoonGlassText = ordinaryComingSoonText(xlScene, xlBackdrop, resolvedHero, activeRowIsXl)
 
             var retainedComingSoonGlassText by
                 remember {
