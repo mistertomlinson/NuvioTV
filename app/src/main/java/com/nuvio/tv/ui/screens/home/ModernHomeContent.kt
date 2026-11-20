@@ -1981,9 +1981,16 @@ fun ModernHomeContent(
 
     val hasXlRows = remember(carouselRows) { carouselRows.any { it.isXl } }
     val activeRowIsXl = (activeRow ?: carouselRows.firstOrNull())?.isXl == true
+    val restoredSceneSelection = remember(carouselRows, focusState, restoredFromSavedState) {
+        if (restoredFromSavedState || !focusState.hasSavedFocus) null else {
+            val savedRowKey = focusState.focusedRowKey ?: if (focusState.focusedRowIndex == -1)
+                "continue_watching" else visibleCatalogRows.getOrNull(focusState.focusedRowIndex)?.let { catalogRowKey(it) }
+            restoredHomeSceneSelection(carouselRows, savedRowKey, focusState.focusedItemIndex)
+        }
+    }
     val xlScene = remember(catalogDisplayedPlatformId, uiState.xlCatalogKeys, uiState.xlNoSummaryCatalogKeys) {
         val initial = activeRow ?: carouselRows.firstOrNull()
-        XlSceneState(initial?.sceneSelection(clampedActiveItemIndex, carouselRows.indexOf(initial)), carouselRows)
+        XlSceneState(restoredSceneSelection ?: initial?.sceneSelection(clampedActiveItemIndex, carouselRows.indexOf(initial)), carouselRows)
     }
     ObserveXlSceneMotion(xlScene, verticalRowListState)
 
@@ -2814,9 +2821,10 @@ fun ModernHomeContent(
             heroTransitioningRef.set(isPlatformTransitioning)
         }
         val sceneRow = activeRow ?: carouselRows.firstOrNull()
-        val sceneSelection = sceneRow?.sceneSelection(clampedActiveItemIndex, carouselRows.indexOf(sceneRow))
+        val sceneSelection = restoredSceneSelection ?: sceneRow?.sceneSelection(clampedActiveItemIndex, carouselRows.indexOf(sceneRow))
         androidx.compose.runtime.SideEffect {
-            sceneSelection?.let { xlScene.focus(it, verticalRowListState.layoutInfo, hasXlRows && !isPlatformTransitioning, carouselRows) }
+            sceneSelection?.let { xlScene.focus(it, verticalRowListState.layoutInfo,
+                hasXlRows && !isPlatformTransitioning && restoredSceneSelection == null, carouselRows) }
         }
         val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
             pageStartsWithXl = carouselRows.firstOrNull()?.isXl == true)
@@ -3492,7 +3500,7 @@ fun ModernHomeContent(
                 backdropTransition = heroBackdropTransition,
                 onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                 backdropCrossfadeDuration =
-                    if (xlBackdropBlurred && !isPlatformTransitioning && (xlScene.transition == null || xlBackdrop.directEntry)) 220
+                    if (xlBackdropBlurred && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
                     else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
                 heroBackdropAlpha = heroBackdropAlpha,
                 parallaxOffsetX = backdropParallaxOffset.value,
@@ -3602,7 +3610,7 @@ fun ModernHomeContent(
                     backdropTransition = heroBackdropTransition,
                     onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                     backdropCrossfadeDuration =
-                        if (xlBackdropBlurred && !isPlatformTransitioning && (xlScene.transition == null || xlBackdrop.directEntry)) 220
+                        if (xlBackdropBlurred && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
                         else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
 
                     // The parent owns the backdrop + gradient fade.

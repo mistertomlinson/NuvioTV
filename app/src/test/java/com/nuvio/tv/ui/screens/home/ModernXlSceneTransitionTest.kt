@@ -121,7 +121,7 @@ class ModernXlSceneTransitionTest {
                                         Text(row.title, Modifier.onSizeChanged { scene.headerHeights[row.key] = it.height.toFloat() }.height(header.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
                                         Box(Modifier.padding(start = 52.dp).width(700.dp)
                                             .height(if (row.isXl) 244.dp else 200.dp)
-                                            .homePosterFade(if (row.isXl) null else HomePosterFadeViewport(scene, list, true, 260.dp))
+                                            .homePosterFade(if (row.isXl) null else HomePosterFadeViewport(scene, list, true, 260.dp), row.key)
                                             .background(if (row.isXl) Color.Magenta else Color.Blue)
                                             .focusRequester(requesters[index])
                                             .onFocusChanged {
@@ -490,20 +490,54 @@ class ModernXlSceneTransitionTest {
         assertEquals(0.dp, scene.headroomValues["C"])
     }
 
-    @Test fun enteringXlDoesNotSwapBackdropUntilItIsBlackAndWaitsForTheNewFrame() {
+    @Test fun downwardXlEntryStartsDuringMotionWithoutADarkStage() {
         content()
         frameReady.value = false
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        advance(80)
-        assertEquals("Backdrop A", backdrop.preview?.backdrop)
-        assertTrue(backdrop.dim.value in 0.01f..0.99f)
-        advance(240)
+        advance(32)
         assertEquals("Backdrop XL", backdrop.preview?.backdrop)
-        assertEquals(1f, backdrop.dim.value, 0.001f)
-        assertFalse(backdrop.revealing)
+        assertTrue(backdrop.revealing)
+        assertTrue(backdrop.directEntry)
+        assertEquals(220, backdrop.imageFadeMillis)
+        assertFalse(checkNotNull(scene.transition).rowsSettled)
+        repeat(16) {
+            assertTrue("Downward entry must never fade through black", backdrop.dim.value <= XL_BACKDROP_DIM_ALPHA + 0.001f)
+            advance(16)
+        }
         frameReady.value = true
         settle()
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+    }
+
+    @Test fun downwardXlEntryKeepsTheOldBackdropWhileItsArtworkPairIsCold() {
+        content()
+        compose.runOnIdle { scene.artwork.renderers["XL"] = true }
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(80)
+        assertEquals("A", backdrop.preview?.title)
+        assertEquals(0f, backdrop.dim.value, 0.001f)
+        compose.runOnIdle {
+            val target = checkNotNull(scene.selection)
+            scene.artwork.frame = XlArtworkFrame(target.rowKey, target.itemKey, target.preview.backdrop)
+        }
+        advance(32)
+        assertEquals("XL", backdrop.preview?.title)
+        assertTrue(backdrop.revealing)
+        assertTrue(backdrop.dim.value <= XL_BACKDROP_DIM_ALPHA)
+        settle()
+    }
+
+    @Test fun restoredXlFocusAlreadyHasItsBackdropWithoutReplayingAnEntryFade() {
+        content(start = 2, freezeHero = true)
+        assertEquals("XL", backdrop.preview?.title)
+        assertTrue(backdrop.blurred)
+        assertEquals(0, backdrop.imageFadeMillis)
+        repeat(16) {
+            assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+            assertEquals(0f, backdrop.gradientAlpha.value, 0.001f)
+            advance(16)
+        }
+        assertNull(scene.transition)
     }
 
     @Test fun summaryExitBringsTheIncomingBlockUpWithItsPosters() {

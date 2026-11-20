@@ -7,8 +7,6 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
@@ -18,10 +16,9 @@ internal data class HomePosterFadeViewport(val scene: XlSceneState, val list: La
 
 /** Fade artwork inside the viewport; row headings and ordinary metadata stay outside this layer. */
 @Composable
-internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?): Modifier {
+internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?, rowKey: String): Modifier {
     if (viewport == null) return this
-    val bodyTop = remember(viewport) { mutableFloatStateOf(Float.NaN) }
-    return onGloballyPositioned { bodyTop.floatValue = it.positionInRoot().y }.drawWithCache {
+    return drawWithCache {
         val paint = android.graphics.Paint().apply {
             shader = android.graphics.LinearGradient(0f, 0f, 0f, 1f,
                 android.graphics.Color.TRANSPARENT, android.graphics.Color.WHITE, android.graphics.Shader.TileMode.CLAMP)
@@ -33,21 +30,26 @@ internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?): Modifie
         val overhang = 48.dp.toPx()
         onDrawWithContent {
             val scene = viewport.scene
-            val rootTop = bodyTop.floatValue
-            val height = scene.rowsViewportHeightPx.takeIf { it > 0f } ?: scene.screenHeight.toPx()
-            val mask = if (viewport.enabled) xlSceneMetadataMask(scene, viewport.list.layoutInfo, true,
-                viewport.ordinaryTop.toPx(), density, height) else 0f to fadeHeight
-            if (mask == null || rootTop.isNaN()) {
+            val layout = viewport.list.layoutInfo
+            val owner = layout.visibleItemsInfo.firstOrNull { it.key == rowKey }
+            val mask = if (viewport.enabled) xlSceneMetadataMask(scene, layout, true,
+                viewport.ordinaryTop.toPx(), density, layout.viewportSize.height.toFloat()) else 0f to fadeHeight
+            if (mask == null || owner == null) {
                 drawContent()
                 return@onDrawWithContent
             }
-            val maskTop = scene.rowsViewportTopPx + mask.first - rootTop
-            val clearUntil = scene.rowsViewportTopPx + mask.second + clearance - rootTop
+            // Read the list's existing layout during drawing. No per-row
+            // global-position callbacks or snapshot writes on every scroll frame.
+            val bodyTop = owner.offset + layout.beforeContentPadding +
+                (scene.headroomValues[rowKey]?.toPx() ?: 0f) + (scene.headerHeights[rowKey] ?: 40.dp.toPx())
+            val maskTop = mask.first - bodyTop
+            val clearUntil = mask.second + clearance - bodyTop
             val fadeEnd = clearUntil + fadeHeight
             if (fadeEnd < -overhang || maskTop > size.height + overhang) {
                 drawContent()
                 return@onDrawWithContent
             }
+            if (maskTop <= -overhang && clearUntil >= size.height + overhang) return@onDrawWithContent
             // Last poster pixels become fully transparent before reaching the
             // cutoff. This also covers number overhang, outlines and shadows.
             clipRect(top = maskTop, bottom = fadeEnd, clipOp = ClipOp.Difference) {

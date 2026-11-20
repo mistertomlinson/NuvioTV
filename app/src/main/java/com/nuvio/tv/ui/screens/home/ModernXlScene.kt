@@ -11,12 +11,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.graphicsLayer
@@ -43,6 +38,11 @@ internal data class XlSceneSelection(
     val summary: Boolean,
     val preview: HeroPreview
 )
+
+internal fun restoredHomeSceneSelection(rows: List<HeroCarouselRow>, rowKey: String?, index: Int): XlSceneSelection? {
+    val rowIndex = rows.indexOfFirst { it.key == rowKey }
+    return rows.getOrNull(rowIndex)?.sceneSelection(index, rowIndex)
+}
 
 internal fun HeroCarouselRow.sceneSelection(index: Int, rowIndex: Int): XlSceneSelection? =
     items.getOrNull(index.coerceIn(0, items.lastIndex.coerceAtLeast(0)))?.let {
@@ -130,8 +130,6 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var ordinaryTop by mutableStateOf(260.dp)
     var metadataRestingTop by mutableStateOf(54.dp)
     var metadataHeightPx by mutableFloatStateOf(0f)
-    var rowsViewportTopPx by mutableFloatStateOf(0f)
-    var rowsViewportHeightPx by mutableFloatStateOf(0f)
     var stationaryMetadata by mutableStateOf<XlMetadataSnapshot?>(null)
         private set
 
@@ -284,57 +282,17 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     return if (top < offset + ordinaryTopPx) top to offset + ordinaryTopPx else null
 }
 
-/** Keep the hero's empty space attached to its row; never uncover an older row behind it. */
+/** One viewport draw; only the crossing poster bodies need the soft fade layer. */
 internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListState, enabled: Boolean,
-    ordinaryTop: Dp): Modifier = onGloballyPositioned {
-        scene.rowsViewportTopPx = it.positionInRoot().y
-        scene.rowsViewportHeightPx = it.size.height.toFloat()
-    }.drawWithCache {
-    val fadeHeight = HOME_POSTER_FADE_HEIGHT.toPx()
-    val fadePaint = android.graphics.Paint().apply {
-        shader = android.graphics.LinearGradient(0f, 0f, 0f, 1f,
-            android.graphics.Color.TRANSPARENT, android.graphics.Color.WHITE, android.graphics.Shader.TileMode.CLAMP)
-        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
-    }
-    val matrix = android.graphics.Matrix()
-    val itemClip = Path()
-    onDrawWithContent {
-        val mask = if (enabled) xlSceneMetadataMask(scene, list.layoutInfo, true, ordinaryTop.toPx(), density, size.height)
-            else 0f to fadeHeight
-        clipRect {
-            val top = mask?.first?.coerceAtLeast(0f) ?: 0f
-            val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
-            if (top < bottom) {
-                clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
-                    this@onDrawWithContent.drawContent()
-                }
-                // Only this narrow band needs an offscreen surface. Keep the
-                // backdrop outside it untouched, and never mask departing XL.
-                val fadeTop = maxOf(top, bottom - fadeHeight)
-                // A focused card can draw beyond its row's measured bottom.
-                // Do not reintroduce that overhang in the empty gap after the
-                // row has cleared the cutoff; it leaves a stationary sliver.
-                itemClip.reset()
-                val layout = list.layoutInfo
-                if (layout.visibleItemsInfo.isEmpty()) itemClip.addRect(Rect(0f, fadeTop, size.width, bottom))
-                else layout.visibleItemsInfo.forEach { item ->
-                    val itemTop = (item.offset + layout.beforeContentPadding).toFloat()
-                    val from = maxOf(fadeTop, itemTop)
-                    val to = minOf(bottom, itemTop + item.size)
-                    if (from < to) itemClip.addRect(Rect(0f, from, size.width, to))
-                }
-                if (!itemClip.isEmpty) clipPath(itemClip) {
-                    val canvas = drawContext.canvas.nativeCanvas
-                    val layer = canvas.saveLayer(0f, fadeTop, size.width, bottom, null)
-                    this@onDrawWithContent.drawContent()
-                    matrix.setScale(1f, bottom - fadeTop)
-                    matrix.postTranslate(0f, fadeTop)
-                    fadePaint.shader.setLocalMatrix(matrix)
-                    canvas.drawRect(0f, fadeTop, size.width, bottom, fadePaint)
-                    canvas.restoreToCount(layer)
-                }
-            } else this@onDrawWithContent.drawContent()
-        }
+    ordinaryTop: Dp): Modifier = drawWithContent {
+    val mask = if (enabled) xlSceneMetadataMask(scene, list.layoutInfo, true,
+        ordinaryTop.toPx(), density, size.height) else 0f to HOME_POSTER_FADE_HEIGHT.toPx()
+    clipRect {
+        val top = mask?.first?.coerceAtLeast(0f) ?: 0f
+        val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
+        if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
+            this@drawWithContent.drawContent()
+        } else this@drawWithContent.drawContent()
     }
 }
 
@@ -392,6 +350,7 @@ internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolea
     var revealing by mutableStateOf(false)
     var token by mutableIntStateOf(0)
     var blurred by mutableStateOf(initiallyXl)
+    var imageFadeMillis by mutableIntStateOf(0)
     var directEntry by mutableStateOf(false)
     private var renderedToken by mutableIntStateOf(-1)
     private var expectedUrl by mutableStateOf<String?>(null)
@@ -418,7 +377,7 @@ internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolea
         readyBlurred == expectedBlurred
 }
 
-/** Upward XL entry crossfades directly; an XL exit reveals its destination during the scroll. */
+/** Either XL entry crossfades directly; an XL exit reveals its destination during the scroll. */
 @Composable
 internal fun rememberXlBackdropPresentation(
     scene: XlSceneState,
@@ -460,17 +419,30 @@ internal fun rememberXlBackdropPresentation(
             return@LaunchedEffect
         }
         if (!state.owned && !dark && boundaryId == null) return@LaunchedEffect
-        if (dark && target.isXl && boundary != null && target.rowIndex < boundary.from.rowIndex) {
+        if (dark && target.isXl && boundary == null && !state.blurred) {
+            // Initial/restored focus is already on XL, not a new row entry.
+            state.imageFadeMillis = 0
+            state.token++
+            state.preview = target.preview
+            state.owned = true
+            state.blurred = true
+            state.revealing = true
+            state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
+            state.gradientAlpha.snapTo(0f)
+            return@LaunchedEffect
+        }
+        if (dark && target.isXl && boundary != null) {
             if (!state.owned) state.preview = boundary.outgoingBackdrop ?: latestResolved
             state.owned = true
             // Keep the current composite visible while the prepared landscape
-            // and blur are pending. Upward entry has no black beat or row-settle wait.
+            // and blur are pending. Neither entry direction waits for a black beat or row settlement.
             if (!carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
                 firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
             state.token++
             state.preview = target.preview
             state.blurred = true
             state.directEntry = true
+            state.imageFadeMillis = 220
             state.revealing = true
             coroutineScope {
                 launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing)) }
@@ -487,6 +459,8 @@ internal fun rememberXlBackdropPresentation(
             // blur are prepared; the image crossfade starts on that commit.
             if (!carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
                 firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
+            if (firstNonBlank(state.preview?.backdrop, state.preview?.imageUrl) !=
+                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) state.imageFadeMillis = 220
             state.token++
             state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
             state.gradientAlpha.snapTo(0f)

@@ -177,12 +177,7 @@ internal fun ModernHeroMediaLayer(
     }
 
     Box(modifier = modifier.clipToBounds()) {
-        transition.Crossfade(
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = if (targetBackdropFrame.blurred) 1f else heroBackdropAlpha },
-            animationSpec = tween(durationMillis = backdropCrossfadeDuration)
-        ) { frame ->
+        val image: @Composable (ModernHeroBackdropFrame) -> Unit = { frame ->
             val modelWidth = if (frame.blurred) XL_BLUR_WIDTH else if (targetBackdropFrame.blurred)
                 frame.sourceWidthPx.takeIf { it > 0 } ?: requestWidthPx else requestWidthPx
             val modelHeight = if (frame.blurred) XL_BLUR_HEIGHT else if (targetBackdropFrame.blurred)
@@ -234,6 +229,14 @@ internal fun ModernHeroMediaLayer(
                         }
                 )
             }
+        }
+        if (targetBackdropFrame.blurred) {
+            // Keep the outgoing composite under the incoming image. Fading both
+            // alpha values exposes black at the midpoint, even with equal artwork.
+            XlBackdropDissolve(transition, backdropCrossfadeDuration, image)
+        } else {
+            transition.Crossfade(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = heroBackdropAlpha },
+                animationSpec = tween(durationMillis = backdropCrossfadeDuration)) { frame -> image(frame) }
         }
 
         if (shouldPlayHeroTrailer) {

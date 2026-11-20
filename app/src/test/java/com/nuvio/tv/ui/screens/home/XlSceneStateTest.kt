@@ -53,6 +53,19 @@ class XlSceneStateTest {
         assertNull(scene.stationaryMetadata)
     }
 
+    @Test fun `return restoration chooses the saved XL title before the default first row`() {
+        val saved = selection("XL", 1, true)
+        fun row(selection: XlSceneSelection) = HeroCarouselRow(selection.rowKey, selection.rowKey,
+            selection.rowIndex, listOf(ModernCarouselItem(selection.itemKey, selection.itemKey, null, null,
+                selection.preview, ModernPayload.Catalog(selection.itemKey, selection.itemKey, "movie", "", selection.itemKey, null, "movie"))),
+            isXl = selection.isXl)
+        val rows = listOf(row(selection("A", 0)), row(saved))
+        assertEquals(saved, restoredHomeSceneSelection(rows, "XL", 0))
+        assertEquals(saved, restoredHomeSceneSelection(rows, "XL", 999))
+        assertNull(restoredHomeSceneSelection(rows, "gone", 0))
+        assertNull(restoredHomeSceneSelection(emptyList(), "XL", 0))
+    }
+
     @Test fun `boundary preserves the painted ordinary preview rather than substituting an adjacent row`() {
         val ordinary = selection("A", 1)
         val scene = XlSceneState(ordinary)

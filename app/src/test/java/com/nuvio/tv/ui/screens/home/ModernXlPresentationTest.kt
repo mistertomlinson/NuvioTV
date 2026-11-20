@@ -195,6 +195,54 @@ class ModernXlPresentationTest {
         compose.mainClock.autoAdvance = true
     }
 
+    private fun verifyBlurDissolveBrightness(rapid: Boolean) {
+        val firstUrl = colorArtworkUrl()
+        val first = java.io.File(java.net.URI(firstUrl))
+        val secondUrl = java.io.File(first.parentFile, "xl-second-blur.png").apply { writeBytes(first.readBytes()) }.toURI().toString()
+        val thirdUrl = java.io.File(first.parentFile, "xl-third-blur.png").apply { writeBytes(first.readBytes()) }.toURI().toString()
+        val url = mutableStateOf(firstUrl)
+        var callbacks = 0
+        content {
+            PreparedArtwork(firstUrl) { PreparedArtwork(secondUrl) { PreparedArtwork(thirdUrl) {
+                Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                    ModernHeroMediaLayer(url.value, heroBackdropAlpha = 1f, shouldPlayHeroTrailer = false,
+                        heroTrailerUrl = null, heroTrailerAudioUrl = null, heroTrailerAlpha = 0f, muted = true,
+                        onTrailerEnded = {}, onFirstFrameRendered = {},
+                        modifier = Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp),
+                        requestWidthPx = 576, requestHeightPx = 324, cinematicMode = true,
+                        blurredBackdrop = true, backdropCrossfadeDuration = 220,
+                        viewportWidth = 960.dp, viewportHeight = 540.dp,
+                        onBackdropFrameReady = { _, _ -> callbacks++ })
+                }
+            } } }
+        }
+        awaitImage { callbacks > 0 }
+        compose.waitForIdle()
+        val reference = pixels()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { url.value = secondUrl }
+        compose.waitForIdle()
+        repeat(if (rapid) 36 else 20) { frame ->
+            if (rapid && frame == 5) compose.runOnIdle { url.value = thirdUrl }
+            if (rapid && frame == 10) compose.runOnIdle { url.value = firstUrl }
+            compose.mainClock.advanceTimeBy(16)
+            compose.waitForIdle()
+            val actual = pixels()
+            for (x in listOf(100, 450, 800)) for (y in listOf(80, 260, 480)) {
+                val expected = reference.getPixel(x, y)
+                val color = actual.getPixel(x, y)
+                for (shift in listOf(0, 8, 16)) assertEquals("A dissolve must not expose black on frame $frame",
+                    ((expected shr shift) and 255).toDouble(), ((color shr shift) and 255).toDouble(), 2.0)
+            }
+            actual.recycle()
+        }
+        reference.recycle()
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun blurDissolveKeepsEqualArtworkAtConstantBrightnessThroughoutEveryFrame() = verifyBlurDissolveBrightness(false)
+    @Test fun rapidBlurRetargetingCannotExposeBlackUnderTheOutgoingComposite() = verifyBlurDissolveBrightness(true)
+
     @Test fun ordinaryGradientFadesWithTheNewBlurAndItsAlphaStaysPinnedForThePlatformGhost() {
         val blur = mutableStateOf(false)
         val ghost = mutableStateOf(false)
@@ -433,7 +481,7 @@ class ModernXlPresentationTest {
         compose.mainClock.autoAdvance = true
     }
 
-    @Test fun ordinaryPosterCutoffFadesIntoTheBackdropBeforeTheUnchangedHeadingAnchor() {
+    @Test fun ordinaryViewportClearsTheHeroSpaceInOnePassWithoutMovingTheHeadingAnchor() {
         val scene = XlSceneState()
         val list = LazyListState()
         content {
@@ -443,12 +491,12 @@ class ModernXlPresentationTest {
             }
         }
         assertTrue(brightness(500, 40) < 20)
-        assertTrue("The cutoff must contain partially transparent poster pixels", brightness(500, 50) in 100..160)
+        assertEquals("The viewport must not redraw the catalog to fade it a second time", 0, brightness(500, 50))
         assertEquals("The heading's original resting position stays opaque", 255, brightness(500, 60))
         assertEquals(255, brightness(500, 90))
     }
 
-    @Test fun theMovingMetadataMaskHasASoftEdgeButXlArtworkHasNoSuchMask() {
+    @Test fun theMovingMetadataExclusionDoesNotClipXlArtwork() {
         val scene = XlSceneState()
         val list = LazyListState()
         content {
@@ -457,7 +505,7 @@ class ModernXlPresentationTest {
             }
         }
         assertEquals(0, brightness(500, 239))
-        assertTrue(brightness(500, 250) in 100..160)
+        assertEquals(0, brightness(500, 250))
         assertEquals(255, brightness(500, 260))
         compose.runOnIdle {
             scene.focus(XlSceneSelection("XL", "item", 0, true, true, snapshot("XL").preview), list.layoutInfo, animate = false)
@@ -475,10 +523,11 @@ class ModernXlPresentationTest {
                 LazyColumn(state = list, contentPadding = PaddingValues(top = 260.dp, bottom = 540.dp),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                     modifier = Modifier.fillMaxSize().xlSceneRowsViewport(scene, list, true, 260.dp)) {
-                    items((0..2).toList(), key = { it }) { index ->
+                    items((0..2).toList(), key = { it.toString() }) { index ->
                         Column {
                             Spacer(Modifier.height(40.dp))
                             Box(Modifier.padding(start = 52.dp).width(200.dp).height(200.dp)
+                                .homePosterFade(HomePosterFadeViewport(scene, list, true, 260.dp), index.toString())
                                 .graphicsLayer { scaleY = if (index == 0) 1.2f else 1f }
                                 .background(Color.White).testTag("scaled-poster-$index"))
                         }
@@ -488,7 +537,7 @@ class ModernXlPresentationTest {
         }
         val oldBottom = compose.onNodeWithTag("scaled-poster-0").fetchSemanticsNode().boundsInRoot.bottom
         assertTrue("The scaled poster must extend into the fade band to exercise the regression", oldBottom in 245f..259f)
-        val actualRowBottom = list.layoutInfo.visibleItemsInfo.first { it.key == 0 }.let {
+        val actualRowBottom = list.layoutInfo.visibleItemsInfo.first { it.key == "0" }.let {
             it.offset + list.layoutInfo.beforeContentPadding + it.size
         }
         assertTrue(actualRowBottom < 240)

@@ -18,6 +18,10 @@ Rapid queued presses cycle the stored value inside the DataStore transaction.
 Both XL variants retain metadata lines beneath the selected landscape image and
 omit its title/logo slot. No-summary mode removes the synopsis and its reserved
 height so the next row can peek through. Preferences remain per profile.
+XL's featured card retains its title logo over an expanded-card trailer because
+its lower metadata omits that logo. The regular per-catalog landscape rule still
+hides its resting branding after the first video frame; universal landscape
+behavior is unchanged.
 
 The catalog number control now uses matching vector number-sign artwork derived
 from its original solid glyph. Its outlined version uses a uniform-width inset outline inside
@@ -118,8 +122,11 @@ inset. The gradient moves with the existing ordinary metadata exclusion band
 during XL handoffs. A departing XL image still crosses the old logo region
 intact. The strip also respects each row's measured bounds: focus-scale and rank
 overhang cannot reappear in the empty gap after the preceding row clears it.
-Each visible ordinary horizontal row records its body position once per layout;
-mask geometry is read during drawing, without per-card position state. Only the
+The viewport records the catalog only once, using a simple metadata exclusion.
+Only poster bodies crossing the soft edge need their narrow fade surface. Body
+coordinates are derived from the list's existing offsets, header measurements
+and headroom during drawing, with no per-row global-position callbacks or
+scroll-frame coordinate state writes. Fully hidden bodies skip their drawing. Only the
 narrow fade strip uses an offscreen surface; the backdrop is preserved beneath
 its transparent pixels and metadata draws above it. Brushes
 and paint are cached, with no full-screen poster-mask texture or per-frame blur.
@@ -160,7 +167,15 @@ to scrolling artwork, text, trailers or controls.
 Horizontal XL changes have **no idle/debounce timer**. The selected destination's
 landscape and blurred background are prepared concurrently, with obsolete loads
 cancelled immediately. A single presentation commit changes the landscape and
-starts a 220 ms background crossfade. Cold images retain the preceding artwork
+starts a 220 ms background dissolve. The outgoing composite stays underneath
+while the incoming image fades over it; fading both images toward transparency
+would let black leak through at the midpoint. A rapid retarget freezes the
+current blend until the new image has faded over it. Movable content preserves
+the existing image painters when they become part of the retained blend. Only
+an interrupted dissolve with multiple frozen images caches that static group
+in an offscreen graphics layer, outside the active opacity animation. Old
+frames are discarded when the latest fade finishes. No new window capture,
+bitmap readback or live blur is used. Cold images retain the preceding artwork
 while loading, bounded at two seconds for failures; input and the portrait
 runway remain responsive. Select commits the title currently displayed. Only
 one item to the right is speculatively warmed, after the existing quiet lookahead
@@ -168,7 +183,7 @@ window; that window never delays an active selection. During double Left the
 landscape shuffles normally, while the blur holds until the final destination
 is prepared rather than processing every transient image.
 
-Upward entry into XL keeps the current ordinary backdrop visible until the
+Entry into XL from either direction keeps the current ordinary backdrop visible until the
 matching landscape and blur are prepared, then starts a direct 220 ms crossfade
 while the row is moving. It has no black stage, idle debounce or row-settle wait.
 The ordinary gradient fades away concurrently and its geometry remains in the
@@ -178,12 +193,7 @@ image transition is owned outside the two trailer-layout containers, so moving
 from a letterboxed hero into XL does not destroy its outgoing bitmap or reset
 the crossfade.
 
-Downward managed entry still reaches black, commits the blurred image, and waits
-for the matching renderer's success/error acknowledgement.
-Tokens include the image variant so a sharp callback cannot release a blurred
-frame using the same URL. A bounded two-second wait protects against a missing
-renderer acknowledgement. Downward entry waits for frame/row readiness before
-returning to the light 12% tint. Exiting XL immediately commits its sharp destination
+Exiting XL immediately commits its sharp destination
 behind black and reveals it over a **180 ms linear fade** during row movement,
 shorter than v7's 400 ms. Above and below backdrops are prewarmed at hero render
 size while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinary
@@ -192,6 +202,13 @@ XL is displayed. Those slots are never placed or drawn until chosen. The chosen
 slot retains its loaded logo, and its logo transition is disabled during the
 vertical handoff. Text and logo arrive fully opaque. Row ownership survives until
 landing so image timing cannot snap moving metadata into place.
+
+On return from Details, the saved row key and selected title seed the XL scene
+before its first composition. This prevents the temporary default first row
+from starting an entry fade behind the existing frozen-Details return overlay.
+An initial or restored XL backdrop starts at its final tint and image opacity;
+only a real row/title change starts a new dissolve. The existing navigation
+snapshot/draw handshake and 350 ms Details dissolve are unchanged.
 
 On the platform icon row, pages whose first catalog is XL already use the blurred
 color field and 12% tint. Moving Down into that XL does not add another darkening animation;
@@ -214,7 +231,10 @@ full-width balance and preceding-row clearance, tighter following-hero spacing,
 reveal before row settlement, a second rapid Up with normal metadata debounce,
 fully transparent poster bottoms with short headings in both viewport styles,
 a real loaded blur staying pixel-identical after late ordinary measurements,
-direct upward entry before row settlement, delayed pair readiness without black,
+direct entry in either direction before row settlement, delayed pair readiness
+without black, constant RGB brightness throughout real-image dissolves and
+rapid reversal, a single viewport draw pass, restored XL focus without a new
+fade, XL trailer logo policy,
 concurrent gradient fading and platform alpha pinning, XL-first platform darkness,
 the summary-free exit/return, delayed-frame handoffs, strict double-Left timing,
 animated portrait return, and numbered-card anchoring. JVM tests cover

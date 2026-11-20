@@ -573,6 +573,7 @@ internal fun ModernCatalogRowItem(
         item = item,
         useLandscapePosters = useLandscapePosters,
         perCatalogLandscape = perCatalogLandscape,
+        keepLogoDuringTrailer = fixedXlGeometry,
         heroMetadataLarge = heroMetadataLarge,
         showLabels = showLabels,
         cardCornerRadius = posterCardCornerRadius,
@@ -1468,7 +1469,7 @@ internal fun ModernRowSection(
             LazyRow(
                 state = rowListState,
                 modifier = Modifier
-                    .homePosterFade(posterFadeViewport)
+                    .homePosterFade(posterFadeViewport, row.key)
                     .onPreviewKeyEvent { event ->
                         val native =
                             event.nativeKeyEvent
@@ -2428,7 +2429,7 @@ private fun ModernSkeletonRow(
     LazyRow(
         state = rowListState,
         modifier = handoffModifier
-            .homePosterFade(posterFadeViewport)
+            .homePosterFade(posterFadeViewport, rowKey)
             .onPreviewKeyEvent { event ->
                 if (event.type == KeyEventType.KeyDown) {
                     when (event.key) {
@@ -2536,12 +2537,16 @@ private fun ModernSkeletonRow(
     }
 }
 
+internal fun hideLandscapeBrandingForTrailer(perCatalogLandscape: Boolean, keepLogo: Boolean,
+    playing: Boolean, firstFrame: Boolean): Boolean = perCatalogLandscape && !keepLogo && playing && firstFrame
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun ModernCarouselCard(
     item: ModernCarouselItem,
     useLandscapePosters: Boolean,
     perCatalogLandscape: Boolean,
+    keepLogoDuringTrailer: Boolean = false,
     heroMetadataLarge: Boolean,
     showLabels: Boolean,
     cardCornerRadius: Dp,
@@ -2943,9 +2948,8 @@ private fun ModernCarouselCard(
      * also exists in the per-row landscape set.
      */
     val hideCustomLandscapeChromeForTrailer =
-        perCatalogLandscape &&
-            shouldPlayTrailerInCard &&
-            trailerFirstFrameRendered
+        hideLandscapeBrandingForTrailer(perCatalogLandscape, keepLogoDuringTrailer,
+            shouldPlayTrailerInCard, trailerFirstFrameRendered)
 
     val hasImage = !imageUrl.isNullOrBlank()
     // Freeze hasLandscapeLogo — once logo is available, never hide it to avoid flash
