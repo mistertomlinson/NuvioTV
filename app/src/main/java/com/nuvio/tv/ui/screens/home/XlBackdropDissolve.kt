@@ -10,19 +10,24 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 
 private class XlDissolveLayer(val frame: ModernHeroBackdropFrame, opacity: Float) {
     val alpha = Animatable(opacity)
+    var ready by mutableStateOf(opacity == 1f || frame.url.isNullOrBlank())
 }
 
 /** Fade the new image over the exact retained composite, including interrupted fades. */
 @Composable
 internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>, duration: Int,
-    content: @Composable (ModernHeroBackdropFrame) -> Unit) {
+    onFinished: (ModernHeroBackdropFrame) -> Unit = {},
+    content: @Composable (ModernHeroBackdropFrame, () -> Unit) -> Unit) {
     val layers = remember(transition) {
         mutableStateListOf(XlDissolveLayer(transition.currentState, 1f))
     }
     val latestContent by rememberUpdatedState(content)
+    val latestFinished by rememberUpdatedState(onFinished)
     val target = transition.targetState
     LaunchedEffect(target, duration) {
         if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) return@LaunchedEffect
@@ -30,15 +35,17 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
         // composite intact underneath this new fade, even when reversing.
         val incoming = XlDissolveLayer(target, 0f)
         layers.add(incoming)
+        withTimeoutOrNull(2_000) { snapshotFlow { incoming.ready }.first { it } }
         incoming.alpha.animateTo(1f, tween(duration, easing = LinearEasing))
         layers.removeAll { it !== incoming }
+        latestFinished(target)
     }
     val renderers = layers.map { layer ->
         key(layer) {
             remember(layer) {
                 movableContentOf {
                     Box(Modifier.fillMaxSize().graphicsLayer { alpha = layer.alpha.value }) {
-                        latestContent(layer.frame)
+                        latestContent(layer.frame) { layer.ready = true }
                     }
                 }
             }

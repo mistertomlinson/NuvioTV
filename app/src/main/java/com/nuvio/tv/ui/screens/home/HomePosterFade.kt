@@ -45,24 +45,23 @@ internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?, rowKey: 
             val maskTop = mask.first - bodyTop
             val clearUntil = mask.second + clearance - bodyTop
             val fadeEnd = clearUntil + fadeHeight
-            if (fadeEnd < -overhang || maskTop > size.height + overhang) {
+            if (fadeEnd <= 0f || maskTop > size.height + overhang) {
                 drawContent()
                 return@onDrawWithContent
             }
             if (maskTop <= -overhang && clearUntil >= size.height + overhang) return@onDrawWithContent
-            // Last poster pixels become fully transparent before reaching the
-            // cutoff. This also covers number overhang, outlines and shadows.
-            clipRect(top = maskTop, bottom = fadeEnd, clipOp = ClipOp.Difference) {
-                this@onDrawWithContent.drawContent()
-            }
-            clipRect(top = clearUntil, bottom = fadeEnd) {
+            // Draw the row once. The temporary surface is clipped to the
+            // visible body; apply the alpha ramp only inside the soft strip.
+            clipRect(top = maskTop, bottom = clearUntil, clipOp = ClipOp.Difference) {
                 val canvas = drawContext.canvas.nativeCanvas
-                val saved = canvas.saveLayer(0f, clearUntil, size.width, fadeEnd, null)
+                val saved = canvas.saveLayer(-overhang, -overhang, size.width + overhang, size.height + overhang, null)
                 this@onDrawWithContent.drawContent()
-                matrix.setScale(1f, fadeHeight)
-                matrix.postTranslate(0f, clearUntil)
-                paint.shader.setLocalMatrix(matrix)
-                canvas.drawRect(0f, clearUntil, size.width, fadeEnd, paint)
+                clipRect(top = clearUntil, bottom = fadeEnd) {
+                    matrix.setScale(1f, fadeHeight)
+                    matrix.postTranslate(0f, clearUntil)
+                    paint.shader.setLocalMatrix(matrix)
+                    canvas.drawRect(0f, clearUntil, size.width, fadeEnd, paint)
+                }
                 canvas.restoreToCount(saved)
             }
         }

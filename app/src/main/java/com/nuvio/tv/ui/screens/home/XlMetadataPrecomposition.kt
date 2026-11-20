@@ -1,6 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.foundation.layout.Box
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
@@ -8,7 +8,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 
 internal data class XlMetadataSlot(val rowKey: String, val epoch: Int)
 
-/** Measured neighbors retain logo state, but are never placed, drawn or focusable. */
+/** Premeasure only XL neighbors; ordinary metadata uses its original simple layout. */
 @Composable
 internal fun XlMetadataHost(
     activeSlot: XlMetadataSlot,
@@ -18,25 +18,41 @@ internal fun XlMetadataHost(
     modifier: Modifier,
     content: @Composable (XlMetadataSnapshot, Boolean) -> Unit
 ) {
-    SubcomposeLayout(modifier = modifier) { constraints ->
-        val entries = buildList {
-            if (activeSnapshot != null) add(Triple(activeSlot, activeSnapshot, true))
-            neighbors.distinctBy { it.rowKey }.take(2).forEach {
-                val key = XlMetadataSlot(it.rowKey, nextEpoch)
-                if (key != activeSlot || activeSnapshot == null) add(Triple(key, it, false))
+    val latestContent by rememberUpdatedState(content)
+    val renderers = remember {
+        mutableMapOf<XlMetadataSlot, @Composable (XlMetadataSnapshot, Boolean) -> Unit>()
+    }
+    fun renderer(slot: XlMetadataSlot): @Composable (XlMetadataSnapshot, Boolean) -> Unit =
+        renderers.getOrPut(slot) {
+            movableContentOf<XlMetadataSnapshot, Boolean> { snapshot, active ->
+                Box(if (active) Modifier else Modifier.clearAndSetSemantics { }) { latestContent(snapshot, active) }
             }
         }
-        val placed = entries.flatMap { (key, snapshot, active) ->
-            // One content call site allows the chosen neighbor's existing
-            // composition and loaded logo to become the visible slot intact.
-            val children = subcompose(key) {
-                Box(if (active) Modifier else Modifier.clearAndSetSemantics { }) { content(snapshot, active) }
-            }
-                .map { it.measure(constraints.copy(minHeight = 0)) }
-            if (active) children else emptyList()
+    val entries = buildList {
+        if (activeSnapshot != null) add(Triple(activeSlot, activeSnapshot, true))
+        neighbors.distinctBy { it.rowKey }.take(2).forEach {
+            val key = XlMetadataSlot(it.rowKey, nextEpoch)
+            if (key != activeSlot || activeSnapshot == null) add(Triple(key, it, false))
         }
-        val width = (placed.maxOfOrNull { it.width } ?: 0).coerceIn(constraints.minWidth, constraints.maxWidth)
-        val height = (placed.maxOfOrNull { it.height } ?: 0).coerceIn(constraints.minHeight, constraints.maxHeight)
-        layout(width, height) { placed.forEach { it.place(0, 0) } }
+    }
+    val contentBySlot = entries.associate { it.first to renderer(it.first) }
+    SideEffect { renderers.keys.retainAll(contentBySlot.keys) }
+    if (neighbors.isEmpty()) {
+        // The same movable content leaves its measured XL slot with logo state
+        // intact. No subcomposition remains on the ordinary-row measure path.
+        Box(modifier, propagateMinConstraints = true) {
+            if (activeSnapshot != null) contentBySlot.getValue(activeSlot)(activeSnapshot, true)
+        }
+    } else {
+        SubcomposeLayout(modifier = modifier) { constraints ->
+            val placed = entries.flatMap { (key, snapshot, active) ->
+                val children = subcompose(key) { contentBySlot.getValue(key)(snapshot, active) }
+                    .map { it.measure(constraints.copy(minHeight = 0)) }
+                if (active) children else emptyList()
+            }
+            val width = (placed.maxOfOrNull { it.width } ?: 0).coerceIn(constraints.minWidth, constraints.maxWidth)
+            val height = (placed.maxOfOrNull { it.height } ?: 0).coerceIn(constraints.minHeight, constraints.maxHeight)
+            layout(width, height) { placed.forEach { it.place(0, 0) } }
+        }
     }
 }

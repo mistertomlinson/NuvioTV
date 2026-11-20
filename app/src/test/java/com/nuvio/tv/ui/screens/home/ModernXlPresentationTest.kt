@@ -93,6 +93,7 @@ class ModernXlPresentationTest {
         LaunchedEffect(url) {
             val loader = coil.Coil.imageLoader(context)
             listOf(xlBlurredBackdropRequest(context, url),
+                coil.request.ImageRequest.Builder(context).data(url).size(kotlin.math.round(960 * MODERN_HERO_MEDIA_WIDTH_FRACTION).toInt(), 324).build(),
                 coil.request.ImageRequest.Builder(context).data(url).size(576, 324).build()).forEach { request ->
                 val result = loader.execute(request)
                 assertTrue("Fixture artwork must decode successfully: $result", result is coil.request.SuccessResult)
@@ -242,6 +243,149 @@ class ModernXlPresentationTest {
 
     @Test fun blurDissolveKeepsEqualArtworkAtConstantBrightnessThroughoutEveryFrame() = verifyBlurDissolveBrightness(false)
     @Test fun rapidBlurRetargetingCannotExposeBlackUnderTheOutgoingComposite() = verifyBlurDissolveBrightness(true)
+
+    @Test fun theExperimentalBlurGradientShadesTheLeftAndBottomWithoutReloadingArtwork() {
+        val color = mutableStateOf<Color?>(null)
+        var callbacks = 0
+        val url = colorArtworkUrl()
+        content {
+            PreparedArtwork(url) {
+                Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                    ModernHeroMediaLayer(url, heroBackdropAlpha = 1f, shouldPlayHeroTrailer = false,
+                        heroTrailerUrl = null, heroTrailerAudioUrl = null, heroTrailerAlpha = 0f, muted = true,
+                        onTrailerEnded = {}, onFirstFrameRendered = {},
+                        modifier = Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp),
+                        requestWidthPx = 576, requestHeightPx = 324, cinematicMode = true,
+                        blurredBackdrop = true, backdropGradientColor = color.value,
+                        viewportWidth = 960.dp, viewportHeight = 540.dp,
+                        onBackdropFrameReady = { _, _ -> callbacks++ })
+                }
+            }
+        }
+        awaitImage { callbacks > 0 }
+        val plain = pixels()
+        val before = callbacks
+        compose.runOnIdle { color.value = Color.Black }
+        compose.waitForIdle()
+        val shaded = pixels()
+        fun retention(x: Int, y: Int): Float {
+            fun brightness(pixel: Int) = maxOf(android.graphics.Color.red(pixel), android.graphics.Color.green(pixel), android.graphics.Color.blue(pixel))
+            return brightness(shaded.getPixel(x, y)).toFloat() / brightness(plain.getPixel(x, y)).coerceAtLeast(1)
+        }
+        assertTrue("Left shading should be stronger than right shading", retention(100, 180) + 0.15f < retention(820, 180))
+        assertTrue("Bottom shading should be stronger than upper shading", retention(820, 480) + 0.10f < retention(820, 100))
+        assertEquals("Shading must not introduce another image load", before, callbacks)
+        plain.recycle(); shaded.recycle()
+    }
+
+    @Test fun blurredPlatformArtworkRetainsItsTenPercentOverhangDuringParallax() {
+        val offset = mutableFloatStateOf(0f)
+        var callbacks = 0
+        val url = colorArtworkUrl()
+        content {
+            PreparedArtwork(url) {
+                Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                    ModernHeroMediaLayer(url, heroBackdropAlpha = 1f, shouldPlayHeroTrailer = false,
+                        heroTrailerUrl = null, heroTrailerAudioUrl = null, heroTrailerAlpha = 0f, muted = true,
+                        onTrailerEnded = {}, onFirstFrameRendered = {},
+                        modifier = Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp)
+                            .graphicsLayer { translationX = offset.floatValue },
+                        requestWidthPx = 576, requestHeightPx = 324, cinematicMode = true,
+                        blurredBackdrop = true, parallaxOffsetX = offset.floatValue,
+                        viewportWidth = 960.dp, viewportHeight = 540.dp,
+                        onBackdropFrameReady = { _, _ -> callbacks++ })
+                }
+            }
+        }
+        awaitImage { callbacks > 0 }
+        val loaded = callbacks
+        for (travel in listOf(-44f, 44f, 0f)) {
+            compose.runOnIdle { offset.floatValue = travel }
+            compose.waitForIdle()
+            val image = pixels()
+            for (x in listOf(1, 958)) for (y in listOf(2, 260, 537)) {
+                val pixel = image.getPixel(x, y)
+                assertTrue("Parallax must never expose the canvas at x=$x y=$y travel=$travel",
+                    maxOf(android.graphics.Color.red(pixel), android.graphics.Color.blue(pixel)) > 20)
+            }
+            image.recycle()
+        }
+        assertEquals("Parallax must not reload the blur", loaded, callbacks)
+    }
+
+    private fun verifyXlExitDissolve(compact: Boolean) {
+        val blur = mutableStateOf(true)
+        val exit = mutableStateOf(false)
+        var callbacks = 0
+        var finished = 0
+        val url = colorArtworkUrl()
+        val mediaWidth = 960.dp * MODERN_HERO_MEDIA_WIDTH_FRACTION
+        val requestWidth = kotlin.math.round(960 * MODERN_HERO_MEDIA_WIDTH_FRACTION).toInt()
+        content {
+            PreparedArtwork(url) {
+                val canvasFull = blur.value || exit.value || !compact
+                val transition = rememberModernHeroBackdropTransition(url, 1f / 1.1f, false,
+                    blur.value, blur.value || !compact, requestWidth, 324)
+                Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                    val mediaModifier = if (canvasFull) Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp)
+                        else Modifier.align(androidx.compose.ui.Alignment.TopEnd).offset(x = 56.dp).width(mediaWidth).height(324.dp)
+                    ModernHeroMediaLayer(url, heroBackdropAlpha = 1f, shouldPlayHeroTrailer = false,
+                        heroTrailerUrl = null, heroTrailerAudioUrl = null, heroTrailerAlpha = 0f, muted = true,
+                        onTrailerEnded = {}, onFirstFrameRendered = {}, modifier = mediaModifier,
+                        requestWidthPx = requestWidth, requestHeightPx = 324, cinematicMode = canvasFull,
+                        blurredBackdrop = blur.value, dissolveFromXl = exit.value, backdropTransition = transition,
+                        backdropCrossfadeDuration = 180, backdropGradientColor = Color.Black,
+                        viewportWidth = 960.dp, viewportHeight = 540.dp,
+                        onBackdropFrameReady = { _, _ -> callbacks++ },
+                        onBackdropTransitionFinished = { _, blurred -> if (!blurred) { finished++; exit.value = false } })
+                    if (!blur.value && !exit.value) {
+                        val extension = 960.dp * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f + 8.dp
+                        ModernHeroGradientLayer(Color.Black, false, 0f,
+                            if (!compact) Modifier.align(androidx.compose.ui.Alignment.Center).requiredSize(1056.dp, 594.dp)
+                            else Modifier.align(androidx.compose.ui.Alignment.TopEnd).offset(x = 56.dp)
+                                .width(mediaWidth + extension).height(324.dp),
+                            cinematicMode = !compact, compactContentStartOffset = if (compact) extension else 0.dp)
+                    }
+                }
+            }
+        }
+        awaitImage { callbacks > 0 }
+        val initial = pixels()
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { exit.value = true; blur.value = false }
+        compose.waitForIdle()
+        val frames = mutableListOf<android.graphics.Bitmap>()
+        repeat(22) {
+            compose.mainClock.advanceTimeBy(16)
+            compose.waitForIdle()
+            frames += pixels()
+        }
+        assertTrue("The loaded exit dissolve must finish promptly", finished > 0)
+        val final = frames.last()
+        for ((frame, bitmap) in frames.withIndex()) {
+            for (x in listOf(100, 450, 700, 880)) for (y in listOf(80, 180, 260)) {
+                val a = initial.getPixel(x, y); val b = final.getPixel(x, y); val actual = bitmap.getPixel(x, y)
+                for (shift in listOf(0, 8, 16)) {
+                    val lo = minOf((a shr shift) and 255, (b shr shift) and 255)
+                    val hi = maxOf((a shr shift) and 255, (b shr shift) and 255)
+                    if (((actual shr shift) and 255) !in (lo - 4)..(hi + 4)) {
+                        val folder = java.io.File(System.getProperty("user.dir"), "build/reports/xl-exit-fixture").apply { mkdirs() }
+                        listOf("initial" to initial, "frame-$frame" to bitmap, "final" to final).forEach { (name, image) ->
+                            java.io.File(folder, "$compact-$name.png").outputStream().use { image.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+                        }
+                        println("XL_EXIT_FIXTURE=${folder.absolutePath}")
+                    }
+                    assertTrue("Exit must blend endpoints at frame $frame x=$x y=$y shift=$shift actual=${(actual shr shift) and 255} range=$lo..$hi initial=${Integer.toHexString(a)} final=${Integer.toHexString(b)}",
+                        ((actual shr shift) and 255) in (lo - 4)..(hi + 4))
+                }
+            }
+        }
+        initial.recycle(); frames.forEach { it.recycle() }
+        compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun exitingXlBlendsIntoTheFullRegularBackdropWithoutBlack() = verifyXlExitDissolve(false)
+    @Test fun exitingXlBlendsIntoTheCompactRegularBackdropWithoutACropOrGradientSnap() = verifyXlExitDissolve(true)
 
     @Test fun ordinaryGradientFadesWithTheNewBlurAndItsAlphaStaysPinnedForThePlatformGhost() {
         val blur = mutableStateOf(false)

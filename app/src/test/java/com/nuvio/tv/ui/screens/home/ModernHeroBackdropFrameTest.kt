@@ -8,7 +8,7 @@ class ModernHeroBackdropFrameTest {
         val first = modernHeroBackdropFrame("landscape", 1.1f, true, true)
         val settled = modernHeroBackdropFrame("landscape", 1f / 1.1f, false, true)
         assertEquals(first, settled)
-        assertEquals(1f / 1.1f, first.scale, 0f)
+        assertEquals(1f, first.scale, 0f)
         assertFalse(first.isPosterFallback)
     }
 

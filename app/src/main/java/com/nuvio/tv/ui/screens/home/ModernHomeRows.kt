@@ -4076,6 +4076,7 @@ internal fun NumberedCatalogCardWrapper(
     useLandscapePosters: Boolean = false,
     compactXl: Boolean = false,
     compactXlFontSize: Float? = null,
+    xlContrastStrokeWidth: Dp = 1.dp,
     numberOpacity: State<Float>? = null,
     numberFadeEdge: State<Float>? = null,
     content: @Composable () -> Unit
@@ -4166,6 +4167,27 @@ internal fun NumberedCatalogCardWrapper(
                             android.graphics.Color.TRANSPARENT, android.graphics.Color.WHITE, android.graphics.Shader.TileMode.CLAMP)
                         xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
                     } else null
+                    val strokePaint = if (numberStyle == NumberStyle.OUTLINE) android.graphics.Paint(paint).apply {
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = 1.5f * density.density
+                        strokeJoin = android.graphics.Paint.Join.ROUND
+                        strokeCap = android.graphics.Paint.Cap.ROUND
+                    } else null
+                    val fillPaint = if (numberStyle == NumberStyle.OUTLINE) android.graphics.Paint(paint).apply {
+                        color = android.graphics.Color.BLACK
+                    } else paint
+                    // One visible dp outside the existing glyph/stroke. XL only;
+                    // this shares the rank's opacity and soft-edge mask.
+                    val contrastPaint = if (compactXl && xlContrastStrokeWidth > 0.dp) android.graphics.Paint(paint).apply {
+                        color = android.graphics.Color.rgb(22, 22, 22)
+                        style = android.graphics.Paint.Style.STROKE
+                        strokeWidth = (if (numberStyle == NumberStyle.OUTLINE) 1.5f * density.density else 0f) + 2f * xlContrastStrokeWidth.toPx()
+                        strokeJoin = android.graphics.Paint.Join.ROUND
+                        strokeCap = android.graphics.Paint.Cap.ROUND
+                    } else null
+                    val textW = paint.measureText(numberText)
+                    val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
+                    val x = size.width - textW + oneAdjust
                     val edgeMatrix = android.graphics.Matrix()
                     onDrawBehind {
                         val opacity = numberOpacity?.value ?: 1f
@@ -4175,39 +4197,16 @@ internal fun NumberedCatalogCardWrapper(
                         val nativeCanvas = drawContext.canvas.nativeCanvas
                         val edge = numberFadeEdge?.value
                         val softenEdge = edgePaint != null && edge != null && edge > -12f
-                        val inkPad = 2.dp.toPx()
+                        val inkPad = (if (compactXl) 3.dp else 2.dp).toPx()
                         // A glyph-sized layer includes its outline and lower
                         // overhang. No full-row layer or hard number clip.
                         val savedAlpha = if (opacity < 1f || softenEdge) nativeCanvas.saveLayerAlpha(
                             -inkPad, -inkPad, size.width + inkPad, size.height + inkPad,
                             (opacity.coerceIn(0f, 1f) * 255).toInt()) else null
-                        val textW = paint.measureText(numberText)
-                        val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
-                        val x = size.width - textW + oneAdjust
-                        if (numberStyle == NumberStyle.OUTLINE) {
-                            // Outline style: thin stroke with black fill inside
-                            val strokePaint = android.graphics.Paint().apply {
-                                isAntiAlias = true
-                                textSize = numberFontSize.value * density.density
-                                typeface = leagueSpartanTypeface
-                                color = numberColor
-                                style = android.graphics.Paint.Style.STROKE
-                                strokeWidth = 1.5f * density.density
-                                strokeJoin = android.graphics.Paint.Join.ROUND
-                                strokeCap = android.graphics.Paint.Cap.ROUND
-                            }
-                            val fillPaint = android.graphics.Paint().apply {
-                                isAntiAlias = true
-                                textSize = numberFontSize.value * density.density
-                                typeface = leagueSpartanTypeface
-                                color = android.graphics.Color.argb(255, 0, 0, 0)
-                                style = android.graphics.Paint.Style.FILL
-                            }
-                            drawContext.canvas.nativeCanvas.drawText(numberText, x, size.height * 0.88f, strokePaint)
-                            drawContext.canvas.nativeCanvas.drawText(numberText, x, size.height * 0.88f, fillPaint)
-                        } else {
-                            drawContext.canvas.nativeCanvas.drawText(numberText, x, size.height * 0.88f, paint)
-                        }
+                        val baseline = size.height * 0.88f
+                        contrastPaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
+                        strokePaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
+                        nativeCanvas.drawText(numberText, x, baseline, fillPaint)
                         if (softenEdge) {
                             edgeMatrix.setScale(12.dp.toPx(), 1f)
                             edgeMatrix.postTranslate(checkNotNull(edge).dp.toPx(), 0f)

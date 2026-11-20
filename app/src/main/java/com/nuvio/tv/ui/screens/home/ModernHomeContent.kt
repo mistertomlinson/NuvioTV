@@ -3103,6 +3103,7 @@ fun ModernHomeContent(
         val measuredHeroHeight = if (xlScene.metadataHeightPx > 0f)
             with(localDensity) { xlScene.metadataHeightPx.toDp() } else estimatedHeroHeight
         androidx.compose.runtime.SideEffect {
+            xlScene.density = localDensity.density
             xlScene.screenHeight = maxHeight
             xlScene.fullWidthIcons = effectiveFullWidthIconRowEnabled
             xlScene.estimatedXlHeight = estimatedXlHeight
@@ -3433,7 +3434,7 @@ fun ModernHomeContent(
         // Cinematic mode: trailers off OR target is expanded card → full-screen backdrop + detail-style gradient
         val baseCinematicHeroMode = !uiState.focusedPosterBackdropTrailerEnabled ||
             uiState.focusedPosterBackdropTrailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
-        val cinematicHeroMode = presentedBackdropBlurred.value || baseCinematicHeroMode
+        val cinematicHeroMode = presentedBackdropBlurred.value || xlBackdrop.directExit || baseCinematicHeroMode
         val retainingOrdinaryGradient by remember(presentedBackdropBlurred, presentedGradientAlpha) {
             derivedStateOf { presentedBackdropBlurred.value && presentedGradientAlpha.value > 0f }
         }
@@ -3485,7 +3486,7 @@ fun ModernHomeContent(
         // transition outside both branches so its outgoing raw frame survives.
         val heroBackdropTransition = rememberModernHeroBackdropTransition(heroBackdrop,
             if (shouldOverscanCinematicBackdrop) 1f else 1f / 1.1f, heroBackdropIsPosterFallback,
-            xlBackdropBlurred, cinematicHeroMode, heroMediaWidthPx, heroMediaHeightPx)
+            xlBackdropBlurred, xlBackdropBlurred || baseCinematicHeroMode, heroMediaWidthPx, heroMediaHeightPx)
 
         if (
             cinematicHeroMode ||
@@ -3498,9 +3499,12 @@ fun ModernHomeContent(
                 viewportWidth = compactHeroAvailableWidth,
                 viewportHeight = heroAvailableHeight,
                 backdropTransition = heroBackdropTransition,
+                dissolveFromXl = xlBackdrop.directExit,
+                backdropGradientColor = bgColor,
+                onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                 onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                 backdropCrossfadeDuration =
-                    if (xlBackdropBlurred && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
+                    if ((xlBackdropBlurred || xlBackdrop.directExit) && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
                     else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
                 heroBackdropAlpha = heroBackdropAlpha,
                 parallaxOffsetX = backdropParallaxOffset.value,
@@ -3608,9 +3612,12 @@ fun ModernHomeContent(
                     viewportWidth = compactHeroAvailableWidth,
                     viewportHeight = heroAvailableHeight,
                     backdropTransition = heroBackdropTransition,
+                    dissolveFromXl = xlBackdrop.directExit,
+                    backdropGradientColor = bgColor,
+                    onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                     onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                     backdropCrossfadeDuration =
-                        if (xlBackdropBlurred && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
+                        if ((xlBackdropBlurred || xlBackdrop.directExit) && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
                         else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
 
                     // The parent owns the backdrop + gradient fade.
@@ -4120,43 +4127,8 @@ fun ModernHomeContent(
                     )
             )
         }
-        val currentXlAlignment = rememberUpdatedState(
-            if (activeRowIsXl) xlScene.xlTop((activeRow ?: carouselRows.firstOrNull())?.key.orEmpty()) else ordinaryRowsTop)
-        val currentXlHeader = rememberUpdatedState(
-            if (activeRowIsXl) xlScene.headerHeights[(activeRow ?: carouselRows.firstOrNull())?.key]
-                ?: with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
-            else with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() })
-        val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec, hasXlRows, ordinaryRowsTop) {
-            val topInsetPx = with(localDensity) {
-                (MODERN_ROW_HEADER_FOCUS_INSET + if (hasXlRows) 0.dp else HOME_POSTER_FADE_HEIGHT).toPx()
-            }
-            @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
-            object : BringIntoViewSpec {
-                /*
-                 * Match the official beta's Home motion.
-                 *
-                 * Keep Enhanced's row-alignment math below, but use the
-                 * app/default BringIntoView animation instead of a custom
-                 * stiff Home-only spring.
-                 */
-                override val scrollAnimationSpec: AnimationSpec<Float> =
-                    defaultBringIntoViewSpec.scrollAnimationSpec
-
-                override fun calculateScrollDistance(
-                    offset: Float,
-                    size: Float,
-                    containerSize: Float
-                ): Float {
-                    // During fast scroll, don't bring focused item into view —
-                    // it fights the drag and causes jank
-                    if (isFastScrolling) return 0f
-                    val canvasTop = if (hasXlRows) {
-                        with(localDensity) { currentXlAlignment.value.toPx() }
-                    } else 0f
-                    return offset - (canvasTop + if (hasXlRows) currentXlHeader.value else topInsetPx)
-                }
-            }
-        }
+        val verticalRowBringIntoViewSpec = rememberHomeVerticalScrollSpec(xlScene, hasXlRows,
+            ordinaryRowsTop, localDensity, defaultBringIntoViewSpec) { isFastScrolling }
 
         // Slide+fade catalog rows on platform switch.
         // We keep a displayedPlatformId that lags behind selectedPlatformId —
@@ -4260,7 +4232,7 @@ fun ModernHomeContent(
                 heroGhostBitmap = heroGhostLayer.toImageBitmap()
                 catalogGhostBitmap = catalogGhostLayer.toImageBitmap()
                 xlPlatformBackdrop.capture(latestXlBackdrop.dim.value, latestCarouselRows.firstOrNull()?.isXl == true,
-                    latestXlBackdrop.blurred, latestXlBackdrop.gradientAlpha.value)
+                    latestXlBackdrop.blurred || latestXlBackdrop.directExit, latestXlBackdrop.gradientAlpha.value)
                 ghostAlpha.snapTo(1f)
                 ghostOffset.snapTo(0f)
                 ghostParallax.snapTo(0f)
@@ -5133,6 +5105,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 scrollableState = verticalRowListState,
                 verticalVelocityDpPerSec = 1200f,
                 onFastScrollingChanged = { scrolling ->
+                    if (scrolling) xlScene.cancelVerticalMotion()
                     if (!scrolling) {
                         fastScrollLandingVisualPendingRef
                             .set(true)

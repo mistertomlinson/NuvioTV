@@ -28,7 +28,9 @@ from its original solid glyph. Its outlined version uses a uniform-width inset o
 that same shape, so both versions have identical size, position and outer bounds,
 independent of font line height and baseline clipping. This
 changes only the setting icon; the actual numbered posters retain Jost and the
-existing solid/outline rendering.
+existing solid/outline rendering. XL alone adds a one-dp dark contour to both
+styles for contrast over the blurred field. Its ink shares the number
+opacity/mask; ordinary-row numbering is unchanged.
 
 ## Focus and numbering
 
@@ -123,28 +125,51 @@ during XL handoffs. A departing XL image still crosses the old logo region
 intact. The strip also respects each row's measured bounds: focus-scale and rank
 overhang cannot reappear in the empty gap after the preceding row clears it.
 The viewport records the catalog only once, using a simple metadata exclusion.
-Only poster bodies crossing the soft edge need their narrow fade surface. Body
+A crossing poster body draws once into a clipped temporary surface; only its
+feather strip receives the alpha mask. Body
 coordinates are derived from the list's existing offsets, header measurements
 and headroom during drawing, with no per-row global-position callbacks or
 scroll-frame coordinate state writes. Fully hidden bodies skip their drawing. Only the
-narrow fade strip uses an offscreen surface; the backdrop is preserved beneath
+crossing body uses a clipped offscreen surface; the backdrop is preserved beneath
 its transparent pixels and metadata draws above it. Brushes
 and paint are cached, with no full-screen poster-mask texture or per-frame blur.
-The default vertical BringIntoView animation, held-scroll velocity (1200 dp/s)
-and existing 360 ms following-row headroom adjustment are unchanged.
+The default vertical BringIntoView animation and held-scroll velocity (1200 dp/s)
+are unchanged. Ordinary metadata uses a simple Box again instead of the
+unconditional SubcomposeLayout introduced in v6. XL still premeasures adjacent
+metadata; movable content carries the same loaded logo/state into the ordinary
+layout on selection. Following-row preview-gap closure retains its 360 ms tween.
+A compact exit instead uses the same animation clock as list travel, with no
+independent gap animation chasing focus relocation.
 
 The space before a following ordinary row is calculated from the XL row's
 measured bottom, the viewport, and the ordinary hero's resting position, keeping
 the next hero just below the screen instead of leaving a second oversized gap.
-On either downward exit, the gap grows only as much as needed during movement:
-the next row moves toward its normal position while the entire outgoing XL row
-travels off screen. A summary XL starts with its following hero 8 dp below the
-viewport, and compact XL starts with its normal next-row peek. The incoming metadata is fully opaque and reveals below the departing XL's
-bottom edge as it slides in, independently of backdrop brightness. Neither the
-metadata nor the row mask can clip the XL artwork. The gap stays open while
-browsing ordinary rows below it, allowing a later upward return to bring the
-whole scene down together. Once XL is back in place and outgoing metadata is off
-screen, the gap closes to restore the next-row peek.
+On a downward summary-XL exit, the next row and its fully opaque metadata move
+up together while the outgoing XL artwork clears the screen. A summary XL starts
+with its following hero 8 dp below the viewport.
+
+Compact XL starts with its normal next-row peek. On Down, the incoming row and
+XL initially move at the same speed. Once the incoming row reaches its ordinary
+poster anchor it stays there; list travel continues while the intervening gap
+grows by the same displacement, letting XL finish leaving the screen. Only then,
+after the incoming row lands, its prepared metadata starts a 150 ms fade at its
+resting position. The departing XL's lower edge masks any overlap, preserving
+its complete image. Gap and travel are quantized together to physical pixels,
+avoiding direction reversals or a late spring correction. Changing focus cancels
+the shared motion and retains the actual current gap for a continuous reversal.
+An interrupted exit retries the selected row's relocation after cancellation
+releases the list. A partly expanded gap regains the outgoing hero's clearance
+while returning to XL, and its metadata follows the measured gap displacement.
+
+The gap stays open while browsing ordinary rows below XL, allowing a later
+upward return to bring the scene down together. On entering XL, its following
+gap starts closing as soon as the outgoing metadata's measured content is fully
+offscreen. It does not wait for XL's landing, the backdrop, or full transition
+completion before the preview row begins returning. The mask and snapshot still
+preserve outgoing metadata ownership during that movement.
+Cleared outgoing metadata stays unmounted while the preview returns. If a short
+block leaves upward before its reserved hero space clears, that remaining space
+still excludes older posters until it too is offscreen.
 
 ## Backdrop handoff
 
@@ -152,15 +177,19 @@ XL uses a cached 160 × 90 color field with a light 12%-black tint. A much broad
 three-pass, radius-24 box blur removes small details and keeps broad artwork
 colors. It uses the same landscape image as the visible card, rather than a
 potentially different ordinary fanart image for that title. The XL field fills
-the screen in either trailer-layout mode and omits
-the ordinary hero's black gradients. Those gradients are restored for ordinary
-rows. The fixed blur runs on one background CPU lane, with cancellation checks
+the screen in either trailer-layout mode. The ordinary hero's left/bottom
+gradient now shades each blurred frame as an experiment controlled by
+`XL_BLUR_GRADIENT_PREVIEW`; disabling that switch removes only this shading.
+The gradient dissolves with its own image rather than changing after it lands. The fixed blur runs on one background CPU lane, with cancellation checks
 between scanlines. It cannot grow with a full-size decode or tall poster fallback.
 Coil caches this separately from the original image; no sharp placeholder is
 used for a blurred frame. The frame's scale and alignment are fixed before its
 first crossfade, independently of ordinary overscan membership and poster
 fallback changes. Its request dimensions stay 160x90 through later hero
 measurements, so an incoming field cannot settle into a second crop or scale.
+Blurred platform artwork uses the existing 110% canvas at a fixed scale of 1,
+retaining 5% overhang on each side. The outer canvas applies platform parallax
+once, so the image cannot consume that overhang through duplicate translation.
 No live GPU blur or animated blur radius is attached
 to scrolling artwork, text, trailers or controls.
 
@@ -186,21 +215,26 @@ is prepared rather than processing every transient image.
 Entry into XL from either direction keeps the current ordinary backdrop visible until the
 matching landscape and blur are prepared, then starts a direct 220 ms crossfade
 while the row is moving. It has no black stage, idle debounce or row-settle wait.
-The ordinary gradient fades away concurrently and its geometry remains in the
-outgoing layout until fully transparent. An outgoing compact raw image retains
+The ordinary image and gradient remain in the outgoing frame, and the XL field
+with its experimental gradient fades over that exact composite. An outgoing compact raw image retains
 its captured dimensions and layout inside the new full-screen XL canvas. The
 image transition is owned outside the two trailer-layout containers, so moving
 from a letterboxed hero into XL does not destroy its outgoing bitmap or reset
 the crossfade.
 
-Exiting XL immediately commits its sharp destination
-behind black and reveals it over a **180 ms linear fade** during row movement,
-shorter than v7's 400 ms. Above and below backdrops are prewarmed at hero render
+Exiting XL immediately commits its sharp destination and gradient for a direct
+**180 ms linear dissolve** over the retained blurred composite during row
+movement. No black stage is inserted. A cold image keeps that composite until
+its renderer is ready, with a bounded failure fallback. The compact target has
+its final width, alignment and gradient coordinates inside the full XL canvas,
+so releasing the canvas after the dissolve cannot alter its crop. Above and below backdrops are prewarmed at hero render
 size while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinary
 metadata is precomposed/measured for the two neighboring ordinary rows while
 XL is displayed. Those slots are never placed or drawn until chosen. The chosen
 slot retains its loaded logo, and its logo transition is disabled during the
-vertical handoff. Text and logo arrive fully opaque. Row ownership survives until
+vertical handoff. Summary exits and upward exits keep sliding text/logo fully opaque; compact
+downward exits fade their prepared metadata only after the incoming row lands.
+Ordinary metadata is not faded during other XL handoffs. Row ownership survives until
 landing so image timing cannot snap moving metadata into place.
 
 On return from Details, the saved row key and selected title seed the XL scene
@@ -231,6 +265,9 @@ full-width balance and preceding-row clearance, tighter following-hero spacing,
 reveal before row settlement, a second rapid Up with normal metadata debounce,
 fully transparent poster bottoms with short headings in both viewport styles,
 a real loaded blur staying pixel-identical after late ordinary measurements,
+10% parallax overhang without exposed screen edges, compact two-phase travel,
+metadata fade only after landing, early preview return while artwork is cold,
+XL-only number contour/fade, loaded-logo reuse through the simple ordinary host,
 direct entry in either direction before row settlement, delayed pair readiness
 without black, constant RGB brightness throughout real-image dissolves and
 rapid reversal, a single viewport draw pass, restored XL focus without a new
@@ -246,8 +283,8 @@ summary/no-summary variants, consecutive XL rows, and rapid reversals mid-slide.
 Confirm each slow Left moves one title, only rapid double Left jumps to the start,
 and a held Left cannot arm a jump after release. Check numbered ranks 1/9/10/100,
 corner radius, number styles/theme color, artwork, live trailers and popup/sidebar
-return. A slow or unavailable image should remain dark until ready or the bounded
-fallback, then reveal the destination metadata and backdrop together.
+return. A slow or unavailable image should retain the outgoing backdrop until ready or
+the bounded fallback. Metadata follows its row-motion policy independently.
 
 ## Coming Soon badge
 

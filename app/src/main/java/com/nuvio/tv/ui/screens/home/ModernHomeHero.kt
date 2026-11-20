@@ -79,6 +79,9 @@ import com.nuvio.tv.ui.components.TrailerPlayer
 import com.nuvio.tv.ui.theme.NuvioColors
 import androidx.compose.ui.res.stringResource
 
+// Experimental XL color-field shading: one switch to remove after TV review.
+internal const val XL_BLUR_GRADIENT_PREVIEW = true
+
 internal data class HeroPlatformSnapshot(
     val platformId: String,
     val preview: HeroPreview
@@ -101,7 +104,7 @@ internal data class ModernHeroBackdropFrame(val url: String?, val scale: Float,
 }
 
 internal fun modernHeroBackdropFrame(url: String?, scale: Float, posterFallback: Boolean, blurred: Boolean) =
-    ModernHeroBackdropFrame(url, if (blurred) 1f / 1.1f else scale, !blurred && posterFallback, blurred)
+    ModernHeroBackdropFrame(url, if (blurred) 1f else scale, !blurred && posterFallback, blurred)
 
 @Composable
 internal fun rememberModernHeroBackdropTransition(url: String?, scale: Float, posterFallback: Boolean,
@@ -149,6 +152,9 @@ internal fun ModernHeroMediaLayer(
     viewportWidth: androidx.compose.ui.unit.Dp = 0.dp,
     viewportHeight: androidx.compose.ui.unit.Dp = 0.dp,
     backdropTransition: Transition<ModernHeroBackdropFrame>? = null,
+    dissolveFromXl: Boolean = false,
+    backdropGradientColor: Color? = null,
+    onBackdropTransitionFinished: (String?, Boolean) -> Unit = { _, _ -> },
     onBackdropFrameReady: (String?, Boolean) -> Unit = { _, _ -> }
 ) {
     val localContext = LocalContext.current
@@ -177,7 +183,10 @@ internal fun ModernHeroMediaLayer(
     }
 
     Box(modifier = modifier.clipToBounds()) {
-        val image: @Composable (ModernHeroBackdropFrame) -> Unit = { frame ->
+        val usingXlDissolve = targetBackdropFrame.blurred || dissolveFromXl
+        val image: @Composable (ModernHeroBackdropFrame, () -> Unit) -> Unit = { frame, ready ->
+            LaunchedEffect(frame.url) { if (frame.url.isNullOrBlank()) ready() }
+            if (usingXlDissolve && !frame.blurred) Box(Modifier.fillMaxSize().background(backdropGradientColor ?: Color.Black))
             val modelWidth = if (frame.blurred) XL_BLUR_WIDTH else if (targetBackdropFrame.blurred)
                 frame.sourceWidthPx.takeIf { it > 0 } ?: requestWidthPx else requestWidthPx
             val modelHeight = if (frame.blurred) XL_BLUR_HEIGHT else if (targetBackdropFrame.blurred)
@@ -190,9 +199,9 @@ internal fun ModernHeroMediaLayer(
                     .size(width = modelWidth, height = modelHeight)
                     .build()
             }
-            val renderCinematic = if (targetBackdropFrame.blurred) frame.sourceCinematic else cinematicMode
-            val frameModifier = if (targetBackdropFrame.blurred && !renderCinematic && cinematicMode) {
-                Modifier.absoluteOffset(x = rootWidth * 0.45f + 56.dp, y = rootHeight * 0.05f)
+            val renderCinematic = if (usingXlDissolve) frame.sourceCinematic else cinematicMode
+            val frameModifier = if (usingXlDissolve && !renderCinematic && cinematicMode) {
+                Modifier.absoluteOffset(x = rootWidth * (1.05f - MODERN_HERO_MEDIA_WIDTH_FRACTION) + 56.dp, y = rootHeight * 0.05f)
                     .width(rootWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION)
                     .height(with(density) { frame.sourceHeightPx.toDp() })
             } else Modifier.fillMaxSize()
@@ -200,11 +209,17 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
-                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
-                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onSuccess = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onError = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     modifier = Modifier
                         .then(frameModifier)
-                        .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
+                        .graphicsLayer {
+                            // XL's oversized media canvas already carries the
+                            // platform parallax. Applying it twice consumes
+                            // more than the existing 10% overhang.
+                            translationX = if (frame.blurred) 0f else parallaxOffsetX
+                            scaleX = frame.scale; scaleY = frame.scale
+                        },
                     contentScale = ContentScale.Crop,
                     alignment =
                         if (frame.isPosterFallback) {
@@ -217,8 +232,8 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
-                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
-                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onSuccess = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onError = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     modifier = frameModifier,
                     contentScale = ContentScale.Crop,
                     alignment =
@@ -229,14 +244,25 @@ internal fun ModernHeroMediaLayer(
                         }
                 )
             }
+            if (backdropGradientColor != null && (if (frame.blurred) XL_BLUR_GRADIENT_PREVIEW else usingXlDissolve)) {
+                val extension = rootWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION * 0.04f + 8.dp
+                val gradientModifier = if (usingXlDissolve && !renderCinematic && cinematicMode) {
+                    Modifier.absoluteOffset(x = rootWidth * (1.05f - MODERN_HERO_MEDIA_WIDTH_FRACTION) + 56.dp - extension, y = rootHeight * 0.05f)
+                        .width(rootWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION + extension)
+                        .height(with(density) { frame.sourceHeightPx.toDp() })
+                } else Modifier.fillMaxSize()
+                ModernHeroGradientLayer(backdropGradientColor, false, 0f, gradientModifier,
+                    cinematicMode = renderCinematic, compactContentStartOffset = if (renderCinematic) 0.dp else extension)
+            }
         }
-        if (targetBackdropFrame.blurred) {
+        if (usingXlDissolve) {
             // Keep the outgoing composite under the incoming image. Fading both
             // alpha values exposes black at the midpoint, even with equal artwork.
-            XlBackdropDissolve(transition, backdropCrossfadeDuration, image)
+            XlBackdropDissolve(transition, backdropCrossfadeDuration,
+                onFinished = { onBackdropTransitionFinished(it.url, it.blurred) }, content = image)
         } else {
             transition.Crossfade(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = heroBackdropAlpha },
-                animationSpec = tween(durationMillis = backdropCrossfadeDuration)) { frame -> image(frame) }
+                animationSpec = tween(durationMillis = backdropCrossfadeDuration)) { frame -> image(frame) {} }
         }
 
         if (shouldPlayHeroTrailer) {
@@ -272,8 +298,8 @@ internal fun ModernHeroGradientLayer(
     blurredBackdrop: androidx.compose.runtime.State<Boolean>? = null,
     visibility: androidx.compose.runtime.State<Float>? = null
 ) {
-    // XL's cached color field has its own light tint. The ordinary hero's
-    // black gradients would change its palette and hide most of the color.
+    // XL's optional gradient lives inside each dissolve frame. Suppress this
+    // external copy so it cannot stack or change after the image lands.
     val visible by remember(blurredBackdrop, visibility) {
         androidx.compose.runtime.derivedStateOf { visibility?.value?.let { it > 0f } ?: (blurredBackdrop?.value != true) }
     }

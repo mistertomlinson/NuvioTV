@@ -69,8 +69,8 @@ class ModernXlSceneTransitionTest {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24) {
-        rows = listOf(row("Earlier", 0), row("A", 1), row("XL", 2, true, summary), row("C", 3), row("D", 4))
+    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false) {
+        rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A"), row("XL", 2, true, summary), row("C", 3), row("D", 4))
         scene = XlSceneState(rows[start].sceneSelection(0, start), rows).apply {
             fullWidthIcons = fullWidth
             metadataRestingTop = metadataTop.dp
@@ -90,16 +90,18 @@ class ModernXlSceneTransitionTest {
                         backdrop.expectFrame(token, visibleBackdrop?.backdrop)
                         if (frameReady.value) backdrop.frameReady(token, visibleBackdrop?.backdrop)
                     }
+                    LaunchedEffect(token, backdrop.directExit, frameReady.value) {
+                        if (backdrop.directExit && frameReady.value) {
+                            kotlinx.coroutines.delay(XL_BACKDROP_REVEAL_MS.toLong())
+                            backdrop.transitionFinished(token, visibleBackdrop?.backdrop, false)
+                        }
+                    }
                     ObserveXlSceneMotion(scene, list)
                     val scope = rememberCoroutineScope()
                     seek = { scope.launch { list.scrollToItem(start, if (rows[start].isXl) 206 else 0) }; Unit }
-                    val spec = remember {
-                        object : BringIntoViewSpec {
-                            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float =
-                                offset - (if (scene.selection?.isXl == true) scene.xlTop(checkNotNull(scene.selection).rowKey).value else 260f) -
-                                    (if (scene.selection?.isXl == true) header.toFloat() else 40f)
-                        }
-                    }
+                    val default = LocalBringIntoViewSpec.current
+                    val spec = rememberHomeVerticalScrollSpec(scene, true, 260.dp,
+                        androidx.compose.ui.platform.LocalDensity.current, default) { false }
                     Box(Modifier.width(960.dp).height(540.dp).background(Color.Black).testTag("scene")) {
                         CompositionLocalProvider(LocalBringIntoViewSpec provides spec) {
                             LazyColumn(
@@ -207,6 +209,96 @@ class ModernXlSceneTransitionTest {
     private fun metadataCount() = compose.onAllNodes(hasTestTag("ordinary-metadata-A") or
         hasTestTag("ordinary-metadata-C") or hasTestTag("ordinary-metadata-XL"), useUnmergedTree = true).fetchSemanticsNodes().size
 
+    private fun measureVerticalMotion(start: Int, key: Int, name: String, summary: Boolean = true) {
+        content(start = start, summary = summary)
+        press(key)
+        val target = checkNotNull(scene.selection).rowKey
+        val samples = mutableListOf<String>()
+        var firstRest = -1
+        var lastY = Float.NaN
+        var reversed = 0
+        var direction = 0
+        repeat(90) { frame ->
+            val position = y("poster-$target")
+            if (!lastY.isNaN() && abs(position - lastY) > 0.5f) {
+                val nextDirection = if (position > lastY) 1 else -1
+                if (direction != 0 && direction != nextDirection) reversed++
+                direction = nextDirection
+            }
+            lastY = position
+            val moving = list.isScrollInProgress || scene.headroomMoving.values.any { it }
+            if (!moving && firstRest < 0) firstRest = frame * 16
+            samples += "${frame * 16}:${position.toInt()}:${scene.headroomValues[target]?.value?.toInt() ?: 0}:$moving"
+            advance(16)
+        }
+        println("VERTICAL_MOTION name=$name firstRestMs=$firstRest reversals=$reversed samples=${samples.joinToString(",")}")
+        assertTrue("Motion must settle", firstRest in 0..336)
+        assertEquals("The incoming row must never reverse direction", 0, reversed)
+    }
+
+    @Test fun measureOrdinaryDownMotion() = measureVerticalMotion(0, KeyEvent.KEYCODE_DPAD_DOWN, "ordinaryDown")
+    @Test fun measureOrdinaryUpMotion() = measureVerticalMotion(1, KeyEvent.KEYCODE_DPAD_UP, "ordinaryUp")
+    @Test fun measureXlDownEntryMotion() = measureVerticalMotion(1, KeyEvent.KEYCODE_DPAD_DOWN, "xlDownEntry")
+    @Test fun measureXlUpEntryMotion() = measureVerticalMotion(3, KeyEvent.KEYCODE_DPAD_UP, "xlUpEntry")
+    @Test fun measureXlUpExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_UP, "xlUpExit")
+    @Test fun measureXlDownExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_DOWN, "xlDownExit")
+    @Test fun measureCompactXlDownExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_DOWN, "compactXlDownExit", false)
+
+    @Test fun compactExitTravelsTogetherThenParksTheIncomingRowBeforeRevealingMetadata() {
+        content(start = 2, summary = false)
+        val startNext = y("heading-C")
+        val startXl = y("heading-XL")
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var sharedFrames = 0
+        var parkedWhileXlMoves = false
+        var previousEdge = Float.POSITIVE_INFINITY
+        repeat(24) {
+            advance(16)
+            val next = y("heading-C")
+            if (!scene.compactRowRested) {
+                assertEquals("Both rows must travel at the same speed", next - startNext, y("heading-XL") - startXl, 1.1f)
+                assertEquals("The prepared hero remains invisible before landing", 0f, scene.compactMetadataAlpha, 0f)
+                sharedFrames++
+            } else {
+                assertEquals("The incoming row remains at rest", 260f, next, 1.1f)
+                val edge = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
+                if (scene.verticalMotion != null && edge < previousEdge && edge > 0f) parkedWhileXlMoves = true
+                previousEdge = edge
+            }
+        }
+        assertTrue("Observe the initial shared travel", sharedFrames > 0)
+        assertTrue("XL must continue after the incoming row lands", parkedWhileXlMoves)
+        assertTrue("Metadata fades in after landing", scene.compactMetadataAlpha > 0.99f)
+        settle()
+    }
+
+    @Test fun theNextRowPreviewStartsReturningAsSoonAsTheOutgoingMetadataClears() {
+        content(start = 3, summary = false)
+        frameReady.value = false
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        var releasedBeforeLanding = false
+        var released = false
+        repeat(24) {
+            advance(16)
+            val move = scene.transition
+            if (move != null && scene.outgoingMetadataOffscreen(list.layoutInfo)) {
+                assertFalse("Preview must not wait for the backdrop", scene.expandedXlRows["XL"] == true)
+                if (!released) {
+                    val owner = checkNotNull(list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "C" })
+                    val heroTop = owner.offset + list.layoutInfo.beforeContentPadding +
+                        checkNotNull(scene.headroomValues["C"]).value - 260f + 24f
+                    assertTrue("The outgoing content must already be below the screen: $heroTop", heroTop >= 540f)
+                    released = true
+                }
+                if (!move.rowsSettled) releasedBeforeLanding = true
+            }
+        }
+        assertTrue(releasedBeforeLanding)
+        frameReady.value = true
+        settle()
+        assertEquals(0.dp, scene.headroomValues["C"])
+    }
+
     @Test fun measuredHeadingHasNoCorrectionJumpAtTheEndOfAnXlExit() {
         content(start = 2, header = 46)
         press(KeyEvent.KEYCODE_DPAD_UP)
@@ -232,9 +324,9 @@ class ModernXlSceneTransitionTest {
         content(start = 2)
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(112)
-        assertTrue("The shortened reveal must still fade through intermediate brightness", backdrop.dim.value in 0.5f..0.9f)
+        assertTrue("Exit should blend out the light XL tint without inserting black", backdrop.dim.value in 0f..0.11f)
         advance(80)
-        assertTrue(backdrop.dim.value in 0.1f..0.45f)
+        assertTrue(backdrop.dim.value in 0f..0.06f)
         advance(96)
         assertEquals("A ready backdrop must not retain v7's 400ms reveal", 0f, backdrop.dim.value, 0.001f)
         settle()
@@ -274,12 +366,12 @@ class ModernXlSceneTransitionTest {
         assertTrue(backdrop.blurred)
     }
 
-    @Test fun incomingMetadataIsOpaqueWhileItsBackdropIsStillBlack() {
+    @Test fun incomingMetadataIsOpaqueWhileTheOutgoingBlurIsHeldForItsUnreadyBackdrop() {
         content(start = 2)
         frameReady.value = false
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(144)
-        assertEquals(1f, backdrop.dim.value, 0.001f)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
         val bounds = compose.onNodeWithText("Synopsis A", substring = true).fetchSemanticsNode().boundsInRoot
         assertTrue(bounds.bottom > 0f && bounds.top < 540f)
         var brightest = 0
@@ -355,7 +447,7 @@ class ModernXlSceneTransitionTest {
             if (backdrop.gradientAlpha.value > 0f && backdrop.gradientAlpha.value < 1f) sawGradientFade = true
             advance(16)
         }
-        assertTrue("The old ordinary gradient should fade with the image", sawGradientFade)
+        assertEquals("Ordinary shading is now included inside the dissolving image", 0f, backdrop.gradientAlpha.value, 0.001f)
         assertEquals(0f, backdrop.gradientAlpha.value, 0.001f)
         settle()
     }
@@ -451,15 +543,15 @@ class ModernXlSceneTransitionTest {
         assertEquals(260f, y("heading-A"), 2f)
     }
 
-    @Test fun compactExitClearsAllXlPixelsBeforeMetadataAndBackdropRevealTogether() {
+    @Test fun compactExitRetainsTheColorFieldWhileTheRegularBackdropIsCold() {
         content(start = 2, summary = false)
         frameReady.value = false
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         awaitRows()
         assertEquals("C", scene.selection?.rowKey)
         assertEquals(260f, y("heading-C"), 2f)
-        assertEquals(1f, backdrop.dim.value, 0.001f)
-        assertFalse(backdrop.revealing)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        assertTrue(backdrop.revealing)
         val outgoing = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "XL" }
         assertTrue("XL must be entirely above the screen", outgoing == null || outgoing.offset + list.layoutInfo.beforeContentPadding + outgoing.size <= 0)
         assertEquals(0f to 260f, xlSceneMetadataMask(scene, list.layoutInfo, true, 260f, 1f))
@@ -563,19 +655,20 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun reversingACompactExitCannotRevealTheHiddenPartOfItsPreparedHero() {
+    private fun verifyCompactReversal(exitMillis: Int) {
         content(start = 2, summary = false)
         frameReady.value = false
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        advance(80)
+        advance(exitMillis)
         press(KeyEvent.KEYCODE_DPAD_UP)
-        advance(32)
+        advance(80)
         val move = checkNotNull(scene.transition)
-        if (move.outgoingMetadata != null) assertTrue(move.outgoingMetadataClipTop > 0f)
+        assertEquals("The reverse press must return to XL", "XL", scene.selection?.rowKey)
+        if (move.outgoingMetadata != null) assertTrue(move.initialMetadataAlpha > 0f)
         val posterTop = y("poster-XL")
         val top = (posterTop + 3f).coerceAtLeast(0f).toInt()
         val bottom = (posterTop + 241f).coerceAtMost(540f).toInt()
-        assertTrue(bottom > top)
+        assertTrue("The reverse scroll must start promptly: top=$posterTop, motion=${scene.verticalMotion}, scrolling=${list.isScrollInProgress}, gap=${scene.headroomValues}", bottom > top)
         compose.runOnUiThread {
             val view = activity.get().findViewById<android.view.View>(android.R.id.content)
             val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
@@ -590,6 +683,29 @@ class ModernXlSceneTransitionTest {
         settle()
         assertEquals("XL", scene.selection?.rowKey)
         assertEquals(0, metadataCount())
+    }
+
+    @Test fun reversingACompactExitCannotRevealTheHiddenPartOfItsPreparedHero() = verifyCompactReversal(80)
+
+    @Test fun reversingACompactExitCanRecoverAnXlPosterThatAlreadyLeftTheViewport() = verifyCompactReversal(160)
+
+    @Test fun clearingShortMetadataEarlyCannotUncoverAnOlderPosterBehindItsReservedSpace() {
+        content(shortMetadata = true, fullWidth = true)
+        assertTrue("Fixture needs a short hero", scene.metadataHeightPx < 140f)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var checked = false
+        repeat(12) {
+            advance(16)
+            if (!checked && scene.transition?.outgoingMetadataCleared == true) {
+                val bottom = y("poster-Earlier") + 200f
+                assertTrue("Fixture must still have a hidden older poster on screen", bottom > 4f)
+                val sampleY = (bottom / 2).toInt()
+                assertEquals("Clearing metadata must preserve the remaining poster exclusion", android.graphics.Color.BLACK, pixel(700, sampleY))
+                checked = true
+            }
+        }
+        assertTrue(checked)
+        settle()
     }
 
     @Test fun restoredOrdinaryFocusBelowCompactXlCanReturnUpAsOneScene() {
@@ -639,7 +755,7 @@ class ModernXlSceneTransitionTest {
     @Test fun compactExitRevealsEarlyWithoutPaintingMetadataOverTheDepartingPoster() {
         content(start = 2, summary = false)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        advance(112)
+        advance(64)
         assertTrue(backdrop.revealing)
         assertFalse(checkNotNull(scene.transition).rowsSettled)
         val posterTop = y("poster-XL")
@@ -675,8 +791,8 @@ class ModernXlSceneTransitionTest {
     }
 
     companion object {
-        private fun row(name: String, index: Int, xl: Boolean = false, summary: Boolean = true): HeroCarouselRow {
-            val preview = HeroPreview(name, null, "Synopsis $name", "Movie", yearText = "2026", genres = emptyList(),
+        private fun row(name: String, index: Int, xl: Boolean = false, summary: Boolean = true, description: String = "Synopsis $name"): HeroCarouselRow {
+            val preview = HeroPreview(name, null, description, "Movie", yearText = "2026", genres = emptyList(),
                 poster = null, backdrop = "Backdrop $name", imageUrl = null)
             return HeroCarouselRow(name, name, index, listOf(ModernCarouselItem(name, name, null, null, preview,
                 ModernPayload.Catalog(name, name, "movie", "", name, null, "movie"))), isXl = xl, showXlSummary = summary)

@@ -129,6 +129,15 @@ class HomePosterFadeTest {
     @Test fun posterBottomsJustBelowTheOldCutoffAlsoDisappear() = verifySliverIsGone(-30, 266f)
     @Test fun ordinaryPagesUseTheSameBodyFadeWithoutMovingTheirViewport() = verifySliverIsGone(-12, 248f, false)
 
+    @Test fun aCrossingBodyRecordsItsPostersOnlyOnceWhileApplyingTheSoftMask() {
+        content(-42)
+        compose.runOnIdle { fadeBodies.value = true }
+        compose.waitForIdle()
+        pixels().recycle()
+        println("POSTER_DRAW_COUNTS=$lastFrameDraws")
+        assertTrue("The soft edge must draw card content only once", (lastFrameDraws["0"] ?: 0) <= 1)
+    }
+
     @Test fun theNewBodyEdgeRemainsASoftFade() {
         content(-42)
         compose.runOnIdle { fadeBodies.value = true }
