@@ -706,6 +706,7 @@ internal fun ModernRowSection(
     isSecondRow: Boolean = false,
     onRequestCarouselFocus: () -> Unit = {},
     catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null,
+    xlArtworkPresentation: XlArtworkPresentation? = null,
     onHeaderMeasured: (Float) -> Unit = {},
     onXlRowMeasured: (Dp, Dp) -> Unit = { _, _ -> }
 ) {
@@ -740,6 +741,7 @@ internal fun ModernRowSection(
             onExpandedCatalogFocusKeyChange = onExpandedCatalogFocusKeyChange,
             useThemeColorForNumbers = useThemeColorForNumbers,
             doubleLeftRowShortcutEnabled = doubleLeftRowShortcutEnabled,
+            artworkPresentation = xlArtworkPresentation,
             onUpPressed = if (isFirstRow) onRequestCarouselFocus else null,
             onHeaderMeasured = onHeaderMeasured,
             onRowMeasured = onXlRowMeasured

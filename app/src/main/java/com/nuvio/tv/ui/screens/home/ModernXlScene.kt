@@ -11,7 +11,9 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.graphicsLayer
@@ -20,11 +22,13 @@ import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
-internal const val XL_BACKDROP_REVEAL_MS = 650
+internal const val XL_BACKDROP_REVEAL_MS = 400
+internal val HOME_POSTER_FADE_HEIGHT = 20.dp
 
 internal data class XlSceneSelection(
     val rowKey: String,
@@ -94,6 +98,7 @@ internal data class XlSceneTransition(
 
 @Stable
 internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCarouselRow> = emptyList()) {
+    val artwork = XlArtworkPresentation()
     var selection by mutableStateOf(initial)
         private set
     var transition by mutableStateOf<XlSceneTransition?>(null)
@@ -260,14 +265,39 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
 
 /** Keep the hero's empty space attached to its row; never uncover an older row behind it. */
 internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListState, enabled: Boolean,
-    ordinaryTop: Dp): Modifier = drawWithContent {
-    val mask = xlSceneMetadataMask(scene, list.layoutInfo, enabled, ordinaryTop.toPx(), density, size.height)
-    clipRect {
-        val top = mask?.first?.coerceAtLeast(0f) ?: 0f
-        val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
-        if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
-            this@drawWithContent.drawContent()
-        } else this@drawWithContent.drawContent()
+    ordinaryTop: Dp): Modifier = drawWithCache {
+    val fadeHeight = HOME_POSTER_FADE_HEIGHT.toPx()
+    val fadePaint = android.graphics.Paint().apply {
+        shader = android.graphics.LinearGradient(0f, 0f, 0f, 1f,
+            android.graphics.Color.TRANSPARENT, android.graphics.Color.WHITE, android.graphics.Shader.TileMode.CLAMP)
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
+    }
+    val matrix = android.graphics.Matrix()
+    onDrawWithContent {
+        val mask = if (enabled) xlSceneMetadataMask(scene, list.layoutInfo, true, ordinaryTop.toPx(), density, size.height)
+            else 0f to fadeHeight
+        clipRect {
+            val top = mask?.first?.coerceAtLeast(0f) ?: 0f
+            val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
+            if (top < bottom) {
+                clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
+                    this@onDrawWithContent.drawContent()
+                }
+                // Only this narrow band needs an offscreen surface. Keep the
+                // backdrop outside it untouched, and never mask departing XL.
+                val fadeTop = maxOf(top, bottom - fadeHeight)
+                clipRect(top = fadeTop, bottom = bottom) {
+                    val canvas = drawContext.canvas.nativeCanvas
+                    val layer = canvas.saveLayer(0f, fadeTop, size.width, bottom, null)
+                    this@onDrawWithContent.drawContent()
+                    matrix.setScale(1f, bottom - fadeTop)
+                    matrix.postTranslate(0f, fadeTop)
+                    fadePaint.shader.setLocalMatrix(matrix)
+                    canvas.drawRect(0f, fadeTop, size.width, bottom, fadePaint)
+                    canvas.restoreToCount(layer)
+                }
+            } else this@onDrawWithContent.drawContent()
+        }
     }
 }
 
@@ -323,23 +353,30 @@ internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolea
     var owned by mutableStateOf(initiallyXl)
     var revealing by mutableStateOf(false)
     var token by mutableIntStateOf(0)
+    var blurred by mutableStateOf(initiallyXl)
     private var renderedToken by mutableIntStateOf(-1)
     private var expectedUrl by mutableStateOf<String?>(null)
     private var readyToken by mutableIntStateOf(-1)
     private var readyUrl by mutableStateOf<String?>(null)
+    private var expectedBlurred by mutableStateOf(false)
+    private var readyBlurred by mutableStateOf(false)
 
-    fun expectFrame(renderToken: Int, url: String?) {
-        if (expectedUrl == url && readyToken == renderedToken && readyUrl == url) readyToken = renderToken
+    fun expectFrame(renderToken: Int, url: String?, blurred: Boolean = this.blurred) {
+        if (expectedUrl == url && expectedBlurred == blurred && readyToken == renderedToken && readyUrl == url &&
+            readyBlurred == blurred) readyToken = renderToken
         renderedToken = renderToken
         expectedUrl = url
+        expectedBlurred = blurred
     }
 
-    fun frameReady(renderToken: Int, url: String?) {
+    fun frameReady(renderToken: Int, url: String?, blurred: Boolean = this.blurred) {
         readyToken = renderToken
         readyUrl = url
+        readyBlurred = blurred
     }
 
-    fun ready(): Boolean = renderedToken == token && readyToken == token && readyUrl == expectedUrl
+    fun ready(): Boolean = renderedToken == token && readyToken == token && readyUrl == expectedUrl &&
+        readyBlurred == expectedBlurred
 }
 
 /** Enter behind black; an XL exit reveals its prewarmed destination during the scroll. */
@@ -361,15 +398,16 @@ internal fun rememberXlBackdropPresentation(
         val target = selected ?: return@LaunchedEffect
         val boundary = scene.transition
         val boundaryId = boundary?.id
-        val exitingXl = boundary?.from?.isXl == true && !target.isXl
         val dark = enabled && if (carouselFocused) pageStartsWithXl else target.isXl
+        val exitingXl = !dark && (state.blurred || boundary?.from?.isXl == true)
         if (!enabled) {
             state.owned = false
+            state.blurred = false
             state.dim.snapTo(0f)
             if (boundaryId != null) scene.complete(boundaryId)
             return@LaunchedEffect
         }
-        if (!target.isXl && !dark && boundaryId == null) {
+        if (!target.isXl && !dark && boundaryId == null && !state.blurred) {
             if (scene.stationaryMetadata != null) {
                 state.preview = target.preview
                 state.owned = true
@@ -381,15 +419,30 @@ internal fun rememberXlBackdropPresentation(
             return@LaunchedEffect
         }
         if (!state.owned && !dark && boundaryId == null) return@LaunchedEffect
+        if (dark && state.blurred && boundaryId == null) {
+            // No normal-row debounce or fade-to-black on a horizontal XL move.
+            // The row releases this barrier when its matching landscape and
+            // blur are prepared; the image crossfade starts on that commit.
+            if (!carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
+                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
+            state.token++
+            state.preview = target.preview
+            state.revealing = true
+            state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing))
+            return@LaunchedEffect
+        }
         if (!state.owned) state.preview = scene.transition?.outgoingBackdrop ?: latestResolved
         state.owned = true
         state.revealing = false
-        if (state.preview != target.preview || boundaryId != null) {
+        if (state.preview != target.preview || state.blurred != dark || boundaryId != null) {
             // A true black beat masks both the outgoing frame and image loading.
             if (exitingXl) state.dim.snapTo(1f)
             else state.dim.animateTo(1f, tween(if (state.dim.value > 0.9f) 80 else 240))
+            if (dark && !carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
+                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
             state.token++
             state.preview = target.preview
+            state.blurred = dark
             // Let the renderer bind the committed token before checking readiness.
             repeat(2) { withFrameNanos { } }
             withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
@@ -464,7 +517,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         activeSnapshot = snapshot,
         neighbors = if (enabled && selected?.isXl == true) adjacentMetadata else emptyList(),
         nextEpoch = scene.metadataEpoch + 1,
-        modifier = modifier
+        modifier = modifier.zIndex(1f)
     ) { active, isActive ->
         HeroTitleBlock(
             preview = active.preview,

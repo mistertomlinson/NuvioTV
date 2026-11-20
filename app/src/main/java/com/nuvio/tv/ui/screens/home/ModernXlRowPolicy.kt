@@ -77,7 +77,7 @@ internal class XlRowLeftShortcut {
 }
 
 internal const val XL_RANK_OVERLAP_DP = 8f
-internal const val XL_BACKDROP_DIM_ALPHA = 0.94f
+internal const val XL_BACKDROP_DIM_ALPHA = 0.84f
 
 internal fun xlRankFontSize(cardHeight: Float): Float = (cardHeight * 0.22f).coerceIn(40f, 56f)
 internal fun xlRankBaselineDrop(fontSize: Float): Float = fontSize * 0.10f

@@ -57,10 +57,16 @@ solid/outline renderer and theme color are reused at a smaller size. Long ranks
 scale down enough to fit the gutter rather than pushing the featured card right.
 Their baseline sits slightly below the poster bottom, following the ordinary
 number layout; the artwork viewport allows that lower ink and outline to draw.
-During horizontal navigation, numbers remain at their old positions for a 70 ms
-fade-out, relocate while transparent, then fade in over 140 ms once portrait
-movement settles. A jump keeps them transparent until the runway stops. Stroke
-and fill fade together, including the lower overhang; no clipping mask is added.
+Portraits and numbers share one animated runway. All unaffected numbers remain
+fully opaque as they slide. Only a number approaching the featured image fades
+out over 60 ms, briefly remaining outside its edge before relocating invisibly.
+An emerging number fades in over 70 ms after its entire glyph clears the image.
+Stroke and fill fade together, including the lower overhang; no number clipping
+mask is added. This applies to single moves, held keys and the animated shortcut.
+The featured rank derives directly from the displayed title. Shortcut completion
+commits the first title and its rank together, avoiding a stale number from a
+separate delayed selection index. Native tests compare the rendered first glyph
+before/after the shortcut in both solid and outline styles.
 
 ## Vertical presentation
 
@@ -91,6 +97,17 @@ row. Each non-first XL row reserves enough prefix to place preceding posters
 entirely above the screen at landing. Ordinary-to-ordinary
 navigation keeps the stationary upper metadata and ordinary clipping.
 
+Ordinary posters now disappear through a 20 dp alpha gradient just above the
+metadata cutoff. The resting heading and poster positions are unchanged: pages
+without XL gain an equal 20 dp of viewport height, content padding and focus
+inset. The gradient moves with the existing ordinary metadata exclusion band
+during XL handoffs. A departing XL image still crosses the old logo region
+intact. Only the narrow fade strip uses an offscreen surface; the backdrop is
+preserved beneath its transparent pixels and metadata draws above it. Brushes
+and paint are cached, with no full-screen poster-mask texture or per-frame blur.
+The default vertical BringIntoView animation, held-scroll velocity (1200 dp/s)
+and existing 360 ms following-row headroom adjustment are unchanged.
+
 The space before a following ordinary row is calculated from the XL row's
 measured bottom, the viewport, and the ordinary hero's resting position, keeping
 the next hero just below the screen instead of leaving a second oversized gap.
@@ -106,30 +123,47 @@ screen, the gap closes to restore the next-row peek.
 
 ## Backdrop handoff
 
-XL uses a faint backdrop under a 94%-black layer. Each managed image handoff
-first reaches black, commits the new backdrop without a second image crossfade,
-and waits for the target image renderer's success/error acknowledgement. A
-bounded two-second wait avoids stranding the screen if a renderer never replies.
-A stale outgoing frame cannot release the new handoff.
+XL uses a cached 640 × 360 blurred backdrop beneath an 84%-black layer. A fixed
+three-pass box blur runs on one background CPU lane, with cancellation checks
+between scanlines. It cannot grow with a full-size decode or tall poster fallback.
+Coil caches this separately from the original image; no sharp placeholder is
+used for a blurred frame. No live GPU blur or animated blur radius is attached
+to scrolling artwork, text, trailers or controls.
 
-Entering XL waits for the new frame and row landing before returning to 94%
-black. Exiting XL immediately commits its destination behind the dark layer,
-waits only for that image's frame, and reveals the ordinary backdrop over a
-650 ms linear fade while rows are still scrolling. Above and below backdrops are prewarmed at hero render size
-while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinary
+Horizontal XL changes have **no idle/debounce timer**. The selected destination's
+landscape and blurred background are prepared concurrently, with obsolete loads
+cancelled immediately. A single presentation commit changes the landscape and
+starts a 220 ms background crossfade. Cold images retain the preceding artwork
+while loading, bounded at two seconds for failures; input and the portrait
+runway remain responsive. Select commits the title currently displayed. Only
+one item to the right is speculatively warmed, after the existing quiet lookahead
+window; that window never delays an active selection. During double Left the
+landscape shuffles normally, while the blur holds until the final destination
+is prepared rather than processing every transient image.
+
+Vertical managed handoffs first reach black, commit the appropriate sharp or
+blurred image, and wait for the matching renderer's success/error acknowledgement.
+Tokens include the image variant so a sharp callback cannot release a blurred
+frame using the same URL. A bounded two-second wait protects against a missing
+renderer acknowledgement. Entering XL waits for frame/row readiness before
+returning to 84% black. Exiting XL immediately commits its sharp destination
+behind black and reveals it over a **400 ms linear fade** during row movement,
+shorter than v6's 650 ms. Above and below backdrops are prewarmed at hero render
+size while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinary
 metadata is precomposed/measured for the two neighboring ordinary rows while
 XL is displayed. Those slots are never placed or drawn until chosen. The chosen
 slot retains its loaded logo, and its logo transition is disabled during the
 vertical handoff. Text and logo arrive fully opaque. Row ownership survives until
 landing so image timing cannot snap moving metadata into place.
 
-On the platform icon row, pages whose first catalog is XL already use the 94%
-dark layer. Moving Down into that XL does not add another darkening animation;
+On the platform icon row, pages whose first catalog is XL already use the blurred
+background and 84% dark layer. Moving Down into that XL does not add another darkening animation;
 ordinary-first pages keep their normal backdrop. Platform parallax captures
 and retains the outgoing page's dim amount until its ghost reaches black. A new
 scene cannot brighten an outgoing XL bitmap or abruptly dim an ordinary bitmap.
-Switches involving XL use a 280 ms outgoing fade and 350 ms incoming fade; normal
-platform switches retain their existing timing.
+All platform switches use the original timings/easing again: 150 ms outgoing
+fade/travel, 250 ms incoming fade, and 330 ms incoming parallax/travel. There is
+no XL-specific slowdown. The outgoing dim snapshot remains pinned until black.
 
 ## Verification and TV review
 

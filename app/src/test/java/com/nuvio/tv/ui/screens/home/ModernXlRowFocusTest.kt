@@ -79,6 +79,7 @@ class ModernXlRowFocusTest {
     private val selected = mutableIntStateOf(-1)
     private val selectedId = mutableStateOf("")
     private val rowState = mutableStateOf(row())
+    private val artwork = XlArtworkPresentation()
 
     @Before fun setup() {
         compose.runOnUiThread {
@@ -116,6 +117,7 @@ class ModernXlRowFocusTest {
                                 Text("Platform ${selected.intValue}")
                             }
                             ModernXlRowSection(
+                                artworkPresentation = artwork,
                                 row = rowState.value, slotGeneration = 0, uiCaches = caches,
                                 pendingRowFocus = PendingRowFocusHolder(), savedRowIndices = emptyMap(),
                                 onPendingRowFocusCleared = {},
@@ -272,7 +274,7 @@ class ModernXlRowFocusTest {
         down(KeyEvent.KEYCODE_DPAD_LEFT); up(KeyEvent.KEYCODE_DPAD_LEFT)
         down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
         val shown = artworkIndex()
-        assertTrue(shown < 7)
+        assertTrue("The jump should already be shuffling artwork, shown=$shown", shown < 7)
         tap(KeyEvent.KEYCODE_DPAD_CENTER)
         compose.runOnIdle { assertEquals("id-$shown", detailsId) }
         compose.mainClock.advanceTimeBy(500); compose.waitForIdle()
@@ -319,21 +321,70 @@ class ModernXlRowFocusTest {
         compose.onNodeWithText("Next row").assertIsDisplayed()
     }
 
-    @Test fun xlRanksStayStillWhileFadingBeforeTheirNewPositionsAppear() {
+    @Test fun unaffectedXlNumbersSlideWithTheirPortraitsDuringNavigation() {
         rowState.value = row().copy(numberStyle = NumberStyle.SOLID)
         content()
         repeat(7) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
-        fun rankX() = compose.onNodeWithTag("xl-rank-test-xl-8").fetchSemanticsNode()
+        fun rankX() = compose.onNodeWithTag("xl-rank-test-xl-9").fetchSemanticsNode()
             .layoutInfo.coordinates.positionInRoot().x
         val oldX = rankX()
         compose.mainClock.autoAdvance = false
         down(KeyEvent.KEYCODE_DPAD_RIGHT); up(KeyEvent.KEYCODE_DPAD_RIGHT)
-        assertEquals("The fading numbers must not slide below the featured card", oldX, rankX(), 0.1f)
-        compose.mainClock.advanceTimeBy(110); compose.waitForIdle()
-        assertEquals(52f, rankX(), 0.1f)
+        assertTrue("An unaffected rank must slide immediately rather than freeze and disappear", rankX() < oldX)
+        val posterX = compose.onNodeWithTag("xl-portrait-test-xl-9").fetchSemanticsNode()
+            .layoutInfo.coordinates.positionInRoot().x
+        assertEquals("The number and portrait share exactly the same runway", posterX, rankX(), 0.1f)
         compose.mainClock.advanceTimeBy(400); compose.waitForIdle()
         assertXlFocus(8)
         compose.mainClock.autoAdvance = true
+    }
+
+    @Test fun doubleLeftFinishesWithTheOriginalFirstGlyphAndMatchingPortraitRanksInBothStyles() {
+        fun gutterPixels(): IntArray {
+            val node = compose.onNodeWithTag("xl-featured-test-xl").fetchSemanticsNode()
+            val top = (node.layoutInfo.coordinates.positionInRoot().y + node.layoutInfo.coordinates.size.height - 70).toInt()
+            val result = IntArray(49 * 80)
+            compose.runOnUiThread {
+                val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+                val bitmap = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+                bitmap.eraseColor(android.graphics.Color.BLACK)
+                view.draw(android.graphics.Canvas(bitmap))
+                bitmap.getPixels(result, 0, 49, 0, top, 49, 80)
+                bitmap.recycle()
+            }
+            return result
+        }
+        rowState.value = row().copy(numberStyle = NumberStyle.SOLID)
+        content(doubleLeft = true)
+        for (style in listOf(NumberStyle.SOLID, NumberStyle.OUTLINE)) {
+            compose.runOnIdle { rowState.value = rowState.value.copy(numberStyle = style) }
+            compose.waitForIdle()
+            val originalOne = gutterPixels()
+            assertTrue("The reference rank must contain visible ink", originalOne.any { android.graphics.Color.red(it) > 8 })
+            compose.mainClock.autoAdvance = false
+            repeat(8) { tap(KeyEvent.KEYCODE_DPAD_RIGHT) }
+            down(KeyEvent.KEYCODE_DPAD_LEFT); up(KeyEvent.KEYCODE_DPAD_LEFT)
+            down(KeyEvent.KEYCODE_DPAD_LEFT, gapMs = 20); up(KeyEvent.KEYCODE_DPAD_LEFT)
+            var landed = false
+            repeat(45) {
+                compose.mainClock.advanceTimeBy(16); compose.waitForIdle()
+                if (selected.intValue == 0) {
+                    landed = true
+                    compose.onNodeWithTag("xl-featured-rank-test-xl-0").assertExists()
+                    assertEquals("The artwork must finish on the same first item as its rank", 0, artworkIndex())
+                }
+            }
+            assertTrue("The shortcut must finish", landed)
+            compose.mainClock.autoAdvance = true
+            compose.waitForIdle()
+            assertXlFocus(0)
+            assertArrayEquals("Returning to item 1 must reproduce its original $style glyph", originalOne, gutterPixels())
+            for (index in 1..3) {
+                val rankX = compose.onNodeWithTag("xl-rank-test-xl-$index").fetchSemanticsNode().layoutInfo.coordinates.positionInRoot().x
+                val posterX = compose.onNodeWithTag("xl-portrait-test-xl-$index").fetchSemanticsNode().layoutInfo.coordinates.positionInRoot().x
+                assertEquals("Every portrait must retain its matching rank", posterX, rankX, 0.1f)
+            }
+        }
     }
 
     @Test fun xlRankBottomMatchesTheOrdinaryNumberedPosterGeometry() {

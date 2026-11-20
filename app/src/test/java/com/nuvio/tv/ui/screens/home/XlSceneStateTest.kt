@@ -87,6 +87,24 @@ class XlSceneStateTest {
         assertTrue("An unchanged already-rendered bitmap needs no second load callback", state.ready())
     }
 
+    @Test fun `a sharp callback cannot release a blurred frame with the same URL`() {
+        val state = XlBackdropPresentation(null, false)
+        state.token = 1
+        state.expectFrame(1, "same", false)
+        state.frameReady(1, "same", false)
+        assertTrue(state.ready())
+        state.token = 2
+        state.expectFrame(2, "same", true)
+        assertFalse(state.ready())
+        state.frameReady(2, "same", false)
+        assertFalse("The old variant must not reveal an unprepared blur", state.ready())
+        state.frameReady(2, "same", true)
+        assertTrue(state.ready())
+        state.token = 3
+        state.expectFrame(3, "same", false)
+        assertFalse("An XL exit must wait for the sharp variant", state.ready())
+    }
+
     @Test fun `reversing a compact exit cannot invent metadata that was still transparent`() {
         val xl = selection("XL", 2, true, false)
         val normal = selection("C", 3)

@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
@@ -111,6 +112,7 @@ internal fun ModernXlRowSection(
     useThemeColorForNumbers: Boolean,
     doubleLeftRowShortcutEnabled: Boolean,
     onUpPressed: (() -> Unit)?,
+    artworkPresentation: XlArtworkPresentation? = null,
     onHeaderMeasured: (Float) -> Unit = {},
     onRowMeasured: (Dp, Dp) -> Unit = { _, _ -> }
 ) {
@@ -139,12 +141,35 @@ internal fun ModernXlRowSection(
     var rowHasFocus by remember(row.key) { mutableStateOf(false) }
     val selectedItem = row.items[selected]
     val imageLoader = remember(context) { coil.Coil.imageLoader(context) }
+    var presentedKey by remember(row.key) { mutableStateOf(selectedItem.key) }
+    val presentedIndex = if (artworkPresentation == null) selected else
+        row.items.indexOfFirst { it.key == presentedKey }.takeIf { it >= 0 } ?: selected
+    val presentedItem = row.items[presentedIndex]
+    DisposableEffect(artworkPresentation, row.key) {
+        artworkPresentation?.renderers?.set(row.key, true)
+        onDispose { artworkPresentation?.renderers?.remove(row.key) }
+    }
+    LaunchedEffect(rowHasFocus, jumping, selectedItem, artworkPresentation, geometry, density) {
+        if (!rowHasFocus || jumping || artworkPresentation == null) return@LaunchedEffect
+        val blurUrl = firstNonBlank(selectedItem.heroPreview.backdrop, selectedItem.heroPreview.imageUrl)
+        val requests = buildList {
+            selectedItem.xlLandscapeImageUrl()?.let { add(homePosterImageRequest(context, it,
+                with(density) { geometry.featuredWidth.dp.roundToPx() }, with(density) { geometry.cardHeight.dp.roundToPx() })) }
+            if (blurUrl != null) add(xlBlurredBackdropRequest(context, blurUrl))
+        }
+        prepareXlArtworkPair(imageLoader, requests)
+        // Both cache entries are ready (or have failed). One composition commit
+        // swaps the permanent card's artwork and releases the background fade.
+        presentedKey = selectedItem.key
+        artworkPresentation.frame = XlArtworkFrame(row.key, selectedItem.key, blurUrl)
+    }
     val nextLandscape = remember(row.items, selected, geometry, density) {
         xlNextLandscapeRequest(context, row.items, selected,
             with(density) { geometry.featuredWidth.dp.roundToPx() },
             with(density) { geometry.cardHeight.dp.roundToPx() })
     }
-    LaunchedEffect(rowHasFocus, jumping, nextLandscape) {
+    val nextBlurUrl = row.items.getOrNull(selected + 1)?.heroPreview?.let { firstNonBlank(it.backdrop, it.imageUrl) }
+    LaunchedEffect(rowHasFocus, jumping, nextLandscape, nextBlurUrl) {
         if (!rowHasFocus || jumping || nextLandscape == null) return@LaunchedEffect
         // Conflate held D-pad presses; decode only one likely destination, on
         // Coil's background path. A changed selection/focus cancels this work.
@@ -153,6 +178,12 @@ internal fun ModernXlRowSection(
             try { imageLoader.execute(nextLandscape) }
             catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Throwable) { /* Best-effort lookahead never blocks Home. */ }
+        }
+        if (nextBlurUrl != null) {
+            delay(100)
+            try { imageLoader.execute(xlBlurredBackdropRequest(context, nextBlurUrl)) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Throwable) { /* The dark background can fall back to black. */ }
         }
     }
 
@@ -223,26 +254,21 @@ internal fun ModernXlRowSection(
     }
     val jumpFirstPortrait by remember(rankTrack) { derivedStateOf { rankTrack.firstPortrait(jumpOrigin.value) } }
     val latestSelected by rememberUpdatedState(selected)
-    var rankNavigation by remember(row.key) { mutableStateOf(0) }
-    var displayedRankSelection by remember(row.key) { mutableStateOf(selected) }
-    val rankOpacity = remember(row.key) { Animatable(1f) }
-    LaunchedEffect(rankNavigation, numbered) {
-        if (!numbered || rankNavigation == 0) {
-            displayedRankSelection = latestSelected
-            rankOpacity.snapTo(1f)
-            return@LaunchedEffect
-        }
-        // Numbers stay still while fading; no part of a rank slides below the
-        // featured card. Relocate only while invisible, then ease back in.
-        rankOpacity.animateTo(0f, tween(70, easing = LinearEasing))
-        snapshotFlow { !jumping }.first { it }
-        displayedRankSelection = latestSelected
-        delay(150)
-        rankOpacity.animateTo(1f, tween(140, easing = LinearEasing))
+    val animatedOrigin = remember(rankTrack) { Animatable(rankTrack.origin(selected)) }
+    val runwayWasJumping = remember(rankTrack) { booleanArrayOf(false) }
+    LaunchedEffect(selected, rankTrack, jumping) {
+        if (jumping) runwayWasJumping[0] = true
+        else if (runwayWasJumping[0]) {
+            animatedOrigin.snapTo(rankTrack.origin(selected))
+            runwayWasJumping[0] = false
+        } else animatedOrigin.animateTo(rankTrack.origin(selected), tween(220))
     }
-    val lastSelected = remember(row.key) { intArrayOf(selected) }
-    val previousIndex = lastSelected[0]
-    SideEffect { lastSelected[0] = selected }
+    // Posters and ranks read this shared track during placement. Unaffected
+    // numbers stay opaque and move by exactly the same amount as their cards.
+    val runwayOrigin = remember(rankTrack) { derivedStateOf {
+        if (jumping) jumpOrigin.value else if (runwayWasJumping[0]) rankTrack.origin(latestSelected) else animatedOrigin.value
+    } }
+    val runwayFirst by remember(rankTrack) { derivedStateOf { rankTrack.firstPortrait(runwayOrigin.value) } }
     val descriptionLineHeight = MaterialTheme.typography.bodyMedium.lineHeight
     val summaryExtra = with(density) {
         (descriptionLineHeight * (if (portraitMetadata) 0.90f else 1f) * (if (portraitMetadata) 4 else 5)).toDp()
@@ -255,11 +281,13 @@ internal fun ModernXlRowSection(
         val item = row.items[index]
         val payload = item.payload as? ModernPayload.Catalog
         if (payload != null) {
-            val artworkItem = if (featured && jumping) row.items[jumpFirstPortrait.coerceIn(0, row.items.lastIndex)] else item
+            val artworkItem = if (!featured) item else if (jumping) row.items[jumpFirstPortrait.coerceIn(0, row.items.lastIndex)] else presentedItem
             val image = if (featured) {
                 artworkItem.xlLandscapeImageUrl()
             } else firstNonBlank(item.heroPreview.poster, item.imageUrl)
-            val cardItem = remember(item, artworkItem.title, image) { item.copy(imageUrl = image, title = artworkItem.title) }
+            val cardItem = remember(item, artworkItem, image) {
+                item.copy(imageUrl = image, title = artworkItem.title, heroPreview = artworkItem.heroPreview)
+            }
             val cardWidth = (if (featured) geometry.featuredWidth else geometry.portraitWidth).dp
             val card: @Composable () -> Unit = {
                 ModernCatalogRowItem(
@@ -277,8 +305,8 @@ internal fun ModernXlRowSection(
                     modernCatalogCardHeight = geometry.cardHeight.dp,
                     landscapeTrailerExpandedHeight = geometry.cardHeight.dp,
                     focusedPosterBackdropTrailerMuted = muted,
-                    effectiveExpandEnabled = featured && autoplayEnabled && !jumping,
-                    effectiveAutoplayEnabled = featured && autoplayEnabled && !jumping,
+                    effectiveExpandEnabled = featured && autoplayEnabled && !jumping && presentedIndex == selected,
+                    effectiveAutoplayEnabled = featured && autoplayEnabled && !jumping && presentedIndex == selected,
                     expandLandscapePostersEnabled = false,
                     trailerPlaybackTarget = FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD,
                     expandedCatalogFocusKey = expandedFocusKey,
@@ -307,7 +335,7 @@ internal fun ModernXlRowSection(
                     onUpPressed = if (featured) onUpPressed else null
                 )
             }
-            if (featured) Box(Modifier.testTag("xl-artwork-${row.key}-${if (jumping) jumpFirstPortrait.coerceIn(0, row.items.lastIndex) else index}")) {
+            if (featured) Box(Modifier.testTag("xl-artwork-${row.key}-${if (jumping) jumpFirstPortrait.coerceIn(0, row.items.lastIndex) else presentedIndex}")) {
                 card()
             } else card()
         }
@@ -330,13 +358,13 @@ internal fun ModernXlRowSection(
                 if (!left && !right) {
                     if (native.action == AndroidKeyEvent.ACTION_DOWN) {
                         leftShortcut.reset()
-                        if (jumping && (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
+                        if ((jumping || presentedIndex != selected) && (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_CENTER ||
                                 native.keyCode == AndroidKeyEvent.KEYCODE_ENTER || native.keyCode == AndroidKeyEvent.KEYCODE_NUMPAD_ENTER)) {
                             // Commit the landscape title currently being shown
                             // before the permanent card handles Select/long press.
-                            val shown = jumpFirstPortrait.coerceIn(0, currentRow.items.lastIndex)
+                            val shown = if (jumping) jumpFirstPortrait.coerceIn(0, currentRow.items.lastIndex) else presentedIndex
                             selectedKey = currentRow.items[shown].key
-                            lastSelected[0] = shown
+                            presentedKey = currentRow.items[shown].key
                             jumpJob[0]?.cancel()
                         }
                         if (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)
@@ -358,7 +386,6 @@ internal fun ModernXlRowSection(
                 if (left && native.repeatCount > 0) leftShortcut.reset()
                 if (!repeatGate.accept(native.repeatCount, now, fastNavigation)) return@onPreviewKeyEvent true
                 val doubleLeft = left && leftShortcut.onDown(selected, native.repeatCount, doubleLeftRowShortcutEnabled, now)
-                if (doubleLeft || left && selected > 0 || right && selected < row.items.lastIndex) rankNavigation++
                 when {
                     doubleLeft -> {
                         // Shuffle landscape artwork with the bounded portrait
@@ -371,7 +398,9 @@ internal fun ModernXlRowSection(
                                     ((selected.coerceAtMost(24) / if (numbered) 20f else 32f) * 1000).toInt().coerceAtLeast(220),
                                     easing = LinearEasing
                                 ))
-                                lastSelected[0] = 0
+                                // Rank, artwork and logical selection finish as
+                                // one title, even if the final blur is still cold.
+                                presentedKey = currentRow.items.first().key
                                 selectedKey = currentRow.items.first().key
                             } finally {
                                 jumping = false
@@ -402,23 +431,22 @@ internal fun ModernXlRowSection(
                 }
         ) {
             if (numbered) {
-                val rankSelection = displayedRankSelection.coerceIn(0, row.items.lastIndex)
                 Box(Modifier.fillMaxWidth().height(geometry.cardHeight.dp).zIndex(-1f)
                     .testTag("xl-ranks-${row.key}")) {
-                    val ranks = listOf(rankSelection) +
-                        ((rankSelection + 1)..minOf(row.items.lastIndex, rankSelection + geometry.visiblePortraitCount)).toList()
-                    ranks.forEach { rank ->
-                        val featured = rank == rankSelection
-                        val left = if (featured) rankTrack.featuredLeft else rankTrack.portraitLeft(rank, rankSelection, geometry.featuredWidth)
-                        val width = (if (featured) geometry.featuredWidth else geometry.portraitWidth).dp
-                        Box(Modifier.absoluteOffset(x = left.dp).testTag("xl-rank-${row.key}-$rank")) {
-                            NumberedCatalogCardWrapper(rank + 1, width, geometry.cardHeight.dp,
-                                preMeasuredTextWidth = rankTrack.textWidths[rank].dp, numberStyle = row.numberStyle,
-                                useThemeColorForNumbers = useThemeColorForNumbers, compactXl = true,
-                                compactXlFontSize = rankTrack.fontSize, numberOpacity = rankOpacity.asState()) {
-                                Spacer(Modifier.width(width).height(geometry.cardHeight.dp))
-                            }
+                    val featuredRank = if (jumping) jumpFirstPortrait.coerceIn(0, row.items.lastIndex) else presentedIndex
+                    Box(Modifier.absoluteOffset(x = rankTrack.featuredLeft.dp)
+                        .testTag("xl-featured-rank-${row.key}-$featuredRank")) {
+                        NumberedCatalogCardWrapper(featuredRank + 1, geometry.featuredWidth.dp, geometry.cardHeight.dp,
+                            preMeasuredTextWidth = rankTrack.textWidths[featuredRank].dp, numberStyle = row.numberStyle,
+                            useThemeColorForNumbers = useThemeColorForNumbers, compactXl = true,
+                            compactXlFontSize = rankTrack.fontSize) {
+                            Spacer(Modifier.width(geometry.featuredWidth.dp).height(geometry.cardHeight.dp))
                         }
+                    }
+                    val firstRank = (runwayFirst - 1).coerceAtLeast(0)
+                    val lastRank = minOf(row.items.lastIndex, runwayFirst + geometry.visiblePortraitCount + 1)
+                    for (index in firstRank..lastRank) key(row.items[index].key) {
+                        XlPortraitRank(index, row.key, rankTrack, runwayOrigin, geometry, row.numberStyle, useThemeColorForNumbers)
                     }
                 }
             }
@@ -426,21 +454,8 @@ internal fun ModernXlRowSection(
             val lastPortrait = minOf(row.items.lastIndex, firstPortrait + geometry.visiblePortraitCount)
             for (index in firstPortrait..lastPortrait) {
                 key(row.items[index].key) {
-                    val targetX = rankTrack.portraitLeft(index, selected, geometry.featuredWidth)
-                    val animatedX = remember {
-                        Animatable(if (selected < previousIndex && index == previousIndex) rankTrack.featuredLeft else targetX)
-                    }
-                    val wasJumping = remember { booleanArrayOf(jumping) }
-                    LaunchedEffect(targetX, jumping) {
-                        if (jumping) wasJumping[0] = true
-                        else if (wasJumping[0]) {
-                            animatedX.snapTo(targetX)
-                            wasJumping[0] = false
-                        } else animatedX.animateTo(targetX, tween(220))
-                    }
                     Box(Modifier.absoluteOffset {
-                        val x = if (jumping) rankTrack.portraitLeftAtOrigin(index, jumpOrigin.value, geometry.featuredWidth)
-                            else if (wasJumping[0]) targetX else animatedX.value
+                        val x = rankTrack.portraitLeftAtOrigin(index, runwayOrigin.value, geometry.featuredWidth)
                         IntOffset(with(density) { x.dp.roundToPx() }, 0)
                     }.width(geometry.portraitWidth.dp).testTag("xl-portrait-${row.key}-$index")) {
                         renderCard(index, false)
@@ -458,7 +473,7 @@ internal fun ModernXlRowSection(
         Box(Modifier.width(configuration.screenWidthDp.dp).padding(horizontal = rankTrack.featuredLeft.dp)
             .padding(top = 12.dp)) {
             HeroTitleContent(
-                preview = row.items[selected].heroPreview,
+                preview = presentedItem.heroPreview,
                 portraitMode = portraitMetadata,
                 heroMetadataLarge = heroMetadataLarge,
                 showTitleLogo = false,
@@ -472,7 +487,7 @@ internal fun ModernXlRowSection(
             // matchParentSize excludes the badge from row height measurement.
             Box(Modifier.matchParentSize(), contentAlignment = Alignment.TopEnd) {
                 ModernXlComingSoonBadge(
-                    text = selectedItem.heroPreview.comingSoonText?.takeIf { it.isNotBlank() },
+                    text = presentedItem.heroPreview.comingSoonText?.takeIf { it.isNotBlank() },
                     visible = rowHasFocus,
                     modifier = Modifier.offset(y = (primaryMetadataHeight - COMING_SOON_PILL_HEIGHT) / 2f)
                         .testTag("xl-release-badge-${row.key}")

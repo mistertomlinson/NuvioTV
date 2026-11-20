@@ -110,7 +110,8 @@ internal fun ModernHeroMediaLayer(
     cinematicMode: Boolean = false,
     backdropCrossfadeDuration: Int = 400,
     cinematicScale: Float = 1.1f,
-    onBackdropFrameReady: (String?) -> Unit = {}
+    blurredBackdrop: Boolean = false,
+    onBackdropFrameReady: (String?, Boolean) -> Unit = { _, _ -> }
 ) {
     val localContext = LocalContext.current
 
@@ -128,24 +129,27 @@ internal fun ModernHeroMediaLayer(
     data class BackdropFrame(
         val url: String?,
         val scale: Float,
-        val isPosterFallback: Boolean
+        val isPosterFallback: Boolean,
+        val blurred: Boolean
     )
 
     val targetBackdropFrame =
         remember(
             heroBackdrop,
             cinematicScale,
-            heroBackdropIsPosterFallback
+            heroBackdropIsPosterFallback,
+            blurredBackdrop
         ) {
             BackdropFrame(
                 url = heroBackdrop,
                 scale = cinematicScale,
-                isPosterFallback = heroBackdropIsPosterFallback
+                isPosterFallback = heroBackdropIsPosterFallback,
+                blurred = blurredBackdrop
             )
         }
 
-    LaunchedEffect(targetBackdropFrame.url) {
-        if (targetBackdropFrame.url.isNullOrBlank()) onBackdropFrameReady(targetBackdropFrame.url)
+    LaunchedEffect(targetBackdropFrame) {
+        if (targetBackdropFrame.url.isNullOrBlank()) onBackdropFrameReady(targetBackdropFrame.url, targetBackdropFrame.blurred)
     }
 
     Box(modifier = modifier.clipToBounds()) {
@@ -157,8 +161,9 @@ internal fun ModernHeroMediaLayer(
             animationSpec = tween(durationMillis = backdropCrossfadeDuration),
             label = "modernHeroBackground"
         ) { frame ->
-            val imageModel = remember(localContext, frame.url, requestWidthPx, requestHeightPx) {
-                ImageRequest.Builder(localContext)
+            val imageModel = remember(localContext, frame.url, frame.blurred, requestWidthPx, requestHeightPx) {
+                if (frame.blurred) xlBlurredBackdropRequest(localContext, frame.url)
+                else ImageRequest.Builder(localContext)
                     .data(frame.url)
                     .crossfade(false)
                     .size(width = requestWidthPx, height = requestHeightPx)
@@ -168,8 +173,8 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
-                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
-                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
+                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     modifier = Modifier
                         .fillMaxSize()
                         .graphicsLayer { translationX = parallaxOffsetX; scaleX = frame.scale; scaleY = frame.scale },
@@ -185,8 +190,8 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
-                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
-                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url) },
+                    onSuccess = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onError = { if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop,
                     alignment =

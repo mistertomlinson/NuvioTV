@@ -223,15 +223,50 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun theXlExitBackdropRevealsGraduallyOverTheLongerInterval() {
+    @Test fun theXlExitBackdropRevealsDuringMotionAndFinishesWithinFourHundredMilliseconds() {
         content(start = 2)
         press(KeyEvent.KEYCODE_DPAD_UP)
-        advance(320)
+        advance(208)
         assertTrue("The background should still be halfway through its reveal", backdrop.dim.value in 0.4f..0.7f)
-        advance(240)
-        assertTrue(backdrop.dim.value in 0.05f..0.35f)
+        advance(160)
+        assertTrue(backdrop.dim.value in 0.01f..0.25f)
+        advance(112)
+        assertEquals("A ready backdrop must not retain v6's slow 650ms reveal", 0f, backdrop.dim.value, 0.001f)
         settle()
         assertEquals(0f, backdrop.dim.value, 0.001f)
+    }
+
+    @Test fun xlUsesTheBlurVariantAndExitingRestoresTheSharpVariantBeforeReveal() {
+        content(start = 2)
+        assertTrue(backdrop.blurred)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(96)
+        assertEquals("Backdrop A", backdrop.preview?.backdrop)
+        assertFalse("Ordinary backdrop must be sharp while it is fading in", backdrop.blurred)
+        settle()
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        settle()
+        assertTrue(backdrop.blurred)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+    }
+
+    @Test fun horizontalXlBackgroundChangesOnTheLandscapeCommitWithoutAnIdleDebounce() {
+        content(start = 2)
+        val initial = checkNotNull(scene.selection)
+        val next = initial.copy(itemKey = "next", preview = initial.preview.copy(backdrop = "Next background"))
+        compose.runOnIdle {
+            scene.artwork.renderers["XL"] = true
+            scene.artwork.frame = XlArtworkFrame("XL", initial.itemKey, initial.preview.backdrop)
+            scene.focus(next, list.layoutInfo)
+        }
+        advance(112)
+        assertEquals("Keep the old blur until its landscape partner is prepared", initial.preview, backdrop.preview)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        compose.runOnIdle { scene.artwork.frame = XlArtworkFrame("XL", next.itemKey, next.preview.backdrop) }
+        advance(32)
+        assertEquals("Commit on the next frame, without the ordinary-row debounce", next.preview, backdrop.preview)
+        assertEquals("A horizontal handoff must not insert a black beat", XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        assertTrue(backdrop.blurred)
     }
 
     @Test fun incomingMetadataIsOpaqueWhileItsBackdropIsStillBlack() {

@@ -2907,7 +2907,8 @@ fun ModernHomeContent(
         val heroBackdrop = heroBackdropSelection.first
         val heroBackdropIsPosterFallback = heroBackdropSelection.second
         val xlBackdropFrameToken = xlBackdrop.token
-        androidx.compose.runtime.SideEffect { xlBackdrop.expectFrame(xlBackdropFrameToken, heroBackdrop) }
+        val xlBackdropBlurred = xlBackdrop.blurred
+        androidx.compose.runtime.SideEffect { xlBackdrop.expectFrame(xlBackdropFrameToken, heroBackdrop, xlBackdropBlurred) }
 
 
         // Record the last non-blank resolved backdrop (only from a REAL focused
@@ -3056,7 +3057,7 @@ fun ModernHomeContent(
         val rowTitleBottom = 14.dp
         val rowsViewportHeightFraction = if (useLandscapePosters) 0.49f else 0.52f
         val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
-        val rowsCanvasHeight = if (hasXlRows) maxHeight else rowsViewportHeight
+        val rowsCanvasHeight = if (hasXlRows) maxHeight else rowsViewportHeight + HOME_POSTER_FADE_HEIGHT
         val ordinaryRowsTop = maxHeight - rowsViewportHeight
 
         // The configurable centered hero belongs only to the aggregate +
@@ -3104,7 +3105,7 @@ fun ModernHomeContent(
             } else ordinaryRowsTop - heroToCatalogGap + 6.dp - measuredHeroHeight
         }
         val firstRow = carouselRows.firstOrNull()
-        val rowListTopPadding = if (!hasXlRows) 0.dp else if (firstRow?.isXl == true) {
+        val rowListTopPadding = if (!hasXlRows) HOME_POSTER_FADE_HEIGHT else if (firstRow?.isXl == true) {
             xlBalancedTop(maxHeight.value, (xlScene.summaryRowHeights[firstRow.key] ?: estimatedXlHeight).value,
                 effectiveFullWidthIconRowEnabled).dp
         } else ordinaryRowsTop
@@ -3301,7 +3302,7 @@ fun ModernHomeContent(
                 if (verticalScrolling && !row.isXl) return@collectLatest
 
                 val urls = buildList {
-                    row.items.getOrNull(index + 1)?.heroPreview?.let {
+                    row.items.getOrNull(index + 1)?.takeUnless { row.isXl }?.heroPreview?.let {
                         firstNonBlank(it.backdrop, it.imageUrl)
                     }?.takeIf { it.isNotBlank() }?.let(::add)
 
@@ -3471,9 +3472,11 @@ fun ModernHomeContent(
             ModernHeroMediaLayer(
                 heroBackdrop = heroBackdrop,
                 heroBackdropIsPosterFallback = heroBackdropIsPosterFallback,
-                onBackdropFrameReady = { url -> xlBackdrop.frameReady(xlBackdropFrameToken, url) },
+                blurredBackdrop = xlBackdropBlurred,
+                onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                 backdropCrossfadeDuration =
-                    if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
+                    if (xlBackdropBlurred && !isPlatformTransitioning && xlScene.transition == null) 220
+                    else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
                 heroBackdropAlpha = heroBackdropAlpha,
                 parallaxOffsetX = backdropParallaxOffset.value,
                 cinematicMode = cinematicHeroMode,
@@ -3576,9 +3579,11 @@ fun ModernHomeContent(
                     heroBackdrop = heroBackdrop,
                     heroBackdropIsPosterFallback =
                         heroBackdropIsPosterFallback,
-                    onBackdropFrameReady = { url -> xlBackdrop.frameReady(xlBackdropFrameToken, url) },
+                    blurredBackdrop = xlBackdropBlurred,
+                    onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                     backdropCrossfadeDuration =
-                        if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
+                        if (xlBackdropBlurred && !isPlatformTransitioning && xlScene.transition == null) 220
+                        else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
 
                     // The parent owns the backdrop + gradient fade.
                     heroBackdropAlpha = 1f,
@@ -4086,7 +4091,9 @@ fun ModernHomeContent(
                 ?: with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
             else with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() })
         val verticalRowBringIntoViewSpec = remember(localDensity, defaultBringIntoViewSpec, hasXlRows, ordinaryRowsTop) {
-            val topInsetPx = with(localDensity) { MODERN_ROW_HEADER_FOCUS_INSET.toPx() }
+            val topInsetPx = with(localDensity) {
+                (MODERN_ROW_HEADER_FOCUS_INSET + if (hasXlRows) 0.dp else HOME_POSTER_FADE_HEIGHT).toPx()
+            }
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
             object : BringIntoViewSpec {
                 /*
@@ -4274,19 +4281,15 @@ fun ModernHomeContent(
                 } else {
                     // EXIT — ghost slides and fades to black. All heavy work is
                     // done, so the black that follows is only the swap (~1 frame).
-                    val xlPageSwitch = xlPlatformBackdrop.involvesXl(latestCarouselRows.firstOrNull()?.isXl == true)
-                    val exitDuration = if (xlPageSwitch) 280 else 150
-                    val exitEasing = if (xlPageSwitch) androidx.compose.animation.core.LinearEasing
-                        else androidx.compose.animation.core.FastOutLinearInEasing
                     coroutineScope {
-                        launch { ghostAlpha.animateTo(0f, tween(exitDuration, easing = exitEasing)) }
-                        launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(exitDuration, easing = exitEasing)) }
-                        launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(exitDuration, easing = exitEasing)) }
+                        launch { ghostAlpha.animateTo(0f, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                        launch { ghostOffset.animateTo(exitDir * catalogSlideTravelPx, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+                        launch { ghostParallax.animateTo(exitDir * safeParallaxMax, tween(150, easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
                     }
                     ghostVisible = false
                     // ENTER — new content slides in decelerating to a stop.
                     coroutineScope {
-                        launch { catalogSlideAlpha.animateTo(1f, tween(if (xlPageSwitch) 350 else 250, easing = androidx.compose.animation.core.LinearEasing)) }
+                        launch { catalogSlideAlpha.animateTo(1f, tween(250, easing = androidx.compose.animation.core.LinearEasing)) }
                         launch { catalogSlideOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
                         launch { backdropParallaxOffset.animateTo(0f, tween(330, easing = androidx.compose.animation.core.LinearOutSlowInEasing)) }
                     }
@@ -6179,6 +6182,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
             ModernRowSection(
                 row = row,
+                xlArtworkPresentation = xlScene.artwork,
                 onHeaderMeasured = remember(xlScene, row.key) { { height -> xlScene.headerHeights[row.key] = height } },
                 onXlRowMeasured = remember(xlScene, row.key) { { height, withSummary ->
                     xlScene.rowHeights[row.key] = height
