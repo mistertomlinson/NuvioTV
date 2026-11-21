@@ -3,6 +3,8 @@ package com.nuvio.tv.ui.screens.home
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateTo
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.BringIntoViewSpec
@@ -14,12 +16,18 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
+internal const val XL_VERTICAL_EXIT_MS = 360
+internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
-    val fromGap: Dp, val toGap: Dp, val scrollPx: Float)
+    val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
+    val secondaryGap: XlGapMotion? = null)
+internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
 
@@ -33,7 +41,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
     val relocation = scene.interruptedRelocation
     val selected = scene.selection
     LaunchedEffect(scene, list, relocation, selected?.rowKey) {
-        if (relocation == null || selected?.rowKey != relocation.rowKey) return@LaunchedEffect
+        if (relocation == null || selected?.rowKey != relocation.rowKey || scene.verticalMotion != null) return@LaunchedEffect
         // A focus request issued while the old scroll is being cancelled can
         // finish without moving. Retry from the actual layout after release.
         try {
@@ -43,7 +51,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
             val header = scene.headerHeights[selected.rowKey] ?: 40f * scene.density
             val gap = (scene.headroomValues[selected.rowKey]?.value ?: 0f) * scene.density
             val anchor = if (selected.isXl) scene.xlTop(selected.rowKey).value * scene.density + header
-                else (scene.ordinaryTop.value + 40f) * scene.density
+                else scene.ordinaryTop.value * scene.density + scene.ordinaryPosterInset(selected.rowKey, selected.rowIndex)
             val owner = info.visibleItemsInfo.firstOrNull { it.key == selected.rowKey }
             if (owner != null) {
                 val position = owner.offset + info.beforeContentPadding + gap + header
@@ -59,27 +67,33 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
     }
     DisposableEffect(scene, list, scope) {
         scene.verticalLauncher = { active ->
-            scene.verticalJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            // Let the focus callback finish before acquiring the one scroll owner.
+            scene.verticalJob = scope.launch {
                 var completed = false
                 try {
-                    list.scroll(MutatePriority.Default) {
+                    list.scroll(MutatePriority.PreventUserInput) {
                         var previous = 0f
                         val fromPx = (active.fromGap.value * scene.density).roundToInt()
                         val toPx = (active.toGap.value * scene.density).roundToInt()
                         val visiblePx = active.scrollPx - (toPx - fromPx)
-                        AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
+                        AnimationState(0f).animateTo(active.scrollPx,
+                            animationSpec = tween(XL_VERTICAL_EXIT_MS, easing = FastOutSlowInEasing)) {
                             if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
-                            val travel = value.coerceIn(0f, active.scrollPx).roundToInt()
-                            val gapPx = fromPx + (travel - visiblePx).roundToInt().coerceIn(0, toPx - fromPx)
+                            val travel = value.coerceIn(minOf(0f, active.scrollPx), maxOf(0f, active.scrollPx)).roundToInt()
+                            val fraction = if (active.scrollPx == 0f) 1f else (travel / active.scrollPx).coerceIn(0f, 1f)
+                            val gapPx = if (active.compact) fromPx +
+                                (travel - visiblePx).roundToInt().coerceIn(0, (toPx - fromPx).coerceAtLeast(0))
+                                else (fromPx + (toPx - fromPx) * fraction).roundToInt()
                             scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
+                            active.secondaryGap?.let { gap ->
+                                scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                            }
                             scrollBy(travel - previous)
                             previous = travel.toFloat()
-                            if (travel >= visiblePx) scene.compactRowRested = true
-                            // Match relocation's half-pixel stop instead of
-                            // waiting through an invisible float-spring tail.
-                            if (value >= active.scrollPx - 0.5f) cancelAnimation()
+                            if (active.compact && travel >= visiblePx) scene.compactRowRested = true
                         }
                         scene.headroomValues[active.rowKey] = active.toGap
+                        active.secondaryGap?.let { scene.headroomValues[it.rowKey] = it.to }
                         scrollBy(active.scrollPx - previous)
                         scene.compactRowRested = true
                     }
@@ -88,15 +102,66 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                     if (scene.verticalMotion === active) {
                         if (completed) scene.headroomValues[active.rowKey] = active.toGap
                         scene.headroomMoving[active.rowKey] = false
+                        active.secondaryGap?.let { scene.headroomMoving[it.rowKey] = false }
                         scene.verticalMotion = null
                         scene.verticalJob = null
                     }
                 }
             }
         }
+        scene.launchConfirmedMotion()
         onDispose {
             scene.cancelVerticalMotion()
             scene.verticalLauncher = null
+        }
+    }
+}
+
+/** The preview clock outlives a recycled LazyColumn row. */
+@Composable
+internal fun AnimateXlPreviewReturn(scene: XlSceneState, list: LazyListState) {
+    val preview = scene.previewReturn
+    LaunchedEffect(scene, list, preview?.id) {
+        if (preview == null) return@LaunchedEffect
+        fun baseTop(): Float? {
+            val info = list.layoutInfo
+            info.visibleItemsInfo.firstOrNull { it.key == preview.rowKey }?.let {
+                return (it.offset + info.beforeContentPadding).toFloat()
+            }
+            return info.visibleItemsInfo.firstOrNull { it.key == preview.xlKey }?.let {
+                (it.offset + info.beforeContentPadding + it.size + (24f * scene.density)).toFloat()
+            }
+        }
+        scene.headroomMoving[preview.rowKey] = true
+        try {
+            coroutineScope {
+                val initial = scene.headroomValues[preview.rowKey]?.value ?: 0f
+                val early = launch {
+                    if (scene.transition?.earlyPreviewReturn != true) return@launch
+                    androidx.compose.animation.core.animate(initial, 0f, animationSpec = tween(360)) { value, _ ->
+                        if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
+                        scene.headroomValues[preview.rowKey] = value.dp
+                    }
+                }
+                androidx.compose.runtime.snapshotFlow { scene.outgoingMetadataOffscreen(list.layoutInfo) }.first { it }
+                early.cancelAndJoin()
+                scene.releasePreviewGap(preview.id)
+            }
+            val finalTop = (scene.xlTop(preview.xlKey).value +
+                (scene.rowHeights[preview.xlKey] ?: scene.estimatedXlHeight).value + 24f) * scene.density
+            val currentTop = baseTop()?.plus((scene.headroomValues[preview.rowKey]?.value ?: 0f) * scene.density)
+                ?: (scene.screenHeight.value + 8f) * scene.density
+            val start = currentTop.coerceAtMost((scene.screenHeight.value + 8f) * scene.density)
+            androidx.compose.animation.core.animate(start, finalTop, animationSpec = tween(360)) { top, _ ->
+                if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
+                baseTop()?.let { base -> scene.headroomValues[preview.rowKey] = ((top - base) / scene.density).coerceAtLeast(0f).dp }
+            }
+            scene.headroomValues[preview.rowKey] = 0.dp
+        } finally {
+            if (scene.previewReturn?.id == preview.id) {
+                scene.headroomMoving[preview.rowKey] = false
+                scene.previewReturn = null
+            }
         }
     }
 }
@@ -119,7 +184,7 @@ internal fun rememberHomeVerticalScrollSpec(scene: XlSceneState, hasXlRows: Bool
                     if (!hasXlRows) 40.dp.toPx()
                     else if (selected?.isXl == true) scene.xlTop(selected.rowKey).toPx() +
                         (scene.headerHeights[selected.rowKey] ?: 40.dp.toPx())
-                    else ordinaryTop.toPx() + 40.dp.toPx()
+                    else ordinaryTop.toPx() + (selected?.let { scene.ordinaryPosterInset(it.rowKey, it.rowIndex, density.density) } ?: 40.dp.toPx())
                 }
                 return offset - anchor
             }

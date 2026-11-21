@@ -112,10 +112,10 @@ class ModernXlSceneTransitionTest {
                             ) {
                                 itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
                                     Column(Modifier.testTag("row-${row.key}")) {
-                                        XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl, list)
+                                        XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl)
                                         Column(Modifier.onSizeChanged {
+                                            scene.rowHeights[row.key] = it.height.dp
                                             if (row.isXl) {
-                                                scene.rowHeights[row.key] = it.height.dp
                                                 // The compact mode uses the same visual anchor as summary mode.
                                                 scene.summaryRowHeights[row.key] = it.height.dp + if (summary) 0.dp else 80.dp
                                             }
@@ -231,7 +231,8 @@ class ModernXlSceneTransitionTest {
             advance(16)
         }
         println("VERTICAL_MOTION name=$name firstRestMs=$firstRest reversals=$reversed samples=${samples.joinToString(",")}")
-        assertTrue("Motion must settle", firstRest in 0..336)
+        assertTrue("Motion must settle", firstRest in 0..(if (start == 2) 432 else 336))
+        if (start == 2) assertTrue("XL exits retain their deliberately gentler duration", firstRest >= 336)
         assertEquals("The incoming row must never reverse direction", 0, reversed)
     }
 
@@ -267,8 +268,8 @@ class ModernXlSceneTransitionTest {
         }
         assertTrue("Observe the initial shared travel", sharedFrames > 0)
         assertTrue("XL must continue after the incoming row lands", parkedWhileXlMoves)
-        assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
         settle()
+        assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
     }
 
     @Test fun upwardXlEntryStartsReturningThePreviewWhileTheOutgoingMetadataIsStillSliding() {
@@ -310,7 +311,19 @@ class ModernXlSceneTransitionTest {
     }
 
     @Test fun compactMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(false)
-    @Test fun summaryMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(true)
+    @Test fun summaryMetadataIsPreparedOpaqueAndSlidesInWithItsRow() {
+        content(start = 2, summary = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var enteredBeforeLanding = false
+        repeat(30) {
+            advance(16)
+            assertEquals(1f, scene.exitMetadataAlpha, 0f)
+            val bounds = compose.onNodeWithTag("ordinary-metadata-C", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            if (bounds.bottom > 0 && bounds.top < 540 && list.isScrollInProgress) enteredBeforeLanding = true
+        }
+        assertTrue("Prepared summary-exit metadata enters during the row slide", enteredBeforeLanding)
+        settle()
+    }
 
     @Test fun aRapidSecondDownKeepsXlClearanceAndTheOrdinaryMetadataDebounce() {
         content(start = 2, summary = false, freezeHero = true)
@@ -404,7 +417,7 @@ class ModernXlSceneTransitionTest {
         content(start = 2)
         frameReady.value = false
         press(KeyEvent.KEYCODE_DPAD_UP)
-        advance(144)
+        advance(272)
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
         val bounds = compose.onNodeWithText("Synopsis A", substring = true).fetchSemanticsNode().boundsInRoot
         assertTrue(bounds.bottom > 0f && bounds.top < 540f)
@@ -674,6 +687,20 @@ class ModernXlSceneTransitionTest {
         val meta = y("ordinary-metadata-C")
         advance(80)
         assertEquals(y("heading-C") - header, y("ordinary-metadata-C") - meta, 2f)
+        advance(144)
+        assertTrue("The field arrives before the row stops", list.isScrollInProgress)
+        val bounds = compose.onNodeWithTag("ordinary-metadata-C", true).fetchSemanticsNode().boundsInRoot
+        var brightest = 0
+        compose.runOnUiThread {
+            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+            val image = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            view.draw(android.graphics.Canvas(image))
+            for (y in bounds.top.toInt().coerceAtLeast(0) until bounds.bottom.toInt().coerceAtMost(image.height))
+                for (x in bounds.left.toInt().coerceAtLeast(0) until bounds.right.toInt().coerceAtMost(image.width))
+                    brightest = maxOf(brightest, android.graphics.Color.red(image.getPixel(x, y)))
+            image.recycle()
+        }
+        assertTrue("Already prepared metadata enters fully bright", brightest >= 245)
         settle()
         assertEquals(260f, y("heading-C"), 2f)
         assertEquals(1, metadataCount())
@@ -832,4 +859,26 @@ class ModernXlSceneTransitionTest {
                 ModernPayload.Catalog(name, name, "movie", "", name, null, "movie"))), isXl = xl, showXlSummary = summary)
         }
     }
+
+    private fun verifyNoExitStall(summary: Boolean) {
+        content(start = 2, summary = summary)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var previous = checkNotNull(scene.outgoingXlBottom(list.layoutInfo))
+        var started = false
+        var checked = 0
+        repeat(30) {
+            advance(16)
+            val edge = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
+            if (previous - edge > 1f) started = true
+            if (started && edge > 40f) {
+                assertTrue("After motion begins it cannot pause for focus: edge=$edge previous=$previous", edge < previous)
+                checked++
+            }
+            previous = edge
+        }
+        assertTrue("Exercise multiple moving frames before XL clears", checked > 4)
+        settle()
+    }
+    @Test fun compactExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(false)
+    @Test fun summaryExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(true)
 }

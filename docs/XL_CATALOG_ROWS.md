@@ -1,11 +1,12 @@
 # XL catalog rows
 
-Modern Home XL entry comparison on `perf/xl-backdrop-entry-cache-20261121`,
-based on `1d16b6a1`. Restoring the ordinary gradient's v6 rendering layer has
-been confirmed smooth on the user's TV for normal rows. This revision retains
-that fix and the hard poster viewport, then caches complete XL backdrop frames
-and prepares the actual sharp/blurred destination variant before entry.
-Further XL performance improvement still requires TV testing.
+Modern Home XL motion polish on `fix/xl-row-motion-polish-20261121`, based on
+the `f747f551` Entry Cache build confirmed good on the user's TV. It retains
+the ordinary gradient's restored v6 rendering layer, hard poster viewport,
+cached complete XL backdrop frames and matching sharp/blurred preloads.
+This revision changes XL boundary motion, prepared metadata geometry, shortcut
+landing and outlined-number interiors. Physical TV frame pacing still requires
+testing of this revision.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -34,9 +35,9 @@ that same shape, so both versions have identical size, position and outer bounds
 independent of font line height and baseline clipping. This
 changes only the setting icon; the actual numbered posters retain Jost and the
 existing solid/outline rendering. Both XL number options now omit the added dark
-contrast contour. Solid numbers retain their original gray/theme fill; outlined
-numbers retain their original light stroke and opaque black interior. Number
-geometry, edge fades and regular-row numbering are unchanged.
+contrast contour. Solid numbers retain their original gray/theme fill. Outlined
+numbers now draw only their light stroke, with transparent interiors on both
+regular and XL rows. Font, stroke, geometry and horizontal number fades remain.
 
 ## Focus and numbering
 
@@ -131,13 +132,22 @@ metadata exclusion and full-screen canvas. The horizontal XL number fades,
 backdrop blur/gradient and all later XL behavior remain unchanged from v13.
 Hard poster clipping at the upper boundary is expected in this comparison.
 
-The default vertical BringIntoView animation and held-scroll velocity (1200 dp/s)
-are unchanged. Ordinary metadata uses a simple Box instead of the unconditional
+The default ordinary-row BringIntoView animation and held-scroll velocity
+(1200 dp/s) are unchanged. XL-to-ordinary boundary motion uses one 360 ms
+FastOutSlowIn tween, including the list and any changing prefix/gap. It starts
+only after actual focus confirmation. The controller owns list scrolling until
+completion or the next focus change, suppressing competing framework relocation
+for that boundary; logical selection cannot start motion a frame before focus.
+Ordinary metadata uses a simple Box instead of the unconditional
 SubcomposeLayout introduced in v6. XL still premeasures adjacent metadata;
 movable content carries the same loaded logo/state into the ordinary layout.
 Following-row preview-gap closure retains its existing 360 ms tween. Compact
 exit gap/list movement shares one clock, without a separate gap tween chasing
-focus relocation.
+focus relocation. Prepared metadata is measured even while hidden. Its measured
+height determines the resting hero position before promotion, and the moving
+layer records its actually applied translation. The first ordinary row uses a
+reachable measured-header anchor when its heading is shorter than 40 dp,
+preventing a final correction at the beginning of the list.
 
 The space before a following ordinary row is calculated from the XL row's
 measured bottom, the viewport, and the ordinary hero's resting position, keeping
@@ -145,16 +155,18 @@ the next hero just below the screen instead of leaving a second oversized gap.
 The minimum exit clearance includes the measured heading correction as well as
 the preview-gap calculation; a short heading cannot strand the XL tail a few
 pixels on screen and prevent the metadata fade from starting.
-On a downward summary-XL exit, the next row and its prepared metadata move
-up together while the outgoing XL artwork clears the screen. A summary XL starts
-with its following hero 8 dp below the viewport.
+On a downward summary-XL exit, the next row and its already loaded metadata move
+up together at full opacity while the outgoing XL artwork clears the screen.
+There is no metadata fade for this style. A summary XL starts with its following
+hero 8 dp below the viewport.
 
 Compact XL starts with its normal next-row peek. On Down, the incoming row and
 XL initially move at the same speed. Once the incoming row reaches its ordinary
 poster anchor it stays there; list travel continues while the intervening gap
-grows by the same displacement, letting XL finish leaving the screen. On both downward XL exit styles, the incoming metadata stays invisible until
-the entire outgoing XL row is above the screen, then starts a 220 ms fade. Compact
-metadata also waits for the incoming row to land and stays at its resting position. The departing XL's lower edge masks any overlap, preserving
+grows by the same displacement, letting XL finish leaving the screen. On this
+compact downward exit, the incoming metadata stays invisible until the entire
+outgoing XL row is above the screen and the incoming row has landed, then starts
+a 220 ms fade at its resting position. The departing XL's lower edge masks any overlap, preserving
 its complete image. Gap and travel are quantized together to physical pixels,
 avoiding direction reversals or a late spring correction. Changing focus cancels
 the shared motion and retains the actual current gap for a continuous reversal.
@@ -167,7 +179,9 @@ upward return to bring the scene down together. On Up into XL, its following gap
 before XL settles and while outgoing metadata is still leaving. That metadata
 keeps moving with XL and does not follow the contracting preview gap. The
 preview can approach its resting position without pulling old text upward.
-Once that metadata clears, compact Up entry preserves a complete 360 ms return
+The scene owns this preview clock and retains its current gap when a row is
+recycled, so virtualization cannot restart it at its final position. Once that
+metadata clears, compact Up entry preserves a complete 360 ms return
 from just below the screen to the row's final preview position. The gap
 compensates for the list's remaining travel, so most of the tween is no longer
 consumed below the screen. Numbered and unnumbered rows share this geometry.
@@ -178,6 +192,19 @@ backdrop before returning the preview.
 Cleared outgoing metadata stays unmounted while the preview returns. If a short
 block leaves upward before its reserved hero space clears, that remaining space
 still excludes older posters until it too is offscreen.
+
+Continue Watching keeps the standard 24 dp spacing before XL while CW is
+selected. Its actual landscape, wide or portrait card height determines the
+boundary geometry. Entering XL expands the required prefix with list travel;
+returning up to CW removes that prefix on the same clock. This avoids an
+extra portrait-sized gap and a late metadata position correction.
+
+Double-Up captures the actually painted ordinary metadata and its mask, then
+moves both with the outgoing rows during the existing fast return. Intermediate
+focus callbacks cannot promote a stationary hero over the first XL poster.
+Landing commits the first scene and clears any stale compact-preview expansion
+before ordinary selection updates resume. The shortcut's 2000 dp/s speed is
+unchanged.
 
 ## Backdrop handoff
 

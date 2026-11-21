@@ -37,12 +37,12 @@ class XlNumberContrastTest {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(style: NumberStyle, xl: Boolean) {
+    private fun content(style: NumberStyle, xl: Boolean, backdrop: Color = Color.White) {
         compose.runOnUiThread {
             activity = Robolectric.buildActivity(ComponentActivity::class.java).setup()
             activity.get().setContent {
                 MaterialTheme {
-                    Box(Modifier.width(960.dp).height(540.dp).background(Color.White)) {
+                    Box(Modifier.width(960.dp).height(540.dp).background(backdrop)) {
                         Box(Modifier.padding(start = 80.dp, top = 40.dp)) {
                             NumberedCatalogCardWrapper(8, 163.dp, 244.dp,
                                 preMeasuredTextWidth = 48.dp, numberStyle = style,
@@ -79,13 +79,13 @@ class XlNumberContrastTest {
         }
         assertTrue("Original gray glyph remains: $gray", gray > 20)
         if (style == NumberStyle.SOLID) assertEquals("No added solid rank contour", 0, dark)
-        else assertTrue("Original outlined style keeps black fill", dark > 20)
+        else assertEquals("Outlined ranks have no interior fill", 0, dark)
         image.recycle()
     }
     @Test fun xlSolidHasNoAddedDarkContour() = verify(NumberStyle.SOLID, true)
-    @Test fun xlOutlineRetainsItsOriginalStyle() = verify(NumberStyle.OUTLINE, true)
+    @Test fun xlOutlineHasTransparentInterior() = verify(NumberStyle.OUTLINE, true)
     @Test fun regularSolidHasNoAddedContour() = verify(NumberStyle.SOLID, false)
-    @Test fun regularOutlineRetainsItsOriginalStyle() = verify(NumberStyle.OUTLINE, false)
+    @Test fun regularOutlineHasTransparentInterior() = verify(NumberStyle.OUTLINE, false)
 
     private fun verifyFade(style: NumberStyle) {
         content(style, true)
@@ -110,4 +110,23 @@ class XlNumberContrastTest {
     }
     @Test fun solidRanksFadeAsOneGlyph() = verifyFade(NumberStyle.SOLID)
     @Test fun outlinedRanksFadeAsOneGlyph() = verifyFade(NumberStyle.OUTLINE)
+
+    private fun verifyHollowOnColor(xl: Boolean) {
+        content(NumberStyle.OUTLINE, xl, Color.Magenta)
+        val image = pixels()
+        var strokePixels = 0
+        for (y in 40..340) for (x in 0..200) {
+            val pixel = image.getPixel(x, y)
+            val r = android.graphics.Color.red(pixel)
+            val g = android.graphics.Color.green(pixel)
+            val b = android.graphics.Color.blue(pixel)
+            assertEquals("The backdrop must show through every interior pixel", r, b)
+            assertTrue("Only a gray stroke may blend with magenta; no black/white fill", g <= 138 && r >= 134)
+            if (r < 245) strokePixels++
+        }
+        assertTrue("The real outline remains visible", strokePixels > 20)
+        image.recycle()
+    }
+    @Test fun xlOutlineShowsTheColoredBackdropThroughItsInterior() = verifyHollowOnColor(true)
+    @Test fun regularOutlineShowsTheColoredBackdropThroughItsInterior() = verifyHollowOnColor(false)
 }

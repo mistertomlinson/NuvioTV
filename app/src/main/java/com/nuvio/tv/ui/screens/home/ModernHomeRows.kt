@@ -709,7 +709,8 @@ internal fun ModernRowSection(
     catalogSlideAnimatable: Animatable<Float, AnimationVector1D>? = null,
     xlArtworkPresentation: XlArtworkPresentation? = null,
     onHeaderMeasured: (Float) -> Unit = {},
-    onXlRowMeasured: (Dp, Dp) -> Unit = { _, _ -> }
+    onXlRowMeasured: (Dp, Dp) -> Unit = { _, _ -> },
+    onOrdinaryRowMeasured: ((Dp) -> Unit)? = null
 ) {
     if (row.isXl && row.items.isNotEmpty()) {
         ModernXlRowSection(
@@ -886,11 +887,14 @@ internal fun ModernRowSection(
                     }
             }
 
+    val measuredRowDensity = LocalDensity.current
     Column(
         modifier = Modifier.focusRestorer {
             stableRowRestoreRequester
                 ?: FocusRequester.Default
-        }
+        }.then(if (onOrdinaryRowMeasured != null) Modifier.onSizeChanged {
+            onOrdinaryRowMeasured(with(measuredRowDensity) { it.height.toDp() })
+        } else Modifier)
     ) {
         val titleMediumStyle = MaterialTheme.typography.titleMedium
         val rowTitleStyle = remember(titleMediumStyle) {
@@ -4167,9 +4171,6 @@ internal fun NumberedCatalogCardWrapper(
                         strokeJoin = android.graphics.Paint.Join.ROUND
                         strokeCap = android.graphics.Paint.Cap.ROUND
                     } else null
-                    val fillPaint = if (numberStyle == NumberStyle.OUTLINE) android.graphics.Paint(paint).apply {
-                        color = android.graphics.Color.BLACK
-                    } else paint
                     val textW = paint.measureText(numberText)
                     val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
                     val x = size.width - textW + oneAdjust
@@ -4190,7 +4191,7 @@ internal fun NumberedCatalogCardWrapper(
                             -inkPad, -inkPad, size.width + inkPad, size.height + inkPad,
                             (opacity.coerceIn(0f, 1f) * 255).toInt()) else null
                         strokePaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
-                        nativeCanvas.drawText(numberText, x, baseline, fillPaint)
+                        if (strokePaint == null) nativeCanvas.drawText(numberText, x, baseline, paint)
                         if (softenEdge) {
                             edgeMatrix.setScale(12.dp.toPx(), 1f)
                             edgeMatrix.postTranslate(checkNotNull(edge).dp.toPx(), 0f)

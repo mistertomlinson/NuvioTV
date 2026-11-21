@@ -238,4 +238,85 @@ class XlSceneStateTest {
         assertEquals(180f, checkNotNull(scene.transition).outgoingMetadataClipTop, 0f)
     }
 
+
+    private fun positionedLayout(vararg positions: Pair<String, Int>): LazyListLayoutInfo = mockk {
+        every { beforeContentPadding } returns 0
+        every { visibleItemsInfo } returns positions.mapIndexed { i, (rowKey, top) ->
+            mockk<androidx.compose.foundation.lazy.LazyListItemInfo> {
+                every { key } returns rowKey
+                every { index } returns i
+                every { offset } returns top
+                every { size } returns 280
+            }
+        }
+    }
+
+    @Test fun `logical destination cannot start the scroll before real focus arrives`() {
+        val scene = XlSceneState(selection("XL", 1, true, false))
+        val launched = mutableListOf<XlVerticalMotion>()
+        scene.verticalLauncher = { launched += it }
+        val next = selection("C", 2)
+        val layout = positionedLayout("XL" to 54, "C" to 500)
+        scene.focus(next, layout, focusConfirmed = false)
+        assertNotNull(scene.verticalMotion)
+        assertTrue(launched.isEmpty())
+        scene.confirmFocus("another-row")
+        assertTrue(launched.isEmpty())
+        scene.confirmFocus("C")
+        assertEquals(1, launched.size)
+        scene.focus(next, layout, focusConfirmed = false)
+        scene.confirmFocus("C")
+        assertEquals("Focus callbacks cannot restart the same movement", 1, launched.size)
+    }
+
+    @Test fun `CW exit uses its measured short row and returns the XL prefix on the same clock`() {
+        val scene = XlSceneState(selection("XL", 1, true))
+        scene.rowHeights["continue_watching"] = 180.dp
+        scene.headroomValues["XL"] = 45.dp
+        scene.metadataLayoutHeightPx = 220f
+        scene.metadataHeights["continue_watching"] = 140f
+        val layout = positionedLayout("XL" to 20)
+        scene.focus(selection("continue_watching", 0), layout, focusConfirmed = false)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue("Use the offscreen CW row's real height", motion.scrollPx < 0f)
+        assertEquals(XlGapMotion("XL", 45.dp, 0.dp), motion.secondaryGap)
+        assertEquals(0.dp, motion.toGap)
+        assertEquals("Prepare the actual shorter metadata position before moving", 134.dp, scene.metadataRestingTop)
+    }
+
+    @Test fun `double Up carries old metadata off screen and does not mask the first XL card`() {
+        val old = selection("D", 6)
+        val first = selection("XL", 0, true)
+        val scene = XlSceneState(old)
+        scene.recordMetadata(XlMetadataSnapshot("D", old.preview))
+        scene.beginFastReturn(first, positionedLayout("D" to 260))
+        assertEquals(0f to 260f, xlSceneMetadataMask(scene, positionedLayout("D" to 260), true, 260f, 1f, 540f))
+        assertNull("The old metadata band has slid below the viewport",
+            xlSceneMetadataMask(scene, positionedLayout("D" to 860), true, 260f, 1f, 540f))
+        scene.finishFastReturn(first)
+        assertEquals(first, scene.selection)
+        assertNull(scene.transition)
+        assertNull(scene.fastReturn)
+        assertNull(xlSceneMetadataMask(scene, positionedLayout("XL" to 54), true, 260f, 1f, 540f))
+    }
+
+    @Test fun `a first ordinary row uses its reachable natural header instead of an impossible extra six pixels`() {
+        val scene = XlSceneState(selection("continue_watching", 0))
+        scene.headerHeights["continue_watching"] = 34f
+        val layout = positionedLayout("continue_watching" to 0)
+        every { layout.beforeContentPadding } returns 260
+        assertEquals(34f, scene.ordinaryPosterInset("continue_watching", 0), 0f)
+        assertEquals(0f, checkNotNull(scene.incomingTranslation(layout, 260f, 1f)), 0f)
+        assertEquals("Other ordinary rows keep their existing anchor", 40f, scene.ordinaryPosterInset("C", 2), 0f)
+    }
+
+    @Test fun `prepared metadata reserves the same gap before and after XL exit focus`() {
+        val scene = XlSceneState(selection("XL", 1, true))
+        scene.metadataRestingTop = 54.dp
+        scene.metadataLayoutHeightPx = 220f
+        scene.metadataHeights["C"] = 140f
+        val before = scene.followingHeadroom("XL", "C", 1f, true)
+        scene.focus(selection("C", 2), layout())
+        assertEquals(before, scene.followingHeadroom("XL", "C", 1f, true))
+    }
 }

@@ -69,9 +69,9 @@ class ModernHomeIntegrationTest {
         return file.toURI().toString()
     }
     private fun advance(ms: Int) = repeat((ms + 15) / 16) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle() }
-    private fun press(code: Int) {
+    private fun press(code: Int, gapMs: Long = 150) {
         compose.runOnUiThread {
-            ShadowSystemClock.advanceBy(Duration.ofMillis(150))
+            ShadowSystemClock.advanceBy(Duration.ofMillis(gapMs))
             val time = SystemClock.uptimeMillis()
             activity.get().dispatchKeyEvent(KeyEvent(time, time, KeyEvent.ACTION_DOWN, code, 0))
             activity.get().dispatchKeyEvent(KeyEvent(time, time, KeyEvent.ACTION_UP, code, 0))
@@ -135,7 +135,8 @@ class ModernHomeIntegrationTest {
         repeat(110) {
             advance(16)
             val bottom = scene.outgoingXlBottom(list.layoutInfo)
-            if (bottom != null && bottom > 0f) assertEquals("Metadata waits until all XL pixels clear", 0f, scene.exitMetadataAlpha, 0f)
+            if (!summary && bottom != null && bottom > 0f) assertEquals("Compact metadata waits until all XL pixels clear", 0f, scene.exitMetadataAlpha, 0f)
+            if (summary) assertEquals("Summary metadata stays opaque while sliding", 1f, scene.exitMetadataAlpha, 0f)
         }
         assertEquals("$nextIndex-0", focused.lastOrNull())
         val nodes = compose.onAllNodesWithTag("ordinary-metadata-${catalogRowKey(rows[nextIndex])}", useUnmergedTree = true).fetchSemanticsNodes()
@@ -198,4 +199,134 @@ class ModernHomeIntegrationTest {
     @Test fun numberedHalfWidthPageRetainsOriginalGeometry() = verifyExit(true, false, allRegular = true)
     @Test fun landscapePageRetainsOriginalGeometry() = verifyExit(false, true, allRegular = true, globalLandscape = true)
     @Test fun numberedLandscapePageRetainsOriginalGeometry() = verifyExit(true, true, allRegular = true, globalLandscape = true)
+
+    private fun mountScenario(state: HomeUiState) {
+        compose.runOnUiThread {
+            activity.get().setContent {
+                MaterialTheme {
+                    CompositionLocalProvider(LocalViewModelStoreOwner provides models,
+                        LocalHomeSceneInspection provides { observed, observedList -> scene = observed; list = observedList }) {
+                        Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                            ModernHomeContent(uiState = state, aggregatePlatformsEnabled = state.aggregateStreamingPlatformsEnabled,
+                                showAllCatalogsOnHome = state.showAllCatalogsOnHome, fullWidthIconRowEnabled = state.fullWidthIconRowEnabled,
+                                focusState = HomeScreenFocusState(), trailerPreviewUrls = emptyMap(), trailerPreviewAudioUrls = emptyMap(),
+                                onNavigateToDetail = { _, _, _ -> }, onContinueWatchingClick = {}, onRequestTrailerPreview = { _, _, _, _ -> },
+                                onLoadMoreCatalog = { _, _, _ -> }, onRemoveContinueWatching = { _, _, _, _ -> },
+                                onItemFocus = { focused += it.id }, onSaveFocusState = { _, _, _, _, _, _, _ -> })
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        compose.mainClock.autoAdvance = false
+        advance(960)
+    }
+
+    private fun scenarioRows(count: Int, redFirst: Boolean = false): List<CatalogRow> {
+        val black = artwork("motion-black", android.graphics.Color.BLACK)
+        val red = artwork("motion-red", android.graphics.Color.RED)
+        val white = artwork("motion-logo", android.graphics.Color.WHITE)
+        return (0 until count).map { index ->
+            val image = if (index == 0 && redFirst) red else black
+            CatalogRow("motion", "Motion", "https://fixture.invalid", "$index", "Row $index", ContentType.MOVIE,
+                items = listOf(MetaPreview("motion-$index", ContentType.MOVIE, name = "Title $index", poster = image,
+                    posterShape = PosterShape.POSTER, background = image, logo = white, description = "Synopsis $index",
+                    releaseInfo = "2026", imdbRating = null, genres = listOf("Drama"), landscapePoster = image)), hasMore = false)
+        }
+    }
+
+    private fun verifyContinueWatching(style: ContinueWatchingCardStyle, summary: Boolean, fullWidth: Boolean) {
+        val rows = scenarioRows(3)
+        val xlKey = catalogRowKey(rows.first())
+        val image = artwork("cw-motion-image", android.graphics.Color.BLUE)
+        val logo = artwork("cw-motion-logo", android.graphics.Color.WHITE)
+        val progress = WatchProgress("cw-motion", "movie", "Continue Watching Fixture", image, image, logo,
+            "cw-motion", null, null, null, 20_000, 100_000, 10_000)
+        mountScenario(HomeUiState(catalogRows = rows, continueWatchingItems = listOf(ContinueWatchingItem.InProgress(progress)),
+            continueWatchingCardStyle = style, continueWatchingEnrichmentReady = true, isLoading = false,
+            catalogsReady = true, skeletonReady = true, layoutPreferencesReady = true,
+            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(), xlCatalogKeys = setOf(xlKey),
+            xlNoSummaryCatalogKeys = if (summary) emptySet() else setOf(xlKey),
+            fullWidthIconRowEnabled = fullWidth, aggregateStreamingPlatformsEnabled = fullWidth,
+            showAllCatalogsOnHome = fullWidth, posterLabelsEnabled = false))
+        assertEquals("continue_watching", scene.selection?.rowKey)
+        assertEquals("CW keeps its ordinary following margin", 0.dp, scene.headroomValues[xlKey])
+        val cw = list.layoutInfo.visibleItemsInfo.first { it.key == "continue_watching" }
+        val cwHeight = checkNotNull(scene.rowHeights["continue_watching"])
+        println("CW_GEOMETRY style=$style summary=$summary height=$cwHeight prefix=${scene.headroomValues[xlKey]} size=${cw.size}")
+        assertEquals("Measure the actual CW style, including its footer", cw.size.toFloat(), cwHeight.value, 1f)
+        press(KeyEvent.KEYCODE_DPAD_DOWN); advance(960)
+        assertEquals(xlKey, scene.selection?.rowKey)
+        val previous = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "continue_watching" }
+        assertTrue("CW is fully above the screen on XL", previous == null || previous.offset + list.layoutInfo.beforeContentPadding + previous.size <= 0)
+        assertTrue("CW metadata is already measured before Up", (scene.metadataHeights["continue_watching"] ?: 0f) > 0f)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        val resting = mutableListOf<Float>()
+        val samples = mutableListOf<String>()
+        repeat(64) { frame ->
+            advance(16)
+            val meta = compose.onAllNodesWithTag("ordinary-metadata-continue_watching", true).fetchSemanticsNodes().singleOrNull()
+            val top = meta?.boundsInRoot?.top
+            samples += "${frame * 16}:$top:${list.isScrollInProgress}:${scene.verticalMotion != null}:${scene.headroomValues[xlKey]}"
+            if (!list.isScrollInProgress && scene.verticalMotion == null && top != null) resting += top
+        }
+        println("CW_RETURN style=$style summary=$summary positions=${samples.joinToString(",")}")
+        assertEquals("continue_watching", scene.selection?.rowKey)
+        assertEquals("No portrait-sized gap returns beneath landscape CW", 0.dp, scene.headroomValues[xlKey])
+        assertTrue(resting.size > 10)
+        assertEquals("The metadata cannot correct its position after landing", resting.last(), resting.first(), 1f)
+    }
+
+    @Test fun landscapeCwAndCompactXlShareAStableGapAndMetadataAnchor() = verifyContinueWatching(ContinueWatchingCardStyle.CARD, false, false)
+    @Test fun landscapeCwAndSummaryXlShareAStableGapAndMetadataAnchor() = verifyContinueWatching(ContinueWatchingCardStyle.CARD, true, true)
+    @Test fun wideCwAndCompactXlUseTheirMeasuredGeometry() = verifyContinueWatching(ContinueWatchingCardStyle.WIDE, false, true)
+    @Test fun portraitCwAndSummaryXlKeepTheirMeasuredGeometry() = verifyContinueWatching(ContinueWatchingCardStyle.POSTER, true, false)
+
+    @Test fun doubleUpToAnXlFirstRowNeverLeavesTheOldMetadataOverItsUpperHalf() {
+        val rows = scenarioRows(12, redFirst = true)
+        val key = catalogRowKey(rows.first())
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true, skeletonReady = true,
+            layoutPreferencesReady = true, enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(),
+            xlCatalogKeys = setOf(key), xlNoSummaryCatalogKeys = setOf(key), fullWidthIconRowEnabled = true,
+            aggregateStreamingPlatformsEnabled = true, showAllCatalogsOnHome = true,
+            doubleUpPlatformShortcutEnabled = true, posterLabelsEnabled = false))
+        repeat(9) { press(KeyEvent.KEYCODE_DPAD_DOWN); advance(800) }
+        assertEquals(catalogRowKey(rows[9]), scene.selection?.rowKey)
+        press(KeyEvent.KEYCODE_DPAD_UP, 25)
+        press(KeyEvent.KEYCODE_DPAD_UP, 25)
+        var sawBulk = false
+        var checkedUpperCard = false
+        repeat(160) { frame ->
+            advance(16)
+            if (scene.fastReturn != null) sawBulk = true
+            val node = compose.onAllNodesWithTag("xl-artwork-$key-0", true).fetchSemanticsNodes().singleOrNull()
+            val bounds = node?.boundsInRoot
+            if (bounds != null && bounds.top >= 0 && bounds.top < 240 && bounds.width > 100 && bounds.height > 80) {
+                val image = bitmap()
+                val x = (bounds.left + bounds.width / 2).toInt().coerceIn(0, image.width - 1)
+                val y = (bounds.top + 20).toInt().coerceIn(0, image.height - 1)
+                val pixel = image.getPixel(x, y)
+                val red = android.graphics.Color.red(pixel)
+                val green = android.graphics.Color.green(pixel)
+                if (red <= 150 || green >= 70) {
+                    val file = java.io.File("/workspace/scratch/51fe5365d02b/xl-double-up-failure.png")
+                    file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                    println("DOUBLE_UP_FRAME frame=$frame bounds=$bounds pixel=$red,$green fast=${scene.fastReturn} selection=${scene.selection} transition=${scene.transition} rows=${list.layoutInfo.visibleItemsInfo.map { it.key to it.offset }} mask=${xlSceneMetadataMask(scene, list.layoutInfo, true, scene.ordinaryTop.value, 1f, 540f)}")
+                }
+                assertTrue("The upper XL artwork must not be clipped by a stale metadata band: red=$red green=$green frame=$frame", red > 150 && green < 70)
+                image.recycle(); checkedUpperCard = true
+            }
+        }
+        assertTrue("Exercise the actual Double-Up shortcut", sawBulk)
+        assertTrue("Inspect the top half as XL arrives", checkedUpperCard)
+        assertEquals(key, scene.selection?.rowKey)
+        assertNull(scene.fastReturn)
+        assertNull(scene.transition)
+        assertFalse("Double-Up cannot retain the expanded gap from the previous XL exit", scene.expandedXlRows[key] == true)
+        val following = list.layoutInfo.visibleItemsInfo.first { it.key == catalogRowKey(rows[1]) }
+        val followingTitleTop = following.offset + list.layoutInfo.beforeContentPadding + (scene.headroomValues[following.key]?.value ?: 0f)
+        assertTrue("The compact row below must already be visible at landing", followingTitleTop < 540f)
+        assertTrue(compose.onAllNodes(hasTestTag("ordinary-metadata-$key"), true).fetchSemanticsNodes().isEmpty())
+    }
 }

@@ -2824,7 +2824,7 @@ fun ModernHomeContent(
         val sceneSelection = restoredSceneSelection ?: sceneRow?.sceneSelection(clampedActiveItemIndex, carouselRows.indexOf(sceneRow))
         androidx.compose.runtime.SideEffect {
             sceneSelection?.let { xlScene.focus(it, verticalRowListState.layoutInfo,
-                hasXlRows && !isPlatformTransitioning && restoredSceneSelection == null, carouselRows) }
+                hasXlRows && !isPlatformTransitioning && restoredSceneSelection == null, carouselRows, focusConfirmed = false) }
         }
         val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
             pageStartsWithXl = carouselRows.firstOrNull()?.isXl == true)
@@ -3100,10 +3100,13 @@ fun ModernHomeContent(
                         (if (useLandscapePosters) 1f else 0.90f) * (if (useLandscapePosters) 5 else 4)).toDp()
                 }
             }
-        val measuredHeroHeight = if (xlScene.metadataHeightPx > 0f)
-            with(localDensity) { xlScene.metadataHeightPx.toDp() } else estimatedHeroHeight
+        val ordinaryMetadataKey = xlScene.stationaryMetadata?.rowKey ?: xlScene.selection?.takeUnless { it.isXl }?.rowKey
+        val preparedMetadataHeight = ordinaryMetadataKey?.let { xlScene.metadataHeights[it] } ?: xlScene.metadataHeightPx
+        val measuredHeroHeight = if (preparedMetadataHeight > 0f)
+            with(localDensity) { preparedMetadataHeight.toDp() } else estimatedHeroHeight
         androidx.compose.runtime.SideEffect {
             xlScene.density = localDensity.density
+            xlScene.metadataLayoutHeightPx = with(localDensity) { measuredHeroHeight.toPx() }
             xlScene.screenHeight = maxHeight
             xlScene.fullWidthIcons = effectiveFullWidthIconRowEnabled
             xlScene.estimatedXlHeight = estimatedXlHeight
@@ -4986,6 +4989,7 @@ private fun EnhancedModernHomeRowsListBoundary(
      * dependency explicit at the rows composition boundary.
      */
     val currentXlScene by rememberUpdatedState(xlScene)
+    val currentXlSceneEnabled by rememberUpdatedState(xlSceneEnabled)
     var activeRowKey by activeRowKeyState
     var activeItemIndex by activeItemIndexState
     var isFastScrolling by isFastScrollingState
@@ -5398,6 +5402,9 @@ private fun EnhancedModernHomeRowsListBoundary(
                                 .set(false)
 
                             doubleUpInProgress.set(true)
+                            if (xlSceneEnabled) firstRow.sceneSelection(uiCaches.focusedItemByRow[firstRow.key] ?: 0, 0)?.let {
+                                currentXlScene.beginFastReturn(it, verticalRowListState.layoutInfo, currentCarouselRows)
+                            }
 
                             suppressCatalogSelectionForDoubleUpRef
                                 .set(true)
@@ -5651,6 +5658,9 @@ private fun EnhancedModernHomeRowsListBoundary(
                                             ).coerceAtLeast(0)
                                         )
 
+                                    if (xlSceneEnabled) firstRow.sceneSelection(savedItemIndex, 0)?.let {
+                                        currentXlScene.finishFastReturn(it, currentCarouselRows)
+                                    }
                                     focusHolder.activeRowKey =
                                         firstRow.key
 
@@ -5752,6 +5762,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                                         false
 
                                     doubleUpInProgress.set(false)
+                                    if (xlSceneEnabled) currentXlScene.cancelFastReturn()
 
                                     if (
                                         handoffToCarousel
@@ -5941,7 +5952,8 @@ private fun EnhancedModernHomeRowsListBoundary(
              * latest row ordering through rememberUpdatedState.
              */
             val stableOnRowItemFocused = remember(Unit) {
-                { rowKey: String, index: Int, isContinueWatchingRow: Boolean, confirmedFocus: Boolean ->
+                rowFocused@{ rowKey: String, index: Int, isContinueWatchingRow: Boolean, confirmedFocus: Boolean ->
+                    if (currentXlSceneEnabled && suppressCatalogSelectionForDoubleUpRef.get()) return@rowFocused
                     /*
                      * Logical row focus updates also pass through this
                      * callback so hero/navigation state can stay fast.
@@ -6083,7 +6095,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                         lastHeroFocusChangeAtMsRef.set(now)
 
                         activeRow?.sceneSelection(index, currentCarouselRows.indexOf(activeRow))?.let {
-                            currentXlScene.focus(it, verticalRowListState.layoutInfo, rows = currentCarouselRows)
+                            currentXlScene.focus(it, verticalRowListState.layoutInfo, rows = currentCarouselRows, focusConfirmed = confirmedFocus)
                         }
                         focusHolder.activeRowKey = rowKey
                         focusHolder.activeItemIndex = index
@@ -6091,6 +6103,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                         activeItemIndex = index
                     }
 
+                    if (confirmedFocus) currentXlScene.confirmFocus(rowKey)
                     /*
                      * Keep the parent pinned to CW until BOTH real Compose focus
                      * and the authoritative active-row state agree on the
@@ -6163,11 +6176,14 @@ private fun EnhancedModernHomeRowsListBoundary(
                 carouselRows.getOrNull(carouselRows.indexOfFirst { it.key == row.key } - 1)
             }
             Column {
-                XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl, verticalRowListState)
+                XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
             ModernRowSection(
                 row = row,
                 xlArtworkPresentation = xlScene.artwork,
                 onHeaderMeasured = remember(xlScene, row.key) { { height -> xlScene.headerHeights[row.key] = height } },
+                onOrdinaryRowMeasured = if (xlSceneEnabled) remember(xlScene, row.key) {
+                    { height -> xlScene.rowHeights[row.key] = height }
+                } else null,
                 onXlRowMeasured = remember(xlScene, row.key) { { height, withSummary ->
                     xlScene.rowHeights[row.key] = height
                     xlScene.summaryRowHeights[row.key] = withSummary
