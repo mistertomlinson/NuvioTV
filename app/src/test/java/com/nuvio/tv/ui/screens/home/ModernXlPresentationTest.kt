@@ -629,7 +629,7 @@ class ModernXlPresentationTest {
         compose.mainClock.autoAdvance = true
     }
 
-    @Test fun ordinaryViewportClearsTheHeroSpaceInOnePassWithoutMovingTheHeadingAnchor() {
+    @Test fun ordinaryViewportUsesItsOriginalOpaqueTopBoundary() {
         val scene = XlSceneState()
         val list = LazyListState()
         content {
@@ -638,9 +638,9 @@ class ModernXlPresentationTest {
                     .xlSceneRowsViewport(scene, list, false, 260.dp).background(Color.White))
             }
         }
-        assertTrue(brightness(500, 40) < 20)
-        assertEquals("The viewport must not redraw the catalog to fade it a second time", 0, brightness(500, 50))
-        assertEquals("The heading's original resting position stays opaque", 255, brightness(500, 60))
+        assertEquals("No fade strip is reserved at the viewport top", 255, brightness(500, 40))
+        assertEquals("Posters remain fully opaque up to the hard viewport edge", 255, brightness(500, 50))
+        assertEquals("The original content position stays opaque", 255, brightness(500, 60))
         assertEquals(255, brightness(500, 90))
     }
 
@@ -675,7 +675,6 @@ class ModernXlPresentationTest {
                         Column {
                             Spacer(Modifier.height(40.dp))
                             Box(Modifier.padding(start = 52.dp).width(200.dp).height(200.dp)
-                                .homePosterFade(HomePosterFadeViewport(scene, list, true, 260.dp), index.toString())
                                 .graphicsLayer { scaleY = if (index == 0) 1.2f else 1f }
                                 .background(Color.White).testTag("scaled-poster-$index"))
                         }
@@ -684,7 +683,7 @@ class ModernXlPresentationTest {
             }
         }
         val oldBottom = compose.onNodeWithTag("scaled-poster-0").fetchSemanticsNode().boundsInRoot.bottom
-        assertTrue("The scaled poster must extend into the fade band to exercise the regression", oldBottom in 245f..259f)
+        assertTrue("The scaled poster must extend into the hard metadata exclusion", oldBottom in 245f..259f)
         val actualRowBottom = list.layoutInfo.visibleItemsInfo.first { it.key == "0" }.let {
             it.offset + list.layoutInfo.beforeContentPadding + it.size
         }

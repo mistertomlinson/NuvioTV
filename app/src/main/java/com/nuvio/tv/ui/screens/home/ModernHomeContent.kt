@@ -3065,7 +3065,7 @@ fun ModernHomeContent(
         val rowTitleBottom = 14.dp
         val rowsViewportHeightFraction = if (useLandscapePosters) 0.49f else 0.52f
         val rowsViewportHeight = maxHeight * rowsViewportHeightFraction
-        val rowsCanvasHeight = if (hasXlRows) maxHeight else rowsViewportHeight + HOME_POSTER_FADE_HEIGHT
+        val rowsCanvasHeight = if (hasXlRows) maxHeight else rowsViewportHeight
         val ordinaryRowsTop = maxHeight - rowsViewportHeight
 
         // The configurable centered hero belongs only to the aggregate +
@@ -3114,7 +3114,7 @@ fun ModernHomeContent(
             } else ordinaryRowsTop - heroToCatalogGap + 6.dp - measuredHeroHeight
         }
         val firstRow = carouselRows.firstOrNull()
-        val rowListTopPadding = if (!hasXlRows) HOME_POSTER_FADE_HEIGHT else if (firstRow?.isXl == true) {
+        val rowListTopPadding = if (!hasXlRows) 0.dp else if (firstRow?.isXl == true) {
             xlBalancedTop(maxHeight.value, (xlScene.summaryRowHeights[firstRow.key] ?: estimatedXlHeight).value,
                 effectiveFullWidthIconRowEnabled).dp
         } else ordinaryRowsTop
@@ -5011,9 +5011,6 @@ private fun EnhancedModernHomeRowsListBoundary(
      * dependency explicit at the rows composition boundary.
      */
     val currentXlScene by rememberUpdatedState(xlScene)
-    val posterFadeViewport = remember(xlScene, verticalRowListState, xlSceneEnabled, ordinaryRowTop) {
-        HomePosterFadeViewport(xlScene, verticalRowListState, xlSceneEnabled, ordinaryRowTop)
-    }
     var activeRowKey by activeRowKeyState
     var activeItemIndex by activeItemIndexState
     var isFastScrolling by isFastScrollingState
@@ -6194,7 +6191,6 @@ private fun EnhancedModernHomeRowsListBoundary(
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl, verticalRowListState)
             ModernRowSection(
                 row = row,
-                posterFadeViewport = posterFadeViewport,
                 xlArtworkPresentation = xlScene.artwork,
                 onHeaderMeasured = remember(xlScene, row.key) { { height -> xlScene.headerHeights[row.key] = height } },
                 onXlRowMeasured = remember(xlScene, row.key) { { height, withSummary ->

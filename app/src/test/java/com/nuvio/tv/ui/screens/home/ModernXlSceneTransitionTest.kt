@@ -123,7 +123,6 @@ class ModernXlSceneTransitionTest {
                                         Text(row.title, Modifier.onSizeChanged { scene.headerHeights[row.key] = it.height.toFloat() }.height(header.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
                                         Box(Modifier.padding(start = 52.dp).width(700.dp)
                                             .height(if (row.isXl) 244.dp else 200.dp)
-                                            .homePosterFade(if (row.isXl) null else HomePosterFadeViewport(scene, list, true, 260.dp), row.key)
                                             .background(if (row.isXl) Color.Magenta else Color.Blue)
                                             .focusRequester(requesters[index])
                                             .onFocusChanged {

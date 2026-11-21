@@ -88,7 +88,7 @@ class ModernHomeIntegrationTest {
         return image
     }
     private fun verifyExit(numbered: Boolean, fullWidth: Boolean, summary: Boolean = false,
-        landscape: Boolean = false, middle: Boolean = false, returnUp: Boolean = false, allRegular: Boolean = false) {
+        landscape: Boolean = false, middle: Boolean = false, returnUp: Boolean = false, allRegular: Boolean = false, globalLandscape: Boolean = false) {
         val xlIndex = if (middle) 1 else 0
         val nextIndex = xlIndex + 1
         val black = artwork("black", android.graphics.Color.BLACK)
@@ -106,7 +106,7 @@ class ModernHomeIntegrationTest {
             xlCatalogKeys = if (allRegular) emptySet() else setOf(catalogRowKey(rows[xlIndex])),
             xlNoSummaryCatalogKeys = if (summary || allRegular) emptySet() else setOf(catalogRowKey(rows[xlIndex])),
             landscapeCatalogKeys = if (landscape) setOf(catalogRowKey(rows[nextIndex])) else emptySet(),
-            posterLabelsEnabled = false, fullWidthIconRowEnabled = fullWidth,
+            posterLabelsEnabled = false, modernLandscapePostersEnabled = globalLandscape, fullWidthIconRowEnabled = fullWidth,
             aggregateStreamingPlatformsEnabled = fullWidth, showAllCatalogsOnHome = fullWidth)
         compose.runOnUiThread {
             activity.get().setContent {
@@ -151,6 +151,8 @@ class ModernHomeIntegrationTest {
         image.recycle()
         assertTrue("Actual metadata must render, numbered=$numbered summary=$summary pixels=$bright", bright > 200)
         if (allRegular) {
+            assertEquals("Ordinary rows reserve no added fade padding", 0, list.layoutInfo.beforeContentPadding)
+            assertEquals("The viewport has its original screen fraction", if (globalLandscape) 265 else 281, list.layoutInfo.viewportSize.height)
             assertNull("Ordinary row focus cannot start XL scene motion", scene.transition)
             assertTrue("XL-disabled pages mount no XL artwork renderer or its preload jobs", scene.artwork.renderers.isEmpty())
         }
@@ -192,4 +194,8 @@ class ModernHomeIntegrationTest {
     @Test fun numberedCompactReturnUp() = verifyExit(true, true, returnUp = true)
     @Test fun ordinaryPageWithXlDisabledRetainsItsMetadata() = verifyExit(false, true, allRegular = true)
     @Test fun ordinaryNumberedPageWithXlDisabledRetainsItsMetadata() = verifyExit(true, true, allRegular = true)
+    @Test fun ordinaryHalfWidthPageRetainsOriginalGeometry() = verifyExit(false, false, allRegular = true)
+    @Test fun numberedHalfWidthPageRetainsOriginalGeometry() = verifyExit(true, false, allRegular = true)
+    @Test fun landscapePageRetainsOriginalGeometry() = verifyExit(false, true, allRegular = true, globalLandscape = true)
+    @Test fun numberedLandscapePageRetainsOriginalGeometry() = verifyExit(true, true, allRegular = true, globalLandscape = true)
 }

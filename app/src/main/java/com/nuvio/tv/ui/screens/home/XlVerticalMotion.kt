@@ -116,7 +116,7 @@ internal fun rememberHomeVerticalScrollSpec(scene: XlSceneState, hasXlRows: Bool
                 if (latestFastScrolling() || scene.verticalMotion != null) return 0f
                 val selected = scene.selection
                 val anchor = with(density) {
-                    if (!hasXlRows) 40.dp.toPx() + HOME_POSTER_FADE_HEIGHT.toPx()
+                    if (!hasXlRows) 40.dp.toPx()
                     else if (selected?.isXl == true) scene.xlTop(selected.rowKey).toPx() +
                         (scene.headerHeights[selected.rowKey] ?: 40.dp.toPx())
                     else ordinaryTop.toPx() + 40.dp.toPx()

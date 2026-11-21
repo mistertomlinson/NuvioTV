@@ -1,6 +1,8 @@
 # XL catalog rows
 
-Experimental Modern Home presentation on `feat/netflix-xl-catalog-rows-20261118`.
+Diagnostic Modern Home presentation on `diag/xl-no-poster-edge-fade-20261121`,
+based on v13 (`5e4a12fa`). This comparison restores the original hard poster
+viewport; it is not a confirmed fix for physical TV scrolling performance.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -117,17 +119,14 @@ row. Each non-first XL row reserves enough prefix to place preceding posters
 entirely above the screen at landing. Ordinary-to-ordinary
 navigation keeps the stationary upper metadata and ordinary clipping.
 
-Ordinary poster bodies have a spatial alpha gradient at the upper exit edge.
-The 20 dp feather follows a 12 dp clear margin so lower poster/rank slivers cannot
-remain behind the metadata. Actual card content has a cached graphics layer.
-The opaque region draws that display list directly; only the 20 dp feather
-replays it through a narrow destination-in surface. There is no whole-row or
-whole-screen fade surface. Unaffected rows share stable mask results and do not
-invalidate their card display lists on every scroll update. The viewport mask
-also reads scroll layout only during an actual moving metadata boundary, and
-stationary metadata does not observe scroll layout. These changes apply with
-all XL preferences disabled as well as on mixed pages. Current headings and
-poster anchors remain unchanged.
+This diagnostic removes the poster top-edge alpha fade completely, including
+its row modifiers, cached display lists, destination-in surfaces and fade-mask
+state. The viewport again clips in one pass as it did before the fade was added.
+Ordinary-only pages use their original 52% portrait / 49% landscape viewport,
+zero extra top padding and 40 dp poster focus anchor. XL keeps its moving hard
+metadata exclusion and full-screen canvas. The horizontal XL number fades,
+backdrop blur/gradient and all later XL behavior remain unchanged from v13.
+Hard poster clipping at the upper boundary is expected in this comparison.
 
 The default vertical BringIntoView animation and held-scroll velocity (1200 dp/s)
 are unchanged. Ordinary metadata uses a simple Box instead of the unconditional
@@ -279,7 +278,7 @@ metadata, headroom and backdrop timing. They cover synchronized vertical motion,
 no retained upper metadata at rest, measured-heading landing without a jump,
 full-width balance and preceding-row clearance, tighter following-hero spacing,
 reveal before row settlement, a second rapid Up with normal metadata debounce,
-fully transparent poster bottoms with short headings in both viewport styles,
+hard metadata exclusion of scaled poster bottoms with short headings,
 a real loaded blur staying pixel-identical after late ordinary measurements,
 10% parallax overhang without exposed screen edges, compact two-phase travel,
 metadata fade only after landing, early preview return while artwork is cold,
@@ -294,9 +293,9 @@ animated portrait return, and numbered-card anchoring. JVM tests cover
 snapshot ownership, recycling, interrupted transitions, gap lifetime, frame
 identity, preferences and existing app behavior. A separate integration suite mounts actual ModernHomeContent and real catalog
 cards for numbered/plain, summary/compact, first/middle XL, ordinary landscape,
-full/half-width icons and XL-disabled pages. Native RecordingCanvas checks
-exercise RenderNode reuse through scroll mask changes; native bitmap captures
-check spatial fading and final metadata pixels. A counting Coil transformation
+full/half-width icons and XL-disabled pages. Native drawing checks verify a single viewport draw through scrolling and
+fully opaque pixels up to the original hard clipping boundary; native bitmap
+captures also check final metadata pixels. A counting Coil transformation
 checks cache reuse and worker-thread execution. These supplement TV review and
 do not measure physical TV frame pacing.
 

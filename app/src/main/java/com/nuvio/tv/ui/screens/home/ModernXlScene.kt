@@ -28,7 +28,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
-internal val HOME_POSTER_FADE_HEIGHT = 20.dp
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
 internal data class XlSceneSelection(
@@ -372,39 +371,16 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     return if (top < offset + ordinaryTopPx) top to offset + ordinaryTopPx else null
 }
 
-/** Ordinary masks and settled XL pages don't depend on the scrolling layout. */
-@Composable
-internal fun rememberHomePosterMask(scene: XlSceneState, list: LazyListState, enabled: Boolean,
-    ordinaryTop: Dp): State<Pair<Float, Float>?> {
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    return remember(scene, list, enabled, ordinaryTop, density) {
-        derivedStateOf {
-            with(density) {
-                when {
-                    !enabled -> 0f to HOME_POSTER_FADE_HEIGHT.toPx()
-                    scene.transition == null -> if (scene.selection?.isXl == true) null else 0f to ordinaryTop.toPx()
-                    else -> list.layoutInfo.let { info ->
-                        xlSceneMetadataMask(scene, info, true, ordinaryTop.toPx(), this.density, info.viewportSize.height.toFloat())
-                    }
-                }
-            }
-        }
-    }
-}
-
-/** One viewport draw; only a changing metadata boundary invalidates its mask. */
-@Composable
+/** Keep the hero's empty space attached to its row; never uncover an older row behind it. */
 internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListState, enabled: Boolean,
-    ordinaryTop: Dp): Modifier {
-    val mask by rememberHomePosterMask(scene, list, enabled, ordinaryTop)
-    return drawWithContent {
-        clipRect {
-            val top = mask?.first?.coerceAtLeast(0f) ?: 0f
-            val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
-            if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
-                this@drawWithContent.drawContent()
-            } else this@drawWithContent.drawContent()
-        }
+    ordinaryTop: Dp): Modifier = drawWithContent {
+    val mask = xlSceneMetadataMask(scene, list.layoutInfo, enabled, ordinaryTop.toPx(), density, size.height)
+    clipRect {
+        val top = mask?.first?.coerceAtLeast(0f) ?: 0f
+        val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
+        if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
+            this@drawWithContent.drawContent()
+        } else this@drawWithContent.drawContent()
     }
 }
 
