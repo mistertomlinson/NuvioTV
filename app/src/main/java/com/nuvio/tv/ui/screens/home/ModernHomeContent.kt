@@ -3109,6 +3109,7 @@ fun ModernHomeContent(
             xlScene.metadataLayoutHeightPx = with(localDensity) { measuredHeroHeight.toPx() }
             xlScene.screenHeight = maxHeight
             xlScene.fullWidthIcons = effectiveFullWidthIconRowEnabled
+            xlScene.estimatedOrdinaryHeight = catalogRowHeaderHeight + modernCatalogCardHeight + if (uiState.posterLabelsEnabled) 24.dp else 0.dp
             xlScene.estimatedXlHeight = estimatedXlHeight
             xlScene.ordinaryTop = ordinaryRowsTop
             xlScene.metadataRestingTop = if (effectiveFullWidthIconRowEnabled) {
@@ -4989,6 +4990,9 @@ private fun EnhancedModernHomeRowsListBoundary(
      * dependency explicit at the rows composition boundary.
      */
     val currentXlScene by rememberUpdatedState(xlScene)
+    val posterFadeViewport = remember(xlScene, verticalRowListState, xlSceneEnabled, ordinaryRowTop) {
+        HomePosterFadeViewport(xlScene, verticalRowListState, xlSceneEnabled, ordinaryRowTop)
+    }
     val currentXlSceneEnabled by rememberUpdatedState(xlSceneEnabled)
     var activeRowKey by activeRowKeyState
     var activeItemIndex by activeItemIndexState
@@ -5080,7 +5084,10 @@ private fun EnhancedModernHomeRowsListBoundary(
                 scrollableState = verticalRowListState,
                 verticalVelocityDpPerSec = 1200f,
                 onFastScrollingChanged = { scrolling ->
-                    if (scrolling) xlScene.cancelVerticalMotion()
+                    if (scrolling) {
+                        xlScene.clearBoundaryFocusIntent()
+                        xlScene.cancelVerticalMotion()
+                    }
                     if (!scrolling) {
                         fastScrollLandingVisualPendingRef
                             .set(true)
@@ -5924,6 +5931,25 @@ private fun EnhancedModernHomeRowsListBoundary(
                 }
 
                 false
+            }
+            .onPreviewKeyEvent { event ->
+                val native = event.nativeKeyEvent
+                if (xlSceneEnabled && native.action == AndroidKeyEvent.ACTION_DOWN && native.repeatCount == 0 &&
+                    (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)) {
+                    val fromIndex = currentCarouselRows.indexOfFirst { it.key == focusHolder.activeRowKey }
+                    val sign = if (native.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) -1 else 1
+                    val from = currentCarouselRows.getOrNull(fromIndex)
+                    val nextIndex = fromIndex + sign
+                    val next = currentCarouselRows.getOrNull(nextIndex)
+                    if (from != null && next != null && (from.isXl || next.isXl)) {
+                        // Block the framework's first relocation without
+                        // guessing the destination's not-yet-measured geometry.
+                        currentXlScene.armBoundaryFocus()
+                    }
+                } else if (native.action == AndroidKeyEvent.ACTION_UP) {
+                    currentXlScene.clearBoundaryFocusIntent()
+                }
+                false
             },
         contentPadding = PaddingValues(top = rowListTopPadding, bottom = rowsViewportHeight),
         verticalArrangement = Arrangement.spacedBy(24.dp)
@@ -6103,7 +6129,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                         activeItemIndex = index
                     }
 
-                    if (confirmedFocus) currentXlScene.confirmFocus(rowKey)
+                    if (confirmedFocus) currentXlScene.confirmFocus(rowKey, verticalRowListState.layoutInfo, currentCarouselRows)
                     /*
                      * Keep the parent pinned to CW until BOTH real Compose focus
                      * and the authoritative active-row state agree on the
@@ -6179,6 +6205,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
             ModernRowSection(
                 row = row,
+                posterFadeViewport = posterFadeViewport,
                 xlArtworkPresentation = xlScene.artwork,
                 onHeaderMeasured = remember(xlScene, row.key) { { height -> xlScene.headerHeights[row.key] = height } },
                 onOrdinaryRowMeasured = if (xlSceneEnabled) remember(xlScene, row.key) {

@@ -132,9 +132,17 @@ class ModernHomeIntegrationTest {
         advance(800)
         if (middle) { press(KeyEvent.KEYCODE_DPAD_DOWN); advance(800) }
         press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var previousEdge = scene.outgoingXlBottom(list.layoutInfo)
+        var slideStarted = false
         repeat(110) {
             advance(16)
             val bottom = scene.outgoingXlBottom(list.layoutInfo)
+            if (bottom != null && previousEdge != null) {
+                if (bottom < previousEdge!!) slideStarted = true
+                if (slideStarted && bottom > 40f)
+                    assertTrue("Actual Home must not pause its visible XL slide at focus handoff", bottom < previousEdge!!)
+            }
+            previousEdge = bottom
             if (!summary && bottom != null && bottom > 0f) assertEquals("Compact metadata waits until all XL pixels clear", 0f, scene.exitMetadataAlpha, 0f)
             if (summary) assertEquals("Summary metadata stays opaque while sliding", 1f, scene.exitMetadataAlpha, 0f)
         }
@@ -161,7 +169,7 @@ class ModernHomeIntegrationTest {
             press(KeyEvent.KEYCODE_DPAD_UP)
             val positions = mutableListOf<String>()
             val tops = mutableListOf<Float?>()
-            repeat(38) { frame ->
+            repeat(90) { frame ->
                 advance(16)
                 val info = list.layoutInfo
                 val key = catalogRowKey(rows[nextIndex])
@@ -193,6 +201,8 @@ class ModernHomeIntegrationTest {
     @Test fun numberedMiddleSummaryExit() = verifyExit(true, true, summary = true, middle = true)
     @Test fun plainCompactReturnUp() = verifyExit(false, true, returnUp = true)
     @Test fun numberedCompactReturnUp() = verifyExit(true, true, returnUp = true)
+    @Test fun plainLandscapeCompactReturnUp() = verifyExit(false, true, returnUp = true, landscape = true)
+    @Test fun numberedLandscapeCompactReturnUp() = verifyExit(true, true, returnUp = true, landscape = true)
     @Test fun ordinaryPageWithXlDisabledRetainsItsMetadata() = verifyExit(false, true, allRegular = true)
     @Test fun ordinaryNumberedPageWithXlDisabledRetainsItsMetadata() = verifyExit(true, true, allRegular = true)
     @Test fun ordinaryHalfWidthPageRetainsOriginalGeometry() = verifyExit(false, false, allRegular = true)

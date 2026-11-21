@@ -16,6 +16,7 @@ internal fun XlMetadataHost(
     neighbors: List<XlMetadataSnapshot>,
     nextEpoch: Int,
     modifier: Modifier,
+    retainPreparedLayout: Boolean = false,
     content: @Composable (XlMetadataSnapshot, Boolean) -> Unit
 ) {
     val latestContent by rememberUpdatedState(content)
@@ -28,16 +29,19 @@ internal fun XlMetadataHost(
                 Box(if (active) Modifier else Modifier.clearAndSetSemantics { }) { latestContent(snapshot, active) }
             }
         }
+    var retained by remember { mutableStateOf<List<Pair<XlMetadataSlot, XlMetadataSnapshot>>>(emptyList()) }
+    val requested = neighbors.distinctBy { it.rowKey }.take(2).map { XlMetadataSlot(it.rowKey, nextEpoch) to it }
+    val prepared = if (requested.isNotEmpty()) requested else if (retainPreparedLayout) retained else emptyList()
+    SideEffect { if (retained != prepared) retained = prepared }
     val entries = buildList {
         if (activeSnapshot != null) add(Triple(activeSlot, activeSnapshot, true))
-        neighbors.distinctBy { it.rowKey }.take(2).forEach {
-            val key = XlMetadataSlot(it.rowKey, nextEpoch)
-            if (key != activeSlot || activeSnapshot == null) add(Triple(key, it, false))
+        prepared.forEach { (key, snapshot) ->
+            if (key != activeSlot || activeSnapshot == null) add(Triple(key, snapshot, false))
         }
     }
     val contentBySlot = entries.associate { it.first to renderer(it.first) }
     SideEffect { renderers.keys.retainAll(contentBySlot.keys) }
-    if (neighbors.isEmpty()) {
+    if (prepared.isEmpty()) {
         // The same movable content leaves its measured XL slot with logo state
         // intact. No subcomposition remains on the ordinary-row measure path.
         Box(modifier, propagateMinConstraints = true) {

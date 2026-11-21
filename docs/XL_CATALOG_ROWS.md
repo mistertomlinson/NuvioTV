@@ -1,12 +1,11 @@
 # XL catalog rows
 
-Modern Home XL motion polish on `fix/xl-row-motion-polish-20261121`, based on
-the `f747f551` Entry Cache build confirmed good on the user's TV. It retains
-the ordinary gradient's restored v6 rendering layer, hard poster viewport,
-cached complete XL backdrop frames and matching sharp/blurred preloads.
-This revision changes XL boundary motion, prepared metadata geometry, shortcut
-landing and outlined-number interiors. Physical TV frame pacing still requires
-testing of this revision.
+Modern Home XL scroll cadence on `fix/xl-motion-cadence-20261121`, based on
+`ca9244d8` Motion Polish. It retains the TV-confirmed ordinary-gradient rendering
+layer and complete XL backdrop frame cache with matching sharp/blurred preloads.
+This revision restores the narrow cached poster-edge fade, paces XL motion by
+ordinary-row pixel speed, and fixes compact preview/metadata handoffs. Physical
+TV frame pacing still requires testing of this revision.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -123,24 +122,38 @@ row. Each non-first XL row reserves enough prefix to place preceding posters
 entirely above the screen at landing. Ordinary-to-ordinary
 navigation keeps the stationary upper metadata and ordinary clipping.
 
-This diagnostic removes the poster top-edge alpha fade completely, including
-its row modifiers, cached display lists, destination-in surfaces and fade-mask
-state. The viewport again clips in one pass as it did before the fade was added.
-Ordinary-only pages use their original 52% portrait / 49% landscape viewport,
-zero extra top padding and 40 dp poster focus anchor. XL keeps its moving hard
-metadata exclusion and full-screen canvas. The horizontal XL number fades,
-backdrop blur/gradient and all later XL behavior remain unchanged from v13.
-Hard poster clipping at the upper boundary is expected in this comparison.
+The poster top-edge alpha fade is restored using the cached, narrow-strip design.
+Poster bodies retain their display lists; only the 20 dp feather strip needs a
+destination-in surface. A 12 dp completely clear margin prevents lower slivers
+with short headings. The viewport itself draws once. Ordinary-only pages keep
+their original 52% portrait / 49% landscape viewport, zero extra top padding and
+40 dp poster focus anchor. The feather fits above that poster anchor without
+changing list geometry. XL retains its moving metadata exclusion and full-screen
+canvas; its own large artwork does not receive the ordinary body fade.
 
 The default ordinary-row BringIntoView animation and held-scroll velocity
-(1200 dp/s) are unchanged. XL-to-ordinary boundary motion uses one 360 ms
-FastOutSlowIn tween, including the list and any changing prefix/gap. It starts
-only after actual focus confirmation. The controller owns list scrolling until
-completion or the next focus change, suppressing competing framework relocation
-for that boundary; logical selection cannot start motion a frame before focus.
+(1200 dp/s) are unchanged. All XL boundaries derive their travel time from the
+ordinary spring's half-pixel stop, scaled by actual distance against a measured
+ordinary row stride in physical pixels. XL uses a smooth FastOutSlowIn curve;
+simply stretching the spring front-loads its visible exit before a long hidden
+tail and can reveal compact metadata too early. An XL-only page uses the normal poster geometry as
+its reference. Larger travel takes more time instead of increasing peak speed;
+there is no separate fixed-duration XL exit tween. List and changing prefix/gap
+share the same clock in both directions.
+The parent arms a boundary guard before focus transfer so a framework relocation
+cannot move first and then hand off to a fresh controller. Actual focus starts
+the owned motion. If logical selection preceded a recycled row's measurement,
+actual focus retries its motion preparation using the now-measured layout. The
+controller suppresses competing relocation until completion or the next focus
+change. Unsuccessful focus intent is released at key-up; fast scrolling and the
+Double-Up shortcut clear it before taking ownership.
+
 Ordinary metadata uses a simple Box instead of the unconditional
 SubcomposeLayout introduced in v6. XL still premeasures adjacent metadata;
 movable content carries the same loaded logo/state into the ordinary layout.
+The existing prepared layout host is retained through the complete boundary and
+metadata fade, and released to the simple Box only after the handoff. Activating
+an already loaded neighbor cannot replace its layout host mid-slide.
 Following-row preview-gap closure retains its existing 360 ms tween. Compact
 exit gap/list movement shares one clock, without a separate gap tween chasing
 focus relocation. Prepared metadata is measured even while hidden. Its measured
@@ -175,16 +188,16 @@ releases the list. A partly expanded gap regains the outgoing hero's clearance
 while returning to XL, and its metadata follows the measured gap displacement.
 
 The gap stays open while browsing ordinary rows below XL, allowing a later
-upward return to bring the scene down together. On Up into XL, its following gap starts the existing return tween immediately,
-before XL settles and while outgoing metadata is still leaving. That metadata
-keeps moving with XL and does not follow the contracting preview gap. The
-preview can approach its resting position without pulling old text upward.
-The scene owns this preview clock and retains its current gap when a row is
-recycled, so virtualization cannot restart it at its final position. Once that
-metadata clears, compact Up entry preserves a complete 360 ms return
-from just below the screen to the row's final preview position. The gap
-compensates for the list's remaining travel, so most of the tween is no longer
-consumed below the screen. Numbered and unnumbered rows share this geometry.
+upward return to bring the scene down together. On Up into compact XL, the
+outgoing row keeps its current gap and moves with its metadata until that block
+is offscreen. A hidden early gap tween no longer consumes the preview's return
+behind the travelling metadata mask. Once the mask clears, the scene-owned
+preview starts a full 360 ms slide from just below the screen to its final peek.
+It compensates for remaining list travel and retains any remaining gap until
+the longer XL entry has stopped. It never forces that gap shut mid-slide.
+Row recycling cannot restart this clock at its final position. Numbered and
+unnumbered rows use the same geometry, including portrait and landscape ordinary
+rows. The preview can start while XL is still approaching its resting position.
 A partly completed compact-exit reversal first preserves its original clearance
 to prevent a clipped logo from appearing over XL. Down into XL retains the
 measured outgoing-metadata clearance trigger. Neither direction waits for the
@@ -285,10 +298,12 @@ size while on XL; ordinary-to-ordinary debounce is unchanged. The exit's ordinar
 metadata is precomposed/measured for the two neighboring ordinary rows while
 XL is displayed. Those slots are never placed or drawn until chosen. The chosen
 slot retains its loaded logo, and its logo transition is disabled during the
-vertical handoff. Upward exits keep sliding text/logo fully opaque. Both downward exits keep
-prepared metadata invisible until all XL row pixels leave, then fade it in over
-220 ms. Compact exit also requires the incoming row to be parked. The scene
-keeps metadata ownership until that fade finishes to avoid an opacity snap. Row ownership survives until
+vertical handoff. Upward and summary-down exits keep sliding text/logo fully
+opaque. Compact downward exit keeps prepared metadata invisible until all XL
+row pixels leave and the incoming row is parked, then uses its original 220 ms
+fade. This alpha animation is independent of the longer XL slide and adds no
+extra debounce after clearance. The scene keeps metadata ownership until that
+fade finishes to avoid an opacity snap. Row ownership survives until
 landing so image timing cannot snap moving metadata into place.
 
 On return from Details, the saved row key and selected title seed the XL scene
@@ -322,7 +337,7 @@ reveal before row settlement, a second rapid Up with normal metadata debounce,
 hard metadata exclusion of scaled poster bottoms with short headings,
 a real loaded blur staying pixel-identical after late ordinary measurements,
 10% parallax overhang without exposed screen edges, compact two-phase travel,
-metadata fade only after landing, early preview return while artwork is cold,
+compact metadata fade only after landing/clearance, visible preview return while artwork is cold,
 original XL number styles/fades, loaded-logo reuse through the simple ordinary host,
 direct entry in either direction before row settlement, delayed pair readiness
 without black, constant RGB brightness throughout real-image dissolves and
@@ -334,9 +349,12 @@ animated portrait return, and numbered-card anchoring. JVM tests cover
 snapshot ownership, recycling, interrupted transitions, gap lifetime, frame
 identity, preferences and existing app behavior. A separate integration suite mounts actual ModernHomeContent and real catalog
 cards for numbered/plain, summary/compact, first/middle XL, ordinary landscape,
-full/half-width icons and XL-disabled pages. Native drawing checks verify a single viewport draw through scrolling and
-fully opaque pixels up to the original hard clipping boundary; native bitmap
-captures also check final metadata pixels. A counting Coil transformation
+full/half-width icons and XL-disabled pages. Native drawing checks verify a
+single viewport draw, unchanged row anchors, a spatial poster-edge alpha ramp,
+no lower slivers and hardware display-list reuse. Additional checks compare XL
+pixel pace to the ordinary spring, reject a visible mid-exit position stall,
+retain the prepared metadata layout host and verify the original compact fade
+cadence. Native bitmap captures also check final metadata pixels. A counting Coil transformation
 checks cache reuse and worker-thread execution. These supplement TV review and
 do not measure physical TV frame pacing.
 

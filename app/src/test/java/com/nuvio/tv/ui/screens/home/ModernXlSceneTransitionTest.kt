@@ -1,5 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
+import androidx.compose.animation.core.VectorConverter
 import android.app.Application
 import android.os.SystemClock
 import android.view.KeyEvent
@@ -58,6 +59,7 @@ class ModernXlSceneTransitionTest {
     private lateinit var scene: XlSceneState
     private lateinit var list: LazyListState
     private lateinit var backdrop: XlBackdropPresentation
+    private lateinit var ordinaryAnimation: androidx.compose.animation.core.AnimationSpec<Float>
     private val frameReady = mutableStateOf(true)
     private val carouselFocused = mutableStateOf(false)
     private val startsWithXl = mutableStateOf(false)
@@ -100,6 +102,7 @@ class ModernXlSceneTransitionTest {
                     val scope = rememberCoroutineScope()
                     seek = { scope.launch { list.scrollToItem(start, if (rows[start].isXl) 206 else 0) }; Unit }
                     val default = LocalBringIntoViewSpec.current
+                    ordinaryAnimation = default.scrollAnimationSpec
                     val spec = rememberHomeVerticalScrollSpec(scene, true, 260.dp,
                         androidx.compose.ui.platform.LocalDensity.current, default) { false }
                     Box(Modifier.width(960.dp).height(540.dp).background(Color.Black).testTag("scene")) {
@@ -212,6 +215,16 @@ class ModernXlSceneTransitionTest {
         content(start = start, summary = summary)
         press(key)
         val target = checkNotNull(scene.selection).rowKey
+        val motion = scene.verticalMotion
+        val trackedKey = if (rows[start].isXl) rows[start].key else target
+        fun trackedTop(): Float? = list.layoutInfo.let { info ->
+            info.visibleItemsInfo.firstOrNull { it.key == trackedKey }?.let {
+                it.offset + info.beforeContentPadding + (scene.headroomValues[trackedKey]?.value ?: 0f) +
+                    (scene.headerHeights[trackedKey] ?: 40f)
+            }
+        }
+        var tracked = trackedTop()
+        var peakStep = 0f
         val samples = mutableListOf<String>()
         var firstRest = -1
         var lastY = Float.NaN
@@ -219,6 +232,9 @@ class ModernXlSceneTransitionTest {
         var direction = 0
         repeat(90) { frame ->
             val position = y("poster-$target")
+            val current = trackedTop()
+            if (current != null && tracked != null) peakStep = maxOf(peakStep, abs(current - tracked!!))
+            tracked = current
             if (!lastY.isNaN() && abs(position - lastY) > 0.5f) {
                 val nextDirection = if (position > lastY) 1 else -1
                 if (direction != 0 && direction != nextDirection) reversed++
@@ -231,8 +247,20 @@ class ModernXlSceneTransitionTest {
             advance(16)
         }
         println("VERTICAL_MOTION name=$name firstRestMs=$firstRest reversals=$reversed samples=${samples.joinToString(",")}")
-        assertTrue("Motion must settle", firstRest in 0..(if (start == 2) 432 else 336))
-        if (start == 2) assertTrue("XL exits retain their deliberately gentler duration", firstRest >= 336)
+        if (motion == null) assertTrue("Ordinary timing stays unchanged", firstRest in 0..336)
+        else {
+            val reference = minOf(abs(motion.scrollPx), motion.ordinaryStridePx)
+            val template = androidx.compose.animation.core.TargetBasedAnimation(ordinaryAnimation,
+                Float.VectorConverter, 0f, reference)
+            val referenceSteps = (0..120).map { template.getValueFromNanos(it * 16_000_000L) }
+            val peakReference = referenceSteps.zipWithNext().maxOf { (a, b) -> abs(b - a) }
+            val referenceSettle = referenceSteps.indexOfFirst { abs(reference - it) < 0.5f } * 16
+            val stretch = (abs(motion.scrollPx) / reference).coerceAtLeast(1f)
+            println("XL_PACING name=$name reference=$reference stretch=$stretch peak=$peakStep referencePeak=$peakReference settled=$firstRest")
+            assertTrue("XL cannot move faster than the ordinary spring's pixel pace", peakStep <= peakReference * 1.2f + 2f)
+            assertTrue("Greater travel must receive proportionally more time", firstRest >= referenceSettle * stretch - 32f)
+            assertTrue("No extra waiting after the distance-paced spring", firstRest <= referenceSettle * stretch + 96f)
+        }
         assertEquals("The incoming row must never reverse direction", 0, reversed)
     }
 
@@ -272,19 +300,24 @@ class ModernXlSceneTransitionTest {
         assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
     }
 
-    @Test fun upwardXlEntryStartsReturningThePreviewWhileTheOutgoingMetadataIsStillSliding() {
+    @Test fun upwardCompactPreviewKeepsItsTravelUntilTheMetadataMaskClears() {
         content(start = 3, summary = false)
         frameReady.value = false
         val originalGap = checkNotNull(scene.headroomValues["C"])
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(64)
-        val move = checkNotNull(scene.transition)
-        assertTrue("The preview starts during XL movement", checkNotNull(scene.headroomValues["C"]) < originalGap)
-        assertFalse(move.rowsSettled)
-        assertFalse("The old metadata keeps sliding independently", move.outgoingMetadataCleared)
-        val top = y("ordinary-metadata-C")
-        assertTrue(top in 24f..539f)
-        assertTrue("XL is still approaching its resting position", kotlin.math.abs(y("heading-XL") - scene.xlTop("XL").value) > 1f)
+        assertEquals("Do not consume the preview return behind its outgoing metadata mask", originalGap, scene.headroomValues["C"])
+        assertFalse(checkNotNull(scene.transition).outgoingMetadataCleared)
+        var began = false
+        repeat(60) {
+            advance(16)
+            if (!began && checkNotNull(scene.headroomValues["C"]) < originalGap) {
+                began = true
+                assertTrue(checkNotNull(scene.transition).outgoingMetadataCleared)
+                assertTrue("The return starts before XL finishes its slide", list.isScrollInProgress)
+            }
+        }
+        assertTrue("Exercise a visible return after the travelling mask clears", began)
         frameReady.value = true
         settle()
         assertEquals(0.dp, scene.headroomValues["C"])
@@ -311,6 +344,39 @@ class ModernXlSceneTransitionTest {
     }
 
     @Test fun compactMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(false)
+    @Test fun compactMetadataRetainsItsOriginal220msFadeAfterCompleteClearance() {
+        content(start = 2, summary = false)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var firstFade = -1
+        var fullAlpha = -1
+        var landed = -1
+        var cleared = -1
+        var previousAlpha = 0f
+        var intermediate = 0
+        repeat(90) { frame ->
+            advance(16)
+            val time = (frame + 1) * 16
+            val alpha = scene.exitMetadataAlpha
+            if (scene.compactRowRested && landed < 0) landed = time
+            if ((scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f && cleared < 0) cleared = time
+            if (alpha > 0f && firstFade < 0) {
+                firstFade = time
+                assertTrue(scene.compactRowRested)
+                assertTrue((scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f)
+            }
+            if (alpha in 0.001f..0.999f) intermediate++
+            if (alpha >= 1f && fullAlpha < 0) fullAlpha = time
+            assertTrue("The prepared block must retain a gradual fade, not jump to full alpha", alpha - previousAlpha < 0.2f)
+            previousAlpha = alpha
+        }
+        assertTrue("Keep metadata hidden until both landing and complete XL clearance", firstFade >= maxOf(landed, cleared))
+        assertTrue("Do not add a new fade debounce after clearance", firstFade - maxOf(landed, cleared) in 0..48)
+        println("COMPACT_FADE landed=$landed cleared=$cleared first=$firstFade opaque=$fullAlpha partialFrames=$intermediate")
+        assertTrue("Retain the 220ms fade with normal frame quantization", fullAlpha - firstFade in 176..256)
+        assertTrue("The native clock observes the fade over several frames", intermediate >= 10)
+        settle()
+    }
+
     @Test fun summaryMetadataIsPreparedOpaqueAndSlidesInWithItsRow() {
         content(start = 2, summary = true)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
@@ -620,9 +686,9 @@ class ModernXlSceneTransitionTest {
         // The preceding XL row was correctly virtualized while off screen.
         advance(32)
         val oldTop = y("ordinary-metadata-C")
-        val destinationTop = y("heading-XL")
+        val outgoingRowTop = y("heading-C")
         advance(80)
-        assertEquals(y("heading-XL") - destinationTop, y("ordinary-metadata-C") - oldTop, 2f)
+        assertEquals(y("heading-C") - outgoingRowTop, y("ordinary-metadata-C") - oldTop, 2f)
         settle()
         assertEquals("XL", scene.selection?.rowKey)
         assertEquals(0, metadataCount())
@@ -687,20 +753,24 @@ class ModernXlSceneTransitionTest {
         val meta = y("ordinary-metadata-C")
         advance(80)
         assertEquals(y("heading-C") - header, y("ordinary-metadata-C") - meta, 2f)
-        advance(144)
-        assertTrue("The field arrives before the row stops", list.isScrollInProgress)
-        val bounds = compose.onNodeWithTag("ordinary-metadata-C", true).fetchSemanticsNode().boundsInRoot
         var brightest = 0
-        compose.runOnUiThread {
-            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
-            val image = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
-            view.draw(android.graphics.Canvas(image))
-            for (y in bounds.top.toInt().coerceAtLeast(0) until bounds.bottom.toInt().coerceAtMost(image.height))
-                for (x in bounds.left.toInt().coerceAtLeast(0) until bounds.right.toInt().coerceAtMost(image.width))
-                    brightest = maxOf(brightest, android.graphics.Color.red(image.getPixel(x, y)))
-            image.recycle()
+        repeat(18) {
+            advance(16)
+            assertEquals("Prepared summary metadata has no alpha ramp", 1f, scene.exitMetadataAlpha, 0f)
+            if (list.isScrollInProgress) {
+                val bounds = compose.onNodeWithTag("ordinary-metadata-C", true).fetchSemanticsNode().boundsInRoot
+                compose.runOnUiThread {
+                    val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+                    val image = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+                    view.draw(android.graphics.Canvas(image))
+                    for (y in bounds.top.toInt().coerceAtLeast(0) until bounds.bottom.toInt().coerceAtMost(image.height))
+                        for (x in bounds.left.toInt().coerceAtLeast(0) until bounds.right.toInt().coerceAtMost(image.width))
+                            brightest = maxOf(brightest, android.graphics.Color.red(image.getPixel(x, y)))
+                    image.recycle()
+                }
+            }
         }
-        assertTrue("Already prepared metadata enters fully bright", brightest >= 245)
+        assertTrue("Already prepared metadata enters fully bright during the longer row slide", brightest >= 245)
         settle()
         assertEquals(260f, y("heading-C"), 2f)
         assertEquals(1, metadataCount())
@@ -776,9 +846,9 @@ class ModernXlSceneTransitionTest {
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(32)
         val meta = y("ordinary-metadata-C")
-        val poster = y("heading-XL")
+        val outgoingRowTop = y("heading-C")
         advance(80)
-        assertEquals(y("heading-XL") - poster, y("ordinary-metadata-C") - meta, 2f)
+        assertEquals(y("heading-C") - outgoingRowTop, y("ordinary-metadata-C") - meta, 2f)
         settle()
         assertEquals("XL", scene.selection?.rowKey)
         assertEquals(0, metadataCount())
@@ -863,13 +933,34 @@ class ModernXlSceneTransitionTest {
     private fun verifyNoExitStall(summary: Boolean) {
         content(start = 2, summary = summary)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
+        fun paintedBottom(): Int {
+            var bottom = -1
+            compose.runOnUiThread {
+                val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+                val image = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+                view.draw(android.graphics.Canvas(image))
+                for (y in 0 until image.height) if (image.getPixel(700, y) == android.graphics.Color.MAGENTA) bottom = y
+                image.recycle()
+            }
+            return bottom
+        }
         var previous = checkNotNull(scene.outgoingXlBottom(list.layoutInfo))
+        var painted = paintedBottom()
+        var paintStarted = false
+        var paintedFrames = 0
         var started = false
         var checked = 0
         repeat(30) {
             advance(16)
             val edge = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
-            if (previous - edge > 1f) started = true
+            val nextPainted = paintedBottom()
+            if (nextPainted < painted) paintStarted = true
+            if (paintStarted && nextPainted > 40) {
+                assertTrue("The actual painted XL image cannot pause at focus handoff: edge=$nextPainted previous=$painted", nextPainted < painted)
+                paintedFrames++
+            }
+            painted = nextPainted
+            if (previous - edge > 0f) started = true
             if (started && edge > 40f) {
                 assertTrue("After motion begins it cannot pause for focus: edge=$edge previous=$previous", edge < previous)
                 checked++
@@ -877,6 +968,7 @@ class ModernXlSceneTransitionTest {
             previous = edge
         }
         assertTrue("Exercise multiple moving frames before XL clears", checked > 4)
+        assertTrue("Exercise the actual painted landscape edge", paintedFrames > 4)
         settle()
     }
     @Test fun compactExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(false)

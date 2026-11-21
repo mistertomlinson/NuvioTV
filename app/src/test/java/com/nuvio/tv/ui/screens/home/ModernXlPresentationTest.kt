@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.*
@@ -454,6 +455,41 @@ class ModernXlPresentationTest {
         compose.waitForIdle()
         compose.onNodeWithText("Above").assertIsDisplayed()
         assertEquals("Activating the prepared hero must preserve its existing composition", original, tokens["Above"])
+        assertEquals(2, sequence)
+        assertTrue(brightness(90, 90) > 240)
+    }
+
+    @Test fun preparedMetadataKeepsItsLayoutHostUntilTheBoundaryAndFadeFinish() {
+        val neighbors = listOf(snapshot("Above"), snapshot("Below"))
+        val active = mutableStateOf<XlMetadataSnapshot?>(null)
+        val keep = mutableStateOf(true)
+        var host: androidx.compose.ui.layout.LayoutCoordinates? = null
+        var sequence = 0
+        val tokens = mutableMapOf<String, Int>()
+        content {
+            Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
+                XlMetadataHost(XlMetadataSlot(active.value?.rowKey ?: "XL", 1), active.value,
+                    if (active.value == null) neighbors else emptyList(), 1,
+                    Modifier.width(430.dp).onGloballyPositioned { host = it },
+                    retainPreparedLayout = keep.value) { item, visible ->
+                    val token = remember { ++sequence }
+                    SideEffect { tokens[item.rowKey] = token }
+                    Box(Modifier.size(100.dp).background(if (visible) Color.White else Color.Red))
+                }
+            }
+        }
+        val preparedHost = checkNotNull(host)
+        val token = tokens["Above"]
+        compose.runOnIdle { active.value = neighbors.first() }
+        compose.waitForIdle()
+        assertSame("Promoting hidden metadata must not replace the layout host during scrolling/fading", preparedHost, host)
+        assertEquals(token, tokens["Above"])
+        assertEquals(2, sequence)
+        assertTrue(brightness(90, 90) > 240)
+        compose.runOnIdle { keep.value = false }
+        compose.waitForIdle()
+        assertNotSame("Ordinary rows recover their simple host only after the boundary", preparedHost, host)
+        assertEquals(token, tokens["Above"])
         assertEquals(2, sequence)
         assertTrue(brightness(90, 90) > 240)
     }

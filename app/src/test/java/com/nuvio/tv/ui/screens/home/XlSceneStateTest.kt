@@ -257,12 +257,15 @@ class XlSceneStateTest {
         scene.verticalLauncher = { launched += it }
         val next = selection("C", 2)
         val layout = positionedLayout("XL" to 54, "C" to 500)
+        scene.armBoundaryFocus()
         scene.focus(next, layout, focusConfirmed = false)
+        assertTrue(scene.boundaryFocusArmed)
         assertNotNull(scene.verticalMotion)
         assertTrue(launched.isEmpty())
         scene.confirmFocus("another-row")
         assertTrue(launched.isEmpty())
         scene.confirmFocus("C")
+        assertFalse(scene.boundaryFocusArmed)
         assertEquals(1, launched.size)
         scene.focus(next, layout, focusConfirmed = false)
         scene.confirmFocus("C")
@@ -319,4 +322,44 @@ class XlSceneStateTest {
         scene.focus(selection("C", 2), layout())
         assertEquals(before, scene.followingHeadroom("XL", "C", 1f, true))
     }
+    @Test fun `XL-only pages use an ordinary-sized reference in physical pixels`() {
+        val scene = XlSceneState(selection("XL", 0, true))
+        scene.density = 2f
+        scene.estimatedOrdinaryHeight = 240.dp
+        scene.rowHeights["XL"] = 520.dp
+        scene.rowHeights["Next XL"] = 620.dp
+        scene.focus(selection("Next XL", 1, true), positionedLayout("XL" to 100, "Next XL" to 900))
+        assertEquals("Taller XL geometry cannot become the reference speed", 528f,
+            checkNotNull(scene.verticalMotion).ordinaryStridePx, 0.01f)
+    }
+
+    @Test fun `both directions through XL use the measured ordinary row stride`() {
+        val xl = selection("XL", 1, true)
+        val normal = selection("C", 2)
+        val scene = XlSceneState(normal)
+        scene.rowHeights["C"] = 180.dp
+        val layout = positionedLayout("XL" to -300, "C" to 260)
+        scene.focus(xl, layout)
+        assertEquals(204f, checkNotNull(scene.verticalMotion).ordinaryStridePx, 0.01f)
+        scene.focus(normal, positionedLayout("XL" to 54, "C" to 700))
+        assertEquals(204f, checkNotNull(scene.verticalMotion).ordinaryStridePx, 0.01f)
+    }
+
+    @Test fun `actual focus rebuilds motion when logical selection preceded row measurement`() {
+        val scene = XlSceneState(selection("A", 1))
+        val xl = selection("XL", 2, true, false)
+        val launched = mutableListOf<XlVerticalMotion>()
+        scene.verticalLauncher = { launched += it }
+        scene.rowHeights["A"] = 240.dp
+        scene.focus(xl, layout(), focusConfirmed = false)
+        assertNotNull(scene.transition)
+        assertNull("The recycled row is not measured yet", scene.verticalMotion)
+        scene.focus(xl, positionedLayout("A" to 0, "XL" to 500), focusConfirmed = true)
+        assertNotNull("Actual focus must retry with the newly measured destination", scene.verticalMotion)
+        assertEquals(1, launched.size)
+        assertEquals(264f, launched.single().ordinaryStridePx, 0.01f)
+        scene.confirmFocus("XL", positionedLayout("A" to 0, "XL" to 500))
+        assertEquals("The late-measurement retry cannot start another owner", 1, launched.size)
+    }
+
 }

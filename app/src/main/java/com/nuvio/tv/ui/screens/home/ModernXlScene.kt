@@ -121,6 +121,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var previewReturn by mutableStateOf<XlPreviewReturn?>(null)
         internal set
     private var confirmedRowKey: String? = null
+    var boundaryFocusArmed: Boolean = false
+        private set
+    fun armBoundaryFocus() { boundaryFocusArmed = true }
+    fun clearBoundaryFocusIntent() { boundaryFocusArmed = false }
     private var launchedMotionId = -1
     val metadataHeights = mutableStateMapOf<String, Float>()
     var metadataEpoch by mutableIntStateOf(0)
@@ -150,6 +154,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     val summaryRowHeights = mutableStateMapOf<String, Dp>()
     var screenHeight by mutableStateOf(540.dp)
     var fullWidthIcons by mutableStateOf(false)
+    var estimatedOrdinaryHeight by mutableStateOf(240.dp)
     var estimatedXlHeight by mutableStateOf(440.dp)
     var ordinaryTop by mutableStateOf(260.dp)
     var metadataRestingTop by mutableStateOf(54.dp)
@@ -186,7 +191,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         verticalJob = null
     }
 
-    fun confirmFocus(rowKey: String) {
+    fun confirmFocus(rowKey: String, layout: LazyListLayoutInfo? = null, rows: List<HeroCarouselRow> = emptyList()) {
+        boundaryFocusArmed = false
+        // A recycled destination can be absent during logical selection and
+        // become measurable only when its card receives actual focus.
+        if (verticalMotion == null && layout != null) transition?.takeIf {
+            it.to.rowKey == rowKey && !it.rowsSettled
+        }?.let { prepareVerticalMotion(it, layout, rows, focusConfirmed = false) }
         confirmedRowKey = rowKey
         launchConfirmedMotion()
     }
@@ -203,6 +214,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     } == true || previewReturn?.rowKey == rowKey
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
+        clearBoundaryFocusIntent()
         cancelVerticalMotion()
         interruptedRelocation = null
         previewReturn?.let { headroomMoving[it.rowKey] = false }
@@ -292,7 +304,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         }
         selection = next
         if (previous?.rowKey == next.rowKey) {
-            if (focusConfirmed) confirmFocus(next.rowKey)
+            if (focusConfirmed) confirmFocus(next.rowKey, layout, rows)
             return
         }
         // Once an XL exit reaches a second ordinary row, that hero resumes the
@@ -349,8 +361,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 headroomMoving[it.key] = true
             }
         }
-        val cwEntry = previous.rowKey == "continue_watching" && next.isXl && next.rowIndex == previous.rowIndex + 1
-        if (previous.isXl && !next.isXl || cwEntry) {
+        prepareVerticalMotion(move, layout, rows, focusConfirmed)
+    }
+
+    private fun prepareVerticalMotion(move: XlSceneTransition, layout: LazyListLayoutInfo,
+        rows: List<HeroCarouselRow>, focusConfirmed: Boolean) {
+        val previous = move.from
+        val next = move.to
+        if (previous.isXl || next.isXl) {
             val owner = layout.visibleItemsInfo.firstOrNull { it.key == next.rowKey }
             val previousOwner = layout.visibleItemsInfo.firstOrNull { it.key == previous.rowKey }
             val from = headroomValues[next.rowKey] ?: 0.dp
@@ -358,13 +376,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 ?: if (previousOwner != null && next.rowIndex == previous.rowIndex - 1) {
                     rowHeights[next.rowKey]?.let { height -> previousOwner.offset + layout.beforeContentPadding -
                         24f * density - (height.value + from.value) * density }
-                } else if (previousOwner != null && cwEntry) {
+                } else if (previousOwner != null && next.rowIndex == previous.rowIndex + 1) {
                     (previousOwner.offset + layout.beforeContentPadding + previousOwner.size + 24f * density)
                 } else null
             if (ownerTop != null) {
                 val to = when {
                     move.downwardExit -> followingHeadroom(previous.rowKey, next.rowKey, density, clearXl = true)
-                    cwEntry -> (xlTop(next.rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                    next.isXl && next.rowIndex > 0 -> (xlTop(next.rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
                     else -> from
                 }
                 val header = headerHeights[next.rowKey] ?: 40f * density
@@ -375,7 +393,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     XlGapMotion(previous.rowKey, headroomValues[previous.rowKey] ?: 0.dp, 0.dp) else null
                 if (kotlin.math.abs(scroll) > 0.5f) {
                     heldHeadroomGoals[next.rowKey] = to
-                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll, move.compactExit, secondary)
+                    val ordinary = when {
+                        !previous.isXl -> previous.rowKey
+                        !next.isXl -> next.rowKey
+                        else -> rows.withIndex().filter { !it.value.isXl }
+                            .minByOrNull { kotlin.math.abs(it.index - next.rowIndex) }?.value?.key
+                    }
+                    val stride = ((ordinary?.let { rowHeights[it] } ?: estimatedOrdinaryHeight) + 24.dp).value * density
+                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll, move.compactExit, secondary, stride)
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }
@@ -493,15 +518,18 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
 }
 
 /** Keep the hero's empty space attached to its row; never uncover an older row behind it. */
+@Composable
 internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListState, enabled: Boolean,
-    ordinaryTop: Dp): Modifier = drawWithContent {
-    val mask = xlSceneMetadataMask(scene, list.layoutInfo, enabled, ordinaryTop.toPx(), density, size.height)
+    ordinaryTop: Dp): Modifier {
+    val mask by rememberHomePosterMask(scene, list, enabled, ordinaryTop)
+    return drawWithContent {
     clipRect {
         val top = mask?.first?.coerceAtLeast(0f) ?: 0f
         val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
         if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
             this@drawWithContent.drawContent()
         } else this@drawWithContent.drawContent()
+    }
     }
 }
 
@@ -572,8 +600,8 @@ internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
     val id = move?.id
     LaunchedEffect(scene, list, id) {
         if (move?.to?.isXl != true) return@LaunchedEffect
-        // Start the preview's normal tween with Up entry. Its old metadata
-        // continues downward with XL, independently of the contracting gap.
+        // Release the expansion flag early; the scene-owned preview retains
+        // its actual gap until the outgoing metadata mask has cleared.
         if (move.earlyPreviewReturn) scene.startPreviewReturn(move.id)
         snapshotFlow { scene.outgoingMetadataOffscreen(list.layoutInfo) }.first { it }
         scene.releasePreviewGap(move.id)
@@ -866,7 +894,8 @@ internal fun ModernXlAwareHeroTitleBlock(
         activeSnapshot = snapshot,
         neighbors = if (enabled && selected?.isXl == true) adjacentMetadata else emptyList(),
         nextEpoch = scene.metadataEpoch + 1,
-        modifier = modifier.zIndex(1f)
+        modifier = modifier.zIndex(1f),
+        retainPreparedLayout = enabled && (move != null || fast != null)
     ) { active, isActive ->
         HeroTitleBlock(
             preview = active.preview,

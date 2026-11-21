@@ -1,10 +1,13 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateTo
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.BringIntoViewSpec
@@ -16,17 +19,15 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
-internal const val XL_VERTICAL_EXIT_MS = 360
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
-    val secondaryGap: XlGapMotion? = null)
+    val secondaryGap: XlGapMotion? = null, val ordinaryStridePx: Float = 264f)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -76,11 +77,22 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         val fromPx = (active.fromGap.value * scene.density).roundToInt()
                         val toPx = (active.toGap.value * scene.density).roundToInt()
                         val visiblePx = active.scrollPx - (toPx - fromPx)
+                        // Derive the travel time from the ordinary spring's
+                        // half-pixel stop. A stretched spring front-loads too
+                        // much XL movement; use an eased, distance-paced curve
+                        // so its visible exit does not race into a hidden tail.
+                        val reference = minOf(abs(active.scrollPx), active.ordinaryStridePx).coerceAtLeast(1f)
+                        val paceSpec = (animation as? SpringSpec<Float>)?.let {
+                            SpringSpec(it.dampingRatio, it.stiffness, 0.5f)
+                        } ?: animation
+                        val referenceNanos = TargetBasedAnimation(paceSpec, Float.VectorConverter, 0f, reference).durationNanos
+                        val durationMillis = ((referenceNanos / 1_000_000f) *
+                            (abs(active.scrollPx) / reference).coerceAtLeast(1f)).roundToInt().coerceAtLeast(1)
                         AnimationState(0f).animateTo(active.scrollPx,
-                            animationSpec = tween(XL_VERTICAL_EXIT_MS, easing = FastOutSlowInEasing)) {
+                            animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) {
                             if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
-                            val travel = value.coerceIn(minOf(0f, active.scrollPx), maxOf(0f, active.scrollPx)).roundToInt()
-                            val fraction = if (active.scrollPx == 0f) 1f else (travel / active.scrollPx).coerceIn(0f, 1f)
+                            val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
+                            val travel = (active.scrollPx * fraction).roundToInt()
                             val gapPx = if (active.compact) fromPx +
                                 (travel - visiblePx).roundToInt().coerceIn(0, (toPx - fromPx).coerceAtLeast(0))
                                 else (fromPx + (toPx - fromPx) * fraction).roundToInt()
@@ -91,6 +103,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             scrollBy(travel - previous)
                             previous = travel.toFloat()
                             if (active.compact && travel >= visiblePx) scene.compactRowRested = true
+                            if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
                         }
                         scene.headroomValues[active.rowKey] = active.toGap
                         active.secondaryGap?.let { scene.headroomValues[it.rowKey] = it.to }
@@ -134,19 +147,11 @@ internal fun AnimateXlPreviewReturn(scene: XlSceneState, list: LazyListState) {
         }
         scene.headroomMoving[preview.rowKey] = true
         try {
-            coroutineScope {
-                val initial = scene.headroomValues[preview.rowKey]?.value ?: 0f
-                val early = launch {
-                    if (scene.transition?.earlyPreviewReturn != true) return@launch
-                    androidx.compose.animation.core.animate(initial, 0f, animationSpec = tween(360)) { value, _ ->
-                        if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
-                        scene.headroomValues[preview.rowKey] = value.dp
-                    }
-                }
-                androidx.compose.runtime.snapshotFlow { scene.outgoingMetadataOffscreen(list.layoutInfo) }.first { it }
-                early.cancelAndJoin()
-                scene.releasePreviewGap(preview.id)
-            }
+            // Keep the outgoing row attached to its metadata until that scene
+            // clears. Closing this gap behind its mask consumes the visible
+            // animation and reveals a preview that has already landed.
+            androidx.compose.runtime.snapshotFlow { scene.outgoingMetadataOffscreen(list.layoutInfo) }.first { it }
+            scene.releasePreviewGap(preview.id)
             val finalTop = (scene.xlTop(preview.xlKey).value +
                 (scene.rowHeights[preview.xlKey] ?: scene.estimatedXlHeight).value + 24f) * scene.density
             val currentTop = baseTop()?.plus((scene.headroomValues[preview.rowKey]?.value ?: 0f) * scene.density)
@@ -155,6 +160,14 @@ internal fun AnimateXlPreviewReturn(scene: XlSceneState, list: LazyListState) {
             androidx.compose.animation.core.animate(start, finalTop, animationSpec = tween(360)) { top, _ ->
                 if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
                 baseTop()?.let { base -> scene.headroomValues[preview.rowKey] = ((top - base) / scene.density).coerceAtLeast(0f).dp }
+            }
+            // If the longer XL entry is still moving, hold the visible preview
+            // at its destination until the underlying row catches up. Do not
+            // force its remaining gap to zero while the list is in flight.
+            while (list.isScrollInProgress) {
+                withFrameNanos { }
+                if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
+                baseTop()?.let { base -> scene.headroomValues[preview.rowKey] = ((finalTop - base) / scene.density).coerceAtLeast(0f).dp }
             }
             scene.headroomValues[preview.rowKey] = 0.dp
         } finally {
@@ -178,7 +191,7 @@ internal fun rememberHomeVerticalScrollSpec(scene: XlSceneState, hasXlRows: Bool
         object : BringIntoViewSpec {
             override val scrollAnimationSpec: AnimationSpec<Float> = default.scrollAnimationSpec
             override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-                if (latestFastScrolling() || scene.verticalMotion != null) return 0f
+                if (latestFastScrolling() || scene.boundaryFocusArmed || scene.verticalMotion != null) return 0f
                 val selected = scene.selection
                 val anchor = with(density) {
                     if (!hasXlRows) 40.dp.toPx()
