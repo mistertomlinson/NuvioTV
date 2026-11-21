@@ -63,9 +63,11 @@ class XlBackdropCacheTest {
             activity.get().setContent {
                 LaunchedEffect(Unit) {
                     try {
-                        val request = xlBlurredBackdropRequest(context, source.toURI().toString()).newBuilder().transformations(counting).build()
-                        assertTrue(loader.execute(request) is SuccessResult)
-                        second = loader.execute(request) as SuccessResult
+                        val preload = checkNotNull(homeBackdropPreloadRequest(context,
+                            HomeBackdropArtwork(source.toURI().toString(), true), 1920, 1080))
+                            .newBuilder().transformations(counting).build()
+                        assertTrue(loader.execute(preload) is SuccessResult)
+                        second = loader.execute(xlBlurredBackdropRequest(context, source.toURI().toString())) as SuccessResult
                     } catch (error: Throwable) { failure = error }
                 }
             }

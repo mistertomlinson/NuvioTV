@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.unit.dp
 import org.junit.After
@@ -139,5 +141,52 @@ class XlBackdropDissolveTest {
         advance(240)
         assertEquals(1, activeFrames.size)
         assertEquals(android.graphics.Color.RED, pixel())
+    }
+
+    @Test fun cachingTheCompleteXlFramePreservesItsLighterGradientThroughPlatformTransforms() {
+        val opacity = mutableFloatStateOf(1f)
+        val travel = mutableFloatStateOf(0f)
+        compose.runOnUiThread {
+            activity = Robolectric.buildActivity(ComponentActivity::class.java).setup()
+            activity.get().setContent {
+                val transition = rememberModernHeroBackdropTransition("tint", 1f, false, true, true, 160, 90)
+                val artwork: @Composable () -> Unit = {
+                    Box(Modifier.fillMaxSize().background(Color(0.85f, 0.35f, 0.15f)))
+                    ModernHeroGradientLayer(Color.Black, false, 0f, Modifier.fillMaxSize(),
+                        cinematicMode = true, opacity = XL_BLUR_GRADIENT_OPACITY)
+                }
+                Box(Modifier.width(960.dp).height(540.dp).background(Color.White)) {
+                    for (cached in listOf(false, true)) {
+                        Box(Modifier.offset(x = if (cached) 480.dp else 0.dp).width(440.dp).height(270.dp)
+                            .clipToBounds().graphicsLayer {
+                                alpha = opacity.floatValue
+                                translationX = travel.floatValue
+                            }) {
+                            if (cached) XlBackdropDissolve(transition, 220) { _, _ -> artwork() }
+                            else artwork()
+                        }
+                    }
+                }
+            }
+        }
+        compose.waitForIdle()
+        for ((shift, alpha) in listOf(0f to 1f, -12f to 0.65f, 12f to 1f, 0f to 0.25f, 0f to 1f)) {
+            compose.runOnIdle { travel.floatValue = shift; opacity.floatValue = alpha }
+            compose.waitForIdle()
+            compose.runOnUiThread {
+                val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+                val image = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                view.draw(Canvas(image))
+                for (y in 16..254 step 17) for (x in 24..412 step 19) for (channel in listOf(0, 8, 16)) {
+                    val reference = image.getPixel(x, y) ushr channel and 255
+                    val cached = image.getPixel(x + 480, y) ushr channel and 255
+                    assertEquals("Cache must preserve the per-draw tint at $x,$y shift=$shift alpha=$alpha",
+                        reference.toDouble(), cached.toDouble(), 2.0)
+                }
+                assertTrue("The reference includes visible artwork as well as overlapping gradients",
+                    android.graphics.Color.red(image.getPixel(400, 40)) > 50)
+                image.recycle()
+            }
+        }
     }
 }

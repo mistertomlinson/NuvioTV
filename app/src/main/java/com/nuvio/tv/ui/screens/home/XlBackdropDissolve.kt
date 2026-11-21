@@ -100,7 +100,13 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
         key(layer) {
             remember(layer) {
                 movableContentOf {
-                    Box(Modifier.fillMaxSize().graphicsLayer { alpha = layer.alpha.value }) {
+                    Box(Modifier.fillMaxSize().graphicsLayer {
+                        // Keep the complete image + its lighter gradient rasterized
+                        // at alpha 1 too, while the platform/rows move around it.
+                        // Tint remains inside this cache, preserving per-draw alpha.
+                        compositingStrategy = CompositingStrategy.Offscreen
+                        alpha = layer.alpha.value
+                    }) {
                         latestContent(layer.frame) { layer.ready = true }
                     }
                 }

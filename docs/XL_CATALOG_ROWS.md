@@ -1,11 +1,11 @@
 # XL catalog rows
 
-Diagnostic Modern Home presentation on `diag/xl-scroll-investigation-20261121`,
-based on No-Edge-Fade (`71c6839f`, latest v13 with the original hard poster
-viewport restored). This comparison additionally restores v6
-`CompositingStrategy.Offscreen` for ordinary backdrop gradients, removed in v9.
-XL's lighter gradient retains ModulateAlpha. It is not a confirmed fix for
-physical TV scrolling performance.
+Modern Home XL entry comparison on `perf/xl-backdrop-entry-cache-20261121`,
+based on `1d16b6a1`. Restoring the ordinary gradient's v6 rendering layer has
+been confirmed smooth on the user's TV for normal rows. This revision retains
+that fix and the hard poster viewport, then caches complete XL backdrop frames
+and prepares the actual sharp/blurred destination variant before entry.
+Further XL performance improvement still requires TV testing.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -189,8 +189,9 @@ the screen in either trailer-layout mode. The ordinary hero's left/bottom
 gradient now shades each blurred frame as an experiment controlled by
 `XL_BLUR_GRADIENT_PREVIEW`; disabling that switch removes only this shading.
 Only blurred frames use the modestly lighter 0.92 gradient opacity; ordinary
-backdrops retain their existing gradient strength. Alpha modulation avoids a
-new full-screen offscreen surface for this static shading adjustment.
+backdrops retain their existing gradient strength. Per-draw alpha modulation preserves the lighter tint. The existing XL frame
+layer retains the complete image/gradient in an offscreen surface at full
+opacity too, so moving/fading the page can reuse that rasterized composite.
 The gradient dissolves with its own image rather than changing after it lands. The fixed blur runs on one background CPU lane, with cancellation checks
 between scanlines. It cannot grow with a full-size decode or tall poster fallback.
 Coil caches this separately from the original image; no sharp placeholder is
@@ -203,6 +204,16 @@ retaining 5% overhang on each side. The outer canvas applies platform parallax
 once, so the image cannot consume that overhang through duplicate translation.
 No live GPU blur or animated blur radius is attached
 to scrolling artwork, text, trailers or controls.
+
+Platform entry, idle platform warming and the existing small vertical-neighbor
+window select the actual artwork variant: XL uses the landscape artwork and
+its renderer's exact cached 160x90 blur request; ordinary rows keep sharp hero
+render dimensions. A sharp cache entry is not treated as a prepared blur.
+Platform entry joins that matching preload under the outgoing captured page,
+using the existing timeout and timings. Idle warming remains serial, pauses
+through pending/active platform transitions and row scrolling, and is keyed by
+URL plus variant; live XL preference updates are
+read when selecting a destination. No wider preload window is added.
 
 Horizontal XL changes have **no idle/debounce timer**. The selected destination's
 landscape and blurred background are prepared concurrently, with obsolete loads

@@ -3310,47 +3310,31 @@ fun ModernHomeContent(
                 val row = latestCarouselRows[rowIndex]
                 if (verticalScrolling && !row.isXl) return@collectLatest
 
-                val urls = buildList {
-                    row.items.getOrNull(index + 1)?.takeUnless { row.isXl }?.heroPreview?.let {
-                        firstNonBlank(it.backdrop, it.imageUrl)
-                    }?.takeIf { it.isNotBlank() }?.let(::add)
+                val artworks = buildList {
+                    row.items.getOrNull(index + 1)?.takeUnless { row.isXl }
+                        ?.backdropPreloadArtwork(false)?.let(::add)
 
                     val belowRow = latestCarouselRows.getOrNull(rowIndex + 1)
                     if (belowRow != null && belowRow.items.isNotEmpty()) {
                         val rememberedIndex = (focusedItemByRow[belowRow.key] ?: 0)
                             .coerceIn(0, belowRow.items.lastIndex)
-                        belowRow.items.getOrNull(rememberedIndex)?.heroPreview?.let {
-                            firstNonBlank(it.backdrop, it.imageUrl)
-                        }?.takeIf { it.isNotBlank() }?.let(::add)
+                        belowRow.items[rememberedIndex].backdropPreloadArtwork(belowRow.isXl)?.let(::add)
                     }
-                    // An XL exit has no settle delay. Its preceding row can be
-                    // cold after a restore or platform switch, so warm both
-                    // vertical destinations at the actual hero render size.
+                    // XL exits are immediate; warm the remembered item above too.
                     if (row.isXl) {
                         val aboveRow = latestCarouselRows.getOrNull(rowIndex - 1)
                         if (aboveRow != null && aboveRow.items.isNotEmpty()) {
                             val rememberedIndex = (focusedItemByRow[aboveRow.key] ?: 0).coerceIn(0, aboveRow.items.lastIndex)
-                            aboveRow.items[rememberedIndex].heroPreview.let {
-                                firstNonBlank(it.backdrop, it.imageUrl)
-                            }?.takeIf { it.isNotBlank() }?.let(::add)
+                            aboveRow.items[rememberedIndex].backdropPreloadArtwork(aboveRow.isXl)?.let(::add)
                         }
                     }
                 }.distinct()
                 kotlinx.coroutines.coroutineScope {
-                    urls.forEach { url ->
+                    artworks.forEach { artwork ->
                         launch {
                             try {
-                                prewarmImageLoader.execute(
-                                    coil.request.ImageRequest.Builder(context)
-                                        .data(url)
-                                        .crossfade(false)
-                                        .size(
-                                            width = heroMediaWidthPx,
-                                            height = heroMediaHeightPx
-                                        )
-                                        .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                                        .build()
-                                )
+                                homeBackdropPreloadRequest(context, artwork, heroMediaWidthPx, heroMediaHeightPx)
+                                    ?.let { prewarmImageLoader.execute(it) }
                             } catch (
                                 cancelled: kotlinx.coroutines.CancellationException
                             ) {
@@ -3369,41 +3353,38 @@ fun ModernHomeContent(
             }
         }
         val latestPrefetchCatalogRows by rememberUpdatedState(uiState.catalogRows)
+        val latestPrefetchXlCatalogKeys by rememberUpdatedState(uiState.xlCatalogKeys)
 
         // Enrichment can change a platform's first backdrop URL. Warm the new
         // URLs serially at rest; cancel immediately when navigation resumes.
         LaunchedEffect(heroMediaWidthPx, heroMediaHeightPx) {
             if (heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return@LaunchedEffect
-            val warmedUrls = mutableSetOf<String>()
+            val warmedArtworks = mutableSetOf<HomeBackdropArtwork>()
             kotlinx.coroutines.flow.combine(
                 snapshotFlow {
                     latestPrefetchCatalogRows
                     .filter { it.items.isNotEmpty() && inferPlatformId(it.catalogName) != null }
                     .groupBy { inferPlatformId(it.catalogName) }
-                    .mapNotNull { (_, rows) -> rows.firstOrNull()?.items?.firstOrNull()?.backdropUrl }
-                    .filter { it.isNotBlank() }
+                    .mapNotNull { (_, rows) -> rows.firstOrNull()?.firstBackdropPreloadArtwork(latestPrefetchXlCatalogKeys) }
                     .toSet()
                 },
                 snapshotFlow {
                     verticalRowListState.isScrollInProgress ||
-                        rowListStates.values.any { it.isScrollInProgress }
+                        rowListStates.values.any { it.isScrollInProgress } ||
+                        latestSelectedPlatformId != catalogDisplayedPlatformId || isPlatformTransitioning
                 }
-            ) { urls, scrolling ->
-                urls to scrolling
-            }.collectLatest { (urls, scrolling) ->
-                if (scrolling) return@collectLatest
+            ) { artworks, busy ->
+                artworks to busy
+            }.collectLatest { (artworks, busy) ->
+                if (busy) return@collectLatest
                 delay(240L)
-                warmedUrls.retainAll(urls)
-                urls.forEach { url ->
-                    if (url in warmedUrls) return@forEach
-                    val result = prewarmImageLoader.execute(
-                        coil.request.ImageRequest.Builder(context)
-                            .data(url)
-                            .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
-                            .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                            .build()
-                    )
-                    if (result is coil.request.SuccessResult) warmedUrls.add(url)
+                warmedArtworks.retainAll(artworks)
+                artworks.forEach { artwork ->
+                    if (artwork in warmedArtworks) return@forEach
+                    val request = homeBackdropPreloadRequest(context, artwork, heroMediaWidthPx, heroMediaHeightPx)
+                        ?: return@forEach
+                    val result = prewarmImageLoader.execute(request)
+                    if (result is coil.request.SuccessResult) warmedArtworks.add(artwork)
                 }
             }
         }
@@ -4158,17 +4139,11 @@ fun ModernHomeContent(
         // still on screen so the at-black wait is a memory-cache hit and the
         // black gap stays ~1 frame cold, warm, and after idle.
         val transitionPreloadScope = androidx.compose.runtime.rememberCoroutineScope()
-        fun incomingBackdropUrl(target: String): String? = uiState.catalogRows
+        fun incomingBackdropArtwork(target: String): HomeBackdropArtwork? = latestPrefetchCatalogRows
             .firstOrNull { it.items.isNotEmpty() && inferPlatformId(it.catalogName) == target }
-            ?.items?.firstOrNull()
-            ?.let { firstNonBlank(it.backdropUrl, it.landscapePoster, it.poster) }
-        suspend fun preloadBackdrop(url: String?) {
-            if (url.isNullOrBlank() || heroMediaWidthPx <= 0 || heroMediaHeightPx <= 0) return
-            val request = coil.request.ImageRequest.Builder(context)
-                .data(url)
-                .size(width = heroMediaWidthPx, height = heroMediaHeightPx)
-                .memoryCachePolicy(coil.request.CachePolicy.ENABLED)
-                .build()
+            ?.firstBackdropPreloadArtwork(latestPrefetchXlCatalogKeys)
+        suspend fun preloadBackdrop(artwork: HomeBackdropArtwork?) {
+            val request = homeBackdropPreloadRequest(context, artwork, heroMediaWidthPx, heroMediaHeightPx) ?: return
             kotlinx.coroutines.withTimeoutOrNull(2_000L) {
                 coil.Coil.imageLoader(context).execute(request)
             }
@@ -4182,7 +4157,7 @@ fun ModernHomeContent(
             val navDir = platformNavDirectionRef.get()
             val exitDir = if (navDir >= 0) -1f else 1f
             val enterDir = -exitDir
-            var preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(initialTarget)) }
+            var preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropArtwork(initialTarget)) }
 
             // QUIET GATE — no heavy work while presses are arriving, so the
             // platform icon focus animation never fights recomposition. Waits
@@ -4201,7 +4176,7 @@ fun ModernHomeContent(
                     if (next != null) {
                         if (next != latest) {
                             preloadJob.cancel()
-                            preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(next)) }
+                            preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropArtwork(next)) }
                             latest = next
                         }
                         lastActivity = android.os.SystemClock.elapsedRealtime()
@@ -4260,7 +4235,7 @@ fun ModernHomeContent(
                 }
                 flipTo(target)
                 preloadJob.join()
-                preloadBackdrop(latestHeroBackdrop)
+                preloadBackdrop(HomeBackdropArtwork(latestHeroBackdrop, latestXlBackdrop.blurred))
 
                 // STRAGGLERS — presses that arrived during the flip re-enter the
                 // quiet gate, then re-flip invisibly under the ghost.
@@ -4269,11 +4244,11 @@ fun ModernHomeContent(
                     val settled = awaitQuiet(straggler)
                     if (settled != target) {
                         preloadJob.cancel()
-                        preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropUrl(settled)) }
+                        preloadJob = transitionPreloadScope.launch { preloadBackdrop(incomingBackdropArtwork(settled)) }
                         flipTo(settled)
                         target = settled
                         preloadJob.join()
-                        preloadBackdrop(latestHeroBackdrop)
+                        preloadBackdrop(HomeBackdropArtwork(latestHeroBackdrop, latestXlBackdrop.blurred))
                     }
                     straggler = pollRetarget?.invoke()
                 }
