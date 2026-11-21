@@ -1,8 +1,11 @@
 # XL catalog rows
 
-Diagnostic Modern Home presentation on `diag/xl-no-poster-edge-fade-20261121`,
-based on v13 (`5e4a12fa`). This comparison restores the original hard poster
-viewport; it is not a confirmed fix for physical TV scrolling performance.
+Diagnostic Modern Home presentation on `diag/xl-scroll-investigation-20261121`,
+based on No-Edge-Fade (`71c6839f`, latest v13 with the original hard poster
+viewport restored). This comparison additionally restores v6
+`CompositingStrategy.Offscreen` for ordinary backdrop gradients, removed in v9.
+XL's lighter gradient retains ModulateAlpha. It is not a confirmed fix for
+physical TV scrolling performance.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait

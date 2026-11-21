@@ -330,7 +330,9 @@ internal fun ModernHeroGradientLayer(
         }
 
     Canvas(modifier = modifier.graphicsLayer {
-        compositingStrategy = if (opacity < 1f) CompositingStrategy.ModulateAlpha else CompositingStrategy.Auto
+        // Restore the ordinary gradient's pre-v9 isolated rendering layer.
+        // XL's lighter tint keeps its existing per-draw opacity behavior.
+        compositingStrategy = if (opacity < 1f) CompositingStrategy.ModulateAlpha else CompositingStrategy.Offscreen
         alpha = (visibility?.value ?: 1f) * opacity
     }) {
         /*
