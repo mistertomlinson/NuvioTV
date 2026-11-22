@@ -1473,7 +1473,8 @@ internal fun ModernRowSection(
             LazyRow(
                 state = rowListState,
                 modifier = Modifier
-                    .homePosterFade(posterFadeViewport, row.key)
+                    .homePosterFade(posterFadeViewport, row.key,
+                        diagnosticBypassCompactLandscapeFade = useLandscapePosters)
                     .onPreviewKeyEvent { event ->
                         val native =
                             event.nativeKeyEvent

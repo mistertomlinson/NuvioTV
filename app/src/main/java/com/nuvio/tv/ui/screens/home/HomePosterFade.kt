@@ -24,7 +24,11 @@ private val hiddenPoster = PosterFadeGeometry(0f, Float.POSITIVE_INFINITY, Float
 
 /** Only the narrow feather strip needs a surface; both draws reuse the poster display list. */
 @Composable
-internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?, rowKey: String): Modifier {
+internal fun Modifier.homePosterFade(
+    viewport: HomePosterFadeViewport?,
+    rowKey: String,
+    diagnosticBypassCompactLandscapeFade: Boolean = false
+): Modifier {
     if (viewport == null) return this
     val density = LocalDensity.current
     val mask by rememberHomePosterMask(viewport.scene, viewport.list, viewport.enabled, viewport.ordinaryTop)
@@ -62,27 +66,37 @@ internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?, rowKey: 
         val fadeHeight = HOME_POSTER_FADE_HEIGHT.toPx()
         val overhang = 48.dp.toPx()
         onDrawWithContent {
-            val edge = geometry
-            when {
-                edge == null -> drawContent()
-                edge === hiddenPoster -> Unit
-                else -> {
-                    // Fully opaque artwork needs no temporary render target.
-                    clipRect(top = edge.top, bottom = edge.end, clipOp = ClipOp.Difference) {
-                        this@onDrawWithContent.drawContent()
-                    }
-                    // Bound the destination-in operation to 20dp, not a row or
-                    // the screen. The inner graphics layer caches actual cards.
-                    clipRect(top = edge.clearUntil, bottom = edge.end) {
-                        val canvas = drawContext.canvas.nativeCanvas
-                        val saved = canvas.saveLayer(-overhang, edge.clearUntil,
-                            size.width + overhang, edge.end, null)
-                        this@onDrawWithContent.drawContent()
-                        matrix.setScale(1f, fadeHeight)
-                        matrix.postTranslate(0f, edge.clearUntil)
-                        paint.shader.setLocalMatrix(matrix)
-                        canvas.drawRect(-overhang, edge.clearUntil, size.width + overhang, edge.end, paint)
-                        canvas.restoreToCount(saved)
+            // Temporary A/B: the compact XL exit's incoming landscape row skips
+            // the feather strip's second draw and Skia DST_IN saveLayer.
+            // Geometry, focus and the existing spring remain unchanged.
+            val motion = viewport.scene.verticalMotion
+            if (diagnosticBypassCompactLandscapeFade &&
+                motion?.compact == true && motion.rowKey == rowKey &&
+                viewport.scene.transition?.compactExit == true) {
+                drawContent()
+            } else {
+                val edge = geometry
+                when {
+                    edge == null -> drawContent()
+                    edge === hiddenPoster -> Unit
+                    else -> {
+                        // Fully opaque artwork needs no temporary render target.
+                        clipRect(top = edge.top, bottom = edge.end, clipOp = ClipOp.Difference) {
+                            this@onDrawWithContent.drawContent()
+                        }
+                        // Bound the destination-in operation to 20dp, not a row
+                        // or the screen. The inner graphics layer caches cards.
+                        clipRect(top = edge.clearUntil, bottom = edge.end) {
+                            val canvas = drawContext.canvas.nativeCanvas
+                            val saved = canvas.saveLayer(-overhang, edge.clearUntil,
+                                size.width + overhang, edge.end, null)
+                            this@onDrawWithContent.drawContent()
+                            matrix.setScale(1f, fadeHeight)
+                            matrix.postTranslate(0f, edge.clearUntil)
+                            paint.shader.setLocalMatrix(matrix)
+                            canvas.drawRect(-overhang, edge.clearUntil, size.width + overhang, edge.end, paint)
+                            canvas.restoreToCount(saved)
+                        }
                     }
                 }
             }
