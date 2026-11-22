@@ -451,6 +451,25 @@ class ModernXlSceneTransitionTest {
         assertEquals(1f, scene.exitMetadataAlpha, 0f)
     }
 
+    @Test fun rapidDownThroughCompactXlDoesNotCarryMetadataFromRowAbove() {
+        content(start = 1, summary = false)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val entering = checkNotNull(scene.transition)
+        assertEquals("A", entering.from.rowKey)
+        assertEquals("XL", entering.to.rowKey)
+        assertEquals("A", entering.outgoingMetadata?.rowKey)
+        advance(32)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val exiting = checkNotNull(scene.transition)
+        assertEquals("XL", exiting.from.rowKey)
+        assertEquals("C", exiting.to.rowKey)
+        assertTrue(exiting.compactExit)
+        assertNull("Stale ordinary metadata must not overlay XL on rapid Down",
+            exiting.outgoingMetadata)
+        assertEquals(0f, scene.exitMetadataAlpha, 0f)
+        settle()
+    }
+
     @Test fun compactMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(false)
     @Test fun compactMetadataRetainsItsOriginal220msFadeAfterCompleteClearance() {
         content(start = 2, summary = false)

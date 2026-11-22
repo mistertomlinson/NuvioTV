@@ -368,7 +368,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             return
         }
         stationaryMetadata = null
-        val carrying = paintedAlpha > 0f && paintedMetadata != null &&
+        // Rapid Down through XL must not recycle the row-above metadata as
+        // outgoing XL metadata. Its layer could otherwise cross the XL poster.
+        val staleEntryMetadataOnXlDownExit =
+            previous?.isXl == true && !next.isXl && next.rowIndex > previous.rowIndex &&
+                previousMove?.to?.rowKey == previous.rowKey &&
+                paintedMetadata != null && paintedMetadata?.rowKey == previousMove?.from?.rowKey
+        val carrying = !staleEntryMetadataOnXlDownExit &&
+            paintedAlpha > 0f && paintedMetadata != null &&
             (previousMove != null && (paintedMetadata?.rowKey == previous?.rowKey ||
                 paintedMetadata?.rowKey == previousMove.outgoingMetadata?.rowKey) ||
                 heldMetadata != null && paintedMetadata?.rowKey == heldMetadata.rowKey)
