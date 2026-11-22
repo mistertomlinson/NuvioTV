@@ -6210,7 +6210,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 val correction = if (motion?.compact == true && motion.rowKey == row.key) {
                     xlScene.compactIncomingDrawCorrectionPx
                 } else 0f
-                translate(top = correction) { drawContent() }
+                translate(top = correction) { this@drawWithContent.drawContent() }
             } else Modifier) {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
             ModernRowSection(
