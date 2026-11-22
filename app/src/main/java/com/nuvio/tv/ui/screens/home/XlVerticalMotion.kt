@@ -29,12 +29,6 @@ import kotlin.math.roundToInt
 
 internal const val XL_SPRING_TIME_SCALE = 1.10f
 
-/** Draw-only correction for fractional incoming-row spring travel. */
-internal fun compactIncomingFrameCorrectionPx(visibleDistancePx: Float, fraction: Float): Float {
-    val exact = visibleDistancePx * fraction.coerceIn(0f, 1f)
-    return exact.roundToInt() - exact
-}
-
 internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
 
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
@@ -47,15 +41,10 @@ internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val
 
 /** Publish compact spacing and position in one measured frame, under the existing scroll owner. */
 internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, motion: XlVerticalMotion,
-    gapPx: Int, travelPx: Int, previousTravelPx: Float, correctionPx: Float) {
-    if (gapPx == scene.gapPx(motion.rowKey) && travelPx.toFloat() == previousTravelPx) {
-        // The fractional spring may advance while both rounded positions hold.
-        scene.compactIncomingDrawCorrectionPx = correctionPx
-        return
-    }
+    gapPx: Int, travelPx: Int, previousTravelPx: Float) {
+    if (gapPx == scene.gapPx(motion.rowKey) && travelPx.toFloat() == previousTravelPx) return
     val anchor = motion.itemAnchor
     if (anchor == null) {
-        scene.compactIncomingDrawCorrectionPx = correctionPx
         scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
         scrollBy(travelPx - previousTravelPx)
         return
@@ -64,7 +53,6 @@ internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, mo
     // otherwise reuse the previous measurement and leave the gap one pass late.
     Snapshot.withMutableSnapshot {
         scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
-        scene.compactIncomingDrawCorrectionPx = correctionPx
     }
     snapToItem(anchor.index, anchor.scrollOffset + travelPx)
 }
@@ -136,7 +124,6 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
                                 val travel = (active.scrollPx * fraction).roundToInt()
                                 val incomingTravel = (visiblePx * fraction).roundToInt()
-                                val incomingCorrectionPx = if (active.compact) compactIncomingFrameCorrectionPx(visiblePx, fraction) else 0f
                                 // The short incoming leg has its own spring range
                                 // on this same clock, rather than hitting a clamp.
                                 val gapPx = if (active.compact) fromPx + travel - incomingTravel
@@ -146,12 +133,8 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                     if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
                                         scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
                                 }
-                                if (compactScroll != null) {
-                                    compactScroll.publishCompactXlFrame(scene, active, gapPx, travel, previous, incomingCorrectionPx)
-                                } else {
-                                    if (active.compact) scene.compactIncomingDrawCorrectionPx = incomingCorrectionPx
-                                    scrollBy(travel - previous)
-                                }
+                                if (compactScroll != null) compactScroll.publishCompactXlFrame(scene, active, gapPx, travel, previous)
+                                else scrollBy(travel - previous)
                                 previous = travel.toFloat()
                                 if (active.compact && incomingTravel == visiblePx.roundToInt()) scene.compactRowRested = true
                                 if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
@@ -163,13 +146,11 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 scene.headroomValues[it.rowKey] = it.to
                         }
                         scrollBy(active.scrollPx - previous)
-                        scene.compactIncomingDrawCorrectionPx = 0f
                         scene.compactRowRested = true
                     }
                     completed = true
                 } finally {
                     if (scene.verticalMotion === active) {
-                        scene.compactIncomingDrawCorrectionPx = 0f
                         if (completed) scene.headroomValues[active.rowKey] = active.toGap
                         scene.headroomMoving[active.rowKey] = false
                         active.secondaryGap?.let {

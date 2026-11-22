@@ -335,7 +335,7 @@ class ModernXlSceneTransitionTest {
         compose.runOnUiThread {
             kotlinx.coroutines.runBlocking {
                 list.scroll(androidx.compose.foundation.MutatePriority.PreventUserInput) {
-                    lazyListScrollScope(list, this).publishCompactXlFrame(scene, motion, gap, travel, 0f, 0f)
+                    lazyListScrollScope(list, this).publishCompactXlFrame(scene, motion, gap, travel, 0f)
                     val current = list.layoutInfo.visibleItemsInfo.first { it.key == "C" }
                     measuredSize = current.size
                     measuredOffset = current.offset
