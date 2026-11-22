@@ -129,6 +129,7 @@ import kotlinx.coroutines.launch
 import android.view.KeyEvent as AndroidKeyEvent
 import kotlinx.coroutines.flow.first
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.translate
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
@@ -6200,7 +6201,17 @@ private fun EnhancedModernHomeRowsListBoundary(
             val previousRow = remember(carouselRows, row.key) {
                 carouselRows.getOrNull(carouselRows.indexOfFirst { it.key == row.key } - 1)
             }
-            Column {
+            // Correct only the compact XL exit's incoming landscape row at draw
+            // time. No additional graphics layer, focus move or layout invalidation.
+            val compactLandscapeFollower = xlSceneEnabled && !row.isXl && row.landscapePosters &&
+                previousRow?.isXl == true && !previousRow.showXlSummary
+            Column(modifier = if (compactLandscapeFollower) Modifier.drawWithContent {
+                val motion = xlScene.verticalMotion
+                val correction = if (motion?.compact == true && motion.rowKey == row.key) {
+                    xlScene.compactIncomingDrawCorrectionPx
+                } else 0f
+                translate(top = correction) { drawContent() }
+            } else Modifier) {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
             ModernRowSection(
                 row = row,

@@ -174,6 +174,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var interruptedRelocation by mutableStateOf<XlInterruptedRelocation?>(null)
     internal var rowCount = rows.size
     var compactRowRested by mutableStateOf(false)
+    // Only the incoming compact-exit follower reads this in its draw pass.
+    var compactIncomingDrawCorrectionPx by mutableFloatStateOf(0f)
+        internal set
     var exitMetadataAlpha by mutableFloatStateOf(0f)
     val heldHeadroomGoals = mutableStateMapOf<String, Dp>()
     var density by mutableFloatStateOf(1f)
@@ -222,6 +225,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun cancelVerticalMotion() {
+        compactIncomingDrawCorrectionPx = 0f
         val paint = focusPaintSignal?.second
         focusPaintSignal = null
         verticalMotion?.let { motion ->
