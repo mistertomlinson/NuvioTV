@@ -71,7 +71,7 @@ class ModernXlSceneTransitionTest {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false) {
+    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false) {
         rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A"), row("XL", 2, true, summary), row("C", 3), row("D", 4))
         scene = XlSceneState(rows[start].sceneSelection(0, start), rows).apply {
             fullWidthIcons = fullWidth
@@ -124,11 +124,13 @@ class ModernXlSceneTransitionTest {
                                             }
                                         }) {
                                         Text(row.title, Modifier.onSizeChanged { scene.headerHeights[row.key] = it.height.toFloat() }.height(header.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
+                                        val paintedFocus = if (paintFocusedState) remember { mutableStateOf(false) } else null
                                         Box(Modifier.padding(start = 52.dp).width(700.dp)
                                             .height(if (row.isXl) 244.dp else 200.dp)
-                                            .background(if (row.isXl) Color.Magenta else Color.Blue)
+                                            .background(if (paintedFocus?.value == true) Color.Cyan else if (row.isXl) Color.Magenta else Color.Blue)
                                             .focusRequester(requesters[index])
                                             .onFocusChanged {
+                                                paintedFocus?.value = it.isFocused
                                                 if (it.isFocused) {
                                                     val selected = checkNotNull(row.sceneSelection(0, index))
                                                     scene.focus(selected, list.layoutInfo, rows = rows)
@@ -316,8 +318,12 @@ class ModernXlSceneTransitionTest {
         val motion = checkNotNull(scene.verticalMotion)
         assertEquals("Acquiring focus cannot move the rows before their focus frame", firstIndex, list.firstVisibleItemIndex)
         assertEquals(firstOffset, list.firstVisibleItemScrollOffset)
-        pixel(700, 400) // Draw the real Compose viewport with the new focus state.
-        assertEquals("The rows acknowledge the actual drawn focus frame", motion.id, scene.lastFocusPaintedId)
+        pixel(700, 400) // A cached viewport draw can precede focus composition.
+        advance(16) // Commit the focused composition before accepting its draw.
+        assertEquals("The rows remain stationary through focus composition", firstIndex, list.firstVisibleItemIndex)
+        assertEquals(firstOffset, list.firstVisibleItemScrollOffset)
+        pixel(700, 400)
+        assertEquals("The rows acknowledge the committed focused frame", motion.id, scene.lastFocusPaintedId)
         var moved = false
         repeat(8) {
             advance(16)
@@ -325,6 +331,33 @@ class ModernXlSceneTransitionTest {
         }
         assertTrue("The focus draw releases the spring", moved)
         settle()
+    }
+
+    @Test fun compactCachedPreviewCannotReleaseMotionBeforeItsFocusCompositionCommits() {
+        content(start = 2, summary = false, paintFocusedState = true)
+        val sampleY = (y("poster-C") + 4f).toInt()
+        assertTrue("The incoming ordinary preview is already on screen", sampleY in 0..539)
+        var cachedPixel = 0
+        lateinit var signal: kotlinx.coroutines.CompletableDeferred<Unit>
+        val launcher = scene.verticalLauncher
+        compose.runOnUiThread {
+            // Hold the spring while reproducing a cached preview draw in the
+            // same input event, before the recomposer commits focused styling.
+            scene.verticalLauncher = { active -> signal = scene.requestFocusPaint(active.id) }
+            requesters[3].requestFocus()
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+            val view = activity.get().findViewById<android.view.View>(android.R.id.content)
+            val image = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
+            view.draw(android.graphics.Canvas(image))
+            cachedPixel = image.getPixel(700, sampleY)
+            image.recycle()
+        }
+        assertEquals("This is still the cached unfocused preview", android.graphics.Color.BLUE, cachedPixel)
+        assertFalse("A cached compact preview cannot acknowledge the new focused frame", signal.isCompleted)
+        advance(16)
+        assertEquals("The new focus style has now composed and drawn", android.graphics.Color.CYAN, pixel(700, sampleY))
+        assertTrue("Only the committed focus draw releases the spring", signal.isCompleted)
+        compose.runOnUiThread { scene.cancelVerticalMotion(); scene.verticalLauncher = launcher }
     }
 
     @Test fun xlExitDrawsTheNewFocusBeforeStartingItsSpring() = verifyFocusPaintPrecedesMotion(2, KeyEvent.KEYCODE_DPAD_DOWN)

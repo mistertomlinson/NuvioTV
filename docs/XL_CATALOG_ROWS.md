@@ -1,13 +1,13 @@
 # XL catalog rows
 
-Modern Home XL spring landing on `fix/xl-spring-landing-20261122`, based on
-`1496accd` Gentle Spring. The TV-approved ordinary spring and 1.10 time multiplier
-remain the speed baseline. This revision waits for the confirmed focus frame to
-draw before moving, eases the compact incoming row over its short range on that
-same spring clock, and shares a whole-physical-pixel landing anchor with framework
-relocation. Backdrop/cache fixes, edge fade, prepared metadata, preview returns,
-CW geometry and hollow numbers are retained. Physical TV frame pacing still
-requires review; native rendering tests cannot establish device smoothness.
+Modern Home XL compact focus on `fix/xl-compact-focus-20261122`, based on
+`5f8ba2d5` Spring Landing. TV testing approved the spring speed and confirmed the
+summary-XL focus hitch resolved; compact XL still showed it. Compact boundaries
+now require a committed focus-composition token before a draw can release motion,
+so their already-visible unfocused previews cannot acknowledge the new focus ID
+from a cached display list. Summary-only boundaries keep the existing draw-only
+check. The approved spring, short compact landing, pixel anchor and all rendering
+are unchanged. Physical TV frame pacing still requires the next device test.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -149,7 +149,11 @@ cannot move first and then hand off to a fresh controller. Actual focus arms
 the owned motion. Before any displacement, the controller waits for the row
 viewport to draw the confirmed focus state; a two-frame fallback releases a
 detached/offscreen viewport. The draw signal is transition-specific and canceled
-with interrupted motion, so stale focus frames cannot release a newer slide. If logical selection preceded a recycled row's measurement,
+with interrupted motion, so stale focus frames cannot release a newer slide. Compact
+XL also captures a focus generation during composition. A cached preview draw
+cannot satisfy that new generation until focus composition commits. This changes
+once per compact boundary, before motion; it adds no fixed delay or per-frame
+composition work. Summary-only boundaries do not change the composition token. If logical selection preceded a recycled row's measurement,
 actual focus retries its motion preparation using the now-measured layout. The
 controller suppresses competing relocation until completion or the next focus
 change. Unsuccessful focus intent is released at key-up; fast scrolling and the

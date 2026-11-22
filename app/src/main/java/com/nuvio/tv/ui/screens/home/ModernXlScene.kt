@@ -129,6 +129,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private var launchedMotionId = -1
     var focusPaintEpoch by mutableIntStateOf(0)
         private set
+    // Compact previews are already visible and may replay their old display
+    // list. Their draw must belong to the newly committed focus composition.
+    var compactFocusCompositionEpoch by mutableIntStateOf(0)
+        private set
     private var focusPaintSignal: Pair<Int, CompletableDeferred<Unit>>? = null
     var lastFocusPaintedId = 0
         private set
@@ -138,10 +142,15 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val signal = CompletableDeferred<Unit>()
         focusPaintSignal = id to signal
         focusPaintEpoch = id
+        transition?.let { move ->
+            if (move.from.isXl && !move.from.summary || move.to.isXl && !move.to.summary)
+                compactFocusCompositionEpoch = id
+        }
         return signal
     }
 
-    fun recordFocusPaint(id: Int) {
+    fun recordFocusPaint(id: Int, composedCompactEpoch: Int) {
+        if (compactFocusCompositionEpoch == id && composedCompactEpoch != id) return
         focusPaintSignal?.takeIf { it.first == id && verticalMotion?.id == id }?.let {
             lastFocusPaintedId = id
             it.second.complete(Unit)
@@ -562,6 +571,9 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
 internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListState, enabled: Boolean,
     ordinaryTop: Dp): Modifier {
     val mask by rememberHomePosterMask(scene, list, enabled, ordinaryTop)
+    // Capture during composition, not during replay of a cached preview draw.
+    // Only a compact boundary changes this state; summary keeps its draw path.
+    val composedCompactEpoch = scene.compactFocusCompositionEpoch
     return drawWithContent {
         val paintEpoch = scene.focusPaintEpoch
         clipRect {
@@ -572,7 +584,7 @@ internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListSta
             } else this@drawWithContent.drawContent()
         }
         // The first moving frame is released only after the focus frame has drawn.
-        scene.recordFocusPaint(paintEpoch)
+        scene.recordFocusPaint(paintEpoch, composedCompactEpoch)
     }
 }
 

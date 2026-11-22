@@ -364,9 +364,9 @@ class XlSceneStateTest {
         scene.focus(selection("C", 2), positionedLayout("XL" to 40, "C" to 500), focusConfirmed = false)
         val motion = checkNotNull(scene.verticalMotion)
         val signal = scene.requestFocusPaint(motion.id)
-        scene.recordFocusPaint(motion.id - 1)
+        scene.recordFocusPaint(motion.id - 1, motion.id)
         assertFalse(signal.isCompleted)
-        scene.recordFocusPaint(motion.id)
+        scene.recordFocusPaint(motion.id, motion.id)
         assertTrue(signal.isCompleted)
         val waiting = scene.requestFocusPaint(motion.id)
         scene.cancelVerticalMotion()
@@ -387,6 +387,38 @@ class XlSceneStateTest {
         waiter.join()
         assertNull("A canceled waiter cannot clear a still-published old owner", ownerWhenReleased)
         assertEquals("Preserve the gap before cancellation resumes work", motion.fromGap, scene.heldHeadroomGoals["C"])
+    }
+
+    @Test fun `compact entry and exit require their own committed focus composition`() {
+        for (entering in listOf(false, true)) {
+            val xl = selection("XL", 1, true, false)
+            val ordinary = selection("C", 2)
+            val scene = XlSceneState(if (entering) ordinary else xl)
+            val oldComposition = scene.compactFocusCompositionEpoch
+            scene.focus(if (entering) xl else ordinary, positionedLayout("XL" to 54, "C" to 500), focusConfirmed = false)
+            val motion = checkNotNull(scene.verticalMotion)
+            val signal = scene.requestFocusPaint(motion.id)
+            assertEquals(motion.id, scene.compactFocusCompositionEpoch)
+            scene.recordFocusPaint(motion.id, oldComposition)
+            assertFalse("An old cached composition cannot acknowledge new focus", signal.isCompleted)
+            scene.recordFocusPaint(motion.id, scene.compactFocusCompositionEpoch)
+            assertTrue(signal.isCompleted)
+        }
+    }
+
+    @Test fun `summary entry and exit retain their existing draw only readiness`() {
+        for (entering in listOf(false, true)) {
+            val xl = selection("XL", 1, true, true)
+            val ordinary = selection("C", 2)
+            val scene = XlSceneState(if (entering) ordinary else xl)
+            val oldComposition = scene.compactFocusCompositionEpoch
+            scene.focus(if (entering) xl else ordinary, positionedLayout("XL" to 54, "C" to 500), focusConfirmed = false)
+            val motion = checkNotNull(scene.verticalMotion)
+            val signal = scene.requestFocusPaint(motion.id)
+            assertEquals("Summary must not invalidate the composition token", oldComposition, scene.compactFocusCompositionEpoch)
+            scene.recordFocusPaint(motion.id, oldComposition)
+            assertTrue("The existing summary draw is enough", signal.isCompleted)
+        }
     }
 
 }
