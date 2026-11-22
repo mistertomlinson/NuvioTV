@@ -225,6 +225,7 @@ class ModernXlSceneTransitionTest {
         }
         var tracked = trackedTop()
         var peakStep = 0f
+        var peakAt = -1
         val samples = mutableListOf<String>()
         var firstRest = -1
         var lastY = Float.NaN
@@ -233,7 +234,10 @@ class ModernXlSceneTransitionTest {
         repeat(90) { frame ->
             val position = y("poster-$target")
             val current = trackedTop()
-            if (current != null && tracked != null) peakStep = maxOf(peakStep, abs(current - tracked!!))
+            if (current != null && tracked != null) {
+                val step = abs(current - tracked!!)
+                if (step > peakStep) { peakStep = step; peakAt = frame * 16 }
+            }
             tracked = current
             if (!lastY.isNaN() && abs(position - lastY) > 0.5f) {
                 val nextDirection = if (position > lastY) 1 else -1
@@ -249,17 +253,18 @@ class ModernXlSceneTransitionTest {
         println("VERTICAL_MOTION name=$name firstRestMs=$firstRest reversals=$reversed samples=${samples.joinToString(",")}")
         if (motion == null) assertTrue("Ordinary timing stays unchanged", firstRest in 0..336)
         else {
-            val reference = minOf(abs(motion.scrollPx), motion.ordinaryStridePx)
+            val reference = abs(motion.scrollPx)
             val template = androidx.compose.animation.core.TargetBasedAnimation(ordinaryAnimation,
                 Float.VectorConverter, 0f, reference)
             val referenceSteps = (0..120).map { template.getValueFromNanos(it * 16_000_000L) }
             val peakReference = referenceSteps.zipWithNext().maxOf { (a, b) -> abs(b - a) }
             val referenceSettle = referenceSteps.indexOfFirst { abs(reference - it) < 0.5f } * 16
-            val stretch = (abs(motion.scrollPx) / reference).coerceAtLeast(1f)
-            println("XL_PACING name=$name reference=$reference stretch=$stretch peak=$peakStep referencePeak=$peakReference settled=$firstRest")
-            assertTrue("XL cannot move faster than the ordinary spring's pixel pace", peakStep <= peakReference * 1.2f + 2f)
-            assertTrue("Greater travel must receive proportionally more time", firstRest >= referenceSettle * stretch - 32f)
-            assertTrue("No extra waiting after the distance-paced spring", firstRest <= referenceSettle * stretch + 96f)
+            val expectedSettle = referenceSettle * XL_SPRING_TIME_SCALE
+            println("XL_SPRING name=$name distance=$reference scale=$XL_SPRING_TIME_SCALE peak=$peakStep referencePeak=$peakReference settled=$firstRest regularSpringStop=$referenceSettle peakAt=$peakAt")
+            assertTrue("Only a modest stretch of the ordinary spring", firstRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
+            assertTrue("XL must not gain a long poster-size timing multiplier", firstRest <= referenceSettle + 80)
+            assertTrue("The same spring keeps its familiar early movement", peakStep <= peakReference * 1.1f + 2f)
+            if (start == 2) assertTrue("Regular spring acceleration must peak early, then decelerate", peakAt in 1 until (firstRest * 0.3f).toInt())
         }
         assertEquals("The incoming row must never reverse direction", 0, reversed)
     }
@@ -967,8 +972,8 @@ class ModernXlSceneTransitionTest {
             }
             previous = edge
         }
-        assertTrue("Exercise multiple moving frames before XL clears", checked > 4)
-        assertTrue("Exercise the actual painted landscape edge", paintedFrames > 4)
+        assertTrue("Exercise multiple moving frames before XL clears", checked >= 3)
+        assertTrue("Exercise the actual painted landscape edge", paintedFrames >= 3)
         settle()
     }
     @Test fun compactExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(false)

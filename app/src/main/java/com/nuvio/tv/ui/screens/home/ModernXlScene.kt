@@ -154,7 +154,6 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     val summaryRowHeights = mutableStateMapOf<String, Dp>()
     var screenHeight by mutableStateOf(540.dp)
     var fullWidthIcons by mutableStateOf(false)
-    var estimatedOrdinaryHeight by mutableStateOf(240.dp)
     var estimatedXlHeight by mutableStateOf(440.dp)
     var ordinaryTop by mutableStateOf(260.dp)
     var metadataRestingTop by mutableStateOf(54.dp)
@@ -389,18 +388,23 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 val anchor = if (next.isXl) xlTop(next.rowKey).value * density + header else ordinaryTop.value * density + ordinaryPosterInset(next.rowKey, next.rowIndex)
                 val visibleDistance = ownerTop + from.value * density + header - anchor
                 val scroll = visibleDistance + (to - from).value * density
-                val secondary = if (next.rowKey == "continue_watching" && previous.rowIndex == next.rowIndex + 1)
-                    XlGapMotion(previous.rowKey, headroomValues[previous.rowKey] ?: 0.dp, 0.dp) else null
+                val previousGap = headroomValues[previous.rowKey] ?: 0.dp
+                val restoredGap = heldHeadroomGoals[previous.rowKey]
+                val secondary = when {
+                    next.rowKey == "continue_watching" && previous.rowIndex == next.rowIndex + 1 ->
+                        XlGapMotion(previous.rowKey, previousGap, 0.dp)
+                    // A fast reversal can happen after XL has left the viewport
+                    // but before its full clearance gap has finished growing.
+                    // Restore that remaining clearance with the return scroll
+                    // so the partly visible ordinary hero can leave completely.
+                    next.isXl && next.rowIndex < previous.rowIndex && !move.earlyPreviewReturn &&
+                        restoredGap != null && restoredGap > previousGap ->
+                        XlGapMotion(previous.rowKey, previousGap, restoredGap)
+                    else -> null
+                }
                 if (kotlin.math.abs(scroll) > 0.5f) {
                     heldHeadroomGoals[next.rowKey] = to
-                    val ordinary = when {
-                        !previous.isXl -> previous.rowKey
-                        !next.isXl -> next.rowKey
-                        else -> rows.withIndex().filter { !it.value.isXl }
-                            .minByOrNull { kotlin.math.abs(it.index - next.rowIndex) }?.value?.key
-                    }
-                    val stride = ((ordinary?.let { rowHeights[it] } ?: estimatedOrdinaryHeight) + 24.dp).value * density
-                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll, move.compactExit, secondary, stride)
+                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll, move.compactExit, secondary)
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }

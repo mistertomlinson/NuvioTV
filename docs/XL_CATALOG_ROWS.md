@@ -1,11 +1,11 @@
 # XL catalog rows
 
-Modern Home XL scroll cadence on `fix/xl-motion-cadence-20261121`, based on
-`ca9244d8` Motion Polish. It retains the TV-confirmed ordinary-gradient rendering
-layer and complete XL backdrop frame cache with matching sharp/blurred preloads.
-This revision restores the narrow cached poster-edge fade, paces XL motion by
-ordinary-row pixel speed, and fixes compact preview/metadata handoffs. Physical
-TV frame pacing still requires testing of this revision.
+Modern Home XL gentle spring on `fix/xl-gentle-spring-20261121`, based on
+`cadc576d` Scroll Cadence. The distance-paced eased curve was too slow on the TV.
+XL now uses the exact ordinary-row spring with only a 1.10 time multiplier for
+its owned scroll. Backdrop/cache fixes, restored edge fade, focus guarding,
+prepared metadata, preview returns, CW geometry and hollow numbers are retained.
+Physical TV pacing still requires review of this small timing revision.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -132,14 +132,16 @@ changing list geometry. XL retains its moving metadata exclusion and full-screen
 canvas; its own large artwork does not receive the ordinary body fade.
 
 The default ordinary-row BringIntoView animation and held-scroll velocity
-(1200 dp/s) are unchanged. All XL boundaries derive their travel time from the
-ordinary spring's half-pixel stop, scaled by actual distance against a measured
-ordinary row stride in physical pixels. XL uses a smooth FastOutSlowIn curve;
-simply stretching the spring front-loads its visible exit before a long hidden
-tail and can reveal compact metadata too early. An XL-only page uses the normal poster geometry as
-its reference. Larger travel takes more time instead of increasing peak speed;
-there is no separate fixed-duration XL exit tween. List and changing prefix/gap
-share the same clock in both directions.
+(1200 dp/s) are unchanged. All owned XL boundaries use the exact ordinary-row
+spring at their actual travel distance. Only that animation's duration scale is
+multiplied by 1.10, including the existing system animation scale. This restores
+the familiar quick movement and decelerating spring tail with a small slowdown.
+The rejected poster-size duration calculation, eased tween and reference-stride
+bookkeeping are removed. List and changing prefix/gap still share one clock.
+Metadata fades and the 360 ms preview return have independent clocks and are
+not stretched. A reversal after XL has already left the viewport restores any
+unfinished ordinary-hero clearance gap with the return scroll; the preview then
+takes gap ownership once that metadata clears. Ordinary-only scrolling, platform timing and shortcuts are unchanged.
 The parent arms a boundary guard before focus transfer so a framework relocation
 cannot move first and then hand off to a fresh controller. Actual focus starts
 the owned motion. If logical selection preceded a recycled row's measurement,

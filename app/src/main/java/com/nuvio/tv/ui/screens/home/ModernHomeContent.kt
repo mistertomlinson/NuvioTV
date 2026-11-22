@@ -3109,7 +3109,6 @@ fun ModernHomeContent(
             xlScene.metadataLayoutHeightPx = with(localDensity) { measuredHeroHeight.toPx() }
             xlScene.screenHeight = maxHeight
             xlScene.fullWidthIcons = effectiveFullWidthIconRowEnabled
-            xlScene.estimatedOrdinaryHeight = catalogRowHeaderHeight + modernCatalogCardHeight + if (uiState.posterLabelsEnabled) 24.dp else 0.dp
             xlScene.estimatedXlHeight = estimatedXlHeight
             xlScene.ordinaryTop = ordinaryRowsTop
             xlScene.metadataRestingTop = if (effectiveFullWidthIconRowEnabled) {

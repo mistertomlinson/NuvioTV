@@ -1,10 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.SpringSpec
-import androidx.compose.animation.core.TargetBasedAnimation
-import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateTo
 import androidx.compose.animation.core.tween
@@ -15,19 +11,24 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.*
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+internal const val XL_SPRING_TIME_SCALE = 1.10f
+
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
-    val secondaryGap: XlGapMotion? = null, val ordinaryStridePx: Float = 264f)
+    val secondaryGap: XlGapMotion? = null)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -77,36 +78,36 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         val fromPx = (active.fromGap.value * scene.density).roundToInt()
                         val toPx = (active.toGap.value * scene.density).roundToInt()
                         val visiblePx = active.scrollPx - (toPx - fromPx)
-                        // Derive the travel time from the ordinary spring's
-                        // half-pixel stop. A stretched spring front-loads too
-                        // much XL movement; use an eased, distance-paced curve
-                        // so its visible exit does not race into a hidden tail.
-                        val reference = minOf(abs(active.scrollPx), active.ordinaryStridePx).coerceAtLeast(1f)
-                        val paceSpec = (animation as? SpringSpec<Float>)?.let {
-                            SpringSpec(it.dampingRatio, it.stiffness, 0.5f)
-                        } ?: animation
-                        val referenceNanos = TargetBasedAnimation(paceSpec, Float.VectorConverter, 0f, reference).durationNanos
-                        val durationMillis = ((referenceNanos / 1_000_000f) *
-                            (abs(active.scrollPx) / reference).coerceAtLeast(1f)).roundToInt().coerceAtLeast(1)
-                        AnimationState(0f).animateTo(active.scrollPx,
-                            animationSpec = tween(durationMillis, easing = FastOutSlowInEasing)) {
-                            if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
-                            val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
-                            val travel = (active.scrollPx * fraction).roundToInt()
-                            val gapPx = if (active.compact) fromPx +
-                                (travel - visiblePx).roundToInt().coerceIn(0, (toPx - fromPx).coerceAtLeast(0))
-                                else (fromPx + (toPx - fromPx) * fraction).roundToInt()
-                            scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
-                            active.secondaryGap?.let { gap ->
-                                scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                        // Use the exact ordinary-row spring at the actual
+                        // travel distance. Stretch only this scroll animation
+                        // by 10%; metadata and preview clocks remain independent.
+                        val systemScale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
+                        withContext(object : MotionDurationScale {
+                            override val scaleFactor = systemScale * XL_SPRING_TIME_SCALE
+                        }) {
+                            AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
+                                if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
+                                val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
+                                val travel = (active.scrollPx * fraction).roundToInt()
+                                val gapPx = if (active.compact) fromPx +
+                                    (travel - visiblePx).roundToInt().coerceIn(0, (toPx - fromPx).coerceAtLeast(0))
+                                    else (fromPx + (toPx - fromPx) * fraction).roundToInt()
+                                scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
+                                active.secondaryGap?.let { gap ->
+                                    if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
+                                        scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                                }
+                                scrollBy(travel - previous)
+                                previous = travel.toFloat()
+                                if (active.compact && travel >= visiblePx) scene.compactRowRested = true
+                                if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
                             }
-                            scrollBy(travel - previous)
-                            previous = travel.toFloat()
-                            if (active.compact && travel >= visiblePx) scene.compactRowRested = true
-                            if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
                         }
                         scene.headroomValues[active.rowKey] = active.toGap
-                        active.secondaryGap?.let { scene.headroomValues[it.rowKey] = it.to }
+                        active.secondaryGap?.let {
+                            if (scene.previewReturn?.rowKey != it.rowKey || scene.transition?.outgoingMetadataCleared != true)
+                                scene.headroomValues[it.rowKey] = it.to
+                        }
                         scrollBy(active.scrollPx - previous)
                         scene.compactRowRested = true
                     }
@@ -115,7 +116,9 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                     if (scene.verticalMotion === active) {
                         if (completed) scene.headroomValues[active.rowKey] = active.toGap
                         scene.headroomMoving[active.rowKey] = false
-                        active.secondaryGap?.let { scene.headroomMoving[it.rowKey] = false }
+                        active.secondaryGap?.let {
+                            if (scene.previewReturn?.rowKey != it.rowKey) scene.headroomMoving[it.rowKey] = false
+                        }
                         scene.verticalMotion = null
                         scene.verticalJob = null
                     }
