@@ -1,11 +1,13 @@
 # XL catalog rows
 
-Modern Home XL gentle spring on `fix/xl-gentle-spring-20261121`, based on
-`cadc576d` Scroll Cadence. The distance-paced eased curve was too slow on the TV.
-XL now uses the exact ordinary-row spring with only a 1.10 time multiplier for
-its owned scroll. Backdrop/cache fixes, restored edge fade, focus guarding,
-prepared metadata, preview returns, CW geometry and hollow numbers are retained.
-Physical TV pacing still requires review of this small timing revision.
+Modern Home XL spring landing on `fix/xl-spring-landing-20261122`, based on
+`1496accd` Gentle Spring. The TV-approved ordinary spring and 1.10 time multiplier
+remain the speed baseline. This revision waits for the confirmed focus frame to
+draw before moving, eases the compact incoming row over its short range on that
+same spring clock, and shares a whole-physical-pixel landing anchor with framework
+relocation. Backdrop/cache fixes, edge fade, prepared metadata, preview returns,
+CW geometry and hollow numbers are retained. Physical TV frame pacing still
+requires review; native rendering tests cannot establish device smoothness.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -143,8 +145,11 @@ not stretched. A reversal after XL has already left the viewport restores any
 unfinished ordinary-hero clearance gap with the return scroll; the preview then
 takes gap ownership once that metadata clears. Ordinary-only scrolling, platform timing and shortcuts are unchanged.
 The parent arms a boundary guard before focus transfer so a framework relocation
-cannot move first and then hand off to a fresh controller. Actual focus starts
-the owned motion. If logical selection preceded a recycled row's measurement,
+cannot move first and then hand off to a fresh controller. Actual focus arms
+the owned motion. Before any displacement, the controller waits for the row
+viewport to draw the confirmed focus state; a two-frame fallback releases a
+detached/offscreen viewport. The draw signal is transition-specific and canceled
+with interrupted motion, so stale focus frames cannot release a newer slide. If logical selection preceded a recycled row's measurement,
 actual focus retries its motion preparation using the now-measured layout. The
 controller suppresses competing relocation until completion or the next focus
 change. Unsuccessful focus intent is released at key-up; fast scrolling and the
@@ -175,11 +180,13 @@ up together at full opacity while the outgoing XL artwork clears the screen.
 There is no metadata fade for this style. A summary XL starts with its following
 hero 8 dp below the viewport.
 
-Compact XL starts with its normal next-row peek. On Down, the incoming row and
-XL initially move at the same speed. Once the incoming row reaches its ordinary
-poster anchor it stays there; list travel continues while the intervening gap
-grows by the same displacement, letting XL finish leaving the screen. On this
-compact downward exit, the incoming metadata stays invisible until the entire
+Compact XL starts with its normal next-row peek. On Down, the incoming row
+follows the same spring progression over its own shorter travel distance. The
+intervening gap grows by the difference between the two distances, letting XL
+continue off screen while the incoming row decelerates onto its ordinary poster
+anchor instead of hitting a clamp. The list, measured gap, metadata translation
+and BringIntoView target all use the same whole-physical-pixel anchor; ownership
+release must not trigger a one- or two-pixel correction. On this compact downward exit, the incoming metadata stays invisible until the entire
 outgoing XL row is above the screen and the incoming row has landed, then starts
 a 220 ms fade at its resting position. The departing XL's lower edge masks any overlap, preserving
 its complete image. Gap and travel are quantized together to physical pixels,

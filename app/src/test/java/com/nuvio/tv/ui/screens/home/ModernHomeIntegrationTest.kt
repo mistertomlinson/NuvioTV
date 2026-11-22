@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -210,7 +211,7 @@ class ModernHomeIntegrationTest {
     @Test fun landscapePageRetainsOriginalGeometry() = verifyExit(false, true, allRegular = true, globalLandscape = true)
     @Test fun numberedLandscapePageRetainsOriginalGeometry() = verifyExit(true, true, allRegular = true, globalLandscape = true)
 
-    private fun mountScenario(state: HomeUiState) {
+    private fun mountScenario(state: HomeUiState, numbered: Set<String> = emptySet()) {
         compose.runOnUiThread {
             activity.get().setContent {
                 MaterialTheme {
@@ -220,6 +221,7 @@ class ModernHomeIntegrationTest {
                             ModernHomeContent(uiState = state, aggregatePlatformsEnabled = state.aggregateStreamingPlatformsEnabled,
                                 showAllCatalogsOnHome = state.showAllCatalogsOnHome, fullWidthIconRowEnabled = state.fullWidthIconRowEnabled,
                                 focusState = HomeScreenFocusState(), trailerPreviewUrls = emptyMap(), trailerPreviewAudioUrls = emptyMap(),
+                                numberedCatalogKeys = numbered,
                                 onNavigateToDetail = { _, _, _ -> }, onContinueWatchingClick = {}, onRequestTrailerPreview = { _, _, _, _ -> },
                                 onLoadMoreCatalog = { _, _, _ -> }, onRemoveContinueWatching = { _, _, _, _ -> },
                                 onItemFocus = { focused += it.id }, onSaveFocusState = { _, _, _, _, _, _, _ -> })
@@ -339,4 +341,40 @@ class ModernHomeIntegrationTest {
         assertTrue("The compact row below must already be visible at landing", followingTitleTop < 540f)
         assertTrue(compose.onAllNodes(hasTestTag("ordinary-metadata-$key"), true).fetchSemanticsNodes().isEmpty())
     }
+    private fun verifyCompactLandingAtFractionalDensity(numbered: Boolean) {
+        val rows = scenarioRows(3)
+        val xlKey = catalogRowKey(rows[0])
+        val incomingKey = catalogRowKey(rows[1])
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true,
+            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(), xlCatalogKeys = setOf(xlKey),
+            xlNoSummaryCatalogKeys = setOf(xlKey),
+            fullWidthIconRowEnabled = true, aggregateStreamingPlatformsEnabled = true,
+            showAllCatalogsOnHome = true, posterLabelsEnabled = false),
+            numbered = if (numbered) rows.map(::catalogRowKey).toSet() else emptySet())
+        assertEquals(1.5f, scene.density, 0f)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val restingTops = mutableListOf<Float>()
+        repeat(64) {
+            advance(16)
+            val node = compose.onAllNodesWithTag("xl-headroom-$incomingKey", true).fetchSemanticsNodes().singleOrNull()
+            if (node != null && scene.verticalMotion == null && !list.isScrollInProgress) {
+                val top = node.layoutInfo.coordinates.positionInRoot().y + node.layoutInfo.height + scene.headerPx(incomingKey)
+                restingTops += top
+                assertEquals("The first resting frame already matches the final poster anchor",
+                    scene.posterAnchorPx(checkNotNull(scene.selection)).toFloat(), top, 0f)
+            }
+        }
+        assertEquals(incomingKey, scene.selection?.rowKey)
+        assertTrue("Follow the real cards through metadata reveal and focus relocation", restingTops.size > 20)
+        assertEquals("The incoming row cannot correct by a pixel after landing", restingTops.first(), restingTops.last(), 0f)
+        assertEquals(1f, scene.exitMetadataAlpha, 0f)
+    }
+
+    @Test @Config(qualifiers = "w960dp-h540dp-land-hdpi")
+    fun plainCompactLandingHasNoPhysicalPixelCorrection() = verifyCompactLandingAtFractionalDensity(false)
+
+    @Test @Config(qualifiers = "w960dp-h540dp-land-hdpi")
+    fun numberedCompactLandingHasNoPhysicalPixelCorrection() = verifyCompactLandingAtFractionalDensity(true)
+
 }

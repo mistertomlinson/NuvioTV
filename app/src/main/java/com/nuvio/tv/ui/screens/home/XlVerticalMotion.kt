@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -33,7 +34,7 @@ internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: 
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
 
-/** Travel together until the next row lands, then let XL continue past it. */
+/** Share one spring clock across XL travel and the shorter incoming-row leg. */
 @OptIn(ExperimentalFoundationApi::class)
 @Suppress("DEPRECATION")
 @Composable
@@ -50,18 +51,17 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
             relocation.previousJob?.join()
             withFrameNanos { }
             val info = list.layoutInfo
-            val header = scene.headerHeights[selected.rowKey] ?: 40f * scene.density
-            val gap = (scene.headroomValues[selected.rowKey]?.value ?: 0f) * scene.density
-            val anchor = if (selected.isXl) scene.xlTop(selected.rowKey).value * scene.density + header
-                else scene.ordinaryTop.value * scene.density + scene.ordinaryPosterInset(selected.rowKey, selected.rowIndex)
+            val header = scene.headerPx(selected.rowKey)
+            val gap = scene.gapPx(selected.rowKey)
+            val anchor = scene.posterAnchorPx(selected)
             val owner = info.visibleItemsInfo.firstOrNull { it.key == selected.rowKey }
             if (owner != null) {
                 val position = owner.offset + info.beforeContentPadding + gap + header
-                list.animateScrollBy(position - anchor, animation)
+                list.animateScrollBy((position - anchor).toFloat(), animation)
             } else if (info.totalItemsCount == scene.rowCount && selected.rowIndex in 0 until info.totalItemsCount) {
                 // Focus beyond the viewport may have recreated a recycled row.
                 // Use its index only while the full row ordering is present.
-                list.animateScrollToItem(selected.rowIndex, (info.beforeContentPadding - anchor + header + gap).roundToInt())
+                list.animateScrollToItem(selected.rowIndex, info.beforeContentPadding - anchor + header + gap)
             }
         } finally {
             if (scene.interruptedRelocation === relocation) scene.interruptedRelocation = null
@@ -73,7 +73,17 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
             scene.verticalJob = scope.launch {
                 var completed = false
                 try {
+                    val focusPaint = scene.requestFocusPaint(active.id)
                     list.scroll(MutatePriority.PreventUserInput) {
+                        coroutineScope {
+                            // Rendering, layout and focus publish before motion.
+                            // A detached/offscreen surface must never block input.
+                            val fallback = launch {
+                                repeat(2) { withFrameNanos { } }
+                                focusPaint.complete(Unit)
+                            }
+                            try { focusPaint.await() } finally { fallback.cancel() }
+                        }
                         var previous = 0f
                         val fromPx = (active.fromGap.value * scene.density).roundToInt()
                         val toPx = (active.toGap.value * scene.density).roundToInt()
@@ -89,8 +99,10 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
                                 val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
                                 val travel = (active.scrollPx * fraction).roundToInt()
-                                val gapPx = if (active.compact) fromPx +
-                                    (travel - visiblePx).roundToInt().coerceIn(0, (toPx - fromPx).coerceAtLeast(0))
+                                val incomingTravel = (visiblePx * fraction).roundToInt()
+                                // The short incoming leg has its own spring range
+                                // on this same clock, rather than hitting a clamp.
+                                val gapPx = if (active.compact) fromPx + travel - incomingTravel
                                     else (fromPx + (toPx - fromPx) * fraction).roundToInt()
                                 scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
                                 active.secondaryGap?.let { gap ->
@@ -99,7 +111,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 }
                                 scrollBy(travel - previous)
                                 previous = travel.toFloat()
-                                if (active.compact && travel >= visiblePx) scene.compactRowRested = true
+                                if (active.compact && incomingTravel == visiblePx.roundToInt()) scene.compactRowRested = true
                                 if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
                             }
                         }
@@ -198,9 +210,8 @@ internal fun rememberHomeVerticalScrollSpec(scene: XlSceneState, hasXlRows: Bool
                 val selected = scene.selection
                 val anchor = with(density) {
                     if (!hasXlRows) 40.dp.toPx()
-                    else if (selected?.isXl == true) scene.xlTop(selected.rowKey).toPx() +
-                        (scene.headerHeights[selected.rowKey] ?: 40.dp.toPx())
-                    else ordinaryTop.toPx() + (selected?.let { scene.ordinaryPosterInset(it.rowKey, it.rowIndex, density.density) } ?: 40.dp.toPx())
+                    else selected?.let { scene.posterAnchorPx(it, density.density, ordinaryTop.toPx()).toFloat() }
+                        ?: (ordinaryTop.toPx() + 40.dp.toPx()).roundToInt().toFloat()
                 }
                 return offset - anchor
             }

@@ -277,33 +277,58 @@ class ModernXlSceneTransitionTest {
     @Test fun measureXlDownExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_DOWN, "xlDownExit")
     @Test fun measureCompactXlDownExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_DOWN, "compactXlDownExit", false)
 
-    @Test fun compactExitTravelsTogetherThenParksTheIncomingRowBeforeRevealingMetadata() {
+    @Test fun compactIncomingRowDeceleratesOnTheSameSpringWithoutAHardStop() {
         content(start = 2, summary = false)
         val startNext = y("heading-C")
-        val startXl = y("heading-XL")
+        val startOwner = list.layoutInfo.let { info -> info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding }
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        var sharedFrames = 0
-        var parkedWhileXlMoves = false
-        var previousEdge = Float.POSITIVE_INFINITY
-        repeat(24) {
+        val motion = checkNotNull(scene.verticalMotion)
+        val steps = mutableListOf<Float>()
+        var previous = startNext
+        var springFrames = 0
+        repeat(30) {
             advance(16)
             val next = y("heading-C")
-            if (!scene.compactRowRested) {
-                assertEquals("Both rows must travel at the same speed", next - startNext, y("heading-XL") - startXl, 1.1f)
-                assertEquals("The prepared hero remains invisible before landing", 0f, scene.exitMetadataAlpha, 0f)
-                sharedFrames++
-            } else {
-                assertEquals("The incoming row remains at rest", 260f, next, 1.1f)
-                val edge = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
-                if (scene.verticalMotion != null && edge < previousEdge && edge > 0f) parkedWhileXlMoves = true
-                previousEdge = edge
-            }
+            val info = list.layoutInfo
+            val owner = info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding
+            val fraction = ((startOwner - owner) / motion.scrollPx).coerceIn(0f, 1f)
+            val expected = startNext + (260f - startNext) * fraction
+            assertEquals("The short incoming leg shares the XL spring progression", expected, next, 1.1f)
+            assertTrue("The incoming row never overshoots its anchor", next >= 260f)
+            if (fraction in 0.05f..0.99f) springFrames++
+            if (!scene.compactRowRested) assertEquals("Prepared metadata waits for the spring landing", 0f, scene.exitMetadataAlpha, 0f)
+            if (previous > next) steps += previous - next
+            previous = next
         }
-        assertTrue("Observe the initial shared travel", sharedFrames > 0)
-        assertTrue("XL must continue after the incoming row lands", parkedWhileXlMoves)
+        assertTrue("Observe a gradual short-range spring rather than an early clamp", springFrames >= 8)
+        assertTrue("The short row decelerates over multiple visible steps", steps.size >= 8 && steps.last() < steps.max() / 4f)
+        assertEquals(260f, y("heading-C"), 0f)
         settle()
+        assertEquals("No correction after the spring releases ownership", 260f, y("heading-C"), 0f)
         assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
     }
+
+    private fun verifyFocusPaintPrecedesMotion(start: Int, key: Int) {
+        content(start = start, summary = false)
+        val firstIndex = list.firstVisibleItemIndex
+        val firstOffset = list.firstVisibleItemScrollOffset
+        press(key)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertEquals("Acquiring focus cannot move the rows before their focus frame", firstIndex, list.firstVisibleItemIndex)
+        assertEquals(firstOffset, list.firstVisibleItemScrollOffset)
+        pixel(700, 400) // Draw the real Compose viewport with the new focus state.
+        assertEquals("The rows acknowledge the actual drawn focus frame", motion.id, scene.lastFocusPaintedId)
+        var moved = false
+        repeat(8) {
+            advance(16)
+            if (firstIndex != list.firstVisibleItemIndex || firstOffset != list.firstVisibleItemScrollOffset) moved = true
+        }
+        assertTrue("The focus draw releases the spring", moved)
+        settle()
+    }
+
+    @Test fun xlExitDrawsTheNewFocusBeforeStartingItsSpring() = verifyFocusPaintPrecedesMotion(2, KeyEvent.KEYCODE_DPAD_DOWN)
+    @Test fun xlEntryDrawsTheNewFocusBeforeStartingItsSpring() = verifyFocusPaintPrecedesMotion(3, KeyEvent.KEYCODE_DPAD_UP)
 
     @Test fun upwardCompactPreviewKeepsItsTravelUntilTheMetadataMaskClears() {
         content(start = 3, summary = false)

@@ -4,6 +4,7 @@ import androidx.compose.foundation.lazy.LazyListLayoutInfo
 import androidx.compose.ui.unit.dp
 import io.mockk.every
 import io.mockk.mockk
+import kotlinx.coroutines.launch
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -336,6 +337,56 @@ class XlSceneStateTest {
         assertEquals(1, launched.size)
         scene.confirmFocus("XL", positionedLayout("A" to 0, "XL" to 500))
         assertEquals("The late-measurement retry cannot start another owner", 1, launched.size)
+    }
+
+    @Test fun `compact landing uses one physical pixel anchor at fractional densities`() {
+        for (scale in listOf(1.25f, 1.5f, 2.625f, 3f)) {
+            val scene = XlSceneState(selection("XL", 1, true, false)).apply {
+                density = scale
+                ordinaryTop = 259.2f.dp
+                headerHeights["C"] = (39.7f * scale).toInt().toFloat()
+                headroomValues["C"] = 7.3f.dp
+            }
+            val next = selection("C", 2)
+            val startTop = (500 * scale).toInt()
+            scene.focus(next, positionedLayout("XL" to 40, "C" to startTop), focusConfirmed = false)
+            val motion = checkNotNull(scene.verticalMotion)
+            assertEquals("The list receives a whole physical-pixel distance", motion.scrollPx.toInt().toFloat(), motion.scrollPx, 0f)
+            scene.headroomValues["C"] = motion.toGap
+            val landed = positionedLayout("C" to startTop - motion.scrollPx.toInt())
+            assertEquals("No residual relocation after releasing the owned spring at density $scale", 0f,
+                checkNotNull(scene.incomingTranslation(landed, scene.ordinaryTop.value * scale, scale)), 0f)
+        }
+    }
+
+    @Test fun `stale focus draws cannot release a newer motion and cancellation releases its waiter`() {
+        val scene = XlSceneState(selection("XL", 1, true, false))
+        scene.focus(selection("C", 2), positionedLayout("XL" to 40, "C" to 500), focusConfirmed = false)
+        val motion = checkNotNull(scene.verticalMotion)
+        val signal = scene.requestFocusPaint(motion.id)
+        scene.recordFocusPaint(motion.id - 1)
+        assertFalse(signal.isCompleted)
+        scene.recordFocusPaint(motion.id)
+        assertTrue(signal.isCompleted)
+        val waiting = scene.requestFocusPaint(motion.id)
+        scene.cancelVerticalMotion()
+        assertTrue("An interrupted or detached scene cannot leave a suspended scroll owner", waiting.isCancelled)
+        assertNull(scene.verticalMotion)
+    }
+
+    @Test fun `canceling focus preparation releases ownership before resuming its waiter`() = kotlinx.coroutines.runBlocking {
+        val scene = XlSceneState(selection("XL", 1, true, false))
+        scene.focus(selection("C", 2), positionedLayout("XL" to 40, "C" to 500), focusConfirmed = false)
+        val motion = checkNotNull(scene.verticalMotion)
+        val signal = scene.requestFocusPaint(motion.id)
+        var ownerWhenReleased: XlVerticalMotion? = motion
+        val waiter = launch(kotlinx.coroutines.Dispatchers.Unconfined) {
+            try { signal.await() } finally { ownerWhenReleased = scene.verticalMotion }
+        }
+        scene.cancelVerticalMotion()
+        waiter.join()
+        assertNull("A canceled waiter cannot clear a still-published old owner", ownerWhenReleased)
+        assertEquals("Preserve the gap before cancellation resumes work", motion.fromGap, scene.heldHeadroomGoals["C"])
     }
 
 }

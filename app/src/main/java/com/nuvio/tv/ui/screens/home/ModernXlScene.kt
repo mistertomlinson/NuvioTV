@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -126,6 +127,26 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun armBoundaryFocus() { boundaryFocusArmed = true }
     fun clearBoundaryFocusIntent() { boundaryFocusArmed = false }
     private var launchedMotionId = -1
+    var focusPaintEpoch by mutableIntStateOf(0)
+        private set
+    private var focusPaintSignal: Pair<Int, CompletableDeferred<Unit>>? = null
+    var lastFocusPaintedId = 0
+        private set
+
+    fun requestFocusPaint(id: Int): CompletableDeferred<Unit> {
+        focusPaintSignal?.second?.cancel()
+        val signal = CompletableDeferred<Unit>()
+        focusPaintSignal = id to signal
+        focusPaintEpoch = id
+        return signal
+    }
+
+    fun recordFocusPaint(id: Int) {
+        focusPaintSignal?.takeIf { it.first == id && verticalMotion?.id == id }?.let {
+            lastFocusPaintedId = id
+            it.second.complete(Unit)
+        }
+    }
     val metadataHeights = mutableStateMapOf<String, Float>()
     var metadataEpoch by mutableIntStateOf(0)
         private set
@@ -168,6 +189,17 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun ordinaryPosterInset(rowKey: String, rowIndex: Int, density: Float = this.density): Float =
         if (rowIndex == 0) minOf(headerHeights[rowKey] ?: 40f * density, 40f * density) else 40f * density
 
+    fun headerPx(rowKey: String, density: Float = this.density): Int =
+        (headerHeights[rowKey] ?: 40f * density).roundToInt()
+
+    fun gapPx(rowKey: String, density: Float = this.density): Int =
+        ((headroomValues[rowKey]?.value ?: 0f) * density).roundToInt()
+
+    fun posterAnchorPx(selected: XlSceneSelection, density: Float = this.density,
+        ordinaryTopPx: Float = ordinaryTop.value * density): Int =
+        if (selected.isXl) (xlTop(selected.rowKey).value * density).roundToInt() + headerPx(selected.rowKey, density)
+        else (ordinaryTopPx + ordinaryPosterInset(selected.rowKey, selected.rowIndex, density)).roundToInt()
+
     fun metadataTopFor(rowKey: String?): Dp {
         val height = rowKey?.let { metadataHeights[it] } ?: return metadataRestingTop
         if (metadataLayoutHeightPx <= 0f) return metadataRestingTop
@@ -181,13 +213,18 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun cancelVerticalMotion() {
-        val motion = verticalMotion ?: return
-        heldHeadroomGoals[motion.rowKey] = headroomValues[motion.rowKey] ?: motion.fromGap
-        verticalMotion = null
-        headroomMoving[motion.rowKey] = false
-        motion.secondaryGap?.let { headroomMoving[it.rowKey] = false }
-        verticalJob?.cancel()
-        verticalJob = null
+        val paint = focusPaintSignal?.second
+        focusPaintSignal = null
+        verticalMotion?.let { motion ->
+            heldHeadroomGoals[motion.rowKey] = headroomValues[motion.rowKey] ?: motion.fromGap
+            verticalMotion = null
+            headroomMoving[motion.rowKey] = false
+            motion.secondaryGap?.let { headroomMoving[it.rowKey] = false }
+            verticalJob?.cancel()
+            verticalJob = null
+        }
+        // Publish the released owner before a canceled waiter can resume.
+        paint?.cancel()
     }
 
     fun confirmFocus(rowKey: String, layout: LazyListLayoutInfo? = null, rows: List<HeroCarouselRow> = emptyList()) {
@@ -348,7 +385,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (outgoing == paintedMetadata) paintedTranslation else 0f,
             if (outgoing == paintedMetadata) paintedAlpha else 0f,
             paintedEpoch, sameOwnerReturn, if (outgoing == paintedMetadata) paintedClipTop else 0f,
-            outgoingHeadroomPx = (headroomValues[outgoing?.rowKey]?.value ?: 0f) * density,
+            outgoingHeadroomPx = outgoing?.let { gapPx(it.rowKey).toFloat() } ?: 0f,
             earlyPreviewReturn = next.isXl && next.rowIndex < previous.rowIndex && !interruptedReturn
         )
         transition = move
@@ -370,24 +407,24 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         if (previous.isXl || next.isXl) {
             val owner = layout.visibleItemsInfo.firstOrNull { it.key == next.rowKey }
             val previousOwner = layout.visibleItemsInfo.firstOrNull { it.key == previous.rowKey }
-            val from = headroomValues[next.rowKey] ?: 0.dp
+            val from = (gapPx(next.rowKey) / density).dp
             val ownerTop = owner?.let { (it.offset + layout.beforeContentPadding).toFloat() }
                 ?: if (previousOwner != null && next.rowIndex == previous.rowIndex - 1) {
-                    rowHeights[next.rowKey]?.let { height -> previousOwner.offset + layout.beforeContentPadding -
-                        24f * density - (height.value + from.value) * density }
+                    rowHeights[next.rowKey]?.let { height -> (previousOwner.offset + layout.beforeContentPadding -
+                        (24f * density).roundToInt() - (height.value * density).roundToInt() - gapPx(next.rowKey)).toFloat() }
                 } else if (previousOwner != null && next.rowIndex == previous.rowIndex + 1) {
-                    (previousOwner.offset + layout.beforeContentPadding + previousOwner.size + 24f * density)
+                    (previousOwner.offset + layout.beforeContentPadding + previousOwner.size + (24f * density).roundToInt()).toFloat()
                 } else null
             if (ownerTop != null) {
                 val to = when {
                     move.downwardExit -> followingHeadroom(previous.rowKey, next.rowKey, density, clearXl = true)
                     next.isXl && next.rowIndex > 0 -> (xlTop(next.rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
                     else -> from
-                }
-                val header = headerHeights[next.rowKey] ?: 40f * density
-                val anchor = if (next.isXl) xlTop(next.rowKey).value * density + header else ordinaryTop.value * density + ordinaryPosterInset(next.rowKey, next.rowIndex)
-                val visibleDistance = ownerTop + from.value * density + header - anchor
-                val scroll = visibleDistance + (to - from).value * density
+                }.let { ((it.value * density).roundToInt() / density).dp }
+                val fromPx = (from.value * density).roundToInt()
+                val toPx = (to.value * density).roundToInt()
+                val visibleDistance = ownerTop.roundToInt() + fromPx + headerPx(next.rowKey) - posterAnchorPx(next)
+                val scroll = (visibleDistance + toPx - fromPx).toFloat()
                 val previousGap = headroomValues[previous.rowKey] ?: 0.dp
                 val restoredGap = heldHeadroomGoals[previous.rowKey]
                 val secondary = when {
@@ -447,7 +484,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun outgoingTranslation(layout: LazyListLayoutInfo): Float = transition?.let {
-        val gap = (headroomValues[it.outgoingMetadata?.rowKey]?.value ?: 0f) * density
+        val gap = it.outgoingMetadata?.let { block -> gapPx(block.rowKey).toFloat() } ?: 0f
         val delta = gap - it.outgoingHeadroomPx
         it.initialMetadataTranslation + it.scrollAnchor.displacement(layout.rowPositions()) +
             if (it.earlyPreviewReturn) delta.coerceAtLeast(0f) else delta
@@ -469,9 +506,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         // BringIntoView aligns the focused poster at ordinaryTop + 40dp. A
         // measured heading may be a few pixels taller/shorter than that inset.
         // Use the very same poster anchor so the final moving frame is zero.
-        return owner.offset + layout.beforeContentPadding + (headroomValues[key]?.value ?: 0f) * density +
-            (headerHeights[key] ?: 40f * density) - ordinaryTopPx -
-            ordinaryPosterInset(key, selection?.rowIndex ?: 1, density)
+        return (owner.offset + layout.beforeContentPadding + gapPx(key, density) + headerPx(key, density) -
+            posterAnchorPx(checkNotNull(selection), density, ordinaryTopPx)).toFloat()
     }
 
     fun outgoingXlBottom(layout: LazyListLayoutInfo): Float? {
@@ -527,13 +563,16 @@ internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListSta
     ordinaryTop: Dp): Modifier {
     val mask by rememberHomePosterMask(scene, list, enabled, ordinaryTop)
     return drawWithContent {
-    clipRect {
-        val top = mask?.first?.coerceAtLeast(0f) ?: 0f
-        val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
-        if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
-            this@drawWithContent.drawContent()
-        } else this@drawWithContent.drawContent()
-    }
+        val paintEpoch = scene.focusPaintEpoch
+        clipRect {
+            val top = mask?.first?.coerceAtLeast(0f) ?: 0f
+            val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
+            if (top < bottom) clipRect(top = top, bottom = bottom, clipOp = ClipOp.Difference) {
+                this@drawWithContent.drawContent()
+            } else this@drawWithContent.drawContent()
+        }
+        // The first moving frame is released only after the focus frame has drawn.
+        scene.recordFocusPaint(paintEpoch)
     }
 }
 
