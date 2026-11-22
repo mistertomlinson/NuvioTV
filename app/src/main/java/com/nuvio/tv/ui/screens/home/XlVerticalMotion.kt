@@ -10,7 +10,10 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyLayoutScrollScope as lazyListScrollScope
+import androidx.compose.foundation.lazy.layout.LazyLayoutScrollScope
 import androidx.compose.runtime.*
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
@@ -26,13 +29,33 @@ import kotlin.math.roundToInt
 
 internal const val XL_SPRING_TIME_SCALE = 1.10f
 
+internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
+
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
-    val secondaryGap: XlGapMotion? = null)
+    val secondaryGap: XlGapMotion? = null, val itemAnchor: XlScrollItemAnchor? = null)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
+
+/** Publish compact spacing and position in one measured frame, under the existing scroll owner. */
+internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, motion: XlVerticalMotion,
+    gapPx: Int, travelPx: Int, previousTravelPx: Float) {
+    if (gapPx == scene.gapPx(motion.rowKey) && travelPx.toFloat() == previousTravelPx) return
+    val anchor = motion.itemAnchor
+    if (anchor == null) {
+        scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
+        scrollBy(travelPx - previousTravelPx)
+        return
+    }
+    // Apply the size invalidation before positioning. Incremental scrollBy can
+    // otherwise reuse the previous measurement and leave the gap one pass late.
+    Snapshot.withMutableSnapshot {
+        scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
+    }
+    snapToItem(anchor.index, anchor.scrollOffset + travelPx)
+}
 
 /** Share one spring clock across XL travel and the shorter incoming-row leg. */
 @OptIn(ExperimentalFoundationApi::class)
@@ -84,6 +107,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             }
                             try { focusPaint.await() } finally { fallback.cancel() }
                         }
+                        val compactScroll = if (active.compact && active.itemAnchor != null) lazyListScrollScope(list, this) else null
                         var previous = 0f
                         val fromPx = (active.fromGap.value * scene.density).roundToInt()
                         val toPx = (active.toGap.value * scene.density).roundToInt()
@@ -104,12 +128,13 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 // on this same clock, rather than hitting a clamp.
                                 val gapPx = if (active.compact) fromPx + travel - incomingTravel
                                     else (fromPx + (toPx - fromPx) * fraction).roundToInt()
-                                scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
+                                if (compactScroll == null) scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
                                 active.secondaryGap?.let { gap ->
                                     if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
                                         scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
                                 }
-                                scrollBy(travel - previous)
+                                if (compactScroll != null) compactScroll.publishCompactXlFrame(scene, active, gapPx, travel, previous)
+                                else scrollBy(travel - previous)
                                 previous = travel.toFloat()
                                 if (active.compact && incomingTravel == visiblePx.roundToInt()) scene.compactRowRested = true
                                 if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()

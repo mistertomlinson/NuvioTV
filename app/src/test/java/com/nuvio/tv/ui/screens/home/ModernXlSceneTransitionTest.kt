@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyLayoutScrollScope as lazyListScrollScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -308,6 +309,50 @@ class ModernXlSceneTransitionTest {
         settle()
         assertEquals("No correction after the spring releases ownership", 260f, y("heading-C"), 0f)
         assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
+    }
+
+    @Test fun compactFramePublishesItsNewSpacerMeasurementWithItsScrollPosition() {
+        content(start = 2, summary = false)
+        compose.runOnUiThread { scene.verticalLauncher = {} }
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(32)
+        val motion = checkNotNull(scene.verticalMotion)
+        val anchor = checkNotNull(motion.itemAnchor)
+        val before = list.layoutInfo.visibleItemsInfo.first { it.key == "C" }
+        val oldSize = before.size
+        val oldOffset = before.offset
+        val oldGap = scene.gapPx("C")
+        val travel = 20
+        val targetGap = (motion.toGap.value * scene.density).toInt()
+        val gap = oldGap + ((targetGap - oldGap) * travel / motion.scrollPx).toInt()
+        assertTrue("Exercise the first growing spacer frame", gap > oldGap)
+        var measuredSize = 0
+        var measuredOffset = 0
+        val measureGetter = LazyListState::class.java.methods.first { it.name.startsWith("getNumMeasurePasses") }
+        fun measureCount() = measureGetter.invoke(list) as Int
+        val measuresBefore = measureCount()
+        var measuresAfterFrame = 0
+        compose.runOnUiThread {
+            kotlinx.coroutines.runBlocking {
+                list.scroll(androidx.compose.foundation.MutatePriority.PreventUserInput) {
+                    lazyListScrollScope(list, this).publishCompactXlFrame(scene, motion, gap, travel, 0f)
+                    val current = list.layoutInfo.visibleItemsInfo.first { it.key == "C" }
+                    measuredSize = current.size
+                    measuredOffset = current.offset
+                    measuresAfterFrame = measureCount()
+                    assertTrue("The original scroll owner remains held", list.isScrollInProgress)
+                }
+            }
+        }
+        assertEquals("The compact frame must not publish a new offset with the previous spacer measurement",
+            oldSize + gap - oldGap, measuredSize)
+        assertEquals("Both measurements describe the same spring frame", oldOffset - travel, measuredOffset)
+        assertEquals(3, anchor.index)
+        assertEquals("One measured pass publishes the compact frame", 1, measuresAfterFrame - measuresBefore)
+        compose.waitForIdle()
+        println("COMPACT_LAYOUT_FRAME gap=$gap size=$measuredSize expected=${oldSize + gap - oldGap} synchronousPasses=${measuresAfterFrame - measuresBefore} followupPasses=${measureCount() - measuresAfterFrame}")
+        assertEquals("No corrective layout pass is left for the next frame", measuresAfterFrame, measureCount())
+        compose.runOnUiThread { scene.cancelVerticalMotion() }
     }
 
     private fun verifyFocusPaintPrecedesMotion(start: Int, key: Int) {

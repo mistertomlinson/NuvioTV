@@ -1,13 +1,14 @@
 # XL catalog rows
 
-Modern Home XL compact focus on `fix/xl-compact-focus-20261122`, based on
-`5f8ba2d5` Spring Landing. TV testing approved the spring speed and confirmed the
-summary-XL focus hitch resolved; compact XL still showed it. Compact boundaries
-now require a committed focus-composition token before a draw can release motion,
-so their already-visible unfocused previews cannot acknowledge the new focus ID
-from a cached display list. Summary-only boundaries keep the existing draw-only
-check. The approved spring, short compact landing, pixel anchor and all rendering
-are unchanged. Physical TV frame pacing still requires the next device test.
+Modern Home XL compact layout frames on `fix/xl-compact-layout-frame-20261122`,
+based on `8573de57` Compact Focus. TV testing showed focus was already in place
+before the remaining compact Down pause. A new single-tick native test found the
+scroll offset could publish while the spacer measurement was still from the
+previous frame. Compact Down now commits spacing invalidation and positions the
+list at that spring sample through the existing owned custom-scroll scope. The
+test verifies matching size/offset in one measured pass with no corrective pass.
+Approved speed, short compact landing and all other boundary paths are retained.
+Physical TV frame pacing still requires the next device test.
 Catalog Management uses one poster control: Portrait → Landscape → XL with
 summary → XL without summary → Portrait. Portrait is the muted default icon;
 landscape and either XL choice are white, including while focused. The portrait
@@ -199,6 +200,15 @@ the shared motion and retains the actual current gap for a continuous reversal.
 An interrupted exit retries the selected row's relocation after cancellation
 releases the list. A partly expanded gap regains the outgoing hero's clearance
 while returning to XL, and its metadata follows the measured gap displacement.
+
+Compact Down captures the incoming item's actual lazy index and item-relative
+offset before motion. For each integer spring sample, a mutable snapshot applies
+the spacer-size invalidation, then the existing custom scroll session places the
+list at the corresponding absolute anchored position. This avoids incremental
+scrolling against cached item sizes followed by a later gap correction. The
+session remains owned throughout; there is no new scroll-request job or added
+delay. Zero-change samples do no work. Other boundary paths keep their existing
+incremental scroll behavior and timing.
 
 The gap stays open while browsing ordinary rows below XL, allowing a later
 upward return to bring the scene down together. On Up into compact XL, the

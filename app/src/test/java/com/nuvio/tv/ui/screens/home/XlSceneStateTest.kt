@@ -421,4 +421,14 @@ class XlSceneStateTest {
         }
     }
 
+    @Test fun `compact frame anchor uses actual lazy index and excludes content padding`() {
+        val scene = XlSceneState(selection("XL", 1, true, false))
+        val layout = positionedLayout("XL" to 54, "C" to 500)
+        every { layout.beforeContentPadding } returns 37
+        scene.focus(selection("C", 2), layout, focusConfirmed = false)
+        val anchor = checkNotNull(scene.verticalMotion?.itemAnchor)
+        assertEquals("Use the actual item index, not a stale logical row index", 1, anchor.index)
+        assertEquals("Offsets are relative to the content-padding origin", -500, anchor.scrollOffset)
+    }
+
 }
