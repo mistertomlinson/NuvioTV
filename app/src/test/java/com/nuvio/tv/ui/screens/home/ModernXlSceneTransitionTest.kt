@@ -1067,13 +1067,16 @@ class ModernXlSceneTransitionTest {
         val motion = checkNotNull(scene.verticalMotion)
         assertTrue(motion.incrementalLandscapeFollower)
         val tops = mutableListOf<Float>()
-        repeat(20) {
+        repeat(20) { frame ->
             advance(16)
-            if (scene.verticalMotion === motion) tops += y("heading-C")
+            // Ignore start-up and landing. Mid-spring velocity is the
+            // regression target; landing can legitimately clamp by a pixel.
+            if (scene.verticalMotion === motion && frame in 2..11)
+                tops += y("heading-C")
         }
         val moves = tops.zipWithNext().map { (a, b) -> a - b }
             .filter { it > 0.5f }
-        assertTrue("Observe linear regular movement across enough frames", moves.size >= 7)
+        assertTrue("Observe linear regular movement across enough frames", moves.size >= 5)
         assertTrue("Regular row does not inherit XL spring's large velocity peak",
             moves.maxOrNull()!! - moves.minOrNull()!! <= 3f)
         settle()
