@@ -1022,7 +1022,7 @@ class ModernXlSceneTransitionTest {
         content(start = 2, summary = false)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(64)
-        assertFalse("During scroll we must retain the old blurred XL frame", backdrop.revealing)
+        assertFalse("Compact XL backdrop dissolve must wait for row settlement", backdrop.directExit)
         assertEquals("XL", backdrop.preview?.title)
         assertTrue(backdrop.blurred)
         assertFalse(checkNotNull(scene.transition).rowsSettled)
