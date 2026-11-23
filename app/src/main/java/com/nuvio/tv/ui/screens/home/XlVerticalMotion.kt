@@ -40,7 +40,11 @@ internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: 
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
 
-/** Publish compact spacing and position in one measured frame, under the existing scroll owner. */
+/** Difference between the original moving gap and a fixed, measured gap. */
+internal fun compactFixedFollowerOffsetPx(animatedGapPx: Int, fixedGapPx: Int): Float =
+    (animatedGapPx - fixedGapPx).toFloat()
+
+/** Publish compact spacing and position under the existing scroll owner. */
 internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, motion: XlVerticalMotion,
     gapPx: Int, travelPx: Int, previousTravelPx: Float) {
     if (gapPx == scene.gapPx(motion.rowKey) && travelPx.toFloat() == previousTravelPx) return
@@ -55,8 +59,15 @@ internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, mo
     // The spring, travel and animated gap are otherwise identical.
     // Keep the original anchored path for all other transitions.
     if (motion.incrementalLandscapeFollower) {
+        // The former per-frame spacer resize still invalidated LazyColumn
+        // measurements even after we removed snapToItem. Keep the measured
+        // gap at its final size; compensate with a graphics-layer translation.
+        val fixedGapPx = (motion.toGap.value * scene.density).roundToInt()
         Snapshot.withMutableSnapshot {
-            scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
+            if (scene.gapPx(motion.rowKey) != fixedGapPx)
+                scene.headroomValues[motion.rowKey] = motion.toGap
+            scene.compactIncomingLandscapeTranslationPx =
+                compactFixedFollowerOffsetPx(gapPx, fixedGapPx)
         }
         scrollBy(travelPx - previousTravelPx)
     } else {
@@ -152,7 +163,11 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
                             }
                         }
-                        scene.headroomValues[active.rowKey] = active.toGap
+                        Snapshot.withMutableSnapshot {
+                            scene.headroomValues[active.rowKey] = active.toGap
+                            if (active.incrementalLandscapeFollower)
+                                scene.compactIncomingLandscapeTranslationPx = 0f
+                        }
                         active.secondaryGap?.let {
                             if (scene.previewReturn?.rowKey != it.rowKey || scene.transition?.outgoingMetadataCleared != true)
                                 scene.headroomValues[it.rowKey] = it.to
@@ -163,6 +178,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                     completed = true
                 } finally {
                     if (scene.verticalMotion === active) {
+                        if (active.incrementalLandscapeFollower) scene.compactIncomingLandscapeTranslationPx = 0f
                         if (completed) scene.headroomValues[active.rowKey] = active.toGap
                         scene.headroomMoving[active.rowKey] = false
                         active.secondaryGap?.let {

@@ -6202,6 +6202,17 @@ private fun EnhancedModernHomeRowsListBoundary(
             }
             Column {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
+                // Stabilize the measured headroom only on the compact-XL →
+                // landscape-row exit. The whole row draws at its original
+                // animated position without changing its measured height.
+                val compactLandscapeFollower = xlSceneEnabled && !row.isXl &&
+                    row.landscapePosters && previousRow?.isXl == true &&
+                    !previousRow.showXlSummary
+                Box(modifier = if (compactLandscapeFollower) Modifier.graphicsLayer {
+                    val active = xlScene.verticalMotion
+                    translationY = if (active?.incrementalLandscapeFollower == true &&
+                        active.rowKey == row.key) xlScene.compactIncomingLandscapeTranslationPx else 0f
+                } else Modifier) {
             ModernRowSection(
                 row = row,
                 posterFadeViewport = posterFadeViewport,
@@ -6278,6 +6289,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 onExpandedCatalogFocusKeyChange = stableOnExpandedCatalogFocusKeyChange,
                 useThemeColorForNumbers = useThemeColorForNumbers
             )
+                }
             }
         }
     }

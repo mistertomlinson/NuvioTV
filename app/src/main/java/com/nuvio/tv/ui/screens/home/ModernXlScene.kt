@@ -174,6 +174,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var interruptedRelocation by mutableStateOf<XlInterruptedRelocation?>(null)
     internal var rowCount = rows.size
     var compactRowRested by mutableStateOf(false)
+    // Replaces a changing measured spacer during incremental compact landscape exits.
+    // The fixed spacer and this draw-only offset preserve the original painted top.
+    var compactIncomingLandscapeTranslationPx by mutableFloatStateOf(0f)
+        internal set
     var exitMetadataAlpha by mutableFloatStateOf(0f)
     val heldHeadroomGoals = mutableStateMapOf<String, Dp>()
     var density by mutableFloatStateOf(1f)
@@ -222,6 +226,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun cancelVerticalMotion() {
+        // Restore the visually equivalent spacer before removing the draw
+        // translation. A mid-spring DPAD reversal must not jump the row.
+        verticalMotion?.takeIf { it.incrementalLandscapeFollower }?.let { motion ->
+            androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                val finalGapPx = (motion.toGap.value * density).roundToInt()
+                val visualGapPx = finalGapPx + compactIncomingLandscapeTranslationPx.roundToInt()
+                headroomValues[motion.rowKey] = (visualGapPx.coerceAtLeast(0) / density).dp
+                compactIncomingLandscapeTranslationPx = 0f
+            }
+        } ?: run { compactIncomingLandscapeTranslationPx = 0f }
         val paint = focusPaintSignal?.second
         focusPaintSignal = null
         verticalMotion?.let { motion ->

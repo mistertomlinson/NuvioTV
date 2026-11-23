@@ -23,6 +23,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionInRoot
@@ -117,7 +118,14 @@ class ModernXlSceneTransitionTest {
                                 itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
                                     Column(Modifier.testTag("row-${row.key}")) {
                                         XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl)
-                                        Column(Modifier.onSizeChanged {
+                                        val compactLandscapeFollower = row.landscapePosters && !row.isXl &&
+                                            rows.getOrNull(index - 1)?.isXl == true &&
+                                            !rows[index - 1].showXlSummary
+                                        Column((if (compactLandscapeFollower) Modifier.graphicsLayer {
+                                            val active = scene.verticalMotion
+                                            translationY = if (active?.incrementalLandscapeFollower == true &&
+                                                active.rowKey == row.key) scene.compactIncomingLandscapeTranslationPx else 0f
+                                        } else Modifier).onSizeChanged {
                                             scene.rowHeights[row.key] = it.height.dp
                                             if (row.isXl) {
                                                 // The compact mode uses the same visual anchor as summary mode.
@@ -992,6 +1000,32 @@ class ModernXlSceneTransitionTest {
         settle()
         assertEquals("C", scene.selection?.rowKey)
         assertEquals("The fixed landing position must be preserved", 260f, y("heading-C"), 2f)
+    }
+
+    @Test fun compactLandscapeExitKeepsMeasuredHeadroomFixedWhilePaintingTheSameLanding() {
+        content(start = 2, summary = false, landscapeFollower = true)
+        val before = y("heading-C")
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue(motion.incrementalLandscapeFollower)
+        val fixedGap = (motion.toGap.value * scene.density).toInt()
+        var movingFrames = 0
+        var lastTop = before
+        repeat(35) {
+            advance(16)
+            if (scene.verticalMotion != null && scene.compactIncomingLandscapeTranslationPx < -1f) {
+                movingFrames++
+                assertEquals("Headroom must not remeasure each spring frame", fixedGap, scene.gapPx("C"))
+            }
+            val top = y("heading-C")
+            assertTrue("The incoming row must never jump backwards: $lastTop -> $top",
+                top <= lastTop + 2f)
+            lastTop = top
+        }
+        assertTrue("Exercise several frames with paint-only motion", movingFrames >= 4)
+        settle()
+        assertEquals("Lands at the original regular-row anchor", 260f, y("heading-C"), 2f)
+        assertEquals(0f, scene.compactIncomingLandscapeTranslationPx, 0.01f)
     }
 
     @Test fun compactPortraitExitKeepsAnchoredScrollBehavior() {
