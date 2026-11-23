@@ -772,6 +772,7 @@ class ModernXlSceneTransitionTest {
         assertEquals("C", scene.selection?.rowKey)
         assertEquals(260f, y("heading-C"), 2f)
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        assertTrue(backdrop.revealing)
         val outgoing = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "XL" }
         assertTrue("XL must be entirely above the screen", outgoing == null || outgoing.offset + list.layoutInfo.beforeContentPadding + outgoing.size <= 0)
         assertEquals(0f to 260f, xlSceneMetadataMask(scene, list.layoutInfo, true, 260f, 1f))
@@ -990,41 +991,11 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun compactXlDownExitWaitsForRowSettleBeforeSwitchingBackdrop() {
+    @Test fun compactExitRevealsEarlyWithoutPaintingMetadataOverTheDepartingPoster() {
         content(start = 2, summary = false)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(64)
-        assertFalse(checkNotNull(scene.transition).rowsSettled)
-        assertEquals("XL", backdrop.preview?.title)
-        assertTrue(backdrop.blurred)
-        awaitRows()
-        advance(48)
-        assertEquals("C", backdrop.preview?.title)
-        settle()
-        assertFalse(backdrop.blurred)
-    }
-
-    @Test fun compactXlUpExitWaitsForRowSettleBeforeSwitchingBackdrop() {
-        content(start = 2, summary = false)
-        press(KeyEvent.KEYCODE_DPAD_UP)
-        advance(64)
-        assertFalse(checkNotNull(scene.transition).rowsSettled)
-        assertEquals("XL", backdrop.preview?.title)
-        assertTrue(backdrop.blurred)
-        awaitRows()
-        advance(48)
-        assertEquals("A", backdrop.preview?.title)
-        settle()
-        assertFalse(backdrop.blurred)
-    }
-
-    @Test fun compactExitHoldsBackdropWithoutPaintingMetadataOverDepartingPoster() {
-        content(start = 2, summary = false)
-        press(KeyEvent.KEYCODE_DPAD_DOWN)
-        advance(64)
-        assertFalse("Compact XL backdrop dissolve must wait for row settlement", backdrop.directExit)
-        assertEquals("XL", backdrop.preview?.title)
-        assertTrue(backdrop.blurred)
+        assertTrue(backdrop.revealing)
         assertFalse(checkNotNull(scene.transition).rowsSettled)
         val posterTop = y("poster-XL")
         val top = (posterTop + 3f).coerceAtLeast(0f).toInt()
