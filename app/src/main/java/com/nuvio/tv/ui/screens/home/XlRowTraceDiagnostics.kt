@@ -108,7 +108,10 @@ private class XlRowTraceTracker(private val role: String, private val rowKey: St
         draws++
         if (!firstDraw) {
             firstDraw = true
-            mark("DRAW_FIRST", "drawCount=$draws")
+            // First draw is the event under investigation. Mark it in the
+            // trace without synchronous Log.i I/O on that sensitive frame.
+            Trace.beginSection("NXL:${role}_DRAW_FIRST")
+            Trace.endSection()
         }
     }
 
