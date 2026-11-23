@@ -4068,6 +4068,25 @@ private fun androidx.compose.foundation.layout.BoxScope.PosterStatusMarkers(
     }
 }
 
+/**
+ * Rasterize the digit's combined filled silhouette, then cut out the actual
+ * fill to leave only its outside boundary. Tracing the font's individual
+ * contours with STROKE paints overlap seams inside e.g. 4 and 8.
+ *
+ * Must be called inside a glyph-sized saveLayer: DST_OUT should subtract the
+ * filled glyph, not punch through the underlying poster or backdrop.
+ */
+internal fun android.graphics.Canvas.drawCatalogNumberSilhouetteOutline(
+    text: String,
+    x: Float,
+    baseline: Float,
+    expandedFill: android.graphics.Paint,
+    subtractFill: android.graphics.Paint
+) {
+    drawText(text, x, baseline, expandedFill)
+    drawText(text, x, baseline, subtractFill)
+}
+
 @Composable
 internal fun NumberedCatalogCardWrapper(
     number: Int,
@@ -4170,11 +4189,18 @@ internal fun NumberedCatalogCardWrapper(
                             android.graphics.Color.TRANSPARENT, android.graphics.Color.WHITE, android.graphics.Shader.TileMode.CLAMP)
                         xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
                     } else null
-                    val strokePaint = if (numberStyle == NumberStyle.OUTLINE) android.graphics.Paint(paint).apply {
-                        style = android.graphics.Paint.Style.STROKE
-                        strokeWidth = 1.5f * density.density
+                    val silhouetteOutline = if (numberStyle == NumberStyle.OUTLINE) android.graphics.Paint(paint).apply {
+                        // A 3 dp centered stroke extends 1.5 dp outside the
+                        // filled silhouette. Erasing the fill below leaves a
+                        // clean 1.5 dp outline, including the counters.
+                        style = android.graphics.Paint.Style.FILL_AND_STROKE
+                        strokeWidth = 3f * density.density
                         strokeJoin = android.graphics.Paint.Join.ROUND
                         strokeCap = android.graphics.Paint.Cap.ROUND
+                    } else null
+                    val subtractFill = if (silhouetteOutline != null) android.graphics.Paint(paint).apply {
+                        style = android.graphics.Paint.Style.FILL
+                        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
                     } else null
                     val textW = paint.measureText(numberText)
                     val oneAdjust = if (numberText == "1" && !compactXl) 5f * density.density else 0f
@@ -4192,11 +4218,13 @@ internal fun NumberedCatalogCardWrapper(
                         val inkPad = (if (compactXl) 3.dp else 2.dp).toPx()
                         // A glyph-sized layer includes its outline and lower
                         // overhang. No full-row layer or hard number clip.
-                        val savedAlpha = if (opacity < 1f || softenEdge) nativeCanvas.saveLayerAlpha(
+                        val savedAlpha = if (opacity < 1f || softenEdge || silhouetteOutline != null) nativeCanvas.saveLayerAlpha(
                             -inkPad, -inkPad, size.width + inkPad, size.height + inkPad,
                             (opacity.coerceIn(0f, 1f) * 255).toInt()) else null
-                        strokePaint?.let { nativeCanvas.drawText(numberText, x, baseline, it) }
-                        if (strokePaint == null) nativeCanvas.drawText(numberText, x, baseline, paint)
+                        if (silhouetteOutline != null) {
+                            nativeCanvas.drawCatalogNumberSilhouetteOutline(
+                                numberText, x, baseline, silhouetteOutline, checkNotNull(subtractFill))
+                        } else nativeCanvas.drawText(numberText, x, baseline, paint)
                         if (softenEdge) {
                             edgeMatrix.setScale(12.dp.toPx(), 1f)
                             edgeMatrix.postTranslate(checkNotNull(edge).dp.toPx(), 0f)
