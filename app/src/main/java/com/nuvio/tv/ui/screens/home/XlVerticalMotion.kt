@@ -146,6 +146,8 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         }
                         val compactScroll = if (active.compact && active.itemAnchor != null) lazyListScrollScope(list, this) else null
                         var previous = 0f
+                        if (active.incrementalLandscapeFollower)
+                            XlRowTraceDiagnostics.scrollStarted(active.id, active.rowKey, active.scrollPx)
                         val fromPx = (active.fromGap.value * scene.density).roundToInt()
                         val toPx = (active.toGap.value * scene.density).roundToInt()
                         val visiblePx = active.scrollPx - (toPx - fromPx)
@@ -191,6 +193,8 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                     }
                     completed = true
                 } finally {
+                    if (active.incrementalLandscapeFollower)
+                        XlRowTraceDiagnostics.scrollFinished(active.id, active.rowKey, completed)
                     if (scene.verticalMotion === active) {
                         if (active.incrementalLandscapeFollower) scene.compactIncomingLandscapeTranslationPx = 0f
                         if (completed) scene.headroomValues[active.rowKey] = active.toGap

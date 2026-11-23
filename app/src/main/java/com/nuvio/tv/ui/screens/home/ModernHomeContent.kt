@@ -5941,6 +5941,8 @@ private fun EnhancedModernHomeRowsListBoundary(
                     val nextIndex = fromIndex + sign
                     val next = currentCarouselRows.getOrNull(nextIndex)
                     if (from != null && next != null && (from.isXl || next.isXl)) {
+                        if (sign > 0 && from.isXl && !from.showXlSummary && !next.isXl)
+                            XlRowTraceDiagnostics.navigation(from.key, next.key)
                         // Block the framework's first relocation without
                         // guessing the destination's not-yet-measured geometry.
                         currentXlScene.armBoundaryFocus()
@@ -6212,12 +6214,16 @@ private fun EnhancedModernHomeRowsListBoundary(
                 } ?: -1
                 val compactOrdinarySuffix = xlSceneEnabled && !row.isXl &&
                     precedingXlIndex >= 0 && !doubleUpRenderedRows[precedingXlIndex].showXlSummary
-                Box(modifier = if (compactOrdinarySuffix) Modifier.graphicsLayer {
+                val traceRole = compactXlDiagnosticRole(
+                    xlSceneEnabled, row.isXl, row.showXlSummary, compactOrdinarySuffix,
+                    rowIndex - precedingXlIndex
+                )
+                Box(modifier = (if (compactOrdinarySuffix) Modifier.graphicsLayer {
                     translationY = compactOrdinarySuffixTranslationPx(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.compactIncomingLandscapeTranslationPx
                     )
-                } else Modifier) {
+                } else Modifier).xlTraceRowLifecycle(traceRole, row.key)) {
             ModernRowSection(
                 row = row,
                 posterFadeViewport = posterFadeViewport,
