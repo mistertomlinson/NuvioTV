@@ -144,6 +144,12 @@ import com.nuvio.tv.ui.util.StableMap
 import com.nuvio.tv.ui.util.StableSet
 import com.nuvio.tv.ui.util.asStable
 
+// Temporary A/B: a black backdrop during the compact downward spring tests
+// whether large hero-media draw/compositing costs, rather than row motion,
+// are responsible for the mid-slide frame stall. No geometry/timing changes.
+internal fun xlCompactExitHeroMediaAlpha(compactExit: Boolean, motionActive: Boolean): Float =
+    if (compactExit && motionActive) 0f else 1f
+
 private const val MODERN_HERO_RAPID_NAV_THRESHOLD_MS = 130L
 private const val MODERN_HERO_RAPID_NAV_SETTLE_MS = 400L
 private const val MODERN_HERO_NORMAL_SETTLE_MS = 450L
@@ -3538,7 +3544,12 @@ fun ModernHomeContent(
                         // so backdrop and catalog never fade independently and you
                         // never see through one layer to the next. translationX
                         // (parallax motion) is unaffected.
-                        alpha = 1f
+                        // Diagnostic: suppress only the hero-media GPU draw
+                        // during the compact XL downward row spring.
+                        alpha = xlCompactExitHeroMediaAlpha(
+                            xlScene.transition?.compactExit == true,
+                            xlScene.verticalMotion != null
+                        )
                         translationX = backdropParallaxOffset.value
                     },
                 cinematicScale =
@@ -3681,7 +3692,10 @@ fun ModernHomeContent(
                             }
                         }
                         .graphicsLayer {
-                            alpha = 1f
+                            alpha = xlCompactExitHeroMediaAlpha(
+                                xlScene.transition?.compactExit == true,
+                                xlScene.verticalMotion != null
+                            )
                             translationX =
                                 backdropParallaxOffset.value
                         },
