@@ -2,6 +2,8 @@ package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.AnimationState
+import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.animateTo
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -28,6 +30,28 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 internal const val XL_SPRING_TIME_SCALE = 1.10f
+
+/**
+ * Find the normal spring's early landing threshold, then move the incoming
+ * ordinary suffix at a constant speed over that wall-clock interval.
+ * The outgoing XL itself still uses the original spring.
+ */
+internal fun compactFollowerLinearDurationNanos(spec: AnimationSpec<Float>, distance: Float,
+    timeScale: Float): Long {
+    val reference = TargetBasedAnimation(spec, Float.VectorConverter, 0f, distance)
+    val increment = 8_000_000L
+    var at = increment
+    while (at < reference.durationNanos &&
+        abs(distance - reference.getValueFromNanos(at)) >= 0.5f) {
+        at += increment
+    }
+    return (at * timeScale.coerceAtLeast(0.01f)).toLong().coerceAtLeast(increment)
+}
+
+/** No spring easing: constant-velocity movement for the incoming regular rows. */
+internal fun compactFollowerLinearDistancePx(visiblePx: Float, elapsedNanos: Long,
+    durationNanos: Long): Int = (visiblePx *
+    (elapsedNanos.toFloat() / durationNanos.coerceAtLeast(1L)).coerceIn(0f, 1f)).roundToInt()
 
 internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
 
@@ -158,6 +182,11 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         // travel distance. Stretch only this scroll animation
                         // by 10%; metadata and preview clocks remain independent.
                         val systemScale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
+                        val linearDurationNanos = if (active.incrementalLandscapeFollower)
+                            compactFollowerLinearDurationNanos(
+                                animation, active.scrollPx, systemScale * XL_SPRING_TIME_SCALE)
+                        else 0L
+                        var firstFollowerFrameNanos = Long.MIN_VALUE
                         withContext(object : MotionDurationScale {
                             override val scaleFactor = systemScale * XL_SPRING_TIME_SCALE
                         }) {
@@ -165,9 +194,20 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
                                 val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
                                 val travel = (active.scrollPx * fraction).roundToInt()
-                                val incomingTravel = (visiblePx * fraction).roundToInt()
-                                // The short incoming leg has its own spring range
-                                // on this same clock, rather than hitting a clamp.
+                                val incomingTravel = if (active.incrementalLandscapeFollower) {
+                                    // A/B test: no spring acceleration/deceleration in the
+                                    // regular-row suffix. Both regular rows share this travel.
+                                    if (firstFollowerFrameNanos == Long.MIN_VALUE)
+                                        firstFollowerFrameNanos = lastFrameTimeNanos
+                                    compactFollowerLinearDistancePx(
+                                        visiblePx,
+                                        (lastFrameTimeNanos - firstFollowerFrameNanos +
+                                            16_000_000L).coerceAtLeast(0L),
+                                        linearDurationNanos)
+                                } else (visiblePx * fraction).roundToInt()
+                                // Compact landscape: the XL keeps its spring, but the
+                                // ordinary rows beneath it have constant-velocity travel.
+                                // Portrait and non-compact paths retain their existing spring.
                                 val gapPx = if (active.compact) fromPx + travel - incomingTravel
                                     else (fromPx + (toPx - fromPx) * fraction).roundToInt()
                                 if (compactScroll == null) scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp

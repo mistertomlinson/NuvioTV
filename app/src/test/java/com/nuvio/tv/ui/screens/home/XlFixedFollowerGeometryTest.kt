@@ -27,6 +27,27 @@ class XlFixedFollowerGeometryTest {
         }
     }
 
+    @Test fun linearFollowerDistanceDoesNotUseSpringDisplacement() {
+        val visible = 120f
+        val duration = 240_000_000L
+        assertEquals(0, compactFollowerLinearDistancePx(visible, 0L, duration))
+        assertEquals(30, compactFollowerLinearDistancePx(visible, 60_000_000L, duration))
+        assertEquals(60, compactFollowerLinearDistancePx(visible, 120_000_000L, duration))
+        assertEquals(90, compactFollowerLinearDistancePx(visible, 180_000_000L, duration))
+        assertEquals(120, compactFollowerLinearDistancePx(visible, duration, duration))
+        assertEquals(120, compactFollowerLinearDistancePx(visible, duration * 2, duration))
+        for (springTravel in listOf(0, 10, 120, 280, 350)) {
+            val regularTravel = compactFollowerLinearDistancePx(visible, 120_000_000L, duration)
+            val fromGap = 0
+            val toGap = 230
+            val animatedGap = fromGap + springTravel - regularTravel
+            val drawOffset = compactFixedFollowerOffsetPx(animatedGap, toGap)
+            val paintedTop = 500f - springTravel + toGap + drawOffset
+            assertEquals("Regular row remains independent of XL spring progress",
+                500f - regularTravel, paintedTop, 0f)
+        }
+    }
+
     @Test fun allOrdinaryRowsAfterTheCompactFollowerUseTheSameTranslation() {
         val motion = XlVerticalMotion(1, "regular", 0.dp, 300.dp, 350f,
             itemAnchor = XlScrollItemAnchor(3, 0), incrementalLandscapeFollower = true)

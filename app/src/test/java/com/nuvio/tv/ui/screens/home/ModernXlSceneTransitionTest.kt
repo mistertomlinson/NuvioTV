@@ -289,7 +289,9 @@ class ModernXlSceneTransitionTest {
             assertTrue("Only a modest stretch of the ordinary spring", firstRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
             assertTrue("XL must not gain a long poster-size timing multiplier", firstRest <= referenceSettle + 80)
             assertTrue("The same spring keeps its familiar early movement", peakStep <= peakReference * 1.1f + 2f)
-            if (start == 2) assertTrue("Regular spring acceleration must peak early, then decelerate", peakAt in 1 until (firstRest * 0.3f).toInt())
+            if (start == 2 && !landscapeFollower)
+                assertTrue("Regular spring acceleration must peak early, then decelerate",
+                    peakAt in 1 until (firstRest * 0.3f).toInt())
         }
         assertEquals("The incoming row must never reverse direction", 0, reversed)
     }
@@ -1057,6 +1059,25 @@ class ModernXlSceneTransitionTest {
         settle()
         assertEquals("Lands at the original regular-row anchor", 260f, y("heading-C"), 2f)
         assertEquals(0f, scene.compactIncomingLandscapeTranslationPx, 0.01f)
+    }
+
+    @Test fun compactLandscapeRegularFollowerIsLinearWhileXlRetainsTheSpring() {
+        content(start = 2, summary = false, landscapeFollower = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue(motion.incrementalLandscapeFollower)
+        val tops = mutableListOf<Float>()
+        repeat(20) {
+            advance(16)
+            if (scene.verticalMotion === motion) tops += y("heading-C")
+        }
+        val moves = tops.zipWithNext().map { (a, b) -> a - b }
+            .filter { it > 0.5f }
+        assertTrue("Observe linear regular movement across enough frames", moves.size >= 7)
+        assertTrue("Regular row does not inherit XL spring's large velocity peak",
+            moves.maxOrNull()!! - moves.minOrNull()!! <= 3f)
+        settle()
+        assertEquals(260f, y("heading-C"), 2f)
     }
 
     @Test fun compactLandscapeExitPreservesSpacingBetweenAllOrdinaryRows() {
