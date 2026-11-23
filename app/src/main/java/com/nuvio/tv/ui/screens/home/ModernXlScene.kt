@@ -174,6 +174,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var interruptedRelocation by mutableStateOf<XlInterruptedRelocation?>(null)
     internal var rowCount = rows.size
     var compactRowRested by mutableStateOf(false)
+    // Draw offset for the fixed-height incoming landscape row on compact DOWN exit.
+    var compactIncomingLandscapeTranslationPx by mutableFloatStateOf(0f)
+        internal set
     var exitMetadataAlpha by mutableFloatStateOf(0f)
     val heldHeadroomGoals = mutableStateMapOf<String, Dp>()
     var density by mutableFloatStateOf(1f)
@@ -222,6 +225,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun cancelVerticalMotion() {
+        // If focus reverses mid-spring, restore the virtual spacer before
+        // clearing the draw-only offset, preserving the painted position.
+        verticalMotion?.takeIf { it.stableLandscapeFollower }?.let { motion ->
+            androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                val finalGapPx = (motion.toGap.value * density).roundToInt()
+                val virtualGapPx = finalGapPx + compactIncomingLandscapeTranslationPx.roundToInt()
+                headroomValues[motion.rowKey] = (virtualGapPx / density).dp
+                compactIncomingLandscapeTranslationPx = 0f
+            }
+        } ?: run { compactIncomingLandscapeTranslationPx = 0f }
         val paint = focusPaintSignal?.second
         focusPaintSignal = null
         verticalMotion?.let { motion ->
@@ -452,7 +465,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     heldHeadroomGoals[next.rowKey] = to
                     val itemAnchor = if (move.compactExit) XlScrollItemAnchor(
                         owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt()) else null
-                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll, move.compactExit, secondary, itemAnchor)
+                    val stableLandscapeFollower = move.compactExit &&
+                        rows.getOrNull(next.rowIndex)?.landscapePosters == true
+                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
+                        move.compactExit, secondary, itemAnchor, stableLandscapeFollower)
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }
