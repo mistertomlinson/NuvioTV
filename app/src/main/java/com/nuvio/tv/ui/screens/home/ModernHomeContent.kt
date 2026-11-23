@@ -615,9 +615,13 @@ fun ModernHomeContent(
     val activeItemKeysByRow = carouselLookups.activeItemKeysByRow
     val orderedItemKeysByRow = carouselLookups.orderedItemKeysByRow
     val activeCatalogItemIds = carouselLookups.activeCatalogItemIds
-    // Use the standard adjacent-row prefetch strategy, matching the official
-    // Home list, while keeping Enhanced's saved scroll position and renderer.
+    // A/B DIAGNOSTIC ONLY: retain and precompose ordinary rows up to 75%
+    // of the viewport in BOTH directions. With compact XL focused, this
+    // should prepare R2 before the DOWN animation instead of at ~250 ms.
+    // Symmetric windows also retain R2 when navigating back UP into XL.
+    // Keep the same LazyColumn and all motion, masks and row geometry.
     val verticalRowListState = rememberLazyListState(
+        cacheWindow = LazyLayoutCacheWindow(aheadFraction = 0.75f, behindFraction = 0.75f),
         initialFirstVisibleItemIndex = focusState.verticalScrollIndex,
         initialFirstVisibleItemScrollOffset = focusState.verticalScrollOffset
     )
