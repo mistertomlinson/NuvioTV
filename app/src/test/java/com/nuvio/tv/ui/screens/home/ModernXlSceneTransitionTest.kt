@@ -1080,6 +1080,23 @@ class ModernXlSceneTransitionTest {
         assertEquals(0f, scene.compactIncomingLandscapeTranslationPx, 0.01f)
     }
 
+    @Test fun compactLandscapeShortFollowerFinishesBeforeOutgoingXlSpring() {
+        content(start = 2, summary = false, landscapeFollower = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue(motion.incrementalLandscapeFollower)
+        var incomingLandedWhileSpringStillActive = false
+        repeat(28) {
+            advance(16)
+            if (scene.verticalMotion === motion && kotlin.math.abs(y("heading-C") - 260f) <= 2f)
+                incomingLandedWhileSpringStillActive = true
+        }
+        assertTrue("The short incoming row must stop before the long XL spring finishes",
+            incomingLandedWhileSpringStillActive)
+        settle()
+        assertEquals(260f, y("heading-C"), 2f)
+    }
+
     @Test fun compactLandscapeExitPreservesSpacingBetweenAllOrdinaryRows() {
         // Make the regular cards short so row D becomes visible during the
         // transition, rather than only after row C has reached its final top.

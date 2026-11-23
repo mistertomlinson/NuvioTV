@@ -29,6 +29,14 @@ import kotlin.math.roundToInt
 
 internal const val XL_SPRING_TIME_SCALE = 1.10f
 
+/**
+ * Restore the original short incoming-row motion: travel at the same
+ * instantaneous pixel speed as the outgoing XL spring, and stop the moment
+ * the short leg is complete. Do not time-stretch or decelerate this leg.
+ */
+internal fun compactFollowerFastTravelPx(outgoingTravelPx: Int, incomingDistancePx: Int): Int =
+    outgoingTravelPx.coerceIn(0, incomingDistancePx.coerceAtLeast(0))
+
 internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
 
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
@@ -165,9 +173,13 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
                                 val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
                                 val travel = (active.scrollPx * fraction).roundToInt()
-                                val incomingTravel = (visiblePx * fraction).roundToInt()
-                                // The short incoming leg has its own spring range
-                                // on this same clock, rather than hitting a clamp.
+                                val incomingTravel = if (active.incrementalLandscapeFollower)
+                                    compactFollowerFastTravelPx(travel, visiblePx.roundToInt())
+                                else (visiblePx * fraction).roundToInt()
+                                // The outgoing XL still follows its spring. On compact
+                                // landscape exits the ordinary suffix follows the
+                                // same instantaneous scroll velocity only for its
+                                // shorter distance, without a second spring tail.
                                 val gapPx = if (active.compact) fromPx + travel - incomingTravel
                                     else (fromPx + (toPx - fromPx) * fraction).roundToInt()
                                 if (compactScroll == null) scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp

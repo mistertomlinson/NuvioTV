@@ -27,6 +27,22 @@ class XlFixedFollowerGeometryTest {
         }
     }
 
+    @Test fun fastCompactFollowerMatchesOutgoingSpeedUntilItsShortLegFinishes() {
+        val incomingDistancePx = 84
+        for (travel in listOf(0, 12, 42, 83, 84, 92, 160, 300)) {
+            val incomingTravel = compactFollowerFastTravelPx(travel, incomingDistancePx)
+            assertEquals(travel.coerceAtMost(incomingDistancePx), incomingTravel)
+            // The XL can continue moving after the regular follower stops.
+            val fromGapPx = 0
+            val finalGapPx = 240
+            val animatedGapPx = fromGapPx + travel - incomingTravel
+            val offset = compactFixedFollowerOffsetPx(animatedGapPx, finalGapPx)
+            val paintedTop = 500f - travel + finalGapPx + offset
+            assertEquals(500f - incomingTravel, paintedTop, 0f)
+        }
+        assertEquals(0, compactFollowerFastTravelPx(40, -5))
+    }
+
     @Test fun allOrdinaryRowsAfterTheCompactFollowerUseTheSameTranslation() {
         val motion = XlVerticalMotion(1, "regular", 0.dp, 300.dp, 350f,
             itemAnchor = XlScrollItemAnchor(3, 0), incrementalLandscapeFollower = true)
