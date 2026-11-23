@@ -91,7 +91,10 @@ class XlNumberContrastTest {
         val width = 260
         val height = 250
         val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            typeface = androidx.core.content.res.ResourcesCompat.getFont(
+                org.robolectric.RuntimeEnvironment.getApplication(),
+                com.nuvio.tv.R.font.jost_variable
+            ) ?: android.graphics.Typeface.DEFAULT_BOLD
             textSize = 180f
             color = android.graphics.Color.GRAY
             style = android.graphics.Paint.Style.FILL
