@@ -10,7 +10,7 @@ class XlEntryGeometryTest {
         scene.screenHeight = 540.dp
         scene.estimatedXlHeight = 440.dp
         scene.landscapeAboveXlHeadroomReduction = 72.dp
-        val portrait = HeroCarouselRow("portrait", "Portrait", emptyList())
+        val portrait = HeroCarouselRow("portrait", "Portrait", 0, emptyList())
         val landscape = portrait.copy(landscapePosters = true)
         val xl = "next-xl"
         val nominal = (scene.xlTop(xl) - 23.dp).coerceAtLeast(0.dp)
