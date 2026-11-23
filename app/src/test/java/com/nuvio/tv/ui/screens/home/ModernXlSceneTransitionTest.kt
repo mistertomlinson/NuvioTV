@@ -789,6 +789,7 @@ class ModernXlSceneTransitionTest {
         assertEquals(260f, y("heading-C"), 2f)
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
         assertTrue(backdrop.revealing)
+        assertEquals("Compact XL exits must not alpha-blend two backdrop frames", 0, backdrop.imageFadeMillis)
         val outgoing = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "XL" }
         assertTrue("XL must be entirely above the screen", outgoing == null || outgoing.offset + list.layoutInfo.beforeContentPadding + outgoing.size <= 0)
         assertEquals(0f to 260f, xlSceneMetadataMask(scene, list.layoutInfo, true, 260f, 1f))
@@ -800,6 +801,15 @@ class ModernXlSceneTransitionTest {
         assertEquals(0f, backdrop.dim.value, 0.001f)
         assertEquals(1, metadataCount())
         assertEquals(0f to 260f, xlSceneMetadataMask(scene, list.layoutInfo, true, 260f, 1f))
+    }
+
+    @Test fun summaryXlExitRetainsNormalBackdropDissolveDuration() {
+        content(start = 2, summary = true)
+        frameReady.value = false
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(32)
+        assertTrue("Summary exit must still use the original dissolve", backdrop.directExit)
+        assertEquals(XL_BACKDROP_REVEAL_MS, backdrop.imageFadeMillis)
     }
 
     @Test fun returnToCompactXlKeepsOutgoingMetadataUntilItHasMovedOffScreen() {

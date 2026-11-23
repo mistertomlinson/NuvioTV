@@ -788,7 +788,11 @@ internal fun rememberXlBackdropPresentation(
             state.owned = true
             state.revealing = true
             state.directExit = true
-            state.imageFadeMillis = XL_BACKDROP_REVEAL_MS
+            // Diagnostic A/B: keep the outgoing XL blur until the sharp
+            // destination is ready, then switch without blending two
+            // backdrop images over the compact downward scroll.
+            // Summary XL exits and every XL entry retain their normal fade.
+            state.imageFadeMillis = if (boundary?.compactExit == true) 0 else XL_BACKDROP_REVEAL_MS
             state.gradientAlpha.snapTo(0f)
             state.token++
             state.preview = scene.stationaryMetadata?.preview ?: target.preview
