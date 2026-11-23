@@ -82,6 +82,60 @@ class XlNumberContrastTest {
         else assertEquals("Outlined ranks have no interior fill", 0, dark)
         image.recycle()
     }
+    /**
+     * Digit 4 contains adjacent/overlapping font primitives whose individual
+     * stroke contours must not appear inside the visible filled silhouette.
+     * The completed outline must have ink only outside the union of the fill.
+     */
+    @Test fun outlineFourDoesNotDrawInternalFontSeams() {
+        val width = 260
+        val height = 250
+        val fill = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textSize = 180f
+            color = android.graphics.Color.GRAY
+            style = android.graphics.Paint.Style.FILL
+        }
+        val expanded = android.graphics.Paint(fill).apply {
+            style = android.graphics.Paint.Style.FILL_AND_STROKE
+            strokeWidth = 6f
+            strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+        val erase = android.graphics.Paint(fill).apply {
+            style = android.graphics.Paint.Style.FILL
+            xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_OUT)
+        }
+        val solid = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        Canvas(solid).drawText("4", 32f, 200f, fill)
+        val outline = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(outline)
+        val layer = canvas.saveLayerAlpha(0f, 0f, width.toFloat(), height.toFloat(), 255)
+        canvas.drawCatalogNumberSilhouetteOutline("4", 32f, 200f, expanded, erase)
+        canvas.restoreToCount(layer)
+
+        var verifiedInterior = 0
+        var visibleOutline = 0
+        for (y in 5 until height - 5) for (x in 5 until width - 5) {
+            if (android.graphics.Color.alpha(outline.getPixel(x, y)) > 200) visibleOutline++
+            // Any pixel surrounded by solid ink is interior, even if the
+            // font uses crossing contours. No outline line belongs there.
+            val inside = (-4..4).all { dy ->
+                (-4..4).all { dx ->
+                    android.graphics.Color.alpha(solid.getPixel(x + dx, y + dy)) >= 250
+                }
+            }
+            if (inside) {
+                verifiedInterior++
+                assertEquals("No outline stroke inside the filled 4 at ($x,$y)",
+                    0, android.graphics.Color.alpha(outline.getPixel(x, y)))
+            }
+        }
+        assertTrue("The test must check real interior pixels", verifiedInterior > 100)
+        assertTrue("The test must render a visible 4 outline", visibleOutline > 100)
+        solid.recycle()
+        outline.recycle()
+    }
+
     @Test fun xlSolidHasNoAddedDarkContour() = verify(NumberStyle.SOLID, true)
     @Test fun xlOutlineHasTransparentInterior() = verify(NumberStyle.OUTLINE, true)
     @Test fun regularSolidHasNoAddedContour() = verify(NumberStyle.SOLID, false)
