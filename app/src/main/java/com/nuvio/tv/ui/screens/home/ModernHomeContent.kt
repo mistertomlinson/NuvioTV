@@ -6202,16 +6202,21 @@ private fun EnhancedModernHomeRowsListBoundary(
             }
             Column {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
-                // Stabilize the measured headroom only on the compact-XL →
-                // landscape-row exit. The whole row draws at its original
-                // animated position without changing its measured height.
-                val compactLandscapeFollower = xlSceneEnabled && !row.isXl &&
-                    row.landscapePosters && previousRow?.isXl == true &&
-                    !previousRow.showXlSummary
-                Box(modifier = if (compactLandscapeFollower) Modifier.graphicsLayer {
-                    val active = xlScene.verticalMotion
-                    translationY = if (active?.incrementalLandscapeFollower == true &&
-                        active.rowKey == row.key) xlScene.compactIncomingLandscapeTranslationPx else 0f
+                // The compact-XL spacer is fixed in measurement, while the
+                // following ordinary content compensates during the scroll.
+                // All ordinary rows in the suffix must receive ONE offset,
+                // otherwise the gap from the first follower to the next row
+                // shrinks as the scroll finishes.
+                val precedingXlIndex = (rowIndex - 1 downTo 0).firstOrNull {
+                    doubleUpRenderedRows[it].isXl
+                } ?: -1
+                val compactOrdinarySuffix = xlSceneEnabled && !row.isXl &&
+                    precedingXlIndex >= 0 && !doubleUpRenderedRows[precedingXlIndex].showXlSummary
+                Box(modifier = if (compactOrdinarySuffix) Modifier.graphicsLayer {
+                    translationY = compactOrdinarySuffixTranslationPx(
+                        xlScene.verticalMotion, rowIndex, precedingXlIndex,
+                        xlScene.compactIncomingLandscapeTranslationPx
+                    )
                 } else Modifier) {
             ModernRowSection(
                 row = row,

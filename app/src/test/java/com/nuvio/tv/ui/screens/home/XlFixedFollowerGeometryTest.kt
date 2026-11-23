@@ -27,6 +27,33 @@ class XlFixedFollowerGeometryTest {
         }
     }
 
+    @Test fun allOrdinaryRowsAfterTheCompactFollowerUseTheSameTranslation() {
+        val motion = XlVerticalMotion(1, "regular", 0.dp, 300.dp, 350f,
+            itemAnchor = XlScrollItemAnchor(3, 0), incrementalLandscapeFollower = true)
+        val offset = -167f
+        assertEquals(0f, compactOrdinarySuffixTranslationPx(motion, 2, -1, offset), 0f)
+        assertEquals(offset, compactOrdinarySuffixTranslationPx(motion, 3, 2, offset), 0f)
+        assertEquals(offset, compactOrdinarySuffixTranslationPx(motion, 4, 2, offset), 0f)
+        assertEquals(offset, compactOrdinarySuffixTranslationPx(motion, 5, 2, offset), 0f)
+        assertEquals(0f, compactOrdinarySuffixTranslationPx(motion, 6, 5, offset), 0f)
+        assertEquals(0f, compactOrdinarySuffixTranslationPx(
+            motion.copy(incrementalLandscapeFollower = false), 4, 2, offset), 0f)
+    }
+
+    @Test fun sharedTranslationKeepsOrdinaryRowSpacingAtEverySpringFrame() {
+        val motion = XlVerticalMotion(1, "regular", 0.dp, 300.dp, 350f,
+            itemAnchor = XlScrollItemAnchor(3, 0), incrementalLandscapeFollower = true)
+        val measuredC = 500f
+        val measuredD = 684f
+        for (frame in 0..120) {
+            val offset = compactFixedFollowerOffsetPx(frame * 300 / 120, 300)
+            val c = measuredC + compactOrdinarySuffixTranslationPx(motion, 3, 2, offset)
+            val d = measuredD + compactOrdinarySuffixTranslationPx(motion, 4, 2, offset)
+            assertEquals("Regular rows preserve physical measured spacing",
+                measuredD - measuredC, d - c, 0f)
+        }
+    }
+
     @Test fun interruptedExitRestoresTheActualVisibleGapWithoutJumping() {
         val scene = XlSceneState()
         scene.density = 1f

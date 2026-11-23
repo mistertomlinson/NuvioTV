@@ -73,7 +73,7 @@ class ModernXlSceneTransitionTest {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false, landscapeFollower: Boolean = false) {
+    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false, landscapeFollower: Boolean = false, ordinaryPosterHeight: androidx.compose.ui.unit.Dp = 200.dp) {
         rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A"), row("XL", 2, true, summary), row("C", 3).copy(landscapePosters = landscapeFollower), row("D", 4))
         scene = XlSceneState(rows[start].sceneSelection(0, start), rows).apply {
             fullWidthIcons = fullWidth
@@ -118,13 +118,16 @@ class ModernXlSceneTransitionTest {
                                 itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
                                     Column(Modifier.testTag("row-${row.key}")) {
                                         XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl)
-                                        val compactLandscapeFollower = row.landscapePosters && !row.isXl &&
-                                            rows.getOrNull(index - 1)?.isXl == true &&
-                                            !rows[index - 1].showXlSummary
-                                        Column((if (compactLandscapeFollower) Modifier.graphicsLayer {
-                                            val active = scene.verticalMotion
-                                            translationY = if (active?.incrementalLandscapeFollower == true &&
-                                                active.rowKey == row.key) scene.compactIncomingLandscapeTranslationPx else 0f
+                                        val precedingXlIndex = (index - 1 downTo 0).firstOrNull {
+                                            rows[it].isXl
+                                        } ?: -1
+                                        val compactOrdinarySuffix = !row.isXl && precedingXlIndex >= 0 &&
+                                            !rows[precedingXlIndex].showXlSummary
+                                        Column((if (compactOrdinarySuffix) Modifier.graphicsLayer {
+                                            translationY = compactOrdinarySuffixTranslationPx(
+                                                scene.verticalMotion, index, precedingXlIndex,
+                                                scene.compactIncomingLandscapeTranslationPx
+                                            )
                                         } else Modifier).onSizeChanged {
                                             scene.rowHeights[row.key] = it.height.dp
                                             if (row.isXl) {
@@ -135,7 +138,7 @@ class ModernXlSceneTransitionTest {
                                         Text(row.title, Modifier.onSizeChanged { scene.headerHeights[row.key] = it.height.toFloat() }.height(header.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
                                         val paintedFocus = if (paintFocusedState) remember { mutableStateOf(false) } else null
                                         Box(Modifier.padding(start = 52.dp).width(700.dp)
-                                            .height(if (row.isXl) 244.dp else 200.dp)
+                                            .height(if (row.isXl) 244.dp else ordinaryPosterHeight)
                                             .background(if (paintedFocus?.value == true) Color.Cyan else if (row.isXl) Color.Magenta else Color.Blue)
                                             .focusRequester(requesters[index])
                                             .onFocusChanged {
@@ -1031,6 +1034,33 @@ class ModernXlSceneTransitionTest {
         settle()
         assertEquals("Lands at the original regular-row anchor", 260f, y("heading-C"), 2f)
         assertEquals(0f, scene.compactIncomingLandscapeTranslationPx, 0.01f)
+    }
+
+    @Test fun compactLandscapeExitPreservesSpacingBetweenAllOrdinaryRows() {
+        // Make the regular cards short so row D becomes visible during the
+        // transition, rather than only after row C has reached its final top.
+        content(start = 2, summary = false, landscapeFollower = true, ordinaryPosterHeight = 80.dp)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue(motion.incrementalLandscapeFollower)
+        var observedDuringSpring = 0
+        repeat(35) {
+            advance(16)
+            val cVisible = compose.onAllNodesWithTag("heading-C", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+            val dVisible = compose.onAllNodesWithTag("heading-D", useUnmergedTree = true)
+                .fetchSemanticsNodes().isNotEmpty()
+            if (cVisible && dVisible && scene.verticalMotion === motion &&
+                scene.compactIncomingLandscapeTranslationPx < -1f) {
+                // 40dp heading + 80dp poster + 24dp normal LazyColumn gap.
+                assertEquals("The lower ordinary row must travel with its preceding ordinary row", 144f, y("heading-D") - y("heading-C"), 2f)
+                observedDuringSpring++
+            }
+        }
+        assertTrue("Observe both ordinary rows together before landing", observedDuringSpring >= 1)
+        settle()
+        assertEquals(144f, y("heading-D") - y("heading-C"), 2f)
+        assertEquals(260f, y("heading-C"), 2f)
     }
 
     @Test fun compactPortraitExitKeepsAnchoredScrollBehavior() {

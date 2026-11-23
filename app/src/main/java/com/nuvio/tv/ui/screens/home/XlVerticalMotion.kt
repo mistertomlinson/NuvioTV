@@ -44,6 +44,20 @@ internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val
 internal fun compactFixedFollowerOffsetPx(animatedGapPx: Int, fixedGapPx: Int): Float =
     (animatedGapPx - fixedGapPx).toFloat()
 
+/**
+ * Apply the identical draw-only compensation to the focused ordinary row and
+ * the ordinary rows after it, up until another XL row. Their visual spacing
+ * must not contract during the compact XL exit.
+ */
+internal fun compactOrdinarySuffixTranslationPx(
+    motion: XlVerticalMotion?, rowIndex: Int, precedingXlIndex: Int, translationPx: Float
+): Float {
+    if (motion?.incrementalLandscapeFollower != true) return 0f
+    val firstOrdinaryIndex = motion.itemAnchor?.index ?: return 0f
+    return if (rowIndex >= firstOrdinaryIndex && precedingXlIndex == firstOrdinaryIndex - 1)
+        translationPx else 0f
+}
+
 /** Publish compact spacing and position under the existing scroll owner. */
 internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, motion: XlVerticalMotion,
     gapPx: Int, travelPx: Int, previousTravelPx: Float) {
