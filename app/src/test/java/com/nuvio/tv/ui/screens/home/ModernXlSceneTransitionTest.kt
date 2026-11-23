@@ -451,7 +451,7 @@ class ModernXlSceneTransitionTest {
         assertEquals(1f, scene.exitMetadataAlpha, 0f)
     }
 
-    @Test fun rapidDownThroughCompactXlDoesNotCarryMetadataFromRowAbove() {
+    @Test fun rapidDownAcrossCompactXlKeepsOutgoingMetadataButClipsAtPoster() {
         content(start = 1, summary = false)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         val entering = checkNotNull(scene.transition)
@@ -464,8 +464,13 @@ class ModernXlSceneTransitionTest {
         assertEquals("XL", exiting.from.rowKey)
         assertEquals("C", exiting.to.rowKey)
         assertTrue(exiting.compactExit)
-        assertNull("Stale ordinary metadata must not overlay XL on rapid Down",
-            exiting.outgoingMetadata)
+        assertEquals("A", exiting.outgoingMetadata?.rowKey)
+        val xl = list.layoutInfo.visibleItemsInfo.first { it.key == "XL" }
+        val posterTop = xl.offset + list.layoutInfo.beforeContentPadding +
+            scene.gapPx("XL") + scene.headerPx("XL")
+        val clipBottom = scene.carriedMetadataBottomBeforeXlPoster(list.layoutInfo, 0f)
+        assertEquals("The inherited metadata is bounded by the XL poster, not discarded",
+            posterTop.toFloat().coerceAtLeast(0f), checkNotNull(clipBottom), 0f)
         assertEquals(0f, scene.exitMetadataAlpha, 0f)
         settle()
     }

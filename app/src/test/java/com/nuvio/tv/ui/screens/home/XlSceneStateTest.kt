@@ -180,6 +180,26 @@ class XlSceneStateTest {
         assertNull(scene.transition?.outgoingMetadata)
     }
 
+    @Test fun `retained upper metadata is capped at the moving XL poster`() {
+        val a = selection("A", 1)
+        val xl = selection("XL", 2, true, false)
+        val c = selection("C", 3)
+        val scene = XlSceneState(a)
+        scene.recordMetadata(XlMetadataSnapshot("A", a.preview))
+        scene.focus(xl, layout())
+        scene.recordMetadata(XlMetadataSnapshot("A", a.preview), -40f)
+        scene.focus(c, layout())
+
+        assertEquals("A", scene.transition?.outgoingMetadata?.rowKey)
+        val positioned = positionedLayout("A" to -180, "XL" to 120, "C" to 560)
+        val expectedBottom = 120f + scene.gapPx("XL") + scene.headerPx("XL") - 20f
+        assertEquals(expectedBottom,
+            checkNotNull(scene.carriedMetadataBottomBeforeXlPoster(positioned, 20f)), 0f)
+        assertEquals("When XL leaves the viewport, no stale block can cross its poster",
+            0f, checkNotNull(scene.carriedMetadataBottomBeforeXlPoster(
+                positionedLayout("C" to 120), 20f)), 0f)
+    }
+
     @Test fun `a second down keeps the original visible outgoing block until it leaves the screen`() {
         val ordinary = selection("A", 1)
         val scene = XlSceneState(ordinary)
