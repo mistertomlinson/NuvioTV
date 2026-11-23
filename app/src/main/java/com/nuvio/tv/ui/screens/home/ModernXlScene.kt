@@ -760,7 +760,7 @@ internal fun rememberXlBackdropPresentation(
         // throughout the spring, then start the regular 180 ms dissolve once
         // the rows have settled. Summary XL and every entry remain unchanged.
         // This isolates concurrent backdrop compositing from compact-row motion.
-        if (enabled && boundary?.from?.isXl == true && !boundary.from.summary &&
+        if (enabled && boundary?.from?.isXl == true && boundary.from.summary == false &&
             !target.isXl && !carouselFocused) {
             snapshotFlow {
                 scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true
