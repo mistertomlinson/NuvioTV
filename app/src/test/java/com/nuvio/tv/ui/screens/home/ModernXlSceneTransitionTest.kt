@@ -72,8 +72,8 @@ class ModernXlSceneTransitionTest {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false) {
-        rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A"), row("XL", 2, true, summary), row("C", 3), row("D", 4))
+    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false, landscapeFollower: Boolean = false) {
+        rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A"), row("XL", 2, true, summary), row("C", 3).copy(landscapePosters = landscapeFollower), row("D", 4))
         scene = XlSceneState(rows[start].sceneSelection(0, start), rows).apply {
             fullWidthIcons = fullWidth
             metadataRestingTop = metadataTop.dp
@@ -974,6 +974,32 @@ class ModernXlSceneTransitionTest {
         settle()
         val previous = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "A" }
         assertTrue(previous == null || previous.offset + list.layoutInfo.beforeContentPadding + previous.size <= 0)
+    }
+
+    @Test fun compactLandscapeExitUsesIncrementalScrollAndLandsOnTheRegularRow() {
+        content(start = 2, summary = false, landscapeFollower = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertTrue("Only the compact landscape follower should take the incremental path",
+            checkNotNull(scene.verticalMotion).incrementalLandscapeFollower)
+        var previous = y("heading-C")
+        repeat(8) {
+            advance(16)
+            val current = y("heading-C")
+            assertTrue("Incoming landscape row must not jump backward: $previous -> $current",
+                current <= previous + 2f)
+            previous = current
+        }
+        settle()
+        assertEquals("C", scene.selection?.rowKey)
+        assertEquals("The fixed landing position must be preserved", 260f, y("heading-C"), 2f)
+    }
+
+    @Test fun compactPortraitExitKeepsAnchoredScrollBehavior() {
+        content(start = 2, summary = false)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertFalse(checkNotNull(scene.verticalMotion).incrementalLandscapeFollower)
+        settle()
+        assertEquals(260f, y("heading-C"), 2f)
     }
 
     @Test fun compactExitPosterCanPassThroughTheFormerLogoAreaWithoutClipping() {

@@ -452,7 +452,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     heldHeadroomGoals[next.rowKey] = to
                     val itemAnchor = if (move.compactExit) XlScrollItemAnchor(
                         owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt()) else null
-                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll, move.compactExit, secondary, itemAnchor)
+                    val incrementalLandscapeFollower = move.compactExit &&
+                        rows.getOrNull(next.rowIndex)?.landscapePosters == true
+                    val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
+                        move.compactExit, secondary, itemAnchor, incrementalLandscapeFollower)
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }

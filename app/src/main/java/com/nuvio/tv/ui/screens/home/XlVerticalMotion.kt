@@ -34,7 +34,8 @@ internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
-    val secondaryGap: XlGapMotion? = null, val itemAnchor: XlScrollItemAnchor? = null)
+    val secondaryGap: XlGapMotion? = null, val itemAnchor: XlScrollItemAnchor? = null,
+    val incrementalLandscapeFollower: Boolean = false)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -49,12 +50,23 @@ internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, mo
         scrollBy(travelPx - previousTravelPx)
         return
     }
-    // Apply the size invalidation before positioning. Incremental scrollBy can
-    // otherwise reuse the previous measurement and leave the gap one pass late.
-    Snapshot.withMutableSnapshot {
-        scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
+    // A/B TEST: on compact XL DOWN exits into regular landscape rows only,
+    // compare incremental scrolling with the usual per-frame snapToItem.
+    // The spring, travel and animated gap are otherwise identical.
+    // Keep the original anchored path for all other transitions.
+    if (motion.incrementalLandscapeFollower) {
+        Snapshot.withMutableSnapshot {
+            scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
+        }
+        scrollBy(travelPx - previousTravelPx)
+    } else {
+        // Incremental scrollBy can reuse the previous measurement and leave
+        // a changing gap one pass late; retain the proven path elsewhere.
+        Snapshot.withMutableSnapshot {
+            scene.headroomValues[motion.rowKey] = (gapPx / scene.density).dp
+        }
+        snapToItem(anchor.index, anchor.scrollOffset + travelPx)
     }
-    snapToItem(anchor.index, anchor.scrollOffset + travelPx)
 }
 
 /** Share one spring clock across XL travel and the shorter incoming-row leg. */
