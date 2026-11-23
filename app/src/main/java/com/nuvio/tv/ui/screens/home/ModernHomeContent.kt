@@ -3110,6 +3110,10 @@ fun ModernHomeContent(
             xlScene.screenHeight = maxHeight
             xlScene.fullWidthIcons = effectiveFullWidthIconRowEnabled
             xlScene.estimatedXlHeight = estimatedXlHeight
+            xlScene.landscapeAboveXlHeadroomReduction = (
+                portraitBaseHeight * 0.84f * 1.08f -
+                (portraitBaseWidth * 1.24f * 1.34f) / 1.77f
+            ).coerceAtLeast(0.dp)
             xlScene.ordinaryTop = ordinaryRowsTop
             xlScene.metadataRestingTop = if (effectiveFullWidthIconRowEnabled) {
                 heroRegionTopInset + (heroRegionHeight - measuredHeroHeight) / 2 -

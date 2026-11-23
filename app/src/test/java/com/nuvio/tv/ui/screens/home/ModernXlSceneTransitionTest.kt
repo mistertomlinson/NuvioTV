@@ -67,17 +67,24 @@ class ModernXlSceneTransitionTest {
     private val startsWithXl = mutableStateOf(false)
     private val resolved = mutableStateOf<HeroPreview?>(null)
     private val requesters = List(5) { FocusRequester() }
+    private val outgoingAHeight = mutableStateOf(200.dp)
     private lateinit var rows: List<HeroCarouselRow>
 
     @After fun cleanup() {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false, landscapeFollower: Boolean = false, ordinaryPosterHeight: androidx.compose.ui.unit.Dp = 200.dp) {
-        rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A"), row("XL", 2, true, summary), row("C", 3).copy(landscapePosters = landscapeFollower), row("D", 4))
+    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false, landscapeFollower: Boolean = false, ordinaryPosterHeight: androidx.compose.ui.unit.Dp = 200.dp,
+        precedingLandscape: Boolean = false) {
+        rows = listOf(row("Earlier", 0),
+            row("A", 1, description = if (shortMetadata) "" else "Synopsis A")
+                .copy(landscapePosters = precedingLandscape),
+            row("XL", 2, true, summary),
+            row("C", 3).copy(landscapePosters = landscapeFollower), row("D", 4))
         scene = XlSceneState(rows[start].sceneSelection(0, start), rows).apply {
             fullWidthIcons = fullWidth
             metadataRestingTop = metadataTop.dp
+            landscapeAboveXlHeadroomReduction = if (precedingLandscape) 60.dp else 0.dp
         }
         list = LazyListState(start)
         resolved.value = scene.selection?.preview
@@ -138,7 +145,8 @@ class ModernXlSceneTransitionTest {
                                         Text(row.title, Modifier.onSizeChanged { scene.headerHeights[row.key] = it.height.toFloat() }.height(header.dp).padding(start = 52.dp).testTag("heading-${row.key}"))
                                         val paintedFocus = if (paintFocusedState) remember { mutableStateOf(false) } else null
                                         Box(Modifier.padding(start = 52.dp).width(700.dp)
-                                            .height(if (row.isXl) 244.dp else ordinaryPosterHeight)
+                                            .height(if (row.isXl) 244.dp else if (row.key == "A" && precedingLandscape)
+                                                outgoingAHeight.value else ordinaryPosterHeight)
                                             .background(if (paintedFocus?.value == true) Color.Cyan else if (row.isXl) Color.Magenta else Color.Blue)
                                             .focusRequester(requesters[index])
                                             .onFocusChanged {
@@ -990,6 +998,21 @@ class ModernXlSceneTransitionTest {
         settle()
         val previous = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "A" }
         assertTrue(previous == null || previous.offset + list.layoutInfo.beforeContentPadding + previous.size <= 0)
+    }
+
+    @Test fun incomingXlFromLandscapeHasReducedInitialHeadroomAndCorrectLanding() {
+        content(start = 1, precedingLandscape = true)
+        assertEquals(scene.xlEntryHeadroom("XL", rows[1]), scene.headroomValues["XL"])
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val active = checkNotNull(scene.verticalMotion)
+        assertNotNull("Protect the XL landing from a collapsing landscape trailer", active.xlEntryOwnerStartTopPx)
+        advance(48)
+        // Emulate the outgoing trailer shrinking the regular row after focus.
+        compose.runOnUiThread { outgoingAHeight.value = 100.dp }
+        settle()
+        val selected = checkNotNull(scene.selection)
+        assertEquals("XL must still land at the actual XL poster anchor",
+            scene.posterAnchorPx(selected).toFloat(), y("poster-XL"), 2f)
     }
 
     @Test fun compactLandscapeExitUsesIncrementalScrollAndLandsOnTheRegularRow() {

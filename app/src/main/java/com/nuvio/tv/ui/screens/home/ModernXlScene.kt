@@ -189,6 +189,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var screenHeight by mutableStateOf(540.dp)
     var fullWidthIcons by mutableStateOf(false)
     var estimatedXlHeight by mutableStateOf(440.dp)
+    // Nominal difference between regular portrait and landscape poster heights.
+    // XL should not reserve portrait-sized empty space below a landscape row.
+    var landscapeAboveXlHeadroomReduction by mutableStateOf(0.dp)
     var ordinaryTop by mutableStateOf(260.dp)
     var metadataRestingTop by mutableStateOf(54.dp)
     var metadataHeightPx by mutableFloatStateOf(0f)
@@ -198,6 +201,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun xlTop(rowKey: String): Dp = xlBalancedTop(screenHeight.value,
         (summaryRowHeights[rowKey] ?: estimatedXlHeight).value, fullWidthIcons).dp
+
+    fun xlEntryHeadroom(rowKey: String, previous: HeroCarouselRow?): Dp {
+        val nominal = (xlTop(rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+        return if (previous?.landscapePosters == true && !previous.isXl)
+            (nominal - landscapeAboveXlHeadroomReduction).coerceAtLeast(0.dp)
+        else nominal
+    }
 
     fun ordinaryPosterInset(rowKey: String, rowIndex: Int, density: Float = this.density): Float =
         if (rowIndex == 0) minOf(headerHeights[rowKey] ?: 40f * density, 40f * density) else 40f * density
@@ -441,7 +451,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (ownerTop != null) {
                 val to = when {
                     move.downwardExit -> followingHeadroom(previous.rowKey, next.rowKey, density, clearXl = true)
-                    next.isXl && next.rowIndex > 0 -> (xlTop(next.rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                    next.isXl && next.rowIndex > 0 -> xlEntryHeadroom(
+                        next.rowKey, rows.getOrNull(next.rowIndex - 1))
                     else -> from
                 }.let { ((it.value * density).roundToInt() / density).dp }
                 val fromPx = (from.value * density).roundToInt()
@@ -468,8 +479,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                         owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt()) else null
                     val incrementalLandscapeFollower = move.compactExit &&
                         rows.getOrNull(next.rowIndex)?.landscapePosters == true
+                    val outgoingLandscapeEntry = next.isXl && !previous.isXl &&
+                        next.rowIndex > previous.rowIndex &&
+                        rows.getOrNull(previous.rowIndex)?.landscapePosters == true
                     val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
-                        move.compactExit, secondary, itemAnchor, incrementalLandscapeFollower)
+                        move.compactExit, secondary, itemAnchor, incrementalLandscapeFollower,
+                        xlEntryOwnerStartTopPx = if (outgoingLandscapeEntry) ownerTop else null)
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }
@@ -624,7 +639,7 @@ internal fun XlSceneRowHeadroom(
         // XL's measured landing position, including the balanced full-width mode.
         currentXl && previous?.key == "continue_watching" &&
             (scene.selection?.rowKey == previous.key || scene.fastReturn?.target?.rowKey == previous.key) -> 0.dp
-        currentXl && previous != null -> (scene.xlTop(rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+        currentXl && previous != null -> scene.xlEntryHeadroom(rowKey, previous)
         followsXl && (expanded || !compact) ->
             scene.followingHeadroom(checkNotNull(previous).key, rowKey, density, clearXl = expanded)
         else -> 0.dp

@@ -35,7 +35,8 @@ internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
     val secondaryGap: XlGapMotion? = null, val itemAnchor: XlScrollItemAnchor? = null,
-    val incrementalLandscapeFollower: Boolean = false)
+    val incrementalLandscapeFollower: Boolean = false,
+    val xlEntryOwnerStartTopPx: Float? = null)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -57,6 +58,10 @@ internal fun compactOrdinarySuffixTranslationPx(
     return if (rowIndex >= firstOrdinaryIndex && precedingXlIndex == firstOrdinaryIndex - 1)
         translationPx else 0f
 }
+
+/** Correct the XL scroll when an expanded landscape row above it shrinks. */
+internal fun xlEntryScrollCorrectionPx(actualOwnerTop: Float, initialOwnerTop: Float,
+    scrollTravelPx: Float): Float = actualOwnerTop - (initialOwnerTop - scrollTravelPx)
 
 /** Publish compact spacing and position under the existing scroll owner. */
 internal fun LazyLayoutScrollScope.publishCompactXlFrame(scene: XlSceneState, motion: XlVerticalMotion,
@@ -172,6 +177,21 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 }
                                 if (compactScroll != null) compactScroll.publishCompactXlFrame(scene, active, gapPx, travel, previous)
                                 else scrollBy(travel - previous)
+                                // A landscape trailer card above XL can shrink as its
+                                // focus leaves. That changes XL's actual LazyColumn
+                                // offset independently of the spring displacement.
+                                // Correct the offset immediately rather than landing
+                                // above the desired XL anchor.
+                                active.xlEntryOwnerStartTopPx?.let { start ->
+                                    list.layoutInfo.let { layout ->
+                                        layout.visibleItemsInfo.firstOrNull { it.key == active.rowKey }?.let { owner ->
+                                            val actual = owner.offset + layout.beforeContentPadding
+                                            val correction = xlEntryScrollCorrectionPx(
+                                                actual.toFloat(), start, travel.toFloat())
+                                            if (abs(correction) >= 0.5f) scrollBy(correction)
+                                        }
+                                    }
+                                }
                                 previous = travel.toFloat()
                                 if (active.compact && incomingTravel == visiblePx.roundToInt()) scene.compactRowRested = true
                                 if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
@@ -187,6 +207,16 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 scene.headroomValues[it.rowKey] = it.to
                         }
                         scrollBy(active.scrollPx - previous)
+                        active.xlEntryOwnerStartTopPx?.let { start ->
+                            list.layoutInfo.let { layout ->
+                                layout.visibleItemsInfo.firstOrNull { it.key == active.rowKey }?.let { owner ->
+                                    val actual = owner.offset + layout.beforeContentPadding
+                                    val correction = xlEntryScrollCorrectionPx(
+                                        actual.toFloat(), start, active.scrollPx)
+                                    if (abs(correction) >= 0.5f) scrollBy(correction)
+                                }
+                            }
+                        }
                         scene.compactRowRested = true
                     }
                     completed = true
