@@ -222,16 +222,19 @@ class ModernXlSceneTransitionTest {
     private fun metadataCount() = compose.onAllNodes(hasTestTag("ordinary-metadata-A") or
         hasTestTag("ordinary-metadata-C") or hasTestTag("ordinary-metadata-XL"), useUnmergedTree = true).fetchSemanticsNodes().size
 
-    private fun measureVerticalMotion(start: Int, key: Int, name: String, summary: Boolean = true) {
-        content(start = start, summary = summary)
+    private fun measureVerticalMotion(start: Int, key: Int, name: String, summary: Boolean = true,
+        landscapeFollower: Boolean = false) {
+        content(start = start, summary = summary, landscapeFollower = landscapeFollower)
         press(key)
         val target = checkNotNull(scene.selection).rowKey
         val motion = scene.verticalMotion
-        val trackedKey = if (rows[start].isXl) rows[start].key else target
+        val trackedKey = if (landscapeFollower || !rows[start].isXl) target else rows[start].key
         fun trackedTop(): Float? = list.layoutInfo.let { info ->
             info.visibleItemsInfo.firstOrNull { it.key == trackedKey }?.let {
+                val drawTranslation = if (landscapeFollower && scene.verticalMotion?.rowKey == trackedKey)
+                    scene.compactIncomingLandscapeTranslationPx else 0f
                 it.offset + info.beforeContentPadding + (scene.headroomValues[trackedKey]?.value ?: 0f) +
-                    (scene.headerHeights[trackedKey] ?: 40f)
+                    (scene.headerHeights[trackedKey] ?: 40f) + drawTranslation
             }
         }
         var tracked = trackedTop()
@@ -287,6 +290,8 @@ class ModernXlSceneTransitionTest {
     @Test fun measureXlUpExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_UP, "xlUpExit")
     @Test fun measureXlDownExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_DOWN, "xlDownExit")
     @Test fun measureCompactXlDownExitMotion() = measureVerticalMotion(2, KeyEvent.KEYCODE_DPAD_DOWN, "compactXlDownExit", false)
+    @Test fun measureCompactLandscapeDownExitMotion() = measureVerticalMotion(
+        2, KeyEvent.KEYCODE_DPAD_DOWN, "compactLandscapeDownExit", false, landscapeFollower = true)
 
     @Test fun compactIncomingRowDeceleratesOnTheSameSpringWithoutAHardStop() {
         content(start = 2, summary = false)
