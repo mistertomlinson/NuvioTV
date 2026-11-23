@@ -756,6 +756,19 @@ internal fun rememberXlBackdropPresentation(
         val dark = enabled && if (carouselFocused) pageStartsWithXl else target.isXl
         val exitingXl = !dark && (state.blurred || state.directExit || boundary?.from?.isXl == true)
         state.directEntry = false
+        // EXPERIMENT: compact XL exits only. Hold the existing blurred frame
+        // throughout the spring, then start the regular 180 ms dissolve once
+        // the rows have settled. Summary XL and every entry remain unchanged.
+        // This isolates concurrent backdrop compositing from compact-row motion.
+        if (enabled && boundary?.from?.isXl == true && !boundary.from.summary &&
+            !target.isXl && !carouselFocused) {
+            snapshotFlow {
+                scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true
+            }.first { it }
+            // A rapid reversal must never release the old transition's backdrop.
+            if (scene.transition?.id != boundaryId ||
+                scene.selection?.rowKey != target.rowKey) return@LaunchedEffect
+        }
         if (!enabled) {
             state.directExit = false
             state.owned = false
