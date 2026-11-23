@@ -462,43 +462,39 @@ class ModernXlSceneTransitionTest {
             } else if (scene.exitMetadataAlpha > 0f && scene.exitMetadataAlpha < 1f) sawFade = true
         }
         assertTrue(sawXl)
-        assertTrue("Metadata fades after XL has cleared", sawFade)
+        if (summary) assertTrue("Summary metadata should retain its original presentation", !sawFade)
+        else assertFalse("Compact-exit metadata should not animate its opacity", sawFade)
         settle()
         assertEquals(1f, scene.exitMetadataAlpha, 0f)
     }
 
     @Test fun compactMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(false)
-    @Test fun compactMetadataRetainsItsOriginal220msFadeAfterCompleteClearance() {
+    @Test fun compactMetadataAppearsImmediatelyAfterCompleteClearance() {
         content(start = 2, summary = false)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        var firstFade = -1
-        var fullAlpha = -1
+        var firstVisible = -1
         var landed = -1
         var cleared = -1
-        var previousAlpha = 0f
-        var intermediate = 0
         repeat(90) { frame ->
             advance(16)
             val time = (frame + 1) * 16
             val alpha = scene.exitMetadataAlpha
             if (scene.compactRowRested && landed < 0) landed = time
             if ((scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f && cleared < 0) cleared = time
-            if (alpha > 0f && firstFade < 0) {
-                firstFade = time
-                assertTrue(scene.compactRowRested)
-                assertTrue((scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f)
+            assertTrue("No intermediate metadata alpha in this experiment", alpha == 0f || alpha == 1f)
+            if (alpha > 0f && firstVisible < 0) {
+                firstVisible = time
+                assertTrue("The outgoing XL must first land", scene.compactRowRested)
+                assertTrue("The outgoing XL must be off screen", (scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f)
             }
-            if (alpha in 0.001f..0.999f) intermediate++
-            if (alpha >= 1f && fullAlpha < 0) fullAlpha = time
-            assertTrue("The prepared block must retain a gradual fade, not jump to full alpha", alpha - previousAlpha < 0.2f)
-            previousAlpha = alpha
         }
-        assertTrue("Keep metadata hidden until both landing and complete XL clearance", firstFade >= maxOf(landed, cleared))
-        assertTrue("Do not add a new fade debounce after clearance", firstFade - maxOf(landed, cleared) in 0..48)
-        println("COMPACT_FADE landed=$landed cleared=$cleared first=$firstFade opaque=$fullAlpha partialFrames=$intermediate")
-        assertTrue("Retain the 220ms fade with normal frame quantization", fullAlpha - firstFade in 176..256)
-        assertTrue("The native clock observes the fade over several frames", intermediate >= 10)
+        assertTrue("Metadata must eventually become visible", firstVisible > 0)
+        assertTrue("Keep metadata hidden until landing and complete XL clearance",
+            firstVisible >= maxOf(landed, cleared))
+        assertTrue("Do not add a new debounce after clearance",
+            firstVisible - maxOf(landed, cleared) in 0..48)
         settle()
+        assertEquals(1f, scene.exitMetadataAlpha, 0f)
     }
 
     @Test fun summaryMetadataIsPreparedOpaqueAndSlidesInWithItsRow() {

@@ -686,9 +686,12 @@ internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
         snapshotFlow {
             (scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f && (!move.compactExit || scene.compactRowRested)
         }.first { it }
-        animate(0f, 1f, animationSpec = tween(220)) { value, _ ->
-            scene.exitMetadataAlpha = value
-        }
+        // Diagnostic A/B: preserve the original clearance/landing barrier
+        // but remove only the 220ms compact-exit metadata alpha animation.
+        // Metadata stays hidden behind the outgoing XL row until the same
+        // clearance signal fires; then it is presented in a single frame.
+        // All summary exits, backdrop fades, and vertical motion are unchanged.
+        scene.exitMetadataAlpha = 1f
     }
     LaunchedEffect(scene, list, id) {
         if (id == null) return@LaunchedEffect
