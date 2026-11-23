@@ -521,29 +521,6 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             posterAnchorPx(checkNotNull(selection), density, ordinaryTopPx)).toFloat()
     }
 
-    /**
-     * If a fast A -> XL -> C sequence carries A's still-visible metadata
-     * across XL, cap only its DRAWN portion above XL's poster. Never discard
-     * the metadata: its original exit, precomposed slot and focus handoff must
-     * survive until it actually leaves the screen.
-     *
-     * Returns the lower clip boundary in the metadata layer's local pixels.
-     * A missing XL owner means the poster has already left the viewport.
-     */
-    fun carriedMetadataBottomBeforeXlPoster(
-        layout: LazyListLayoutInfo, layerTopPx: Float
-    ): Float? {
-        val move = transition?.takeIf {
-            it.downwardExit && it.outgoingMetadata != null &&
-                it.outgoingMetadata.rowKey != it.from.rowKey
-        } ?: return null
-        val xl = layout.visibleItemsInfo.firstOrNull { it.key == move.from.rowKey }
-            ?: return 0f
-        val posterTop = xl.offset + layout.beforeContentPadding +
-            gapPx(move.from.rowKey) + headerPx(move.from.rowKey)
-        return (posterTop - layerTopPx).coerceAtLeast(0f)
-    }
-
     fun outgoingXlBottom(layout: LazyListLayoutInfo): Float? {
         val move = transition?.takeIf { it.downwardExit } ?: return null
         val owner = layout.visibleItemsInfo.firstOrNull { it.key == move.from.rowKey } ?: return 0f
@@ -1029,23 +1006,10 @@ internal fun ModernXlAwareHeroTitleBlock(
                     else -> 0f
                 }
                 val screenTop = metadataLayoutTop[0] + offset
-                // A retained ordinary title may travel through two quick Down
-                // transitions. Keep it alive, but never paint it over the XL
-                // poster: clamp its bottom to the poster's moving top edge.
-                val carriedBottom = if (enabled && outgoing) {
-                    scene.carriedMetadataBottomBeforeXlPoster(list.layoutInfo, screenTop)
-                } else null
-                val bottom = minOf(size.height, carriedBottom ?: size.height)
-                val clipTop = top.coerceAtLeast(0f)
-                val visible = clipTop < bottom &&
-                    maxOf(screenTop + clipTop, 0f) < minOf(screenTop + bottom, viewportHeight)
+                val visible = maxOf(screenTop + top, 0f) < minOf(screenTop + size.height, viewportHeight)
                 scene.recordMetadata(active, offset, if (visible) paintedLayer[1] else 0f, epoch, top)
-                if (clipTop < bottom) {
-                    if (clipTop > 0f || bottom < size.height) {
-                        clipRect(top = clipTop, bottom = bottom) {
-                            this@drawWithContent.drawContent()
-                        }
-                    } else drawContent()
+                if (top < size.height) {
+                    if (top > 0f) clipRect(top = top) { this@drawWithContent.drawContent() } else drawContent()
                 }
             }
         )

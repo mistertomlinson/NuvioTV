@@ -451,30 +451,6 @@ class ModernXlSceneTransitionTest {
         assertEquals(1f, scene.exitMetadataAlpha, 0f)
     }
 
-    @Test fun rapidDownAcrossCompactXlKeepsOutgoingMetadataButClipsAtPoster() {
-        content(start = 1, summary = false)
-        press(KeyEvent.KEYCODE_DPAD_DOWN)
-        val entering = checkNotNull(scene.transition)
-        assertEquals("A", entering.from.rowKey)
-        assertEquals("XL", entering.to.rowKey)
-        assertEquals("A", entering.outgoingMetadata?.rowKey)
-        advance(32)
-        press(KeyEvent.KEYCODE_DPAD_DOWN)
-        val exiting = checkNotNull(scene.transition)
-        assertEquals("XL", exiting.from.rowKey)
-        assertEquals("C", exiting.to.rowKey)
-        assertTrue(exiting.compactExit)
-        assertEquals("A", exiting.outgoingMetadata?.rowKey)
-        val xl = list.layoutInfo.visibleItemsInfo.first { it.key == "XL" }
-        val posterTop = xl.offset + list.layoutInfo.beforeContentPadding +
-            scene.gapPx("XL") + scene.headerPx("XL")
-        val clipBottom = scene.carriedMetadataBottomBeforeXlPoster(list.layoutInfo, 0f)
-        assertEquals("The inherited metadata is bounded by the XL poster, not discarded",
-            posterTop.toFloat().coerceAtLeast(0f), checkNotNull(clipBottom), 0f)
-        assertEquals(0f, scene.exitMetadataAlpha, 0f)
-        settle()
-    }
-
     @Test fun compactMetadataWaitsUntilXlIsCompletelyOffScreen() = verifyDownwardMetadataWaitsForXlClearance(false)
     @Test fun compactMetadataRetainsItsOriginal220msFadeAfterCompleteClearance() {
         content(start = 2, summary = false)
