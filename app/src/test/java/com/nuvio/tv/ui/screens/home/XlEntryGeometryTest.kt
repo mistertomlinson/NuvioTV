@@ -16,6 +16,10 @@ class XlEntryGeometryTest {
         val nominal = (scene.xlTop(xl) - 23.dp).coerceAtLeast(0.dp)
         assertEquals(nominal, scene.xlEntryHeadroom(xl, portrait))
         assertEquals((nominal - 72.dp).coerceAtLeast(0.dp), scene.xlEntryHeadroom(xl, landscape))
+        assertEquals("No portrait reduction when the XL has focus", nominal,
+            scene.xlEntryHeadroom(xl, landscape, clearPrevious = true))
+        assertEquals("Portrait clearance stays full", nominal,
+            scene.xlEntryHeadroom(xl, portrait, clearPrevious = true))
     }
 
     @Test fun compensateShrinkingOutgoingRowFromTheActualXlOwnerOffset() {

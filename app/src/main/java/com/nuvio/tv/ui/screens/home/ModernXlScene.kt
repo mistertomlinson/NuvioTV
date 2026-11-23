@@ -202,9 +202,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun xlTop(rowKey: String): Dp = xlBalancedTop(screenHeight.value,
         (summaryRowHeights[rowKey] ?: estimatedXlHeight).value, fullWidthIcons).dp
 
-    fun xlEntryHeadroom(rowKey: String, previous: HeroCarouselRow?): Dp {
+    /**
+     * Landscape cards are shorter than portrait cards. Keep XL's preview
+     * close while the landscape row owns focus, but recover the full clearance
+     * once XL becomes the destination: the previous row's bottom must be
+     * at or above y=0 when XL's poster reaches its resting anchor.
+     */
+    fun xlEntryHeadroom(rowKey: String, previous: HeroCarouselRow?,
+        clearPrevious: Boolean = false): Dp {
         val nominal = (xlTop(rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
-        return if (previous?.landscapePosters == true && !previous.isXl)
+        return if (!clearPrevious && previous?.landscapePosters == true && !previous.isXl)
             (nominal - landscapeAboveXlHeadroomReduction).coerceAtLeast(0.dp)
         else nominal
     }
@@ -452,7 +459,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 val to = when {
                     move.downwardExit -> followingHeadroom(previous.rowKey, next.rowKey, density, clearXl = true)
                     next.isXl && next.rowIndex > 0 -> xlEntryHeadroom(
-                        next.rowKey, rows.getOrNull(next.rowIndex - 1))
+                        next.rowKey, rows.getOrNull(next.rowIndex - 1), clearPrevious = true)
                     else -> from
                 }.let { ((it.value * density).roundToInt() / density).dp }
                 val fromPx = (from.value * density).roundToInt()
@@ -639,7 +646,8 @@ internal fun XlSceneRowHeadroom(
         // XL's measured landing position, including the balanced full-width mode.
         currentXl && previous?.key == "continue_watching" &&
             (scene.selection?.rowKey == previous.key || scene.fastReturn?.target?.rowKey == previous.key) -> 0.dp
-        currentXl && previous != null -> scene.xlEntryHeadroom(rowKey, previous)
+        currentXl && previous != null -> scene.xlEntryHeadroom(
+            rowKey, previous, clearPrevious = scene.selection?.rowKey == rowKey)
         followsXl && (expanded || !compact) ->
             scene.followingHeadroom(checkNotNull(previous).key, rowKey, density, clearXl = expanded)
         else -> 0.dp

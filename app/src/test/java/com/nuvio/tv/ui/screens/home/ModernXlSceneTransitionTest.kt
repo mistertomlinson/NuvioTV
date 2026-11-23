@@ -1013,6 +1013,27 @@ class ModernXlSceneTransitionTest {
         val selected = checkNotNull(scene.selection)
         assertEquals("XL must still land at the actual XL poster anchor",
             scene.posterAnchorPx(selected).toFloat(), y("poster-XL"), 2f)
+        val previousRow = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "A" }
+        assertTrue("Do not leave an expanded landscape poster under the icon row",
+            previousRow == null || previousRow.offset +
+                list.layoutInfo.beforeContentPadding + previousRow.size <= 0)
+        assertEquals("Full clearance remains after the XL settles",
+            scene.xlEntryHeadroom("XL", rows[1], clearPrevious = true),
+            scene.headroomValues["XL"])
+    }
+
+    @Test fun incomingXlFromLandscapeHidesThePreviousRowWithoutAnExpandedTrailer() {
+        content(start = 1, precedingLandscape = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        settle()
+        val previousRow = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "A" }
+        assertTrue("A regular landscape row must be entirely above the XL viewport",
+            previousRow == null || previousRow.offset +
+                list.layoutInfo.beforeContentPadding + previousRow.size <= 0)
+        assertEquals(scene.xlEntryHeadroom("XL", rows[1], clearPrevious = true),
+            scene.headroomValues["XL"])
+        assertEquals(scene.posterAnchorPx(checkNotNull(scene.selection)).toFloat(),
+            y("poster-XL"), 2f)
     }
 
     @Test fun compactLandscapeExitUsesIncrementalScrollAndLandsOnTheRegularRow() {
