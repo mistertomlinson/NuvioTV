@@ -41,6 +41,17 @@ class XlPeakCruiseTravelTest {
         }
     }
 
+    @Test fun headroomCannotOvershootItsMeasuredClearanceWhileOrdinaryIsStillMoving() {
+        var state = XlPeakCruiseFrame(ordinaryPx = 80f, xlPx = 300f,
+            peakPxPerSecond = 3200f, cruising = true, frameNanos = 1_000_000_000L)
+        state = xlPeakCruiseStep(state, 95f, 250f, 1_016_000_000L, 150f, 460f)
+        assertEquals("Maximum XL lead equals final clearance distance",
+            95f + 310f, state.xlPx, 0f)
+        val after = xlPeakCruiseStep(state, 108f, 200f, 1_032_000_000L, 150f, 460f)
+        assertTrue("No backward travel", after.xlPx >= state.xlPx)
+        assertTrue("Never exceed remaining headroom budget", after.xlPx <= 108f + 310f)
+    }
+
     @Test fun stopsAtExactFinalClearanceWithoutOvershooting() {
         var state = XlPeakCruiseFrame(ordinaryPx = 150f, xlPx = 440f,
             peakPxPerSecond = 2400f, cruising = true, frameNanos = 1_000_000_000L)

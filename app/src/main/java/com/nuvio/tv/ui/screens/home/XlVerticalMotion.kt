@@ -85,7 +85,13 @@ internal fun xlPeakCruiseStep(
         (prior.peakPxPerSecond > 0f && measuredVelocity < prior.peakPxPerSecond * 0.94f)
     val advancedXl = if (cruise && elapsed > 0f)
         prior.xlPx + peak * elapsed else incoming
-    val outgoing = maxOf(prior.xlPx, incoming, advancedXl).coerceAtMost(xlTargetPx)
+    // Never grow the measured spacer beyond its actual destination. If XL
+    // reaches the available clearance early, it is already at the maximum
+    // permitted lead over the incoming row; the last few pixels can follow
+    // that row without overshooting and snapping the layout back.
+    val clearanceBudget = (xlTargetPx - ordinaryTargetPx).coerceAtLeast(0f)
+    val maxTravelForThisFrame = minOf(xlTargetPx, incoming + clearanceBudget)
+    val outgoing = maxOf(prior.xlPx, incoming, advancedXl).coerceAtMost(maxTravelForThisFrame)
     return XlPeakCruiseFrame(incoming, outgoing, peak, cruise, frameNanos)
 }
 
@@ -247,7 +253,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 // continue using its already-running peak velocity.
                                 if (active.compact) scene.compactRowRested = true
                                 Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=regular_settled elapsedMs=${android.os.SystemClock.uptimeMillis() - startedAt} xlPx=${travel.xlPx.toInt()} peakPxPerSec=${travel.peakPxPerSecond.toInt()}")
-                                val peakSpeed = travel.peakPxPerSecond.coerceAtLeast(1f)
+                                val peakSpeed = travel.peakPxPerSecond.coerceAtLeast(900f)
                                 while (travel.xlPx < active.scrollPx - 0.5f) {
                                     withFrameNanos { frameNanos ->
                                         // Continue at the same velocity, even if
