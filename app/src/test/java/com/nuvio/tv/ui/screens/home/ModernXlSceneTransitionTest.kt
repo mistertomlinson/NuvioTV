@@ -556,7 +556,7 @@ class ModernXlSceneTransitionTest {
     }
 
     @Test fun landscapeAboveXlContractsPaintedGapWithoutResizingMeasuredClearance() {
-        content(start = 2, landscapeAboveXl = true)
+        content(start = 2, landscapeAboveXl = true, ordinaryPosterHeight = 120.dp)
         val measuredGap = scene.gapPx("XL")
         assertTrue("The XL prefix must retain real clearance", measuredGap > 0)
         press(KeyEvent.KEYCODE_DPAD_UP)
@@ -589,7 +589,7 @@ class ModernXlSceneTransitionTest {
     }
 
     @Test fun landscapePrefixReturnsFromAnInterruptedScrollWithoutRestartingItsGap() {
-        content(start = 2, landscapeAboveXl = true)
+        content(start = 2, landscapeAboveXl = true, ordinaryPosterHeight = 120.dp)
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(80)
         val partial = scene.landscapePreXlCompression["XL"] ?: 0f
@@ -604,7 +604,7 @@ class ModernXlSceneTransitionTest {
     }
 
     @Test fun portraitAboveXlPreservesItsExistingClearance() {
-        content(start = 2, landscapeAboveXl = false)
+        content(start = 2, landscapeAboveXl = false, ordinaryPosterHeight = 120.dp)
         press(KeyEvent.KEYCODE_DPAD_UP)
         settle()
         assertEquals("Portrait layout must not use landscape compression",
