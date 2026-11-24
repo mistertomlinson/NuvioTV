@@ -653,6 +653,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 } ?: (headroomValues[previous.rowKey] ?: 0.dp)
                 val restoredGap = heldHeadroomGoals[previous.rowKey]
                 val secondary = when {
+                    // A compact DOWN->UP reversal must return the follower to
+                    // the COMPACT resting gap (zero), not the full offscreen
+                    // clearance. Otherwise it first travels down toward the
+                    // expanded gap and then snaps back up when that gap closes.
+                    // Its physical spacer stays at the expanded height during
+                    // the spring; only the follower layer represents this leg.
+                    move.interruptedFollowerPaintPx != null ->
+                        XlGapMotion(previous.rowKey, previousGap, 0.dp)
                     next.rowKey == "continue_watching" && previous.rowIndex == next.rowIndex + 1 ->
                         XlGapMotion(previous.rowKey, previousGap, 0.dp)
                     // A fast reversal can happen after XL has left the viewport
@@ -668,8 +676,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     heldHeadroomGoals[next.rowKey] = to
                     val landscapePrefix = landscapePrefixMotion(previous, next, rows)
                     val reverseFixedFollower = move.interruptedFollowerPaintPx != null &&
-                        secondary?.rowKey == previous.rowKey &&
-                        secondary.to > secondary.from
+                        secondary?.rowKey == previous.rowKey
                     val fixedPortraitPrefixOnEntry =
                         next.isXl && landscapePrefix?.portraitPrefix == true
                     val followerIndex = if (move.downwardExit) next.rowIndex
