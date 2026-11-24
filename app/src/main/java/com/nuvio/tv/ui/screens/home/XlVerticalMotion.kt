@@ -30,11 +30,14 @@ internal const val XL_SPRING_TIME_SCALE = 1.10f
 internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
 
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
+/** Draw-only, same-clock fraction for the prefix preceding an XL row. */
+internal data class XlLandscapePrefixMotion(val xlKey: String, val from: Float, val to: Float)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
     val secondaryGap: XlGapMotion? = null, val itemAnchor: XlScrollItemAnchor? = null,
     val fixedFollowerMeasurement: Boolean = false,
-    val followerEndExclusiveIndex: Int = Int.MAX_VALUE)
+    val followerEndExclusiveIndex: Int = Int.MAX_VALUE,
+    val landscapePrefix: XlLandscapePrefixMotion? = null)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -139,6 +142,12 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                     if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
                                         scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
                                 }
+                                // One existing spring drives the draw-only XL
+                                // prefix as well; never resize its measured gap.
+                                active.landscapePrefix?.let { gap ->
+                                    scene.landscapePreXlCompression[gap.xlKey] =
+                                        gap.from + (gap.to - gap.from) * fraction
+                                }
                                 // Make the scroll owner distinguishable from
                                 // headroom measure and metadata subcompose in traces.
                                 val trace = android.os.Build.VERSION.SDK_INT >= 29 && android.os.Trace.isEnabled()
@@ -162,6 +171,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             if (scene.previewReturn?.rowKey != it.rowKey || scene.transition?.outgoingMetadataCleared != true)
                                 scene.headroomValues[it.rowKey] = it.to
                         }
+                        active.landscapePrefix?.let { scene.landscapePreXlCompression[it.xlKey] = it.to }
                         scrollBy(active.scrollPx - previous)
                         scene.compactRowRested = true
                     }
