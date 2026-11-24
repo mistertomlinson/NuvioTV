@@ -191,10 +191,20 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         }
                         active.landscapePrefix?.let { scene.landscapePreXlCompression[it.xlKey] = it.to }
                         scrollBy(active.scrollPx - previous)
-                        // Only release the reverse follower layer after its
-                        // final scroll delta. Its measured height never moves.
-                        if (active.fixedReturnFollowerMeasurement)
-                            scene.fixedFollowerTranslationPx = 0f
+                        // After the final scroll delta, swap the fixed
+                        // measurement for the compact resting gap (zero) and
+                        // release its equal-and-opposite paint offset in ONE
+                        // snapshot. The follower must not travel to an
+                        // expanded offscreen gap and then snap back onscreen.
+                        if (active.fixedReturnFollowerMeasurement) {
+                            val resting = checkNotNull(active.secondaryGap)
+                            Snapshot.withMutableSnapshot {
+                                scene.headroomValues[resting.rowKey] = resting.to
+                                scene.heldHeadroomGoals[resting.rowKey] = resting.to
+                                scene.fixedFollowerTranslationPx = 0f
+                                scene.expandedXlRows.remove(active.rowKey)
+                            }
+                        }
                         // The portrait title peek needs a real, compact measured
                         // item when settled. Release the full clearance once
                         // (not on each animation frame). Its -clearance paint
