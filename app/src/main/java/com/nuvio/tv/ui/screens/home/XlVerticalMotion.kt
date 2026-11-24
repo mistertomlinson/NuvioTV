@@ -39,7 +39,10 @@ internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fixedFollowerMeasurement: Boolean = false,
     val followerEndExclusiveIndex: Int = Int.MAX_VALUE,
     val landscapePrefix: XlLandscapePrefixMotion? = null,
-    val fixedPrefixMeasurement: Boolean = false)
+    val fixedPrefixMeasurement: Boolean = false,
+    // An interrupted compact DOWN exit reuses its measured follower gap
+    // while the UP spring restores its existing paint-only offset to zero.
+    val fixedReturnFollowerMeasurement: Boolean = false)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -52,7 +55,8 @@ internal fun xlFixedFollowerOffsetPx(animatedGapPx: Int, fixedGapPx: Int): Float
 internal fun xlFixedOrdinarySuffixTranslationPx(
     motion: XlVerticalMotion?, rowIndex: Int, precedingXlIndex: Int, translationPx: Float
 ): Float {
-    if (motion?.fixedFollowerMeasurement != true) return 0f
+    if (motion?.fixedFollowerMeasurement != true &&
+        motion?.fixedReturnFollowerMeasurement != true) return 0f
     val firstOrdinaryIndex = motion.itemAnchor?.index ?: return 0f
     return if (rowIndex >= firstOrdinaryIndex && rowIndex < motion.followerEndExclusiveIndex &&
         precedingXlIndex == firstOrdinaryIndex - 1) translationPx else 0f
@@ -141,8 +145,16 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 } else if (!active.fixedPrefixMeasurement) scene.headroomValues[active.rowKey] =
                                     (gapPx / scene.density).dp
                                 active.secondaryGap?.let { gap ->
-                                    if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
-                                        scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                                    if (active.fixedReturnFollowerMeasurement) {
+                                        val paintedPx = ((gap.from.value +
+                                            (gap.to.value - gap.from.value) * fraction) * scene.density).roundToInt()
+                                        val measuredPx = (gap.to.value * scene.density).roundToInt()
+                                        scene.fixedFollowerTranslationPx = (paintedPx - measuredPx).toFloat()
+                                    } else if (scene.previewReturn?.rowKey != gap.rowKey ||
+                                        scene.transition?.outgoingMetadataCleared != true) {
+                                        scene.headroomValues[gap.rowKey] =
+                                            (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                                    }
                                 }
                                 // One existing spring drives the draw-only XL
                                 // prefix as well; never resize its measured gap.
@@ -171,8 +183,15 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 scene.fixedFollowerTranslationPx = 0f
                         }
                         active.secondaryGap?.let {
-                            if (scene.previewReturn?.rowKey != it.rowKey || scene.transition?.outgoingMetadataCleared != true)
+                            if (active.fixedReturnFollowerMeasurement) {
+                                // The frozen reverse follower has always been
+                                // measured at its final target. Release only
+                                // its visual translation after the last scroll.
+                                scene.fixedFollowerTranslationPx = 0f
+                            } else if (scene.previewReturn?.rowKey != it.rowKey ||
+                                scene.transition?.outgoingMetadataCleared != true) {
                                 scene.headroomValues[it.rowKey] = it.to
+                            }
                         }
                         active.landscapePrefix?.let { scene.landscapePreXlCompression[it.xlKey] = it.to }
                         scrollBy(active.scrollPx - previous)
@@ -194,15 +213,18 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                     completed = true
                 } finally {
                     if (scene.verticalMotion === active) {
-                        if (active.fixedFollowerMeasurement) {
-                            // A non-focus cancellation may bypass the scene's
-                            // explicit cancelVerticalMotion() handoff. Preserve
-                            // the current painted gap before dropping the layer.
+                        if (active.fixedFollowerMeasurement || active.fixedReturnFollowerMeasurement) {
+                            // A non-focus cancellation bypassing the explicit
+                            // handoff must materialize the EXACT painted gap.
+                            val key = if (active.fixedReturnFollowerMeasurement)
+                                active.secondaryGap?.rowKey else active.rowKey
+                            val finalGapPx = if (active.fixedReturnFollowerMeasurement)
+                                ((active.secondaryGap?.to?.value ?: 0f) * scene.density).roundToInt()
+                                else (active.toGap.value * scene.density).roundToInt()
                             Snapshot.withMutableSnapshot {
-                                if (!completed) {
-                                    val finalPx = (active.toGap.value * scene.density).roundToInt()
-                                    val paintedPx = finalPx + scene.fixedFollowerTranslationPx.roundToInt()
-                                    scene.headroomValues[active.rowKey] =
+                                if (!completed && key != null) {
+                                    val paintedPx = finalGapPx + scene.fixedFollowerTranslationPx.roundToInt()
+                                    scene.headroomValues[key] =
                                         (paintedPx.coerceAtLeast(0) / scene.density).dp
                                 }
                                 scene.fixedFollowerTranslationPx = 0f
