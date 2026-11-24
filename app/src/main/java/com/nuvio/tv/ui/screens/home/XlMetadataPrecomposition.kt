@@ -51,7 +51,7 @@ internal fun XlMetadataHost(
         SubcomposeLayout(modifier = modifier) { constraints ->
             // Trace only when Perfetto/System Tracing is enabled. No logging,
             // new snapshot state, or per-frame diagnostic allocations.
-            val trace = android.os.Trace.isEnabled()
+            val trace = android.os.Build.VERSION.SDK_INT >= 29 && android.os.Trace.isEnabled()
             if (trace) android.os.Trace.beginSection("NuvioXL Metadata subcompose")
             try {
                 val placed = entries.flatMap { (key, snapshot, active) ->
