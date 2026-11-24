@@ -121,9 +121,9 @@ class XlSceneStateTest {
     @Test fun `layout anchor includes padding and handles visible row buffer growth`() {
         fun frame(padding: Int, vararg positions: Pair<String, Int>): LazyListLayoutInfo = mockk {
             every { beforeContentPadding } returns padding
-            every { visibleItemsInfo } returns positions.mapIndexed { i, (key, y) ->
+            every { visibleItemsInfo } returns positions.mapIndexed { i, (rowKey, y) ->
                 mockk<androidx.compose.foundation.lazy.LazyListItemInfo> {
-                    every { this@mockk.key } returns key
+                    every { key } returns rowKey
                     every { index } returns i
                     every { offset } returns y
                 }
