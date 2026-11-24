@@ -324,7 +324,11 @@ class ModernXlSceneTransitionTest {
             val next = y("heading-C")
             val info = list.layoutInfo
             val owner = info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding
-            val fraction = ((startOwner - owner) / legs.arrivalPx).coerceIn(0f, 1f)
+            // The XL may now be ahead of the incoming row. Subtract
+            // its headroom growth to recover the incoming spring distance.
+            val fromGapPx = (motion.fromGap.value * scene.density).toInt()
+            val ordinaryPx = startOwner - owner - (scene.gapPx("C") - fromGapPx)
+            val fraction = (ordinaryPx / legs.arrivalPx).coerceIn(0f, 1f)
             if (!scene.compactRowRested) {
                 val expected = startNext + (260f - startNext) * fraction
                 assertEquals("Incoming regular row follows the linked spring", expected, next, 1.1f)

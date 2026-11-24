@@ -43,7 +43,7 @@ class XlPeakCruiseTravelTest {
 
     @Test fun headroomCannotOvershootItsMeasuredClearanceWhileOrdinaryIsStillMoving() {
         var state = XlPeakCruiseFrame(ordinaryPx = 80f, xlPx = 300f,
-            peakPxPerSecond = 3200f, cruising = true, frameNanos = 1_000_000_000L)
+            peakPxPerSecond = 8000f, cruising = true, frameNanos = 1_000_000_000L)
         state = xlPeakCruiseStep(state, 95f, 250f, 1_016_000_000L, 150f, 460f)
         assertEquals("Maximum XL lead equals final clearance distance",
             95f + 310f, state.xlPx, 0f)
