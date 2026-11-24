@@ -6202,20 +6202,17 @@ private fun EnhancedModernHomeRowsListBoundary(
             }
             Column {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
-                // The compact-XL spacer is fixed in measurement, while the
-                // following ordinary content compensates during the scroll.
-                // All ordinary rows in the suffix must receive ONE offset,
-                // otherwise the gap from the first follower to the next row
-                // shrinks as the scroll finishes.
+                // Downward XL exits retain the final measured follower gap.
+                // Move every ordinary row in that suffix by the SAME paint
+                // offset so the original spacing survives without relayout.
                 val precedingXlIndex = (rowIndex - 1 downTo 0).firstOrNull {
                     doubleUpRenderedRows[it].isXl
                 } ?: -1
-                val compactOrdinarySuffix = xlSceneEnabled && !row.isXl &&
-                    precedingXlIndex >= 0 && !doubleUpRenderedRows[precedingXlIndex].showXlSummary
-                Box(modifier = if (compactOrdinarySuffix) Modifier.graphicsLayer {
-                    translationY = compactOrdinarySuffixTranslationPx(
+                val fixedOrdinarySuffix = xlSceneEnabled && !row.isXl && precedingXlIndex >= 0
+                Box(modifier = if (fixedOrdinarySuffix) Modifier.graphicsLayer {
+                    translationY = xlFixedOrdinarySuffixTranslationPx(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
-                        xlScene.compactIncomingLandscapeTranslationPx
+                        xlScene.fixedFollowerTranslationPx
                     )
                 } else Modifier) {
             ModernRowSection(
