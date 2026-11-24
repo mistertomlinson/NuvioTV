@@ -99,6 +99,13 @@ internal fun rememberHomePosterMask(scene: XlSceneState, list: LazyListState, en
         derivedStateOf {
             with(density) {
                 when {
+                    // Diagnostic ablation: remove only the shared XL-exit viewport
+                    // cutout AND the per-row feather during active downward motion.
+                    // The row headroom, focus barrier, and spring are unchanged.
+                    // Returning null lets the existing list/row draws proceed without
+                    // mask clipping or poster saveLayer during this motion.
+                    // Expected: temporary artwork bleed; DO NOT merge as a fix.
+                    scene.transition?.downwardExit == true && scene.verticalMotion != null -> null
                     // The viewport retains its original geometry. The feather
                     // occupies its first 32dp, before the 40dp poster anchor.
                     !enabled -> 0f to 0f
