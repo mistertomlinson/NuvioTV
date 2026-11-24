@@ -105,17 +105,17 @@ class XlSceneStateTest {
     }
 
     @Test fun `layout scroll anchor matches map tracking during row recycling`() {
-        val anchor = XlScrollAnchor(positionedLayout("A" to 260, "XL" to 510))
-        assertEquals(-100f, anchor.displacement(positionedLayout("A" to 160, "XL" to 410)), 0f)
-        assertEquals(-350f, anchor.displacement(positionedLayout("XL" to 160, "C" to 610)), 0f)
-        assertEquals(-450f, anchor.displacement(positionedLayout("XL" to 60, "C" to 510)), 0f)
+        val anchor = XlScrollAnchor.fromLayout(positionedLayout("A" to 260, "XL" to 510))
+        assertEquals(-100f, anchor.displacementFromLayout(positionedLayout("A" to 160, "XL" to 410)), 0f)
+        assertEquals(-350f, anchor.displacementFromLayout(positionedLayout("XL" to 160, "C" to 610)), 0f)
+        assertEquals(-450f, anchor.displacementFromLayout(positionedLayout("XL" to 60, "C" to 510)), 0f)
         assertEquals("Repeated draws cannot advance the anchor",
-            -450f, anchor.displacement(positionedLayout("XL" to 60, "C" to 510)), 0f)
+            -450f, anchor.displacementFromLayout(positionedLayout("XL" to 60, "C" to 510)), 0f)
         assertEquals("A frame with no visible rows preserves accumulated distance",
-            -450f, anchor.displacement(layout()), 0f)
+            -450f, anchor.displacementFromLayout(layout()), 0f)
         assertEquals("First row after a fully recycled window establishes a new anchor",
-            -450f, anchor.displacement(positionedLayout("C" to 480)), 0f)
-        assertEquals(-480f, anchor.displacement(positionedLayout("C" to 450)), 0f)
+            -450f, anchor.displacementFromLayout(positionedLayout("C" to 480)), 0f)
+        assertEquals(-480f, anchor.displacementFromLayout(positionedLayout("C" to 450)), 0f)
     }
 
     @Test fun `layout anchor includes padding and handles visible row buffer growth`() {
@@ -129,15 +129,15 @@ class XlSceneStateTest {
                 }
             }
         }
-        val anchor = XlScrollAnchor(frame(20, "A" to 260))
+        val anchor = XlScrollAnchor.fromLayout(frame(20, "A" to 260))
         assertEquals("A padding change is real coordinate movement",
-            10f, anchor.displacement(frame(50, "A" to 240)), 0f)
+            10f, anchor.displacementFromLayout(frame(50, "A" to 240)), 0f)
         val wide = (0 until 16).map { "row-$it" to (500 + it * 80) }.toTypedArray()
         assertEquals("No shared row means no spurious jump",
-            10f, anchor.displacement(frame(50, *wide)), 0f)
+            10f, anchor.displacementFromLayout(frame(50, *wide)), 0f)
         val shifted = (0 until 16).map { "row-$it" to (495 + it * 80) }.toTypedArray()
         assertEquals("The expanded buffer follows the first shared key",
-            5f, anchor.displacement(frame(50, *shifted)), 0f)
+            5f, anchor.displacementFromLayout(frame(50, *shifted)), 0f)
     }
 
     @Test fun `compact exit retains its opened gap until return to that XL has finished`() {
