@@ -6200,7 +6200,19 @@ private fun EnhancedModernHomeRowsListBoundary(
             val previousRow = remember(carouselRows, row.key) {
                 carouselRows.getOrNull(carouselRows.indexOfFirst { it.key == row.key } - 1)
             }
-            Column {
+            // The clearance prefix above XL is always measured at its final
+            // height. Compress its PAINTED gap when the preceding landscape
+            // row owns focus, translating XL and every following row together
+            // so no inter-row gaps distort or remeasure during scrolling.
+            val hasLandscapeBeforeXl = xlSceneEnabled &&
+                (1..rowIndex).any { i ->
+                    doubleUpRenderedRows[i].isXl &&
+                        doubleUpRenderedRows[i - 1].landscapePosters &&
+                        doubleUpRenderedRows[i - 1].key != "continue_watching"
+                }
+            Column(modifier = if (hasLandscapeBeforeXl) Modifier.graphicsLayer {
+                translationY = xlScene.landscapePreXlDrawOffsetPx(rowIndex, doubleUpRenderedRows)
+            } else Modifier) {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
                 // Downward XL exits retain the final measured follower gap.
                 // Move every ordinary row in that suffix by the SAME paint
