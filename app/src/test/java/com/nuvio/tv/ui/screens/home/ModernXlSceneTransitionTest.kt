@@ -1131,6 +1131,76 @@ class ModernXlSceneTransitionTest {
         assertEquals(0, metadataCount())
     }
 
+    /**
+     * Regression: while a compact XL is scrolling DOWN into a portrait row,
+     * a quick UP must not materialize that row's virtual headroom, snap its
+     * LazyColumn position, and then independently tween it back into place.
+     */
+    private fun verifyCompactPortraitReverseContinuity(exitMillis: Int) {
+        content(start = 2, summary = false, ordinaryPosterHeight = 200.dp)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(exitMillis)
+        val exiting = checkNotNull(scene.verticalMotion)
+        assertTrue("The compact exit must use fixed follower geometry", exiting.fixedFollowerMeasurement)
+        val fixedGap = scene.gapPx("C")
+        val visualOffset = scene.fixedFollowerTranslationPx
+        assertTrue("Reversal must happen while the painted follower is still moving: $visualOffset",
+            visualOffset < -1f)
+        val initialRowTop = compose.onAllNodesWithTag("heading-C", useUnmergedTree = true)
+            .fetchSemanticsNodes().firstOrNull()?.layoutInfo?.coordinates?.positionInRoot()?.y
+
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        val returning = checkNotNull(scene.verticalMotion)
+        assertTrue("Return must inherit the existing fixed follower measurement",
+            returning.fixedReturnFollowerMeasurement)
+        assertEquals("The compact follower's real height must not change at reversal",
+            fixedGap, scene.gapPx("C"))
+        assertEquals("Preserve the exact painted follower offset at handoff",
+            visualOffset, scene.fixedFollowerTranslationPx, 1f)
+        assertNull("Do not launch a competing preview gap tween on this reversal", scene.previewReturn)
+
+        initialRowTop?.let { initial ->
+            val after = compose.onAllNodesWithTag("heading-C", useUnmergedTree = true)
+                .fetchSemanticsNodes().firstOrNull()?.layoutInfo?.coordinates?.positionInRoot()?.y
+            if (after != null) assertTrue(
+                "The portrait follower snapped as focus reversed: $initial -> $after",
+                kotlin.math.abs(after - initial) < 8f)
+        }
+
+        var previousY: Float? = null
+        var observed = 0
+        repeat(28) {
+            advance(16)
+            if (scene.verticalMotion === returning) {
+                assertEquals("Reversed follower must stay at constant measured height",
+                    fixedGap, scene.gapPx("C"))
+            }
+            val y = compose.onAllNodesWithTag("heading-C", useUnmergedTree = true)
+                .fetchSemanticsNodes().firstOrNull()?.layoutInfo?.coordinates?.positionInRoot()?.y
+            if (y != null && y > 0f) {
+                previousY?.let { prior ->
+                    assertTrue("Reversed portrait row moved backwards: $prior -> $y at frame $it",
+                        y >= prior - 2f)
+                }
+                previousY = y
+                observed++
+            }
+        }
+        assertTrue("The returning portrait must remain visible for some of the reverse motion",
+            observed >= 2)
+        settle()
+        assertEquals("XL", scene.selection?.rowKey)
+        assertEquals(54f, y("heading-XL"), 2f)
+        assertEquals(fixedGap, scene.gapPx("C"))
+        assertEquals(0f, scene.fixedFollowerTranslationPx, 0.01f)
+    }
+
+    @Test fun compactPortraitQuickUpAfter80msKeepsFollowerContinuous() =
+        verifyCompactPortraitReverseContinuity(80)
+
+    @Test fun compactPortraitQuickUpAfter160msKeepsFollowerContinuous() =
+        verifyCompactPortraitReverseContinuity(160)
+
     @Test fun reversingACompactExitCannotRevealTheHiddenPartOfItsPreparedHero() = verifyCompactReversal(80)
 
     @Test fun reversingACompactExitCanRecoverAnXlPosterThatAlreadyLeftTheViewport() = verifyCompactReversal(160)
