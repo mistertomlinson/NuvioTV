@@ -343,8 +343,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     ?: if (selection?.rowKey == preceding.key && transition == null) 1f else 0f
                 if (progress != 0f) {
                     // Same physical spacer used by XlSceneRowHeadroom.
-                    val prefix = headroomValues[xl.key]
-                        ?: (xlTop(xl.key) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                    val prefix = headroomValues[xl.key] ?: if (
+                        !preceding.landscapePosters && selection?.rowKey == preceding.key
+                    ) 0.dp else (xlTop(xl.key) - 24.dp + 1.dp).coerceAtLeast(0.dp)
                     offset -= (prefix.value * density).roundToInt() * progress
                 }
             }
