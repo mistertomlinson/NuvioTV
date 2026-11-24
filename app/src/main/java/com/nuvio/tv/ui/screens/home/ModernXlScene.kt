@@ -616,6 +616,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     ((measured + fixedFollowerTranslationPx.roundToInt()).coerceAtLeast(0) / density).dp
                 fixedFollowerTranslationPx = 0f
             }
+            // A delayed focus confirmation must not apply the old painted
+            // handoff twice after this one-time fallback materialized it.
+            if (transition?.id == move.id)
+                transition = move.copy(interruptedFollowerPaintPx = null)
         }
     }
 
