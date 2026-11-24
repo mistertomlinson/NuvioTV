@@ -588,6 +588,22 @@ class ModernXlSceneTransitionTest {
         assertEquals(measuredGap, scene.gapPx("XL"))
     }
 
+    @Test fun restoredLandscapeAboveXlStartsWithOrdinarySpacing() {
+        content(start = 1, landscapeAboveXl = true, ordinaryPosterHeight = 120.dp)
+        assertEquals(1f, scene.landscapePreXlCompression["XL"] ?: -1f, 0.001f)
+        assertEquals("Already focused landscape row has the ordinary visual gap",
+            24f, visibleGapAboveXl(), 2f)
+        val fixed = scene.gapPx("XL")
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertEquals("Entry must expand the same prefix, not change the scroll spring",
+            1f, checkNotNull(motion.landscapePrefix).from, 0.001f)
+        settle()
+        assertEquals(54f, y("heading-XL"), 2f)
+        assertEquals(0f, scene.landscapePreXlCompression["XL"] ?: -1f, 0.001f)
+        assertEquals("The measured XL prefix never changes", fixed, scene.gapPx("XL"))
+    }
+
     @Test fun landscapePrefixReturnsFromAnInterruptedScrollWithoutRestartingItsGap() {
         content(start = 2, landscapeAboveXl = true, ordinaryPosterHeight = 120.dp)
         press(KeyEvent.KEYCODE_DPAD_UP)
