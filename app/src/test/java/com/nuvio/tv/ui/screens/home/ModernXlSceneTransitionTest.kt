@@ -619,6 +619,35 @@ class ModernXlSceneTransitionTest {
         assertEquals(54f, y("heading-XL"), 2f)
     }
 
+    @Test fun portraitAboveXlPeeksItsHeadingInsideTheViewport() {
+        // A normal-height portrait row can place the XL item just beyond
+        // LazyColumn's measured viewport, even if a painted compression
+        // would make its title visible. Reproduce that layout, not the short
+        // 120dp test row used by existing landscape spacing checks.
+        content(start = 1, landscapeAboveXl = false, ordinaryPosterHeight = 200.dp)
+        val priorTop = y("heading-A")
+        val priorHeight = checkNotNull(scene.rowHeights["A"]).value
+        val measuredHeadroom = (scene.xlTop("XL").value - 24f + 1f).coerceAtLeast(0f)
+        val nominalNextHeading = priorTop + priorHeight + 24f + measuredHeadroom
+        val candidates = compose.onAllNodes(
+            hasTestTag("heading-XL"), useUnmergedTree = true).fetchSemanticsNodes()
+        val visible = list.layoutInfo.visibleItemsInfo.joinToString {
+            "${it.key}@${it.offset}+${it.size}"
+        }
+        assertTrue(
+            "XL heading not composed while portrait row focused: " +
+                "rowTop=$priorTop rowHeight=$priorHeight prefix=$measuredHeadroom " +
+                "nominalHeading=$nominalNextHeading visibleItems=$visible",
+            candidates.isNotEmpty()
+        )
+        val headingBounds = candidates.first().boundsInRoot
+        assertTrue(
+            "XL heading not visible at bottom: top=${headingBounds.top} bottom=${headingBounds.bottom} " +
+                "viewport=540; portraitTop=$priorTop rowHeight=$priorHeight prefix=$measuredHeadroom",
+            headingBounds.top < 540f && headingBounds.bottom > 0f
+        )
+    }
+
     @Test fun portraitAboveXlPreservesItsExistingClearance() {
         content(start = 2, landscapeAboveXl = false, ordinaryPosterHeight = 120.dp)
         press(KeyEvent.KEYCODE_DPAD_UP)
