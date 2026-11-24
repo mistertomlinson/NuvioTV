@@ -198,7 +198,11 @@ internal data class XlSceneTransition(
     val rowsSettled: Boolean = false,
     val outgoingHeadroomPx: Float = 0f,
     val outgoingMetadataCleared: Boolean = false,
-    val earlyPreviewReturn: Boolean = false
+    val earlyPreviewReturn: Boolean = false,
+    // Carry the fixed follower's paint offset across an interrupted compact
+    // downward exit. The reverse spring can then reuse the SAME measured gap
+    // instead of briefly materializing it and snapping the LazyColumn anchor.
+    val interruptedFollowerPaintPx: Float? = null
 ) {
     val downwardExit = from.isXl && !to.isXl && to.rowIndex > from.rowIndex
     val compactExit = downwardExit && !from.summary
@@ -373,17 +377,30 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             metadataTopFor(rowKey).value, (headerHeights[rowKey] ?: 40f * density) / density - 40f, clearXl).dp
     }
 
-    fun cancelVerticalMotion() {
-        // Restore the virtually animated spacer before removing its paint-only
-        // offset. This is essential when a DPAD reversal interrupts any XL exit.
-        verticalMotion?.takeIf { it.fixedFollowerMeasurement }?.let { motion ->
+    fun cancelVerticalMotion(preserveCompactFollowerPaint: Boolean = false) {
+        // An interrupted DOWN->UP compact reversal transfers the paint offset
+        // intact to the reverse motion. All other cancellations materialize
+        // the current painted gap exactly once before dropping the layer.
+        val frozen = verticalMotion
+        val handoff = preserveCompactFollowerPaint &&
+            frozen?.fixedFollowerMeasurement == true
+        if (!handoff) {
+            val followerKey = when {
+                frozen?.fixedFollowerMeasurement == true -> frozen.rowKey
+                frozen?.fixedReturnFollowerMeasurement == true -> frozen.secondaryGap?.rowKey
+                else -> null
+            }
             androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
-                val finalGapPx = (motion.toGap.value * density).roundToInt()
-                val visualGapPx = finalGapPx + fixedFollowerTranslationPx.roundToInt()
-                headroomValues[motion.rowKey] = (visualGapPx.coerceAtLeast(0) / density).dp
+                followerKey?.let { key ->
+                    val fixedGapPx = if (frozen?.fixedReturnFollowerMeasurement == true)
+                        ((frozen.secondaryGap?.to?.value ?: 0f) * density).roundToInt()
+                        else ((frozen?.toGap?.value ?: 0f) * density).roundToInt()
+                    val paintedPx = fixedGapPx + fixedFollowerTranslationPx.roundToInt()
+                    headroomValues[key] = (paintedPx.coerceAtLeast(0) / density).dp
+                }
                 fixedFollowerTranslationPx = 0f
             }
-        } ?: run { fixedFollowerTranslationPx = 0f }
+        }
         val paint = focusPaintSignal?.second
         focusPaintSignal = null
         verticalMotion?.let { motion ->
@@ -503,6 +520,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val previous = selection
         val previousMove = transition
         val heldMetadata = stationaryMetadata
+        var compactPaintHandoff: Float? = null
         val interruptedReturn = verticalMotion != null && previousMove?.compactExit == true && next.rowKey == previousMove.from.rowKey
         if (previous?.rowKey != next.rowKey) {
             confirmedRowKey = null
@@ -510,7 +528,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             previewReturn = null
             val interrupted = verticalMotion
             val previousJob = verticalJob
-            cancelVerticalMotion()
+            // Keep the actual painted position of every ordinary row after
+            // the XL. Materializing the virtual gap here forces a new LazyList
+            // measure before the reverse spring and visibly snaps portrait C.
+            compactPaintHandoff = if (interruptedReturn &&
+                interrupted?.fixedFollowerMeasurement == true &&
+                interrupted.itemAnchor != null) fixedFollowerTranslationPx else null
+            cancelVerticalMotion(preserveCompactFollowerPaint = compactPaintHandoff != null)
             interruptedRelocation = interrupted?.let { XlInterruptedRelocation(it.id, next.rowKey, previousJob) }
             if (interrupted != null && previousMove?.compactExit == true && next.rowKey == previousMove.from.rowKey) {
                 // Rebuild the outgoing hero's full clearance while returning
@@ -568,18 +592,31 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (outgoing == paintedMetadata) paintedAlpha else 0f,
             paintedEpoch, sameOwnerReturn, if (outgoing == paintedMetadata) paintedClipTop else 0f,
             outgoingHeadroomPx = outgoing?.let { gapPx(it.rowKey).toFloat() } ?: 0f,
-            earlyPreviewReturn = next.isXl && next.rowIndex < previous.rowIndex && !interruptedReturn
+            earlyPreviewReturn = next.isXl && next.rowIndex < previous.rowIndex && !interruptedReturn,
+            interruptedFollowerPaintPx = compactPaintHandoff
         )
         transition = move
         exitMetadataAlpha = if (move.compactExit) 0f else 1f
         if (move.downwardExit) expandedXlRows[previous.rowKey] = true
-        if (next.isXl && !next.summary && next.rowIndex < previous.rowIndex) {
+        if (next.isXl && !next.summary && next.rowIndex < previous.rowIndex &&
+            compactPaintHandoff == null) {
             rows.getOrNull(next.rowIndex + 1)?.takeUnless { it.isXl }?.let {
                 previewReturn = XlPreviewReturn(move.id, it.key, next.rowKey)
                 headroomMoving[it.key] = true
             }
         }
         prepareVerticalMotion(move, layout, rows, focusConfirmed)
+        // If the return target was recycled before an anchor could be built,
+        // fall back to the materialized current gap rather than leaving a
+        // paint offset without an owner.
+        if (compactPaintHandoff != null && verticalMotion?.fixedReturnFollowerMeasurement != true) {
+            androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                val measured = gapPx(previous.rowKey)
+                headroomValues[previous.rowKey] =
+                    ((measured + fixedFollowerTranslationPx.roundToInt()).coerceAtLeast(0) / density).dp
+                fixedFollowerTranslationPx = 0f
+            }
+        }
     }
 
     private fun prepareVerticalMotion(move: XlSceneTransition, layout: LazyListLayoutInfo,
@@ -607,7 +644,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 val toPx = (to.value * density).roundToInt()
                 val visibleDistance = ownerTop.roundToInt() + fromPx + headerPx(next.rowKey) - posterAnchorPx(next)
                 val scroll = (visibleDistance + toPx - fromPx).toFloat()
-                val previousGap = headroomValues[previous.rowKey] ?: 0.dp
+                val previousGap = move.interruptedFollowerPaintPx?.let { paint ->
+                    ((gapPx(previous.rowKey) + paint.roundToInt()).coerceAtLeast(0) / density).dp
+                } ?: (headroomValues[previous.rowKey] ?: 0.dp)
                 val restoredGap = heldHeadroomGoals[previous.rowKey]
                 val secondary = when {
                     next.rowKey == "continue_watching" && previous.rowIndex == next.rowIndex + 1 ->
@@ -624,19 +663,26 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 if (kotlin.math.abs(scroll) > 0.5f) {
                     heldHeadroomGoals[next.rowKey] = to
                     val landscapePrefix = landscapePrefixMotion(previous, next, rows)
+                    val reverseFixedFollower = move.interruptedFollowerPaintPx != null &&
+                        secondary?.rowKey == previous.rowKey &&
+                        secondary.to > secondary.from
                     val fixedPortraitPrefixOnEntry =
                         next.isXl && landscapePrefix?.portraitPrefix == true
+                    val followerIndex = if (move.downwardExit) next.rowIndex
+                        else if (reverseFixedFollower) previous.rowIndex else -1
                     val itemAnchor = if (move.downwardExit) XlScrollItemAnchor(
-                        owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt()) else null
-                    val endOfOrdinarySuffix = if (move.downwardExit && rows.isNotEmpty())
-                        (next.rowIndex + 1 until rows.size).firstOrNull { rows[it].isXl } ?: rows.size
+                        owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt())
+                        else if (reverseFixedFollower) XlScrollItemAnchor(previous.rowIndex, 0) else null
+                    val endOfOrdinarySuffix = if (followerIndex >= 0 && rows.isNotEmpty())
+                        (followerIndex + 1 until rows.size).firstOrNull { rows[it].isXl } ?: rows.size
                         else Int.MAX_VALUE
                     val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
                         move.compactExit, secondary, itemAnchor,
                         fixedFollowerMeasurement = move.downwardExit,
                         followerEndExclusiveIndex = endOfOrdinarySuffix,
                         landscapePrefix = landscapePrefix,
-                        fixedPrefixMeasurement = fixedPortraitPrefixOnEntry)
+                        fixedPrefixMeasurement = fixedPortraitPrefixOnEntry,
+                        fixedReturnFollowerMeasurement = reverseFixedFollower)
                     // Establish the final measured row geometry BEFORE the
                     // focus paint gate. Its visual position stays unchanged:
                     // the identical difference is applied to all ordinary
@@ -724,7 +770,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun fixedFollowerOffsetForIndex(index: Int): Float {
         val motion = verticalMotion ?: return 0f
         val first = motion.itemAnchor?.index ?: return 0f
-        return if (motion.fixedFollowerMeasurement && index >= first &&
+        return if ((motion.fixedFollowerMeasurement || motion.fixedReturnFollowerMeasurement) && index >= first &&
             index < motion.followerEndExclusiveIndex) fixedFollowerTranslationPx else 0f
     }
 
