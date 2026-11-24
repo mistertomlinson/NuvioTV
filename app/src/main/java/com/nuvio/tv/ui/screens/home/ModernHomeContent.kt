@@ -6204,13 +6204,16 @@ private fun EnhancedModernHomeRowsListBoundary(
             // height. Compress its PAINTED gap when the preceding landscape
             // row owns focus, translating XL and every following row together
             // so no inter-row gaps distort or remeasure during scrolling.
-            val hasLandscapeBeforeXl = xlSceneEnabled &&
+            // Both portrait and landscape rows can precede XL. Portraits
+            // measure a compact resting prefix for the next-title peek;
+            // landscapes keep their old full measurement. Both use a single
+            // paint-only XL suffix offset on the existing spring.
+            val hasCompressiblePrefixBeforeXl = xlSceneEnabled &&
                 (1..rowIndex).any { i ->
                     doubleUpRenderedRows[i].isXl &&
-                        doubleUpRenderedRows[i - 1].landscapePosters &&
                         doubleUpRenderedRows[i - 1].key != "continue_watching"
                 }
-            Column(modifier = if (hasLandscapeBeforeXl) Modifier.graphicsLayer {
+            Column(modifier = if (hasCompressiblePrefixBeforeXl) Modifier.graphicsLayer {
                 translationY = xlScene.landscapePreXlDrawOffsetPx(rowIndex, doubleUpRenderedRows)
             } else Modifier) {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
