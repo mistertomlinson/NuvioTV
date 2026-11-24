@@ -90,16 +90,20 @@ internal class XlScrollAnchor(initialPositions: Map<Any, Int>) {
         }
     }
 
-    constructor(layout: LazyListLayoutInfo) : this(emptyMap()) {
-        val visible = layout.visibleItemsInfo
-        ensureActiveCapacity(visible.size)
-        // An empty visible window has no positions and may not expose padding.
-        val padding = if (visible.isEmpty()) 0 else layout.beforeContentPadding
-        visible.forEachIndexed { index, item ->
-            keys[index] = item.key
-            offsets[index] = item.offset + padding
-        }
-        count = visible.size
+    companion object {
+        /** Named factory avoids ambiguous overload resolution in test compilation. */
+        fun fromLayout(layout: LazyListLayoutInfo): XlScrollAnchor =
+            XlScrollAnchor(emptyMap()).apply {
+                val visible = layout.visibleItemsInfo
+                ensureActiveCapacity(visible.size)
+                // An empty window may not expose content padding.
+                val padding = if (visible.isEmpty()) 0 else layout.beforeContentPadding
+                visible.forEachIndexed { index, item ->
+                    keys[index] = item.key
+                    offsets[index] = item.offset + padding
+                }
+                count = visible.size
+            }
     }
 
     private fun ensureActiveCapacity(needed: Int) {
@@ -154,7 +158,7 @@ internal class XlScrollAnchor(initialPositions: Map<Any, Int>) {
     }
 
     /** Allocation-free hot path, including row recycling and content padding. */
-    fun displacement(layout: LazyListLayoutInfo): Float {
+    fun displacementFromLayout(layout: LazyListLayoutInfo): Float {
         val visible = layout.visibleItemsInfo
         ensureScratchCapacity(visible.size)
         // An empty visible window has no positions and may not expose padding.
@@ -374,7 +378,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         transition = null
         stationaryMetadata = null
         fastReturn = XlFastReturn(target, paintedMetadata?.takeIf { paintedAlpha > 0f },
-            XlScrollAnchor(layout), paintedTranslation, paintedAlpha, paintedEpoch, paintedClipTop)
+            XlScrollAnchor.fromLayout(layout), paintedTranslation, paintedAlpha, paintedEpoch, paintedClipTop)
         prepareFastReturnGaps(target, rows, layout)
     }
 
@@ -401,7 +405,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun cancelFastReturn() { fastReturn = null }
     fun fastReturnTranslation(layout: LazyListLayoutInfo): Float = fastReturn?.let {
-        it.translation + it.anchor.displacement(layout)
+        it.translation + it.anchor.displacementFromLayout(layout)
     } ?: 0f
 
     fun resolveStationaryMetadata(preview: HeroPreview?) {
@@ -497,7 +501,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             metadataHeightPx = height
         }
         val move = XlSceneTransition(
-            ++generation, previous, next, outgoing, paintedBackdrop ?: previous.preview, XlScrollAnchor(layout),
+            ++generation, previous, next, outgoing, paintedBackdrop ?: previous.preview, XlScrollAnchor.fromLayout(layout),
             if (outgoing == paintedMetadata) paintedTranslation else 0f,
             if (outgoing == paintedMetadata) paintedAlpha else 0f,
             paintedEpoch, sameOwnerReturn, if (outgoing == paintedMetadata) paintedClipTop else 0f,
@@ -620,7 +624,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun outgoingTranslation(layout: LazyListLayoutInfo): Float = transition?.let {
         val gap = it.outgoingMetadata?.let { block -> gapPx(block.rowKey).toFloat() } ?: 0f
         val delta = gap - it.outgoingHeadroomPx
-        it.initialMetadataTranslation + it.scrollAnchor.displacement(layout) +
+        it.initialMetadataTranslation + it.scrollAnchor.displacementFromLayout(layout) +
             if (it.earlyPreviewReturn) delta.coerceAtLeast(0f) else delta
     } ?: 0f
 
