@@ -72,8 +72,8 @@ class ModernXlSceneTransitionTest {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
 
-    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false, landscapeFollower: Boolean = false, ordinaryPosterHeight: androidx.compose.ui.unit.Dp = 200.dp) {
-        rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A"), row("XL", 2, true, summary), row("C", 3).copy(landscapePosters = landscapeFollower), row("D", 4))
+    private fun content(start: Int = 1, summary: Boolean = true, header: Int = 40, fullWidth: Boolean = false, freezeHero: Boolean = false, metadataTop: Int = 24, shortMetadata: Boolean = false, paintFocusedState: Boolean = false, landscapeFollower: Boolean = false, ordinaryPosterHeight: androidx.compose.ui.unit.Dp = 200.dp, landscapeAboveXl: Boolean = false) {
+        rows = listOf(row("Earlier", 0), row("A", 1, description = if (shortMetadata) "" else "Synopsis A").copy(landscapePosters = landscapeAboveXl), row("XL", 2, true, summary), row("C", 3).copy(landscapePosters = landscapeFollower), row("D", 4))
         scene = XlSceneState(rows[start].sceneSelection(0, start), rows).apply {
             fullWidthIcons = fullWidth
             metadataRestingTop = metadataTop.dp
@@ -115,7 +115,16 @@ class ModernXlSceneTransitionTest {
                                 verticalArrangement = Arrangement.spacedBy(24.dp)
                             ) {
                                 itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
-                                    Column(Modifier.testTag("row-${row.key}")) {
+                                    val hasLandscapeBeforeXl = (1..index).any { candidate ->
+                                        rows[candidate].isXl &&
+                                            rows[candidate - 1].landscapePosters &&
+                                            rows[candidate - 1].key != "continue_watching"
+                                    }
+                                    Column(Modifier.testTag("row-${row.key}").then(
+                                        if (hasLandscapeBeforeXl) Modifier.graphicsLayer {
+                                            translationY = scene.landscapePreXlDrawOffsetPx(index, rows)
+                                        } else Modifier
+                                    )) {
                                         XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl)
                                         val precedingXlIndex = (index - 1 downTo 0).firstOrNull {
                                             rows[it].isXl
@@ -539,6 +548,68 @@ class ModernXlSceneTransitionTest {
         compose.runOnIdle { resolved.value = rows[4].items.first().heroPreview }
         advance(64)
         compose.onNodeWithTag("ordinary-metadata-D", useUnmergedTree = true).assertExists()
+    }
+
+    private fun visibleGapAboveXl(): Float {
+        val rowBottom = y("heading-A") + checkNotNull(scene.rowHeights["A"]).value
+        return y("heading-XL") - rowBottom
+    }
+
+    @Test fun landscapeAboveXlContractsPaintedGapWithoutResizingMeasuredClearance() {
+        content(start = 2, landscapeAboveXl = true)
+        val measuredGap = scene.gapPx("XL")
+        assertTrue("The XL prefix must retain real clearance", measuredGap > 0)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertEquals("XL", checkNotNull(motion.landscapePrefix).xlKey)
+        val fixedOwnerSize = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "XL" }?.size
+        var observed = 0
+        repeat(35) {
+            advance(16)
+            if (scene.verticalMotion === motion) {
+                assertEquals("Do not remeasure the XL prefix during the scroll", measuredGap, scene.gapPx("XL"))
+                list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "XL" }?.let { item ->
+                    assertEquals(fixedOwnerSize, item.size)
+                }
+                observed++
+            }
+        }
+        assertTrue(observed >= 4)
+        settle()
+        assertEquals("The landscape row should have ordinary 24dp spacing", 24f, visibleGapAboveXl(), 2f)
+        assertEquals(1f, scene.landscapePreXlCompression["XL"] ?: -1f, 0.001f)
+
+        // The spring reverses the draw-only compression, restoring XL's
+        // original clearance without manipulating the spacer on each frame.
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        settle()
+        assertEquals(0f, scene.landscapePreXlCompression["XL"] ?: -1f, 0.001f)
+        assertEquals(54f, y("heading-XL"), 2f)
+        assertEquals(measuredGap, scene.gapPx("XL"))
+    }
+
+    @Test fun landscapePrefixReturnsFromAnInterruptedScrollWithoutRestartingItsGap() {
+        content(start = 2, landscapeAboveXl = true)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(80)
+        val partial = scene.landscapePreXlCompression["XL"] ?: 0f
+        assertTrue("Compression must be partway through the spring", partial in 0.01f..0.99f)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(16)
+        val returning = scene.landscapePreXlCompression["XL"] ?: 0f
+        assertTrue("Reverse direction must not restart from fully expanded", returning > 0.01f)
+        settle()
+        assertEquals(0f, scene.landscapePreXlCompression["XL"] ?: -1f, 0.001f)
+        assertEquals(54f, y("heading-XL"), 2f)
+    }
+
+    @Test fun portraitAboveXlPreservesItsExistingClearance() {
+        content(start = 2, landscapeAboveXl = false)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        settle()
+        assertEquals("Portrait layout must not use landscape compression",
+            0f, scene.landscapePreXlCompression["XL"] ?: 0f, 0f)
+        assertEquals(24f + scene.gapPx("XL"), visibleGapAboveXl(), 2f)
     }
 
     @Test fun measuredHeadingHasNoCorrectionJumpAtTheEndOfAnXlExit() {
