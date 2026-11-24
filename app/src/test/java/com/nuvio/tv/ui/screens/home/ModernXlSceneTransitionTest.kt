@@ -1196,25 +1196,55 @@ class ModernXlSceneTransitionTest {
         var paintedFrames = 0
         var started = false
         var checked = 0
+        var landingFrames = 0
+        var clearanceFrames = 0
+
+        // The two-stage design deliberately reduces the outgoing XL velocity
+        // to zero at the ordinary-row landing. That makes the old "move a whole
+        // pixel on EVERY frame" assertion invalid in a tiny region around the
+        // handoff. Outside that region, forward motion remains mandatory.
+        fun atRegularLandingHandoff(): Boolean {
+            val motion = scene.verticalMotion ?: return false
+            if (!motion.stagedDownwardExit) return false
+            val ordinaryRemaining = abs(y("heading-C") - 260f)
+            val clearanceTravel = scene.gapPx(motion.rowKey) -
+                (motion.fromGap.value * scene.density).roundToInt()
+            return ordinaryRemaining <= 5f && clearanceTravel in -1..8
+        }
+
         repeat(30) {
             advance(16)
             val edge = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
             val nextPainted = paintedBottom()
+            val landingHandoff = atRegularLandingHandoff()
             if (nextPainted < painted) paintStarted = true
             if (paintStarted && nextPainted > 40) {
-                assertTrue("The actual painted XL image cannot pause at focus handoff: edge=$nextPainted previous=$painted", nextPainted < painted)
-                paintedFrames++
+                assertTrue("Painted XL must never move backward: edge=$nextPainted previous=$painted",
+                    nextPainted <= painted)
+                assertTrue("XL cannot stall away from regular-row landing: edge=$nextPainted previous=$painted regularY=${y("heading-C")} gap=${scene.gapPx("C")}",
+                    nextPainted < painted || landingHandoff)
+                if (nextPainted < painted) paintedFrames++ else landingFrames++
             }
             painted = nextPainted
             if (previous - edge > 0f) started = true
             if (started && edge > 40f) {
-                assertTrue("After motion begins it cannot pause for focus: edge=$edge previous=$previous", edge < previous)
-                checked++
+                assertTrue("XL geometry cannot reverse: edge=$edge previous=$previous", edge <= previous)
+                assertTrue("XL geometry cannot pause away from the regular landing: edge=$edge previous=$previous regularY=${y("heading-C")}",
+                    edge < previous || landingHandoff)
+                if (edge < previous) {
+                    checked++
+                    val motion = scene.verticalMotion
+                    if (motion?.stagedDownwardExit == true &&
+                        scene.gapPx(motion.rowKey) >
+                        (motion.fromGap.value * scene.density).roundToInt() + 12) clearanceFrames++
+                }
             }
             previous = edge
         }
         assertTrue("Exercise multiple moving frames before XL clears", checked >= 3)
         assertTrue("Exercise the actual painted landscape edge", paintedFrames >= 3)
+        assertTrue("The second stage must visibly clear XL after ordinary landing", clearanceFrames >= 2)
+        println("TWO_STAGE_FOCUS_STALL_CHECK summary=$summary paintedFrames=$paintedFrames landingFrames=$landingFrames clearanceFrames=$clearanceFrames")
         settle()
     }
     @Test fun compactExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(false)
