@@ -650,7 +650,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     if (fixedPortraitPrefixOnEntry) {
                         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
                             headroomValues[next.rowKey] = to
-                            landscapePreXlCompression[next.rowKey] = 1f
+                            // A mid-spring reversal already has the full
+                            // measurement. Preserve its partial painted gap,
+                            // rather than restarting from the compressed end.
+                            landscapePreXlCompression[next.rowKey] =
+                                checkNotNull(landscapePrefix).from
                         }
                     } else landscapePrefix?.let {
                         landscapePreXlCompression[it.xlKey] = it.from
