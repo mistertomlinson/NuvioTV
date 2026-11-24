@@ -393,7 +393,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
                 followerKey?.let { key ->
                     val fixedGapPx = if (frozen?.fixedReturnFollowerMeasurement == true)
-                        ((frozen.secondaryGap?.to?.value ?: 0f) * density).roundToInt()
+                        gapPx(key) // This is the actual measured follower, not the zero virtual target.
                         else ((frozen?.toGap?.value ?: 0f) * density).roundToInt()
                     val paintedPx = fixedGapPx + fixedFollowerTranslationPx.roundToInt()
                     headroomValues[key] = (paintedPx.coerceAtLeast(0) / density).dp
