@@ -1138,6 +1138,7 @@ class ModernXlSceneTransitionTest {
      */
     private fun verifyCompactPortraitReverseContinuity(exitMillis: Int) {
         content(start = 2, summary = false, ordinaryPosterHeight = 200.dp)
+        val originalCompactHeading = y("heading-C")
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(exitMillis)
         val exiting = checkNotNull(scene.verticalMotion)
@@ -1153,6 +1154,8 @@ class ModernXlSceneTransitionTest {
         val returning = checkNotNull(scene.verticalMotion)
         assertTrue("Return must inherit the existing fixed follower measurement",
             returning.fixedReturnFollowerMeasurement)
+        assertEquals("Compact return must aim directly at zero resting gap",
+            0.dp, checkNotNull(returning.secondaryGap).to)
         assertEquals("The compact follower's real height must not change at reversal",
             fixedGap, scene.gapPx("C"))
         assertEquals("Preserve the exact painted follower offset at handoff",
@@ -1202,7 +1205,10 @@ class ModernXlSceneTransitionTest {
         settle()
         assertEquals("XL", scene.selection?.rowKey)
         assertEquals(54f, y("heading-XL"), 2f)
-        assertEquals(fixedGap, scene.gapPx("C"))
+        assertEquals("The compact row must finish with its normal 0dp resting gap",
+            0, scene.gapPx("C"))
+        assertEquals("The portrait heading must return to its ORIGINAL position, not overshoot and snap back",
+            originalCompactHeading, y("heading-C"), 2f)
         assertEquals(0f, scene.fixedFollowerTranslationPx, 0.01f)
     }
 
