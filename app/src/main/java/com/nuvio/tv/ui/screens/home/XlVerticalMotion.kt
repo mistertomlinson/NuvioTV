@@ -1,5 +1,7 @@
 package com.nuvio.tv.ui.screens.home
 
+import android.util.Log
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateTo
@@ -35,10 +37,23 @@ internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
     val secondaryGap: XlGapMotion? = null, val itemAnchor: XlScrollItemAnchor? = null,
-    val incrementalLandscapeFollower: Boolean = false)
+    val incrementalLandscapeFollower: Boolean = false, val stagedDownwardExit: Boolean = false)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
+
+// In the normal shared XL spring, both legs finish together despite different
+// distances. On downward XL exits we instead move XL and its ordinary follower
+// one pixel per pixel until the ordinary row lands, then clear XL independently.
+internal data class XlTwoStageExitTravel(val arrivalPx: Float, val clearancePx: Float)
+internal fun xlTwoStageExitTravel(scrollPx: Float, fromGapPx: Int, toGapPx: Int): XlTwoStageExitTravel? {
+    val clearance = (toGapPx - fromGapPx).toFloat()
+    val arrival = scrollPx - clearance
+    return if (arrival > 0.5f && clearance > 0.5f) XlTwoStageExitTravel(arrival, clearance) else null
+}
+
+internal const val XL_EXIT_CLEARANCE_MS = 260
+private const val XL_EXIT_TRACE_TAG = "NuvioXLTravel"
 
 /** Difference between the original moving gap and a fixed, measured gap. */
 internal fun compactFixedFollowerOffsetPx(animatedGapPx: Int, fixedGapPx: Int): Float =
@@ -156,25 +171,66 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         withContext(object : MotionDurationScale {
                             override val scaleFactor = systemScale * XL_SPRING_TIME_SCALE
                         }) {
-                            AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
-                                if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
-                                val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
-                                val travel = (active.scrollPx * fraction).roundToInt()
-                                val incomingTravel = (visiblePx * fraction).roundToInt()
-                                // The short incoming leg has its own spring range
-                                // on this same clock, rather than hitting a clamp.
-                                val gapPx = if (active.compact) fromPx + travel - incomingTravel
-                                    else (fromPx + (toPx - fromPx) * fraction).roundToInt()
-                                if (compactScroll == null) scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
-                                active.secondaryGap?.let { gap ->
-                                    if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
-                                        scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                            val twoStage = if (active.stagedDownwardExit)
+                                xlTwoStageExitTravel(active.scrollPx, fromPx, toPx) else null
+                            if (twoStage != null) {
+                                // Same distance/velocity as the incoming ordinary row
+                                // until that row reaches its normal focus anchor.
+                                // Only then consume the reserved clearance by moving
+                                // the XL row while keeping the ordinary row pinned.
+                                val startedAt = android.os.SystemClock.uptimeMillis()
+                                fun publish(travelPx: Int, gapPx: Int, fraction: Float) {
+                                    if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
+                                    if (compactScroll == null) scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
+                                    active.secondaryGap?.let { gap ->
+                                        if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
+                                            scene.headroomValues[gap.rowKey] =
+                                                (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                                    }
+                                    if (compactScroll != null)
+                                        compactScroll.publishCompactXlFrame(scene, active, gapPx, travelPx, previous)
+                                    else scrollBy(travelPx - previous)
+                                    previous = travelPx.toFloat()
                                 }
-                                if (compactScroll != null) compactScroll.publishCompactXlFrame(scene, active, gapPx, travel, previous)
-                                else scrollBy(travel - previous)
-                                previous = travel.toFloat()
-                                if (active.compact && incomingTravel == visiblePx.roundToInt()) scene.compactRowRested = true
-                                if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
+                                Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=linked_start arrival=${twoStage.arrivalPx} clearance=${twoStage.clearancePx} compact=${active.compact}")
+                                AnimationState(0f).animateTo(twoStage.arrivalPx, animationSpec = animation) {
+                                    val fraction = (value / twoStage.arrivalPx).coerceIn(0f, 1f)
+                                    publish((twoStage.arrivalPx * fraction).roundToInt(), fromPx, fraction)
+                                    if (abs(twoStage.arrivalPx - value) < 0.5f) cancelAnimation()
+                                }
+                                // Publish the exact landing before expanding headroom.
+                                publish(twoStage.arrivalPx.roundToInt(), fromPx, 1f)
+                                if (active.compact) scene.compactRowRested = true
+                                Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=regular_settled elapsedMs=${android.os.SystemClock.uptimeMillis() - startedAt} xlBottom=${scene.outgoingXlBottom(list.layoutInfo)}")
+                                AnimationState(0f).animateTo(twoStage.clearancePx,
+                                    animationSpec = tween(XL_EXIT_CLEARANCE_MS, easing = FastOutSlowInEasing)) {
+                                    val extra = value.coerceIn(0f, twoStage.clearancePx)
+                                    publish((twoStage.arrivalPx + extra).roundToInt(),
+                                        (fromPx + extra).roundToInt(), 1f)
+                                }
+                                Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=xl_clearance_done elapsedMs=${android.os.SystemClock.uptimeMillis() - startedAt} xlBottom=${scene.outgoingXlBottom(list.layoutInfo)}")
+                            } else {
+                                // Stable baseline behavior for entries, upward exits,
+                                // and any exit whose measured distance cannot be split.
+                                AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
+                                    if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
+                                    val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
+                                    val travel = (active.scrollPx * fraction).roundToInt()
+                                    val incomingTravel = (visiblePx * fraction).roundToInt()
+                                    val gapPx = if (active.compact) fromPx + travel - incomingTravel
+                                        else (fromPx + (toPx - fromPx) * fraction).roundToInt()
+                                    if (compactScroll == null) scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
+                                    active.secondaryGap?.let { gap ->
+                                        if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
+                                            scene.headroomValues[gap.rowKey] =
+                                                (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                                    }
+                                    if (compactScroll != null) compactScroll.publishCompactXlFrame(scene, active, gapPx, travel, previous)
+                                    else scrollBy(travel - previous)
+                                    previous = travel.toFloat()
+                                    if (active.compact && incomingTravel == visiblePx.roundToInt()) scene.compactRowRested = true
+                                    if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
+                                }
                             }
                         }
                         Snapshot.withMutableSnapshot {

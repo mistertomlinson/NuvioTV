@@ -271,6 +271,9 @@ class ModernXlSceneTransitionTest {
         if (motion == null) assertTrue("Ordinary timing stays unchanged", firstRest in 0..336)
         else {
             val reference = abs(motion.scrollPx)
+            val staged = if (motion.stagedDownwardExit)
+                xlTwoStageExitTravel(motion.scrollPx, (motion.fromGap.value * scene.density).toInt(),
+                    (motion.toGap.value * scene.density).toInt()) else null
             val template = androidx.compose.animation.core.TargetBasedAnimation(ordinaryAnimation,
                 Float.VectorConverter, 0f, reference)
             val referenceSteps = (0..120).map { template.getValueFromNanos(it * 16_000_000L) }
@@ -278,8 +281,14 @@ class ModernXlSceneTransitionTest {
             val referenceSettle = referenceSteps.indexOfFirst { abs(reference - it) < 0.5f } * 16
             val expectedSettle = referenceSettle * XL_SPRING_TIME_SCALE
             println("XL_SPRING name=$name distance=$reference scale=$XL_SPRING_TIME_SCALE peak=$peakStep referencePeak=$peakReference settled=$firstRest regularSpringStop=$referenceSettle peakAt=$peakAt")
-            assertTrue("Only a modest stretch of the ordinary spring", firstRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
-            assertTrue("XL must not gain a long poster-size timing multiplier", firstRest <= referenceSettle + 80)
+            if (staged == null) {
+                assertTrue("Only a modest stretch of the ordinary spring",
+                    firstRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
+                assertTrue("XL must not gain a long poster-size timing multiplier", firstRest <= referenceSettle + 80)
+            } else {
+                assertTrue("The XL clearance runs only after ordinary arrival", firstRest > expectedSettle)
+                assertTrue("Two-stage exit still completes promptly", firstRest in 400..1200)
+            }
             assertTrue("The same spring keeps its familiar early movement", peakStep <= peakReference * 1.1f + 2f)
             if (start == 2) assertTrue("Regular spring acceleration must peak early, then decelerate", peakAt in 1 until (firstRest * 0.3f).toInt())
         }
@@ -302,6 +311,8 @@ class ModernXlSceneTransitionTest {
         val startOwner = list.layoutInfo.let { info -> info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding }
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         val motion = checkNotNull(scene.verticalMotion)
+        val legs = checkNotNull(xlTwoStageExitTravel(motion.scrollPx,
+            (motion.fromGap.value * scene.density).toInt(), (motion.toGap.value * scene.density).toInt()))
         val steps = mutableListOf<Float>()
         var previous = startNext
         var springFrames = 0
@@ -310,16 +321,18 @@ class ModernXlSceneTransitionTest {
             val next = y("heading-C")
             val info = list.layoutInfo
             val owner = info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding
-            val fraction = ((startOwner - owner) / motion.scrollPx).coerceIn(0f, 1f)
-            val expected = startNext + (260f - startNext) * fraction
-            assertEquals("The short incoming leg shares the XL spring progression", expected, next, 1.1f)
+            val fraction = ((startOwner - owner) / legs.arrivalPx).coerceIn(0f, 1f)
+            if (!scene.compactRowRested) {
+                val expected = startNext + (260f - startNext) * fraction
+                assertEquals("Incoming regular row follows the linked spring", expected, next, 1.1f)
+                if (fraction in 0.05f..0.99f) springFrames++
+            }
             assertTrue("The incoming row never overshoots its anchor", next >= 260f)
-            if (fraction in 0.05f..0.99f) springFrames++
             if (!scene.compactRowRested) assertEquals("Prepared metadata waits for the spring landing", 0f, scene.exitMetadataAlpha, 0f)
             if (previous > next) steps += previous - next
             previous = next
         }
-        assertTrue("Observe a gradual short-range spring rather than an early clamp", springFrames >= 8)
+        assertTrue("Observe a gradual short-range spring rather than an early clamp", springFrames >= 6)
         assertTrue("The short row decelerates over multiple visible steps", steps.size >= 8 && steps.last() < steps.max() / 4f)
         assertEquals(260f, y("heading-C"), 0f)
         settle()
@@ -453,7 +466,7 @@ class ModernXlSceneTransitionTest {
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         var sawXl = false
         var sawFade = false
-        repeat(40) {
+        repeat(90) {
             advance(16)
             val bottom = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
             if (bottom > 0f) {
