@@ -332,7 +332,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         for (i in 1..minOf(rowIndex, rows.lastIndex)) {
             val xl = rows[i]
             val preceding = rows[i - 1]
-            if (xl.isXl && preceding.landscapePosters && preceding.key != "continue_watching") {
+            if (xl.isXl && preceding.key != "continue_watching") {
                 // If the scene was created before catalog rows finished
                 // loading, the initial map may be empty. A settled landscape
                 // focus still needs its normal painted gap.
@@ -354,12 +354,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     ): XlLandscapePrefixMotion? {
         val xl = if (previous.isXl) previous else next.takeIf { it.isXl } ?: return null
         val before = rows.getOrNull(xl.rowIndex - 1) ?: return null
-        if (!before.landscapePosters || before.key == "continue_watching") return null
+        if (before.key == "continue_watching") return null
         val crossingDirectlyAbove = if (previous.isXl) next.rowIndex == xl.rowIndex - 1
             else previous.rowIndex == xl.rowIndex - 1
         if (!crossingDirectlyAbove) return null
         val start = landscapePreXlCompression[xl.rowKey] ?: if (!previous.isXl) 1f else 0f
-        return XlLandscapePrefixMotion(xl.rowKey, start, if (next.isXl) 0f else 1f)
+        return XlLandscapePrefixMotion(xl.rowKey, start, if (next.isXl) 0f else 1f,
+            portraitPrefix = !before.landscapePosters)
     }
 
     fun followingHeadroom(previousKey: String, rowKey: String, density: Float, clearXl: Boolean): Dp {
@@ -412,7 +413,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun managesGap(rowKey: String): Boolean = verticalMotion?.let {
-        it.rowKey == rowKey || it.secondaryGap?.rowKey == rowKey
+        it.rowKey == rowKey || it.secondaryGap?.rowKey == rowKey ||
+            it.landscapePrefix?.xlKey == rowKey
     } == true || previewReturn?.rowKey == rowKey
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
@@ -461,11 +463,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     init {
         initial?.let { selected ->
             openEarlierXlGaps(selected, rows)
-            // A restored landscape row above XL should initially display its
-            // ordinary gap, even before the XL row gets composed.
+            // Any restored ordinary row above XL starts with the ordinary
+            // 24dp painted gap. The portrait version also measures only this
+            // resting space so the next XL heading remains in LazyColumn.
             rows.getOrNull(selected.rowIndex + 1)?.takeIf {
-                it.isXl && rows.getOrNull(selected.rowIndex)?.landscapePosters == true &&
-                    selected.rowKey != "continue_watching"
+                it.isXl && selected.rowKey != "continue_watching"
             }?.let { landscapePreXlCompression[it.key] = 1f }
         }
     }
@@ -618,6 +620,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 if (kotlin.math.abs(scroll) > 0.5f) {
                     heldHeadroomGoals[next.rowKey] = to
                     val landscapePrefix = landscapePrefixMotion(previous, next, rows)
+                    val fixedPortraitPrefixOnEntry =
+                        next.isXl && landscapePrefix?.portraitPrefix == true
                     val itemAnchor = if (move.downwardExit) XlScrollItemAnchor(
                         owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt()) else null
                     val endOfOrdinarySuffix = if (move.downwardExit && rows.isNotEmpty())
@@ -627,7 +631,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                         move.compactExit, secondary, itemAnchor,
                         fixedFollowerMeasurement = move.downwardExit,
                         followerEndExclusiveIndex = endOfOrdinarySuffix,
-                        landscapePrefix = landscapePrefix)
+                        landscapePrefix = landscapePrefix,
+                        fixedPrefixMeasurement = fixedPortraitPrefixOnEntry)
                     // Establish the final measured row geometry BEFORE the
                     // focus paint gate. Its visual position stays unchanged:
                     // the identical difference is applied to all ordinary
@@ -638,9 +643,18 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                             fixedFollowerTranslationPx = (fromPx - toPx).toFloat()
                         }
                     }
-                    // Keep the fraction unchanged until the spring starts;
-                    // no measured spacer is animated for the landscape prefix.
-                    landscapePrefix?.let { landscapePreXlCompression[it.xlKey] = it.from }
+                    // Portrait peeks require a zero measured prefix while the
+                    // portrait row is focused. Grow it ONCE before the focus
+                    // paint gate, with an equal-and-opposite draw translation.
+                    // During the spring only the paint offset changes.
+                    if (fixedPortraitPrefixOnEntry) {
+                        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                            headroomValues[next.rowKey] = to
+                            landscapePreXlCompression[next.rowKey] = 1f
+                        }
+                    } else landscapePrefix?.let {
+                        landscapePreXlCompression[it.xlKey] = it.from
+                    }
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }
@@ -802,13 +816,22 @@ internal fun XlSceneRowHeadroom(
         // XL's measured landing position, including the balanced full-width mode.
         currentXl && previous?.key == "continue_watching" &&
             (scene.selection?.rowKey == previous.key || scene.fastReturn?.target?.rowKey == previous.key) -> 0.dp
+        // A focused PORTRAIT row needs to expose XL's next heading at the
+        // bottom of the viewport. Measure the compact resting prefix (0dp),
+        // but preserve the full 31dp clearance while XL owns the spring.
+        currentXl && previous != null && !previous.landscapePosters &&
+            scene.selection?.rowKey == previous.key &&
+            scene.verticalMotion?.landscapePrefix?.xlKey != rowKey -> 0.dp
         currentXl && previous != null -> (scene.xlTop(rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
         followsXl && (expanded || !compact) ->
             scene.followingHeadroom(checkNotNull(previous).key, rowKey, density, clearXl = expanded)
         else -> 0.dp
     }
     val target = if (compact && expanded) scene.heldHeadroomGoals[rowKey] ?: computedTarget else computedTarget
-    val managed = scene.verticalMotion?.takeIf { it.rowKey == rowKey || it.secondaryGap?.rowKey == rowKey }
+    val managed = scene.verticalMotion?.takeIf {
+        it.rowKey == rowKey || it.secondaryGap?.rowKey == rowKey ||
+            it.landscapePrefix?.xlKey == rowKey
+    }
     val retainedPreview = scene.previewReturn?.takeIf { it.rowKey == rowKey }
     remember(scene, rowKey) {
         if (rowKey !in scene.headroomValues) scene.headroomValues[rowKey] = target
