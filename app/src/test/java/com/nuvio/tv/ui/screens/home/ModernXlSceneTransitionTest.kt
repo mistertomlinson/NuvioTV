@@ -1196,6 +1196,8 @@ class ModernXlSceneTransitionTest {
         }
         assertTrue("The reverse spring must retain fixed follower geometry over multiple frames",
             retainedGapFrames >= 2)
+        assertTrue("Inspect at least two on-screen frames of the returning portrait row",
+            visibleFrames >= 2)
         println("COMPACT_REVERSE_CONTINUITY exitMs=$exitMillis visibleFrames=$visibleFrames fixedFrames=$retainedGapFrames")
         settle()
         assertEquals("XL", scene.selection?.rowKey)
