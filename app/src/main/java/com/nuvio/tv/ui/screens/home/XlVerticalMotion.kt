@@ -234,7 +234,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             val key = if (active.fixedReturnFollowerMeasurement)
                                 active.secondaryGap?.rowKey else active.rowKey
                             val finalGapPx = if (active.fixedReturnFollowerMeasurement)
-                                key?.let(scene::gapPx) ?: 0
+                                key?.let { scene.gapPx(it) } ?: 0
                                 else (active.toGap.value * scene.density).roundToInt()
                             Snapshot.withMutableSnapshot {
                                 if (!completed && key != null) {
