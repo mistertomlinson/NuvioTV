@@ -648,13 +648,74 @@ class ModernXlSceneTransitionTest {
         )
     }
 
-    @Test fun portraitAboveXlPreservesItsExistingClearance() {
+    @Test fun portraitAboveXlUsesCompactMeasuredGapAfterTheSpring() {
         content(start = 2, landscapeAboveXl = false, ordinaryPosterHeight = 120.dp)
+        val xlClearance = scene.gapPx("XL")
+        assertTrue(xlClearance > 0)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        val active = checkNotNull(scene.verticalMotion)
+        assertEquals(true, active.landscapePrefix?.portraitPrefix)
+        var samples = 0
+        repeat(28) {
+            advance(16)
+            if (scene.verticalMotion === active) {
+                assertEquals("Keep XL clearance measured during the spring",
+                    xlClearance, scene.gapPx("XL"))
+                samples++
+            }
+        }
+        assertTrue("Must observe the old, stable measured gap in flight", samples >= 4)
+        settle()
+        assertEquals("Release the measured prefix only after landing", 0, scene.gapPx("XL"))
+        assertEquals("Peek has normal 24dp row spacing", 24f, visibleGapAboveXl(), 2f)
+        assertEquals(1f, scene.landscapePreXlCompression["XL"] ?: -1f, 0.001f)
+    }
+
+    @Test fun portraitPeekHandsOffToFullXlClearanceWithoutAnySpringRelayout() {
+        content(start = 1, landscapeAboveXl = false, ordinaryPosterHeight = 200.dp)
+        assertEquals(0, scene.gapPx("XL"))
+        val headingBefore = y("heading-XL")
+        assertTrue("The heading must start visible before focus moves", headingBefore in 0f..539f)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val active = checkNotNull(scene.verticalMotion)
+        assertTrue("The prefix is measured once before the first spring frame",
+            active.fixedPrefixMeasurement)
+        assertEquals("The one-time change must have happened before motion", 31, scene.gapPx("XL"))
+        assertEquals("The focus handoff cannot visibly shift the incoming XL heading",
+            headingBefore, y("heading-XL"), 1.1f)
+        var samples = 0
+        repeat(30) {
+            advance(16)
+            if (scene.verticalMotion === active) {
+                assertEquals("No per-frame XL prefix measurement", 31, scene.gapPx("XL"))
+                samples++
+            }
+        }
+        assertTrue(samples >= 4)
+        settle()
+        assertEquals(54f, y("heading-XL"), 2f)
+        assertEquals(31, scene.gapPx("XL"))
+
         press(KeyEvent.KEYCODE_DPAD_UP)
         settle()
-        assertEquals("Portrait layout must not use landscape compression",
-            0f, scene.landscapePreXlCompression["XL"] ?: 0f, 0f)
-        assertEquals(24f + scene.gapPx("XL"), visibleGapAboveXl(), 2f)
+        assertEquals(0, scene.gapPx("XL"))
+        assertEquals(24f, visibleGapAboveXl(), 2f)
+        assertTrue(y("heading-XL") < 540f)
+    }
+
+    @Test fun portraitPrefixReversesWithoutCollapsingTheMeasuredSpacerMidFlight() {
+        content(start = 1, landscapeAboveXl = false, ordinaryPosterHeight = 200.dp)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(80)
+        val partial = scene.landscapePreXlCompression["XL"] ?: 0f
+        assertTrue("Entry must be partway into XL", partial in 0.01f..0.99f)
+        press(KeyEvent.KEYCODE_DPAD_UP)
+        advance(16)
+        assertEquals("A reversal retains physical clearance until the new scroll finishes",
+            31, scene.gapPx("XL"))
+        settle()
+        assertEquals(0, scene.gapPx("XL"))
+        assertEquals(24f, visibleGapAboveXl(), 2f)
     }
 
     @Test fun measuredHeadingHasNoCorrectionJumpAtTheEndOfAnXlExit() {
