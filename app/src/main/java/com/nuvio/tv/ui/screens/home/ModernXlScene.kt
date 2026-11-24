@@ -333,7 +333,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             val xl = rows[i]
             val preceding = rows[i - 1]
             if (xl.isXl && preceding.landscapePosters && preceding.key != "continue_watching") {
-                val progress = landscapePreXlCompression[xl.key] ?: 0f
+                // If the scene was created before catalog rows finished
+                // loading, the initial map may be empty. A settled landscape
+                // focus still needs its normal painted gap.
+                val progress = landscapePreXlCompression[xl.key]
+                    ?: if (selection?.rowKey == preceding.key && transition == null) 1f else 0f
                 if (progress != 0f) {
                     // Same physical spacer used by XlSceneRowHeadroom.
                     val prefix = headroomValues[xl.key]
