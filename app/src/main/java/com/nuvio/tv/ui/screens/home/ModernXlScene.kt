@@ -470,7 +470,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                         rows.getOrNull(next.rowIndex)?.landscapePosters == true
                     val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
                         move.compactExit, secondary, itemAnchor, incrementalLandscapeFollower,
-                    stagedDownwardExit = move.downwardExit)
+                        stagedDownwardExit = move.downwardExit)
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }

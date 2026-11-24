@@ -286,11 +286,14 @@ class ModernXlSceneTransitionTest {
                     firstRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
                 assertTrue("XL must not gain a long poster-size timing multiplier", firstRest <= referenceSettle + 80)
             } else {
-                assertTrue("The XL clearance runs only after ordinary arrival", firstRest > expectedSettle)
+                assertTrue("The staged clearance takes extra time after the ordinary row lands",
+                    firstRest >= XL_EXIT_CLEARANCE_MS + 160)
                 assertTrue("Two-stage exit still completes promptly", firstRest in 400..1200)
             }
             assertTrue("The same spring keeps its familiar early movement", peakStep <= peakReference * 1.1f + 2f)
-            if (start == 2) assertTrue("Regular spring acceleration must peak early, then decelerate", peakAt in 1 until (firstRest * 0.3f).toInt())
+            if (start == 2 && staged == null)
+                assertTrue("Regular spring acceleration must peak early, then decelerate",
+                    peakAt in 1 until (firstRest * 0.3f).toInt())
         }
         assertEquals("The incoming row must never reverse direction", 0, reversed)
     }
@@ -334,10 +337,37 @@ class ModernXlSceneTransitionTest {
         }
         assertTrue("Observe a gradual short-range spring rather than an early clamp", springFrames >= 6)
         assertTrue("The short row decelerates over multiple visible steps", steps.size >= 8 && steps.last() < steps.max() / 4f)
-        assertEquals(260f, y("heading-C"), 0f)
+        if (scene.compactRowRested) assertEquals("Ordinary follower has landed", 260f, y("heading-C"), 1f)
         settle()
         assertEquals("No correction after the spring releases ownership", 260f, y("heading-C"), 0f)
         assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
+    }
+
+    @Test fun compactLandscapeRegularRowStaysPutDuringIndependentXlClearance() {
+        content(start = 2, summary = false, landscapeFollower = true)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue(motion.stagedDownwardExit && motion.incrementalLandscapeFollower)
+        var sawArrival = false
+        var sawIndependentClearance = false
+        val initialExtra = (motion.fromGap.value - motion.toGap.value) * scene.density
+        repeat(95) {
+            advance(16)
+            if (scene.compactRowRested && scene.verticalMotion === motion) {
+                sawArrival = true
+                assertEquals("The regular landscape row cannot move again after its landing",
+                    260f, y("heading-C"), 1.5f)
+                val correction = scene.compactIncomingLandscapeTranslationPx
+                if (correction > initialExtra + 2f && correction < -1f) {
+                    sawIndependentClearance = true
+                }
+            }
+        }
+        assertTrue("Regular row must land while the XL motion still owns scrolling", sawArrival)
+        assertTrue("XL must consume remaining clearance while regular row stays anchored",
+            sawIndependentClearance)
+        settle()
+        assertEquals(260f, y("heading-C"), 0f)
     }
 
     @Test fun compactFramePublishesItsNewSpacerMeasurementWithItsScrollPosition() {
