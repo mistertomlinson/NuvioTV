@@ -174,9 +174,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var interruptedRelocation by mutableStateOf<XlInterruptedRelocation?>(null)
     internal var rowCount = rows.size
     var compactRowRested by mutableStateOf(false)
-    // Replaces a changing measured spacer during incremental compact landscape exits.
-    // The fixed spacer and this draw-only offset preserve the original painted top.
-    var compactIncomingLandscapeTranslationPx by mutableFloatStateOf(0f)
+    // The following ordinary rows keep their final measured spacer during XL
+    // downward exits. This draw-only offset reconstructs the original painted
+    // position without remeasuring LazyColumn items on every spring frame.
+    var fixedFollowerTranslationPx by mutableFloatStateOf(0f)
         internal set
     var exitMetadataAlpha by mutableFloatStateOf(0f)
     val heldHeadroomGoals = mutableStateMapOf<String, Dp>()
@@ -226,16 +227,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun cancelVerticalMotion() {
-        // Restore the visually equivalent spacer before removing the draw
-        // translation. A mid-spring DPAD reversal must not jump the row.
-        verticalMotion?.takeIf { it.incrementalLandscapeFollower }?.let { motion ->
+        // Restore the virtually animated spacer before removing its paint-only
+        // offset. This is essential when a DPAD reversal interrupts any XL exit.
+        verticalMotion?.takeIf { it.fixedFollowerMeasurement }?.let { motion ->
             androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
                 val finalGapPx = (motion.toGap.value * density).roundToInt()
-                val visualGapPx = finalGapPx + compactIncomingLandscapeTranslationPx.roundToInt()
+                val visualGapPx = finalGapPx + fixedFollowerTranslationPx.roundToInt()
                 headroomValues[motion.rowKey] = (visualGapPx.coerceAtLeast(0) / density).dp
-                compactIncomingLandscapeTranslationPx = 0f
+                fixedFollowerTranslationPx = 0f
             }
-        } ?: run { compactIncomingLandscapeTranslationPx = 0f }
+        } ?: run { fixedFollowerTranslationPx = 0f }
         val paint = focusPaintSignal?.second
         focusPaintSignal = null
         verticalMotion?.let { motion ->
@@ -464,12 +465,25 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 }
                 if (kotlin.math.abs(scroll) > 0.5f) {
                     heldHeadroomGoals[next.rowKey] = to
-                    val itemAnchor = if (move.compactExit) XlScrollItemAnchor(
+                    val itemAnchor = if (move.downwardExit) XlScrollItemAnchor(
                         owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt()) else null
-                    val incrementalLandscapeFollower = move.compactExit &&
-                        rows.getOrNull(next.rowIndex)?.landscapePosters == true
+                    val endOfOrdinarySuffix = if (move.downwardExit && rows.isNotEmpty())
+                        (next.rowIndex + 1 until rows.size).firstOrNull { rows[it].isXl } ?: rows.size
+                        else Int.MAX_VALUE
                     val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
-                        move.compactExit, secondary, itemAnchor, incrementalLandscapeFollower)
+                        move.compactExit, secondary, itemAnchor,
+                        fixedFollowerMeasurement = move.downwardExit,
+                        followerEndExclusiveIndex = endOfOrdinarySuffix)
+                    // Establish the final measured row geometry BEFORE the
+                    // focus paint gate. Its visual position stays unchanged:
+                    // the identical difference is applied to all ordinary
+                    // follower content through a graphics-layer translation.
+                    if (motion.fixedFollowerMeasurement) {
+                        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+                            headroomValues[next.rowKey] = to
+                            fixedFollowerTranslationPx = (fromPx - toPx).toFloat()
+                        }
+                    }
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }
@@ -528,13 +542,20 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         return top + move.outgoingMetadataClipTop >= screenHeight.value * density || top + height <= 0f
     }
 
+    fun fixedFollowerOffsetForIndex(index: Int): Float {
+        val motion = verticalMotion ?: return 0f
+        val first = motion.itemAnchor?.index ?: return 0f
+        return if (motion.fixedFollowerMeasurement && index >= first &&
+            index < motion.followerEndExclusiveIndex) fixedFollowerTranslationPx else 0f
+    }
+
     fun incomingTranslation(layout: LazyListLayoutInfo, ordinaryTopPx: Float, density: Float): Float? {
         val key = selection?.rowKey ?: return null
         val owner = layout.visibleItemsInfo.firstOrNull { it.key == key } ?: return null
-        // BringIntoView aligns the focused poster at ordinaryTop + 40dp. A
-        // measured heading may be a few pixels taller/shorter than that inset.
-        // Use the very same poster anchor so the final moving frame is zero.
-        return (owner.offset + layout.beforeContentPadding + gapPx(key, density) + headerPx(key, density) -
+        // This metadata is outside LazyColumn, but its target poster may be
+        // paint-translated. Use its PAINTED anchor, not just measured geometry.
+        return (owner.offset + layout.beforeContentPadding + gapPx(key, density) + headerPx(key, density) +
+            fixedFollowerOffsetForIndex(owner.index) -
             posterAnchorPx(checkNotNull(selection), density, ordinaryTopPx)).toFloat()
     }
 
