@@ -275,11 +275,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // position without remeasuring LazyColumn items on every spring frame.
     var fixedFollowerTranslationPx by mutableFloatStateOf(0f)
         internal set
-    // The XL prefix remains measured at its clearance height. When the
-    // preceding LANDSCAPE row owns focus, the entire XL suffix is drawn closer
-    // by this fraction of the prefix, rather than resizing LazyColumn items.
-    // Fractions survive scroll cancellations, allowing DPAD reversals to
-    // continue from the exact current painted gap.
+    // An XL prefix uses a full measured spacer for landscape rows, but a
+    // compact resting spacer for portrait rows so the next XL heading peeks.
+    // On portrait focus entry, clearance is measured ONCE before the first
+    // spring frame. During the spring both modes translate the XL suffix in
+    // the draw layer, keeping LazyColumn measurements stable; the fraction
+    // survives reversals without restarting its painted position.
     val landscapePreXlCompression = mutableStateMapOf<String, Float>()
     var exitMetadataAlpha by mutableFloatStateOf(0f)
     val heldHeadroomGoals = mutableStateMapOf<String, Dp>()
@@ -323,9 +324,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     /**
-     * The row above XL uses the ordinary 24dp spacing when focused. Once XL
-     * is selected, the existing prefix (normally 31dp) provides its clearance.
-     * These offsets are draw-only; the LazyColumn measurements never change.
+     * Draw-only offset for XL and its following rows, preserving the ordinary
+     * 24dp gap when focus belongs to the preceding row. Landscape layouts
+     * measure full clearance throughout. Portrait layouts measure a compact
+     * gap at rest and switch ONCE at focus boundaries. Neither layout changes
+     * its measured prefix on individual spring frames.
      */
     fun landscapePreXlDrawOffsetPx(rowIndex: Int, rows: List<HeroCarouselRow>): Float {
         var offset = 0f
