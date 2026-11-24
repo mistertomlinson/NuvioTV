@@ -86,7 +86,7 @@ class XlFixedFollowerGeometryTest {
 
         // A single reverse spring now owns the identical measured follower.
         val reversing = XlVerticalMotion(2, "XL", 31.dp, 31.dp, -220f,
-            secondaryGap = XlGapMotion("C", 165.dp, 300.dp),
+            secondaryGap = XlGapMotion("C", 165.dp, 0.dp),
             itemAnchor = XlScrollItemAnchor(3, 0),
             followerEndExclusiveIndex = 5,
             fixedReturnFollowerMeasurement = true)
@@ -104,7 +104,7 @@ class XlFixedFollowerGeometryTest {
         scene.headroomValues["XL"] = 31.dp
         scene.headroomValues["C"] = 300.dp
         scene.verticalMotion = XlVerticalMotion(2, "XL", 31.dp, 31.dp, -220f,
-            secondaryGap = XlGapMotion("C", 165.dp, 300.dp),
+            secondaryGap = XlGapMotion("C", 165.dp, 0.dp),
             itemAnchor = XlScrollItemAnchor(3, 0),
             fixedReturnFollowerMeasurement = true)
         scene.fixedFollowerTranslationPx = -62f
@@ -121,14 +121,18 @@ class XlFixedFollowerGeometryTest {
 
     @Test fun fixedReverseFollowerRecreatesTheSamePaintedPathWithNoMeasuring() {
         val from = 165
-        val to = 300
+        val resting = 0
+        val measured = 300
         for (frame in 0..120) {
             val fraction = frame / 120f
-            val virtualGap = (from + (to - from) * fraction).roundToInt()
-            val paintOffset = xlFixedFollowerOffsetPx(virtualGap, to)
-            assertEquals("frame=$frame", virtualGap.toFloat(),
-                to + paintOffset, 0f)
+            val virtualGap = (from + (resting - from) * fraction).roundToInt()
+            val paintOffset = xlFixedFollowerOffsetPx(virtualGap, measured)
+            assertEquals("frame=$frame; follower must travel only toward compact zero",
+                virtualGap.toFloat(), measured + paintOffset, 0f)
         }
+        // At the final frame the fixed spacer (300) and inverse layer (-300)
+        // can both become zero in one snapshot with no visible displacement.
+        assertEquals(0f, measured + xlFixedFollowerOffsetPx(resting, measured), 0f)
     }
 
     @Test fun summaryAndCompactExitsCanShareIdenticalFixedFollowerGeometry() {
