@@ -14,7 +14,6 @@ import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.LazyLayoutScrollScope as lazyListScrollScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -121,12 +120,11 @@ class ModernXlSceneTransitionTest {
                                         val precedingXlIndex = (index - 1 downTo 0).firstOrNull {
                                             rows[it].isXl
                                         } ?: -1
-                                        val compactOrdinarySuffix = !row.isXl && precedingXlIndex >= 0 &&
-                                            !rows[precedingXlIndex].showXlSummary
-                                        Column((if (compactOrdinarySuffix) Modifier.graphicsLayer {
-                                            translationY = compactOrdinarySuffixTranslationPx(
+                                        val fixedOrdinarySuffix = !row.isXl && precedingXlIndex >= 0
+                                        Column((if (fixedOrdinarySuffix) Modifier.graphicsLayer {
+                                            translationY = xlFixedOrdinarySuffixTranslationPx(
                                                 scene.verticalMotion, index, precedingXlIndex,
-                                                scene.compactIncomingLandscapeTranslationPx
+                                                scene.fixedFollowerTranslationPx
                                             )
                                         } else Modifier).onSizeChanged {
                                             scene.rowHeights[row.key] = it.height.dp
@@ -234,8 +232,7 @@ class ModernXlSceneTransitionTest {
         val trackedKey = if (landscapeFollower || !rows[start].isXl) target else rows[start].key
         fun trackedTop(): Float? = list.layoutInfo.let { info ->
             info.visibleItemsInfo.firstOrNull { it.key == trackedKey }?.let {
-                val drawTranslation = if (landscapeFollower && scene.verticalMotion?.rowKey == trackedKey)
-                    scene.compactIncomingLandscapeTranslationPx else 0f
+                val drawTranslation = scene.fixedFollowerOffsetForIndex(it.index)
                 it.offset + info.beforeContentPadding + (scene.headroomValues[trackedKey]?.value ?: 0f) +
                     (scene.headerHeights[trackedKey] ?: 40f) + drawTranslation
             }
@@ -310,7 +307,11 @@ class ModernXlSceneTransitionTest {
             val next = y("heading-C")
             val info = list.layoutInfo
             val owner = info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding
-            val fraction = ((startOwner - owner) / motion.scrollPx).coerceIn(0f, 1f)
+            // The gap is measured at its final size before the spring begins.
+            // Subtract the one-time measured-size change to recover the exact
+            // scroll fraction used by the original visual spring.
+            val initialGapShift = (motion.toGap.value - motion.fromGap.value) * scene.density
+            val fraction = ((startOwner + initialGapShift - owner) / motion.scrollPx).coerceIn(0f, 1f)
             val expected = startNext + (260f - startNext) * fraction
             assertEquals("The short incoming leg shares the XL spring progression", expected, next, 1.1f)
             assertTrue("The incoming row never overshoots its anchor", next >= 260f)
@@ -327,49 +328,44 @@ class ModernXlSceneTransitionTest {
         assertTrue("Metadata fades in after landing", scene.exitMetadataAlpha > 0.99f)
     }
 
-    @Test fun compactFramePublishesItsNewSpacerMeasurementWithItsScrollPosition() {
-        content(start = 2, summary = false)
-        compose.runOnUiThread { scene.verticalLauncher = {} }
+    private fun assertDownwardExitUsesStableMeasurements(summary: Boolean, landscape: Boolean) {
+        content(start = 2, summary = summary, landscapeFollower = landscape)
+        val before = y("heading-C")
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        advance(32)
         val motion = checkNotNull(scene.verticalMotion)
-        val anchor = checkNotNull(motion.itemAnchor)
-        val before = list.layoutInfo.visibleItemsInfo.first { it.key == "C" }
-        val oldSize = before.size
-        val oldOffset = before.offset
-        val oldGap = scene.gapPx("C")
-        val travel = 20
-        val targetGap = (motion.toGap.value * scene.density).toInt()
-        val gap = oldGap + ((targetGap - oldGap) * travel / motion.scrollPx).toInt()
-        assertTrue("Exercise the first growing spacer frame", gap > oldGap)
-        var measuredSize = 0
-        var measuredOffset = 0
-        val measureGetter = LazyListState::class.java.methods.first { it.name.startsWith("getNumMeasurePasses") }
-        fun measureCount() = measureGetter.invoke(list) as Int
-        val measuresBefore = measureCount()
-        var measuresAfterFrame = 0
-        compose.runOnUiThread {
-            kotlinx.coroutines.runBlocking {
-                list.scroll(androidx.compose.foundation.MutatePriority.PreventUserInput) {
-                    lazyListScrollScope(list, this).publishCompactXlFrame(scene, motion, gap, travel, 0f)
-                    val current = list.layoutInfo.visibleItemsInfo.first { it.key == "C" }
-                    measuredSize = current.size
-                    measuredOffset = current.offset
-                    measuresAfterFrame = measureCount()
-                    assertTrue("The original scroll owner remains held", list.isScrollInProgress)
+        assertTrue("The outgoing XL should select the fixed-measurement path",
+            motion.fixedFollowerMeasurement)
+        val finalGap = (motion.toGap.value * scene.density).toInt()
+        val measuredSize = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "C" }?.size
+        assertEquals("Fix the measured gap before the first moving frame", finalGap, scene.gapPx("C"))
+        var movingFrames = 0
+        var prior = before
+        repeat(30) {
+            advance(16)
+            if (scene.verticalMotion === motion) {
+                assertEquals("Headroom cannot resize during the spring", finalGap, scene.gapPx("C"))
+                list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "C" }?.let { owner ->
+                    assertEquals("The incoming item must keep its measured height",
+                        measuredSize, owner.size)
                 }
+                movingFrames++
             }
+            val yNow = y("heading-C")
+            assertTrue("The incoming row cannot jump backwards: $prior -> $yNow", yNow <= prior + 2f)
+            prior = yNow
         }
-        assertEquals("The compact frame must not publish a new offset with the previous spacer measurement",
-            oldSize + gap - oldGap, measuredSize)
-        assertEquals("Both measurements describe the same spring frame", oldOffset - travel, measuredOffset)
-        assertEquals(3, anchor.index)
-        assertEquals("One measured pass publishes the compact frame", 1, measuresAfterFrame - measuresBefore)
-        compose.waitForIdle()
-        println("COMPACT_LAYOUT_FRAME gap=$gap size=$measuredSize expected=${oldSize + gap - oldGap} synchronousPasses=${measuresAfterFrame - measuresBefore} followupPasses=${measureCount() - measuresAfterFrame}")
-        assertEquals("No corrective layout pass is left for the next frame", measuresAfterFrame, measureCount())
-        compose.runOnUiThread { scene.cancelVerticalMotion() }
+        assertTrue("Exercise multiple moving frames", movingFrames >= 4)
+        settle()
+        assertEquals(260f, y("heading-C"), 2f)
+        assertEquals(0f, scene.fixedFollowerTranslationPx, 0.01f)
     }
+
+    @Test fun compactPortraitExitAvoidsPerFrameSpacerMeasurement() =
+        assertDownwardExitUsesStableMeasurements(summary = false, landscape = false)
+    @Test fun compactLandscapeExitAvoidsPerFrameSpacerMeasurement() =
+        assertDownwardExitUsesStableMeasurements(summary = false, landscape = true)
+    @Test fun summaryExitAvoidsPerFrameSpacerMeasurement() =
+        assertDownwardExitUsesStableMeasurements(summary = true, landscape = false)
 
     private fun verifyFocusPaintPrecedesMotion(start: Int, key: Int) {
         content(start = start, summary = false)
@@ -995,8 +991,8 @@ class ModernXlSceneTransitionTest {
     @Test fun compactLandscapeExitUsesIncrementalScrollAndLandsOnTheRegularRow() {
         content(start = 2, summary = false, landscapeFollower = true)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        assertTrue("Only the compact landscape follower should take the incremental path",
-            checkNotNull(scene.verticalMotion).incrementalLandscapeFollower)
+        assertTrue("All downward XL exits use fixed-geometry incremental scrolling",
+            checkNotNull(scene.verticalMotion).fixedFollowerMeasurement)
         var previous = y("heading-C")
         repeat(8) {
             advance(16)
@@ -1015,13 +1011,13 @@ class ModernXlSceneTransitionTest {
         val before = y("heading-C")
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         val motion = checkNotNull(scene.verticalMotion)
-        assertTrue(motion.incrementalLandscapeFollower)
+        assertTrue(motion.fixedFollowerMeasurement)
         val fixedGap = (motion.toGap.value * scene.density).toInt()
         var movingFrames = 0
         var lastTop = before
         repeat(35) {
             advance(16)
-            if (scene.verticalMotion != null && scene.compactIncomingLandscapeTranslationPx < -1f) {
+            if (scene.verticalMotion != null && scene.fixedFollowerTranslationPx < -1f) {
                 movingFrames++
                 assertEquals("Headroom must not remeasure each spring frame", fixedGap, scene.gapPx("C"))
             }
@@ -1033,7 +1029,7 @@ class ModernXlSceneTransitionTest {
         assertTrue("Exercise several frames with paint-only motion", movingFrames >= 4)
         settle()
         assertEquals("Lands at the original regular-row anchor", 260f, y("heading-C"), 2f)
-        assertEquals(0f, scene.compactIncomingLandscapeTranslationPx, 0.01f)
+        assertEquals(0f, scene.fixedFollowerTranslationPx, 0.01f)
     }
 
     @Test fun compactLandscapeExitPreservesSpacingBetweenAllOrdinaryRows() {
@@ -1042,7 +1038,7 @@ class ModernXlSceneTransitionTest {
         content(start = 2, summary = false, landscapeFollower = true, ordinaryPosterHeight = 80.dp)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         val motion = checkNotNull(scene.verticalMotion)
-        assertTrue(motion.incrementalLandscapeFollower)
+        assertTrue(motion.fixedFollowerMeasurement)
         var observedDuringSpring = 0
         repeat(35) {
             advance(16)
@@ -1051,7 +1047,7 @@ class ModernXlSceneTransitionTest {
             val dVisible = compose.onAllNodesWithTag("heading-D", useUnmergedTree = true)
                 .fetchSemanticsNodes().isNotEmpty()
             if (cVisible && dVisible && scene.verticalMotion === motion &&
-                scene.compactIncomingLandscapeTranslationPx < -1f) {
+                scene.fixedFollowerTranslationPx < -1f) {
                 // 40dp heading + 80dp poster + 24dp normal LazyColumn gap.
                 assertEquals("The lower ordinary row must travel with its preceding ordinary row", 144f, y("heading-D") - y("heading-C"), 2f)
                 observedDuringSpring++
@@ -1063,10 +1059,10 @@ class ModernXlSceneTransitionTest {
         assertEquals(260f, y("heading-C"), 2f)
     }
 
-    @Test fun compactPortraitExitKeepsAnchoredScrollBehavior() {
+    @Test fun compactPortraitExitUsesTheSharedFixedGeometryScroll() {
         content(start = 2, summary = false)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        assertFalse(checkNotNull(scene.verticalMotion).incrementalLandscapeFollower)
+        assertTrue(checkNotNull(scene.verticalMotion).fixedFollowerMeasurement)
         settle()
         assertEquals(260f, y("heading-C"), 2f)
     }
