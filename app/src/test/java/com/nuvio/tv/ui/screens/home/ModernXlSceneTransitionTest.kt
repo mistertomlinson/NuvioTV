@@ -115,13 +115,12 @@ class ModernXlSceneTransitionTest {
                                 verticalArrangement = Arrangement.spacedBy(24.dp)
                             ) {
                                 itemsIndexed(rows, key = { _, it -> it.key }) { index, row ->
-                                    val hasLandscapeBeforeXl = (1..index).any { candidate ->
+                                    val hasCompressiblePrefixBeforeXl = (1..index).any { candidate ->
                                         rows[candidate].isXl &&
-                                            rows[candidate - 1].landscapePosters &&
                                             rows[candidate - 1].key != "continue_watching"
                                     }
                                     Column(Modifier.testTag("row-${row.key}").then(
-                                        if (hasLandscapeBeforeXl) Modifier.graphicsLayer {
+                                        if (hasCompressiblePrefixBeforeXl) Modifier.graphicsLayer {
                                             translationY = scene.landscapePreXlDrawOffsetPx(index, rows)
                                         } else Modifier
                                     )) {
