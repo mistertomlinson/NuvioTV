@@ -1,11 +1,9 @@
 package com.nuvio.tv.ui.screens.home
 
 import android.util.Log
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateTo
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.MutatePriority
 import androidx.compose.foundation.gestures.BringIntoViewSpec
@@ -52,8 +50,45 @@ internal fun xlTwoStageExitTravel(scrollPx: Float, fromGapPx: Int, toGapPx: Int)
     return if (arrival > 0.5f && clearance > 0.5f) XlTwoStageExitTravel(arrival, clearance) else null
 }
 
-internal const val XL_EXIT_CLEARANCE_MS = 260
 private const val XL_EXIT_TRACE_TAG = "NuvioXLTravel"
+
+/**
+ * Two independent positions controlled by the ordinary spring's frame clock.
+ * The XL initially follows the ordinary row pixel-for-pixel. Once that spring
+ * begins slowing, XL retains the peak observed velocity instead of easing to
+ * a stop. Spacer growth is exactly XL travel minus ordinary travel, so the
+ * ordinary row stays on its original spring and finishes at its normal anchor.
+ */
+internal data class XlPeakCruiseFrame(
+    val ordinaryPx: Float = 0f,
+    val xlPx: Float = 0f,
+    val peakPxPerSecond: Float = 0f,
+    val cruising: Boolean = false,
+    val frameNanos: Long = Long.MIN_VALUE
+)
+
+internal fun xlPeakCruiseStep(
+    prior: XlPeakCruiseFrame,
+    ordinaryPx: Float,
+    ordinaryVelocityPxPerSecond: Float,
+    frameNanos: Long,
+    ordinaryTargetPx: Float,
+    xlTargetPx: Float
+): XlPeakCruiseFrame {
+    val incoming = ordinaryPx.coerceIn(0f, ordinaryTargetPx)
+    val elapsed = if (prior.frameNanos >= 0L && frameNanos > prior.frameNanos)
+        ((frameNanos - prior.frameNanos) / 1_000_000_000f).coerceAtMost(0.05f) else 0f
+    val observedVelocity = if (elapsed > 0f)
+        ((incoming - prior.ordinaryPx) / elapsed).coerceAtLeast(0f) else 0f
+    val measuredVelocity = maxOf(ordinaryVelocityPxPerSecond.coerceAtLeast(0f), observedVelocity)
+    val peak = maxOf(prior.peakPxPerSecond, measuredVelocity)
+    val cruise = prior.cruising ||
+        (prior.peakPxPerSecond > 0f && measuredVelocity < prior.peakPxPerSecond * 0.94f)
+    val advancedXl = if (cruise && elapsed > 0f)
+        prior.xlPx + peak * elapsed else incoming
+    val outgoing = maxOf(prior.xlPx, incoming, advancedXl).coerceAtMost(xlTargetPx)
+    return XlPeakCruiseFrame(incoming, outgoing, peak, cruise, frameNanos)
+}
 
 /** Difference between the original moving gap and a fixed, measured gap. */
 internal fun compactFixedFollowerOffsetPx(animatedGapPx: Int, fixedGapPx: Int): Float =
@@ -174,18 +209,24 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             val twoStage = if (active.stagedDownwardExit)
                                 xlTwoStageExitTravel(active.scrollPx, fromPx, toPx) else null
                             if (twoStage != null) {
-                                // Same distance/velocity as the incoming ordinary row
-                                // until that row reaches its normal focus anchor.
-                                // Only then consume the reserved clearance by moving
-                                // the XL row while keeping the ordinary row pinned.
+                                // The regular row retains its original spring.
+                                // XL shares its acceleration, then holds the measured
+                                // peak speed while the regular row decelerates.
+                                // No second easing curve or stationary handoff.
                                 val startedAt = android.os.SystemClock.uptimeMillis()
-                                fun publish(travelPx: Int, gapPx: Int, fraction: Float) {
+                                var travel = XlPeakCruiseFrame()
+                                var cruiseLogged = false
+                                fun publish(frame: XlPeakCruiseFrame) {
                                     if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
-                                    if (compactScroll == null) scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
+                                    val gapPx = (fromPx + frame.xlPx - frame.ordinaryPx).roundToInt()
+                                    val travelPx = frame.xlPx.roundToInt()
+                                    if (compactScroll == null)
+                                        scene.headroomValues[active.rowKey] = (gapPx / scene.density).dp
                                     active.secondaryGap?.let { gap ->
                                         if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
                                             scene.headroomValues[gap.rowKey] =
-                                                (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
+                                                (gap.from.value + (gap.to.value - gap.from.value) *
+                                                    (frame.ordinaryPx / twoStage.arrivalPx).coerceIn(0f, 1f)).dp
                                     }
                                     if (compactScroll != null)
                                         compactScroll.publishCompactXlFrame(scene, active, gapPx, travelPx, previous)
@@ -194,19 +235,31 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 }
                                 Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=linked_start arrival=${twoStage.arrivalPx} clearance=${twoStage.clearancePx} compact=${active.compact}")
                                 AnimationState(0f).animateTo(twoStage.arrivalPx, animationSpec = animation) {
-                                    val fraction = (value / twoStage.arrivalPx).coerceIn(0f, 1f)
-                                    publish((twoStage.arrivalPx * fraction).roundToInt(), fromPx, fraction)
+                                    travel = xlPeakCruiseStep(travel, value, velocity,
+                                        lastFrameTimeNanos, twoStage.arrivalPx, active.scrollPx)
+                                    if (travel.cruising && !cruiseLogged) {
+                                        cruiseLogged = true
+                                        Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=xl_cruise_start peakPxPerSec=${travel.peakPxPerSecond.toInt()} regularPx=${travel.ordinaryPx.toInt()} xlPx=${travel.xlPx.toInt()}")
+                                    }
+                                    publish(travel)
                                     if (abs(twoStage.arrivalPx - value) < 0.5f) cancelAnimation()
                                 }
-                                // Publish the exact landing before expanding headroom.
-                                publish(twoStage.arrivalPx.roundToInt(), fromPx, 1f)
+                                // The incoming row is now home. XL is allowed to
+                                // continue using its already-running peak velocity.
                                 if (active.compact) scene.compactRowRested = true
-                                Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=regular_settled elapsedMs=${android.os.SystemClock.uptimeMillis() - startedAt} xlBottom=${scene.outgoingXlBottom(list.layoutInfo)}")
-                                AnimationState(0f).animateTo(twoStage.clearancePx,
-                                    animationSpec = tween(XL_EXIT_CLEARANCE_MS, easing = FastOutSlowInEasing)) {
-                                    val extra = value.coerceIn(0f, twoStage.clearancePx)
-                                    publish((twoStage.arrivalPx + extra).roundToInt(),
-                                        (fromPx + extra).roundToInt(), 1f)
+                                Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=regular_settled elapsedMs=${android.os.SystemClock.uptimeMillis() - startedAt} xlPx=${travel.xlPx.toInt()} peakPxPerSec=${travel.peakPxPerSecond.toInt()}")
+                                val peakSpeed = travel.peakPxPerSecond.coerceAtLeast(1f)
+                                while (travel.xlPx < active.scrollPx - 0.5f) {
+                                    withFrameNanos { frameNanos ->
+                                        // Continue at the same velocity, even if
+                                        // the regular spring has stopped entirely.
+                                        travel = xlPeakCruiseStep(
+                                            travel.copy(cruising = true, peakPxPerSecond = peakSpeed),
+                                            twoStage.arrivalPx, 0f, frameNanos,
+                                            twoStage.arrivalPx, active.scrollPx
+                                        )
+                                    }
+                                    publish(travel)
                                 }
                                 Log.d(XL_EXIT_TRACE_TAG, "id=${active.id} phase=xl_clearance_done elapsedMs=${android.os.SystemClock.uptimeMillis() - startedAt} xlBottom=${scene.outgoingXlBottom(list.layoutInfo)}")
                             } else {
