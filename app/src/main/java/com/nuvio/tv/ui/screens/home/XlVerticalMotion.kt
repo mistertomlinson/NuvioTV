@@ -141,7 +141,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 }
                                 // Make the scroll owner distinguishable from
                                 // headroom measure and metadata subcompose in traces.
-                                val trace = android.os.Trace.isEnabled()
+                                val trace = android.os.Build.VERSION.SDK_INT >= 29 && android.os.Trace.isEnabled()
                                 if (trace) android.os.Trace.beginSection("NuvioXL scrollBy")
                                 try {
                                     scrollBy(travel - previous)
