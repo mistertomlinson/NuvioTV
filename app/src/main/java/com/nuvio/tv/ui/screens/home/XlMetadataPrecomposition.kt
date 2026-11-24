@@ -49,14 +49,22 @@ internal fun XlMetadataHost(
         }
     } else {
         SubcomposeLayout(modifier = modifier) { constraints ->
-            val placed = entries.flatMap { (key, snapshot, active) ->
-                val children = subcompose(key) { contentBySlot.getValue(key)(snapshot, active) }
-                    .map { it.measure(constraints.copy(minHeight = 0)) }
-                if (active) children else emptyList()
+            // Trace only when Perfetto/System Tracing is enabled. No logging,
+            // new snapshot state, or per-frame diagnostic allocations.
+            val trace = android.os.Trace.isEnabled()
+            if (trace) android.os.Trace.beginSection("NuvioXL Metadata subcompose")
+            try {
+                val placed = entries.flatMap { (key, snapshot, active) ->
+                    val children = subcompose(key) { contentBySlot.getValue(key)(snapshot, active) }
+                        .map { it.measure(constraints.copy(minHeight = 0)) }
+                    if (active) children else emptyList()
+                }
+                val width = (placed.maxOfOrNull { it.width } ?: 0).coerceIn(constraints.minWidth, constraints.maxWidth)
+                val height = (placed.maxOfOrNull { it.height } ?: 0).coerceIn(constraints.minHeight, constraints.maxHeight)
+                layout(width, height) { placed.forEach { it.place(0, 0) } }
+            } finally {
+                if (trace) android.os.Trace.endSection()
             }
-            val width = (placed.maxOfOrNull { it.width } ?: 0).coerceIn(constraints.minWidth, constraints.maxWidth)
-            val height = (placed.maxOfOrNull { it.height } ?: 0).coerceIn(constraints.minHeight, constraints.maxHeight)
-            layout(width, height) { placed.forEach { it.place(0, 0) } }
         }
     }
 }
