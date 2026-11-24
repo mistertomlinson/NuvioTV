@@ -66,22 +66,112 @@ internal fun ordinaryComingSoonText(
     return (if (managed) scene.selection?.preview else resolvedHero)?.comingSoonText?.takeIf { it.isNotBlank() }
 }
 
-/** Follows measured scroll displacement even after the original row is recycled. */
+/**
+ * Retains the same tracked scroll displacement after the original row recycles.
+ * The draw/layer path consumes visible item info directly rather than creating
+ * a fresh Map and map entries on every frame.
+ *
+ * Only a handful of LazyColumn rows are visible. Two reusable key/offset
+ * buffers keep the exact "first shared visible key" anchor behavior, including
+ * the no-overlap frame, without per-frame collection allocations.
+ */
 internal class XlScrollAnchor(initialPositions: Map<Any, Int>) {
-    private var positions = initialPositions
-    private var displacement = 0f
+    private var keys: Array<Any?> = arrayOfNulls(maxOf(8, initialPositions.size))
+    private var offsets = IntArray(keys.size)
+    private var count = 0
+    private var scratchKeys: Array<Any?> = arrayOfNulls(keys.size)
+    private var scratchOffsets = IntArray(keys.size)
+    private var traveledPx = 0f
 
-    fun displacement(current: Map<Any, Int>): Float {
-        current.entries.firstOrNull { it.key in positions }?.let {
-            displacement += it.value - checkNotNull(positions[it.key])
+    init {
+        initialPositions.forEach { (key, y) ->
+            keys[count] = key
+            offsets[count++] = y
         }
-        positions = current
-        return displacement
+    }
+
+    constructor(layout: LazyListLayoutInfo) : this(emptyMap()) {
+        val visible = layout.visibleItemsInfo
+        ensureActiveCapacity(visible.size)
+        val padding = layout.beforeContentPadding
+        visible.forEachIndexed { index, item ->
+            keys[index] = item.key
+            offsets[index] = item.offset + padding
+        }
+        count = visible.size
+    }
+
+    private fun ensureActiveCapacity(needed: Int) {
+        if (keys.size < needed) {
+            val capacity = maxOf(needed, keys.size * 2)
+            keys = keys.copyOf(capacity)
+            offsets = offsets.copyOf(capacity)
+        }
+    }
+
+    private fun ensureScratchCapacity(needed: Int) {
+        if (scratchKeys.size < needed) {
+            val capacity = maxOf(needed, scratchKeys.size * 2)
+            scratchKeys = scratchKeys.copyOf(capacity)
+            scratchOffsets = scratchOffsets.copyOf(capacity)
+        }
+    }
+
+    private fun priorOffset(key: Any): Int? {
+        for (i in 0 until count) if (keys[i] == key) return offsets[i]
+        return null
+    }
+
+    private fun publish(size: Int) {
+        val oldCount = count
+        val oldKeys = keys
+        val oldOffsets = offsets
+        keys = scratchKeys
+        offsets = scratchOffsets
+        count = size
+        scratchKeys = oldKeys
+        scratchOffsets = oldOffsets
+        // The recycled buffer must not keep old poster keys alive.
+        for (i in 0 until oldCount) scratchKeys[i] = null
+    }
+
+    /** Map input remains available for pure state tests; production uses layout. */
+    fun displacement(current: Map<Any, Int>): Float {
+        ensureScratchCapacity(current.size)
+        var matched = false
+        var index = 0
+        for ((key, y) in current) {
+            if (!matched) priorOffset(key)?.let { old ->
+                traveledPx += y - old
+                matched = true
+            }
+            scratchKeys[index] = key
+            scratchOffsets[index++] = y
+        }
+        publish(index)
+        return traveledPx
+    }
+
+    /** Allocation-free hot path, including row recycling and content padding. */
+    fun displacement(layout: LazyListLayoutInfo): Float {
+        val visible = layout.visibleItemsInfo
+        ensureScratchCapacity(visible.size)
+        val padding = layout.beforeContentPadding
+        var matched = false
+        for (i in visible.indices) {
+            val item = visible[i]
+            val position = item.offset + padding
+            if (!matched) priorOffset(item.key)?.let { old ->
+                traveledPx += position - old
+                matched = true
+            }
+            scratchKeys[i] = item.key
+            scratchOffsets[i] = position
+        }
+        publish(visible.size)
+        return traveledPx
     }
 }
-
-private fun LazyListLayoutInfo.rowPositions(): Map<Any, Int> =
-    visibleItemsInfo.associate { it.key to it.offset + beforeContentPadding }
 
 internal data class XlMetadataSnapshot(val rowKey: String, val preview: HeroPreview)
 internal data class XlFastReturn(val target: XlSceneSelection, val metadata: XlMetadataSnapshot?,
@@ -282,7 +372,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         transition = null
         stationaryMetadata = null
         fastReturn = XlFastReturn(target, paintedMetadata?.takeIf { paintedAlpha > 0f },
-            XlScrollAnchor(layout.rowPositions()), paintedTranslation, paintedAlpha, paintedEpoch, paintedClipTop)
+            XlScrollAnchor(layout), paintedTranslation, paintedAlpha, paintedEpoch, paintedClipTop)
         prepareFastReturnGaps(target, rows, layout)
     }
 
@@ -309,7 +399,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun cancelFastReturn() { fastReturn = null }
     fun fastReturnTranslation(layout: LazyListLayoutInfo): Float = fastReturn?.let {
-        it.translation + it.anchor.displacement(layout.rowPositions())
+        it.translation + it.anchor.displacement(layout)
     } ?: 0f
 
     fun resolveStationaryMetadata(preview: HeroPreview?) {
@@ -405,7 +495,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             metadataHeightPx = height
         }
         val move = XlSceneTransition(
-            ++generation, previous, next, outgoing, paintedBackdrop ?: previous.preview, XlScrollAnchor(layout.rowPositions()),
+            ++generation, previous, next, outgoing, paintedBackdrop ?: previous.preview, XlScrollAnchor(layout),
             if (outgoing == paintedMetadata) paintedTranslation else 0f,
             if (outgoing == paintedMetadata) paintedAlpha else 0f,
             paintedEpoch, sameOwnerReturn, if (outgoing == paintedMetadata) paintedClipTop else 0f,
@@ -528,7 +618,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun outgoingTranslation(layout: LazyListLayoutInfo): Float = transition?.let {
         val gap = it.outgoingMetadata?.let { block -> gapPx(block.rowKey).toFloat() } ?: 0f
         val delta = gap - it.outgoingHeadroomPx
-        it.initialMetadataTranslation + it.scrollAnchor.displacement(layout.rowPositions()) +
+        it.initialMetadataTranslation + it.scrollAnchor.displacement(layout) +
             if (it.earlyPreviewReturn) delta.coerceAtLeast(0f) else delta
     } ?: 0f
 
