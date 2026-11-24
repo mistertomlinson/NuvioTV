@@ -31,13 +31,15 @@ internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
 
 internal data class XlGapMotion(val rowKey: String, val from: Dp, val to: Dp)
 /** Draw-only, same-clock fraction for the prefix preceding an XL row. */
-internal data class XlLandscapePrefixMotion(val xlKey: String, val from: Float, val to: Float)
+internal data class XlLandscapePrefixMotion(val xlKey: String, val from: Float, val to: Float,
+    val portraitPrefix: Boolean = false)
 internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fromGap: Dp, val toGap: Dp, val scrollPx: Float, val compact: Boolean = true,
     val secondaryGap: XlGapMotion? = null, val itemAnchor: XlScrollItemAnchor? = null,
     val fixedFollowerMeasurement: Boolean = false,
     val followerEndExclusiveIndex: Int = Int.MAX_VALUE,
-    val landscapePrefix: XlLandscapePrefixMotion? = null)
+    val landscapePrefix: XlLandscapePrefixMotion? = null,
+    val fixedPrefixMeasurement: Boolean = false)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -136,7 +138,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                         scene.fixedFollowerTranslationPx =
                                             xlFixedFollowerOffsetPx(gapPx, toPx)
                                     }
-                                } else scene.headroomValues[active.rowKey] =
+                                } else if (!active.fixedPrefixMeasurement) scene.headroomValues[active.rowKey] =
                                     (gapPx / scene.density).dp
                                 active.secondaryGap?.let { gap ->
                                     if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
@@ -163,7 +165,8 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             }
                         }
                         Snapshot.withMutableSnapshot {
-                            scene.headroomValues[active.rowKey] = active.toGap
+                            if (!active.fixedPrefixMeasurement)
+                                scene.headroomValues[active.rowKey] = active.toGap
                             if (active.fixedFollowerMeasurement)
                                 scene.fixedFollowerTranslationPx = 0f
                         }
@@ -173,6 +176,19 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         }
                         active.landscapePrefix?.let { scene.landscapePreXlCompression[it.xlKey] = it.to }
                         scrollBy(active.scrollPx - previous)
+                        // The portrait title peek needs a real, compact measured
+                        // item when settled. Release the full clearance once
+                        // (not on each animation frame). Its -clearance paint
+                        // offset disappears in the SAME snapshot, preserving
+                        // the visible row position at the handoff.
+                        active.landscapePrefix?.takeIf {
+                            it.portraitPrefix && it.to >= 1f
+                        }?.let { gap ->
+                            Snapshot.withMutableSnapshot {
+                                scene.headroomValues[gap.xlKey] = 0.dp
+                                scene.landscapePreXlCompression[gap.xlKey] = 1f
+                            }
+                        }
                         scene.compactRowRested = true
                     }
                     completed = true
@@ -192,7 +208,8 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 scene.fixedFollowerTranslationPx = 0f
                             }
                         }
-                        if (completed) scene.headroomValues[active.rowKey] = active.toGap
+                        if (completed && !active.fixedPrefixMeasurement)
+                            scene.headroomValues[active.rowKey] = active.toGap
                         scene.headroomMoving[active.rowKey] = false
                         active.secondaryGap?.let {
                             if (scene.previewReturn?.rowKey != it.rowKey) scene.headroomMoving[it.rowKey] = false
