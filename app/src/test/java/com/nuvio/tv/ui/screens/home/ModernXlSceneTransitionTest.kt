@@ -296,9 +296,19 @@ class ModernXlSceneTransitionTest {
     @Test fun compactIncomingRowDeceleratesOnTheSameSpringWithoutAHardStop() {
         content(start = 2, summary = false)
         val startNext = y("heading-C")
-        val startOwner = list.layoutInfo.let { info -> info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding }
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         val motion = checkNotNull(scene.verticalMotion)
+        // Preparing a fixed measured spacer must preserve the row's painted
+        // position BEFORE the spring begins. A regression here cannot be
+        // dismissed as a difference in the test's coordinate system.
+        assertEquals("The focus handoff must not move the incoming row",
+            startNext, y("heading-C"), 1.1f)
+        // Take the anchor after the one-time spacer measurement. Its later
+        // movement is actual list scroll; the fixed gap plus compensating
+        // graphics translation must not be counted as extra scroll.
+        val ownerAtSpringStart = list.layoutInfo.let { info ->
+            info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding
+        }
         val steps = mutableListOf<Float>()
         var previous = startNext
         var springFrames = 0
@@ -307,13 +317,12 @@ class ModernXlSceneTransitionTest {
             val next = y("heading-C")
             val info = list.layoutInfo
             val owner = info.visibleItemsInfo.first { it.key == "C" }.offset + info.beforeContentPadding
-            // The gap is measured at its final size before the spring begins.
-            // Subtract the one-time measured-size change to recover the exact
-            // scroll fraction used by the original visual spring.
-            val initialGapShift = (motion.toGap.value - motion.fromGap.value) * scene.density
-            val fraction = ((startOwner + initialGapShift - owner) / motion.scrollPx).coerceIn(0f, 1f)
+            val actualScrollPx = ownerAtSpringStart - owner
+            val fraction = (actualScrollPx / motion.scrollPx).coerceIn(0f, 1f)
             val expected = startNext + (260f - startNext) * fraction
-            assertEquals("The short incoming leg shares the XL spring progression", expected, next, 1.1f)
+            assertEquals("The short incoming leg shares the XL spring progression; " +
+                "scroll=$actualScrollPx fraction=$fraction offset=${scene.fixedFollowerTranslationPx}",
+                expected, next, 1.1f)
             assertTrue("The incoming row never overshoots its anchor", next >= 260f)
             if (fraction in 0.05f..0.99f) springFrames++
             if (!scene.compactRowRested) assertEquals("Prepared metadata waits for the spring landing", 0f, scene.exitMetadataAlpha, 0f)
