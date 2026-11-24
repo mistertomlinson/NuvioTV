@@ -35,9 +35,13 @@ internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?, rowKey: 
             val info = viewport.list.layoutInfo
             val owner = info.visibleItemsInfo.firstOrNull { it.key == rowKey } ?: return@derivedStateOf null
             with(density) {
+                // The mask is in screen space, but the follower's posters
+                // are translated at draw time. Include that same translation
+                // so the feather doesn't lag behind the actual poster edge.
                 val bodyTop = owner.offset + info.beforeContentPadding +
                     (viewport.scene.headroomValues[rowKey]?.toPx() ?: 0f) +
-                    (viewport.scene.headerHeights[rowKey] ?: 40.dp.toPx())
+                    (viewport.scene.headerHeights[rowKey] ?: 40.dp.toPx()) +
+                    viewport.scene.fixedFollowerOffsetForIndex(owner.index)
                 val top = bounds.first - bodyTop
                 val clearUntil = bounds.second + 12.dp.toPx() - bodyTop
                 val end = clearUntil + HOME_POSTER_FADE_HEIGHT.toPx()
