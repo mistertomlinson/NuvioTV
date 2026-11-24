@@ -240,7 +240,8 @@ class ModernXlSceneTransitionTest {
         val trackedKey = if (landscapeFollower || !rows[start].isXl) target else rows[start].key
         fun trackedTop(): Float? = list.layoutInfo.let { info ->
             info.visibleItemsInfo.firstOrNull { it.key == trackedKey }?.let {
-                val drawTranslation = scene.fixedFollowerOffsetForIndex(it.index)
+                val drawTranslation = scene.fixedFollowerOffsetForIndex(it.index) +
+                    scene.landscapePreXlDrawOffsetPx(it.index, rows)
                 it.offset + info.beforeContentPadding + (scene.headroomValues[trackedKey]?.value ?: 0f) +
                     (scene.headerHeights[trackedKey] ?: 40f) + drawTranslation
             }
