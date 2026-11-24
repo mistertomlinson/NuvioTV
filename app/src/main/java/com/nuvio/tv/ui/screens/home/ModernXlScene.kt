@@ -773,7 +773,7 @@ internal fun XlSceneRowHeadroom(
     // These trace sections are emitted only during explicit Android tracing,
     // so they can be correlated with slow XL frames without Logcat or snapshots.
     Spacer(Modifier.layout { measurable, constraints ->
-        val trace = android.os.Trace.isEnabled()
+        val trace = android.os.Build.VERSION.SDK_INT >= 29 && android.os.Trace.isEnabled()
         if (trace) android.os.Trace.beginSection("NuvioXL Headroom measure")
         try {
             val height = (scene.headroomValues[rowKey] ?: target).roundToPx().coerceAtLeast(0)
