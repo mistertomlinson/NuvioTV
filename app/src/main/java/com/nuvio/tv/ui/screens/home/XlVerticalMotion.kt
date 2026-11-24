@@ -183,18 +183,18 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 scene.fixedFollowerTranslationPx = 0f
                         }
                         active.secondaryGap?.let {
-                            if (active.fixedReturnFollowerMeasurement) {
-                                // The frozen reverse follower has always been
-                                // measured at its final target. Release only
-                                // its visual translation after the last scroll.
-                                scene.fixedFollowerTranslationPx = 0f
-                            } else if (scene.previewReturn?.rowKey != it.rowKey ||
-                                scene.transition?.outgoingMetadataCleared != true) {
+                            if (!active.fixedReturnFollowerMeasurement &&
+                                (scene.previewReturn?.rowKey != it.rowKey ||
+                                    scene.transition?.outgoingMetadataCleared != true)) {
                                 scene.headroomValues[it.rowKey] = it.to
                             }
                         }
                         active.landscapePrefix?.let { scene.landscapePreXlCompression[it.xlKey] = it.to }
                         scrollBy(active.scrollPx - previous)
+                        // Only release the reverse follower layer after its
+                        // final scroll delta. Its measured height never moves.
+                        if (active.fixedReturnFollowerMeasurement)
+                            scene.fixedFollowerTranslationPx = 0f
                         // The portrait title peek needs a real, compact measured
                         // item when settled. Release the full clearance once
                         // (not on each animation frame). Its -clearance paint
