@@ -160,7 +160,20 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                     completed = true
                 } finally {
                     if (scene.verticalMotion === active) {
-                        if (active.fixedFollowerMeasurement) scene.fixedFollowerTranslationPx = 0f
+                        if (active.fixedFollowerMeasurement) {
+                            // A non-focus cancellation may bypass the scene's
+                            // explicit cancelVerticalMotion() handoff. Preserve
+                            // the current painted gap before dropping the layer.
+                            Snapshot.withMutableSnapshot {
+                                if (!completed) {
+                                    val finalPx = (active.toGap.value * scene.density).roundToInt()
+                                    val paintedPx = finalPx + scene.fixedFollowerTranslationPx.roundToInt()
+                                    scene.headroomValues[active.rowKey] =
+                                        (paintedPx.coerceAtLeast(0) / scene.density).dp
+                                }
+                                scene.fixedFollowerTranslationPx = 0f
+                            }
+                        }
                         if (completed) scene.headroomValues[active.rowKey] = active.toGap
                         scene.headroomMoving[active.rowKey] = false
                         active.secondaryGap?.let {
