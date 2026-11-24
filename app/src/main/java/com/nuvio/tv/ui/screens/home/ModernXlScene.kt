@@ -93,7 +93,8 @@ internal class XlScrollAnchor(initialPositions: Map<Any, Int>) {
     constructor(layout: LazyListLayoutInfo) : this(emptyMap()) {
         val visible = layout.visibleItemsInfo
         ensureActiveCapacity(visible.size)
-        val padding = layout.beforeContentPadding
+        // An empty visible window has no positions and may not expose padding.
+        val padding = if (visible.isEmpty()) 0 else layout.beforeContentPadding
         visible.forEachIndexed { index, item ->
             keys[index] = item.key
             offsets[index] = item.offset + padding
@@ -156,7 +157,8 @@ internal class XlScrollAnchor(initialPositions: Map<Any, Int>) {
     fun displacement(layout: LazyListLayoutInfo): Float {
         val visible = layout.visibleItemsInfo
         ensureScratchCapacity(visible.size)
-        val padding = layout.beforeContentPadding
+        // An empty visible window has no positions and may not expose padding.
+        val padding = if (visible.isEmpty()) 0 else layout.beforeContentPadding
         var matched = false
         for (i in visible.indices) {
             val item = visible[i]
