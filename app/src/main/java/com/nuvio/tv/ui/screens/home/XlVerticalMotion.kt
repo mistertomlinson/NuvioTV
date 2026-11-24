@@ -148,7 +148,12 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                     if (active.fixedReturnFollowerMeasurement) {
                                         val paintedPx = ((gap.from.value +
                                             (gap.to.value - gap.from.value) * fraction) * scene.density).roundToInt()
-                                        val measuredPx = (gap.to.value * scene.density).roundToInt()
+                                        // The physical follower stays at its
+                                        // original expanded measurement until
+                                        // the final frame. The return target
+                                        // (zero) is only its VIRTUAL painted
+                                        // clearance, not its measured height.
+                                        val measuredPx = scene.gapPx(gap.rowKey)
                                         scene.fixedFollowerTranslationPx = (paintedPx - measuredPx).toFloat()
                                     } else if (scene.previewReturn?.rowKey != gap.rowKey ||
                                         scene.transition?.outgoingMetadataCleared != true) {
@@ -229,7 +234,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             val key = if (active.fixedReturnFollowerMeasurement)
                                 active.secondaryGap?.rowKey else active.rowKey
                             val finalGapPx = if (active.fixedReturnFollowerMeasurement)
-                                ((active.secondaryGap?.to?.value ?: 0f) * scene.density).roundToInt()
+                                key?.let(scene::gapPx) ?: 0
                                 else (active.toGap.value * scene.density).roundToInt()
                             Snapshot.withMutableSnapshot {
                                 if (!completed && key != null) {
