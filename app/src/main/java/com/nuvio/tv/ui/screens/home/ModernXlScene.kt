@@ -275,6 +275,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // position without remeasuring LazyColumn items on every spring frame.
     var fixedFollowerTranslationPx by mutableFloatStateOf(0f)
         internal set
+    // The XL prefix remains measured at its clearance height. When the
+    // preceding LANDSCAPE row owns focus, the entire XL suffix is drawn closer
+    // by this fraction of the prefix, rather than resizing LazyColumn items.
+    // Fractions survive scroll cancellations, allowing DPAD reversals to
+    // continue from the exact current painted gap.
+    val landscapePreXlCompression = mutableStateMapOf<String, Float>()
     var exitMetadataAlpha by mutableFloatStateOf(0f)
     val heldHeadroomGoals = mutableStateMapOf<String, Dp>()
     var density by mutableFloatStateOf(1f)
@@ -314,6 +320,42 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val height = rowKey?.let { metadataHeights[it] } ?: return metadataRestingTop
         if (metadataLayoutHeightPx <= 0f) return metadataRestingTop
         return metadataRestingTop + ((metadataLayoutHeightPx - height) / density * if (fullWidthIcons) 0.5f else 1f).dp
+    }
+
+    /**
+     * The row above XL uses the ordinary 24dp spacing when focused. Once XL
+     * is selected, the existing prefix (normally 31dp) provides its clearance.
+     * These offsets are draw-only; the LazyColumn measurements never change.
+     */
+    fun landscapePreXlDrawOffsetPx(rowIndex: Int, rows: List<HeroCarouselRow>): Float {
+        var offset = 0f
+        for (i in 1..minOf(rowIndex, rows.lastIndex)) {
+            val xl = rows[i]
+            val preceding = rows[i - 1]
+            if (xl.isXl && preceding.landscapePosters && preceding.key != "continue_watching") {
+                val progress = landscapePreXlCompression[xl.key] ?: 0f
+                if (progress != 0f) {
+                    // Same physical spacer used by XlSceneRowHeadroom.
+                    val prefix = headroomValues[xl.key]
+                        ?: (xlTop(xl.key) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                    offset -= (prefix.value * density).roundToInt() * progress
+                }
+            }
+        }
+        return offset
+    }
+
+    private fun landscapePrefixMotion(
+        previous: XlSceneSelection, next: XlSceneSelection, rows: List<HeroCarouselRow>
+    ): XlLandscapePrefixMotion? {
+        val xl = if (previous.isXl) previous else next.takeIf { it.isXl } ?: return null
+        val before = rows.getOrNull(xl.rowIndex - 1) ?: return null
+        if (!before.landscapePosters || before.key == "continue_watching") return null
+        val crossingDirectlyAbove = if (previous.isXl) next.rowIndex == xl.rowIndex - 1
+            else previous.rowIndex == xl.rowIndex - 1
+        if (!crossingDirectlyAbove) return null
+        val start = landscapePreXlCompression[xl.rowKey] ?: if (!previous.isXl) 1f else 0f
+        return XlLandscapePrefixMotion(xl.rowKey, start, if (next.isXl) 0f else 1f)
     }
 
     fun followingHeadroom(previousKey: String, rowKey: String, density: Float, clearXl: Boolean): Dp {
@@ -412,7 +454,17 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         if (selection?.isXl == false && selection?.preview == preview) stationaryMetadata = null
     }
 
-    init { initial?.let { openEarlierXlGaps(it, rows) } }
+    init {
+        initial?.let { selected ->
+            openEarlierXlGaps(selected, rows)
+            // A restored landscape row above XL should initially display its
+            // ordinary gap, even before the XL row gets composed.
+            rows.getOrNull(selected.rowIndex + 1)?.takeIf {
+                it.isXl && rows.getOrNull(selected.rowIndex)?.landscapePosters == true &&
+                    selected.rowKey != "continue_watching"
+            }?.let { landscapePreXlCompression[it.key] = 1f }
+        }
+    }
 
     private fun openEarlierXlGaps(next: XlSceneSelection, rows: List<HeroCarouselRow>) {
         for (index in 0 until next.rowIndex.coerceIn(0, rows.size)) {
@@ -561,6 +613,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 }
                 if (kotlin.math.abs(scroll) > 0.5f) {
                     heldHeadroomGoals[next.rowKey] = to
+                    val landscapePrefix = landscapePrefixMotion(previous, next, rows)
                     val itemAnchor = if (move.downwardExit) XlScrollItemAnchor(
                         owner?.index ?: next.rowIndex, layout.beforeContentPadding - ownerTop.roundToInt()) else null
                     val endOfOrdinarySuffix = if (move.downwardExit && rows.isNotEmpty())
@@ -569,7 +622,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
                         move.compactExit, secondary, itemAnchor,
                         fixedFollowerMeasurement = move.downwardExit,
-                        followerEndExclusiveIndex = endOfOrdinarySuffix)
+                        followerEndExclusiveIndex = endOfOrdinarySuffix,
+                        landscapePrefix = landscapePrefix)
                     // Establish the final measured row geometry BEFORE the
                     // focus paint gate. Its visual position stays unchanged:
                     // the identical difference is applied to all ordinary
@@ -580,6 +634,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                             fixedFollowerTranslationPx = (fromPx - toPx).toFloat()
                         }
                     }
+                    // Keep the fraction unchanged until the spring starts;
+                    // no measured spacer is animated for the landscape prefix.
+                    landscapePrefix?.let { landscapePreXlCompression[it.xlKey] = it.from }
                     verticalMotion = motion
                     headroomMoving[next.rowKey] = true
                     secondary?.let { headroomMoving[it.rowKey] = true }
