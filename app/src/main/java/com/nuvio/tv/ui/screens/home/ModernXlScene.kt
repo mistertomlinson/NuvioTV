@@ -770,10 +770,18 @@ internal fun XlSceneRowHeadroom(
         onDispose { if (!scene.managesGap(rowKey)) scene.headroomMoving[rowKey] = false }
     }
     // Gap changes invalidate measurement only, not the row's composition.
+    // These trace sections are emitted only during explicit Android tracing,
+    // so they can be correlated with slow XL frames without Logcat or snapshots.
     Spacer(Modifier.layout { measurable, constraints ->
-        val height = (scene.headroomValues[rowKey] ?: target).roundToPx().coerceAtLeast(0)
-        val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
-        layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        val trace = android.os.Trace.isEnabled()
+        if (trace) android.os.Trace.beginSection("NuvioXL Headroom measure")
+        try {
+            val height = (scene.headroomValues[rowKey] ?: target).roundToPx().coerceAtLeast(0)
+            val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
+            layout(placeable.width, placeable.height) { placeable.place(0, 0) }
+        } finally {
+            if (trace) android.os.Trace.endSection()
+        }
     }.testTag("xl-headroom-$rowKey"))
 }
 
