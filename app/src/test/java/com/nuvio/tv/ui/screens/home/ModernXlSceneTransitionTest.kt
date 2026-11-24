@@ -619,32 +619,45 @@ class ModernXlSceneTransitionTest {
         assertEquals(54f, y("heading-XL"), 2f)
     }
 
-    @Test fun portraitAboveXlPeeksItsHeadingInsideTheViewport() {
-        // A normal-height portrait row can place the XL item just beyond
-        // LazyColumn's measured viewport, even if a painted compression
-        // would make its title visible. Reproduce that layout, not the short
-        // 120dp test row used by existing landscape spacing checks.
+    @Test fun portraitAboveXlShowsOnlyItsTitleAtTheSamePositionAsAnyNextRow() {
+        // Use the normal-height portrait row, not the shorter landscape test
+        // fixture. The next-row preview is its heading at the normal 24dp
+        // LazyColumn row gap; the poster and XL artwork stay offscreen.
         content(start = 1, landscapeAboveXl = false, ordinaryPosterHeight = 200.dp)
-        val priorTop = y("heading-A")
-        val priorHeight = checkNotNull(scene.rowHeights["A"]).value
-        val measuredHeadroom = (scene.xlTop("XL").value - 24f + 1f).coerceAtLeast(0f)
-        val nominalNextHeading = priorTop + priorHeight + 24f + measuredHeadroom
-        val candidates = compose.onAllNodes(
-            hasTestTag("heading-XL"), useUnmergedTree = true).fetchSemanticsNodes()
-        val visible = list.layoutInfo.visibleItemsInfo.joinToString {
+        val precedingHeading = y("heading-A")
+        val precedingHeight = checkNotNull(scene.rowHeights["A"]).value
+        val ordinaryNextRowTitleTop = precedingHeading + precedingHeight + 24f
+        val measuredHeadroom = scene.gapPx("XL")
+        val visibleRows = list.layoutInfo.visibleItemsInfo.joinToString {
             "${it.key}@${it.offset}+${it.size}"
         }
+        assertEquals("Portrait focus must use the ordinary next-row gap, not XL clearance",
+            0, measuredHeadroom)
+
+        val headingNodes = compose.onAllNodes(
+            hasTestTag("heading-XL"), useUnmergedTree = true).fetchSemanticsNodes()
         assertTrue(
-            "XL heading not composed while portrait row focused: " +
-                "rowTop=$priorTop rowHeight=$priorHeight prefix=$measuredHeadroom " +
-                "nominalHeading=$nominalNextHeading visibleItems=$visible",
-            candidates.isNotEmpty()
+            "The XL next-row heading must be laid out: " +
+                "portraitTop=$precedingHeading portraitHeight=$precedingHeight " +
+                "expected=$ordinaryNextRowTitleTop rows=$visibleRows",
+            headingNodes.isNotEmpty()
         )
-        val headingBounds = candidates.first().boundsInRoot
+        val heading = headingNodes.first().boundsInRoot
+        assertEquals(
+            "XL title must start where an ordinary next-row title starts",
+            ordinaryNextRowTitleTop, heading.top, 1.1f
+        )
+        assertTrue("Only the next-row heading should peek into the viewport",
+            heading.top < 540f && heading.bottom > 540f)
+
+        val posterNodes = compose.onAllNodes(
+            hasTestTag("poster-XL"), useUnmergedTree = true).fetchSemanticsNodes()
+        assertTrue("The XL poster must remain laid out with its row", posterNodes.isNotEmpty())
+        val posterTop = posterNodes.first().boundsInRoot.top
         assertTrue(
-            "XL heading not visible at bottom: top=${headingBounds.top} bottom=${headingBounds.bottom} " +
-                "viewport=540; portraitTop=$priorTop rowHeight=$priorHeight prefix=$measuredHeadroom",
-            headingBounds.top < 540f && headingBounds.bottom > 0f
+            "The XL featured poster must stay completely below the viewport; " +
+                "posterTop=$posterTop heading=$heading",
+            posterTop >= 540f
         )
     }
 
