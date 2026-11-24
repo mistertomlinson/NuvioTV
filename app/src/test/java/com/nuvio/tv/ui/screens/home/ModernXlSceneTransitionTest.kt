@@ -48,6 +48,7 @@ import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowSystemClock
 import java.time.Duration
 import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Real LazyColumn/focus motion, production metadata ownership, gap and backdrop clocks. */
 @OptIn(ExperimentalFoundationApi::class)
