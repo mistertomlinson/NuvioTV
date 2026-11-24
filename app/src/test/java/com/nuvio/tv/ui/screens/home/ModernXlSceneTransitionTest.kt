@@ -287,9 +287,8 @@ class ModernXlSceneTransitionTest {
                     firstRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
                 assertTrue("XL must not gain a long poster-size timing multiplier", firstRest <= referenceSettle + 80)
             } else {
-                assertTrue("The staged clearance takes extra time after the ordinary row lands",
-                    firstRest >= XL_EXIT_CLEARANCE_MS + 160)
-                assertTrue("Two-stage exit still completes promptly", firstRest in 400..1200)
+                assertTrue("Peak-speed exit must finish without a long secondary ease",
+                    firstRest in 176..1000)
             }
             assertTrue("The same spring keeps its familiar early movement", peakStep <= peakReference * 1.1f + 2f)
             if (start == 2 && staged == null)
@@ -349,24 +348,25 @@ class ModernXlSceneTransitionTest {
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         val motion = checkNotNull(scene.verticalMotion)
         assertTrue(motion.stagedDownwardExit && motion.incrementalLandscapeFollower)
-        var sawArrival = false
-        var sawIndependentClearance = false
+        var sawLanding = false
+        var sawHeadroomCruise = false
         val initialExtra = (motion.fromGap.value - motion.toGap.value) * scene.density
         repeat(95) {
             advance(16)
-            if (scene.compactRowRested && scene.verticalMotion === motion) {
-                sawArrival = true
+            if (scene.verticalMotion === motion) {
+                val correction = scene.compactIncomingLandscapeTranslationPx
+                if (correction > initialExtra + 2f && correction < -1f)
+                    sawHeadroomCruise = true
+            }
+            if (scene.compactRowRested) {
+                sawLanding = true
                 assertEquals("The regular landscape row cannot move again after its landing",
                     260f, y("heading-C"), 1.5f)
-                val correction = scene.compactIncomingLandscapeTranslationPx
-                if (correction > initialExtra + 2f && correction < -1f) {
-                    sawIndependentClearance = true
-                }
             }
         }
-        assertTrue("Regular row must land while the XL motion still owns scrolling", sawArrival)
-        assertTrue("XL must consume remaining clearance while regular row stays anchored",
-            sawIndependentClearance)
+        assertTrue("The regular row must settle", sawLanding)
+        assertTrue("XL must get ahead of the regular row during its deceleration",
+            sawHeadroomCruise)
         settle()
         assertEquals(260f, y("heading-C"), 0f)
     }
@@ -1260,10 +1260,10 @@ class ModernXlSceneTransitionTest {
         assertTrue("Exercise multiple moving frames before XL clears", checked >= 3)
         assertTrue("Exercise the actual painted landscape edge", paintedFrames >= 3)
         if (secondLeg != null) {
-            // The XL poster may already have disappeared above the mask when
-            // the second phase starts; drawing cannot establish whether the
-            // clearance ran. Verify the changing gap directly in that case.
-            assertTrue("A required second phase must increase clearance after ordinary landing",
+            // XL now accelerates with the ordinary row, then cruises at its
+            // peak speed during ordinary deceleration. The extra gap can be
+            // consumed before or after ordinary landing.
+            assertTrue("XL must increase clearance while moving at peak speed",
                 clearanceObservedFrames >= 2)
         } else {
             // Summary XL often has its full clearance gap before focus moves.

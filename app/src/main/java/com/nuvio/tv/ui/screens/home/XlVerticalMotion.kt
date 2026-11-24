@@ -40,9 +40,8 @@ internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: 
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
 
-// In the normal shared XL spring, both legs finish together despite different
-// distances. On downward XL exits we instead move XL and its ordinary follower
-// one pixel per pixel until the ordinary row lands, then clear XL independently.
+// Split the distance between incoming-row arrival and the outgoing XL clearance.
+// The ordinary spring drives the first leg; XL can cruise faster after its peak.
 internal data class XlTwoStageExitTravel(val arrivalPx: Float, val clearancePx: Float)
 internal fun xlTwoStageExitTravel(scrollPx: Float, fromGapPx: Int, toGapPx: Int): XlTwoStageExitTravel? {
     val clearance = (toGapPx - fromGapPx).toFloat()
