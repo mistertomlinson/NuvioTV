@@ -68,6 +68,69 @@ class XlFixedFollowerGeometryTest {
         assertEquals(null, scene.verticalMotion)
     }
 
+    @Test fun interruptedCompactExitTransfersMeasuredGapAndPaintOffsetWithoutRelayout() {
+        val scene = XlSceneState().apply { density = 1f }
+        scene.headroomValues["C"] = 300.dp
+        scene.verticalMotion = XlVerticalMotion(1, "C", 0.dp, 300.dp, 430f,
+            itemAnchor = XlScrollItemAnchor(3, 0),
+            fixedFollowerMeasurement = true, followerEndExclusiveIndex = 5)
+        scene.fixedFollowerTranslationPx = -135f
+
+        scene.cancelVerticalMotion(preserveCompactFollowerPaint = true)
+
+        assertEquals("Still measured at 300px after reversal", 300.dp, scene.headroomValues["C"])
+        assertEquals("Keep -135px of painted displacement", -135f,
+            scene.fixedFollowerTranslationPx, 0f)
+        assertEquals("Keep final gap for the return", 300.dp, scene.heldHeadroomGoals["C"])
+        assertEquals(null, scene.verticalMotion)
+
+        // A single reverse spring now owns the identical measured follower.
+        val reversing = XlVerticalMotion(2, "XL", 31.dp, 31.dp, -220f,
+            secondaryGap = XlGapMotion("C", 165.dp, 300.dp),
+            itemAnchor = XlScrollItemAnchor(3, 0),
+            followerEndExclusiveIndex = 5,
+            fixedReturnFollowerMeasurement = true)
+        scene.verticalMotion = reversing
+        assertEquals(-135f, xlFixedOrdinarySuffixTranslationPx(
+            reversing, 3, 2, scene.fixedFollowerTranslationPx), 0f)
+        assertEquals(-135f, xlFixedOrdinarySuffixTranslationPx(
+            reversing, 4, 2, scene.fixedFollowerTranslationPx), 0f)
+        assertEquals(0f, xlFixedOrdinarySuffixTranslationPx(
+            reversing, 5, 2, scene.fixedFollowerTranslationPx), 0f)
+    }
+
+    @Test fun reverseFollowerReinterruptionMaterializesOnlyTheCurrentPaintedGap() {
+        val scene = XlSceneState().apply { density = 1f }
+        scene.headroomValues["XL"] = 31.dp
+        scene.headroomValues["C"] = 300.dp
+        scene.verticalMotion = XlVerticalMotion(2, "XL", 31.dp, 31.dp, -220f,
+            secondaryGap = XlGapMotion("C", 165.dp, 300.dp),
+            itemAnchor = XlScrollItemAnchor(3, 0),
+            fixedReturnFollowerMeasurement = true)
+        scene.fixedFollowerTranslationPx = -62f
+
+        scene.cancelVerticalMotion()
+
+        assertEquals("Materialize only C when reverse spring is interrupted", 238.dp,
+            scene.headroomValues["C"])
+        assertEquals("Never resize the returning XL prefix", 31.dp,
+            scene.headroomValues["XL"])
+        assertEquals(0f, scene.fixedFollowerTranslationPx, 0f)
+        assertEquals(null, scene.verticalMotion)
+    }
+
+    @Test fun fixedReverseFollowerRecreatesTheSamePaintedPathWithNoMeasuring() {
+        val from = 165
+        val to = 300
+        for (frame in 0..120) {
+            val fraction = frame / 120f
+            val virtualGap = (from + (to - from) * fraction).roundToInt()
+            val paintOffset = xlFixedFollowerOffsetPx(virtualGap, to)
+            assertEquals("frame=$frame", virtualGap.toFloat(),
+                to + paintOffset, 0f)
+        }
+    }
+
     @Test fun summaryAndCompactExitsCanShareIdenticalFixedFollowerGeometry() {
         for (compact in listOf(true, false)) {
             val motion = XlVerticalMotion(3, "regular", 30.dp, 270.dp, 430f,
