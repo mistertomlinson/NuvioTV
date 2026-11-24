@@ -139,7 +139,15 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                     if (scene.previewReturn?.rowKey != gap.rowKey || scene.transition?.outgoingMetadataCleared != true)
                                         scene.headroomValues[gap.rowKey] = (gap.from.value + (gap.to.value - gap.from.value) * fraction).dp
                                 }
-                                scrollBy(travel - previous)
+                                // Make the scroll owner distinguishable from
+                                // headroom measure and metadata subcompose in traces.
+                                val trace = android.os.Trace.isEnabled()
+                                if (trace) android.os.Trace.beginSection("NuvioXL scrollBy")
+                                try {
+                                    scrollBy(travel - previous)
+                                } finally {
+                                    if (trace) android.os.Trace.endSection()
+                                }
                                 previous = travel.toFloat()
                                 if (active.compact && incomingTravel == visiblePx.roundToInt()) scene.compactRowRested = true
                                 if (abs(active.scrollPx - value) < 0.5f) cancelAnimation()
