@@ -1180,6 +1180,11 @@ class ModernXlSceneTransitionTest {
     private fun verifyNoExitStall(summary: Boolean) {
         content(start = 2, summary = summary)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val firstMotion = checkNotNull(scene.verticalMotion)
+        val secondLeg = if (firstMotion.stagedDownwardExit)
+            xlTwoStageExitTravel(firstMotion.scrollPx,
+                (firstMotion.fromGap.value * scene.density).roundToInt(),
+                (firstMotion.toGap.value * scene.density).roundToInt()) else null
         fun paintedBottom(): Int {
             var bottom = -1
             compose.runOnUiThread {
@@ -1199,6 +1204,7 @@ class ModernXlSceneTransitionTest {
         var checked = 0
         var landingFrames = 0
         var clearanceFrames = 0
+        var clearanceObservedFrames = 0
 
         // The two-stage design deliberately reduces the outgoing XL velocity
         // to zero at the ordinary-row landing. That makes the old "move a whole
@@ -1213,11 +1219,20 @@ class ModernXlSceneTransitionTest {
             return ordinaryRemaining <= 5f && clearanceTravel in -1..8
         }
 
-        repeat(30) {
+        repeat(55) {
             advance(16)
             val edge = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
             val nextPainted = paintedBottom()
             val landingHandoff = atRegularLandingHandoff()
+            val currentGap = scene.gapPx(firstMotion.rowKey)
+            val fromGapPx = (firstMotion.fromGap.value * scene.density).roundToInt()
+            val toGapPx = (firstMotion.toGap.value * scene.density).roundToInt()
+            if (scene.verticalMotion === firstMotion &&
+                currentGap > fromGapPx + 12 && currentGap < toGapPx - 1) {
+                clearanceObservedFrames++
+                assertEquals("Incoming ordinary row must stay anchored while XL clears",
+                    260f, y("heading-C"), 1.5f)
+            }
             if (nextPainted < painted) paintStarted = true
             if (paintStarted && nextPainted > 40) {
                 assertTrue("Painted XL must never move backward: edge=$nextPainted previous=$painted",
@@ -1244,8 +1259,20 @@ class ModernXlSceneTransitionTest {
         }
         assertTrue("Exercise multiple moving frames before XL clears", checked >= 3)
         assertTrue("Exercise the actual painted landscape edge", paintedFrames >= 3)
-        assertTrue("The second stage must visibly clear XL after ordinary landing", clearanceFrames >= 2)
-        println("TWO_STAGE_FOCUS_STALL_CHECK summary=$summary paintedFrames=$paintedFrames landingFrames=$landingFrames clearanceFrames=$clearanceFrames")
+        if (secondLeg != null) {
+            // The XL poster may already have disappeared above the mask when
+            // the second phase starts; drawing cannot establish whether the
+            // clearance ran. Verify the changing gap directly in that case.
+            assertTrue("A required second phase must increase clearance after ordinary landing",
+                clearanceObservedFrames >= 2)
+        } else {
+            // Summary XL often has its full clearance gap before focus moves.
+            // With no extra gap, the ordinary row and XL travel the same
+            // distance on the same spring, and no second phase is required.
+            assertTrue("No clearance phase is needed when the existing gap already suffices",
+                firstMotion.toGap <= firstMotion.fromGap)
+        }
+        println("TWO_STAGE_FOCUS_STALL_CHECK summary=$summary secondLeg=$secondLeg paintedFrames=$paintedFrames landingFrames=$landingFrames visibleClearanceFrames=$clearanceFrames clearanceGapFrames=$clearanceObservedFrames")
         settle()
     }
     @Test fun compactExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(false)
