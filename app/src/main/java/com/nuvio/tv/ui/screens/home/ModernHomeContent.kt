@@ -5109,6 +5109,7 @@ private fun EnhancedModernHomeRowsListBoundary(
             val info = verticalRowListState.layoutInfo
             val offset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
                 xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
+            XlNavigationTrace.event("LAND_REQUEST") { "index=$index offset=$offset row=${selected.rowKey}" }
             verticalRowListState.requestScrollToItem(index, offset)
             repeat(2) { withFrameNanos { } }
         } else {
@@ -5118,8 +5119,10 @@ private fun EnhancedModernHomeRowsListBoundary(
                 val offset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
                     xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
                 val current = info.visibleItemsInfo.firstOrNull { it.index == index }
-                if (current == null || kotlin.math.abs(current.offset + offset) > 1)
+                if (current == null || kotlin.math.abs(current.offset + offset) > 1) {
+                    XlNavigationTrace.event("LAND_ANIMATE") { "index=$index offset=$offset previous=${current?.offset} row=${selected.rowKey}" }
                     verticalRowListState.animateScrollToItem(index, offset)
+                }
             }
         }
         xlScene.finishContinuousNavigation()
@@ -5138,11 +5141,19 @@ private fun EnhancedModernHomeRowsListBoundary(
             .focusRequester(contentFocusRequester)
             .focusRestorer { focusRestorerRequester }
 
+            .onPreviewKeyEvent { event ->
+                val key = event.nativeKeyEvent
+                if (key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN || key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) {
+                    XlNavigationTrace.key(key.action, key.keyCode, key.repeatCount, key.eventTime, key.downTime, activeRowKey)
+                }
+                false
+            }
             .dpadVerticalFastScroll(
                 scrollableState = verticalRowListState,
                 verticalVelocityDpPerSec = 1200f,
                 holdAtEdgeUntilRelease = xlSceneEnabled,
                 onFastScrollingChanged = { scrolling ->
+                    XlNavigationTrace.event("FAST_SCROLL") { "active=$scrolling focused=$activeRowKey" }
                     if (scrolling) {
                         if (currentXlSceneEnabled) currentXlScene.startHeldVerticalScroll()
                         else {
@@ -5230,6 +5241,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                         carouselRows
                             .getOrNull(targetRowIndex)
 
+                    XlNavigationTrace.event("RESOLVE_LANDING") { "sign=$sign targetIndex=$targetRowIndex target=${targetRow?.key} lastAtBottom=$lastRowAtBottom focused=$activeRowKey" }
                     if (targetRow == null) {
                         fastScrollLandingVisualPendingRef
                             .set(false)
