@@ -607,14 +607,13 @@ class XlSceneStateTest {
     }
 
     @Test fun `summary gap trim leaves the anchor and portrait clearance unchanged`() {
-        val height = 453f
+        val height = 426f
         val anchor = xlBalancedTop(540f, height, true)
         val trim = xlSummaryTrailingGapReduction(540f, anchor, height, 24f, 8f)
         assertTrue(trim > 0f)
         assertTrue(trim <= 20f)
         assertEquals(anchor, xlBalancedTop(540f, height, true), 0f)
-        assertEquals(540f - (anchor + height + 24f - trim + 24f),
-            540f - (anchor + height + 48f) + trim, 0.01f)
+        assertEquals(8f, 540f - (anchor + height + 24f - trim + 24f), 0.01f)
     }
 
 }
