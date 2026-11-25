@@ -28,6 +28,16 @@ internal fun xlBalancedTop(screenHeight: Float, summaryRowHeight: Float, fullWid
     if (fullWidthIcons) ((HOME_PLATFORM_SELECTOR_BOTTOM_DP + screenHeight - summaryRowHeight) / 2f).coerceAtLeast(54f)
     else 54f
 
+/** Shorten only the unused 24dp list gap, never the XL content or its anchor.
+ * Match the small clearance of the standard portrait-row title peek.
+ */
+internal fun xlSummaryTrailingGapReduction(screenHeight: Float, xlTop: Float,
+    fullSummaryHeight: Float, nextTitleHeight: Float, portraitTitleClearance: Float): Float {
+    val desired = portraitTitleClearance.coerceIn(6f, 14f)
+    return (xlTop + fullSummaryHeight + 24f + nextTitleHeight + desired - screenHeight)
+        .coerceIn(0f, 20f)
+}
+
 /** Put the next hero just below the viewport, while letting the whole XL row clear it. */
 internal fun xlFollowingHeadroom(screenHeight: Float, xlBottom: Float, ordinaryTop: Float,
     metadataTop: Float, headerCorrection: Float, clearXl: Boolean = true): Float {
