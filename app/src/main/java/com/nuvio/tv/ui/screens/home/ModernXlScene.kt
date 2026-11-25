@@ -324,8 +324,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         beginContinuousNavigation()
     }
 
+    fun hasContinuousBackdropReveal(target: XlSceneSelection): Boolean =
+        pendingContinuousBackdrop == (target.rowKey to target.itemKey)
+
     fun consumeContinuousBackdropReveal(target: XlSceneSelection): Boolean {
-        if (pendingContinuousBackdrop != (target.rowKey to target.itemKey)) return false
+        if (!hasContinuousBackdropReveal(target)) return false
         pendingContinuousBackdrop = null
         return true
     }
@@ -1294,10 +1297,13 @@ internal fun rememberXlBackdropPresentation(
     val darkTarget = enabled && if (carouselFocused) pageStartsWithXl else selected?.isXl == true
     val state = remember(scene) { XlBackdropPresentation(if (darkTarget) selected?.preview ?: resolvedHero else resolvedHero, darkTarget) }
     val latestResolved by rememberUpdatedState(resolvedHero)
-    val selectionKey = selected?.let { it.rowKey to it.itemKey }
-    LaunchedEffect(scene, selectionKey, selected?.preview?.backdrop, selected?.preview?.imageUrl,
-        selected?.preview?.poster, carouselFocused, pageStartsWithXl, enabled, scene.navigationPresentationFrozen) {
-        if (enabled && scene.navigationPresentationFrozen) {
+    val frozen = enabled && scene.navigationPresentationFrozen
+    // A burst owns one frozen presentation, not a coroutine for every passing row.
+    val selectionKey = if (frozen) null else selected?.let { it.rowKey to it.itemKey }
+    LaunchedEffect(scene, selectionKey, if (frozen) null else selected?.preview?.backdrop,
+        if (frozen) null else selected?.preview?.imageUrl, if (frozen) null else selected?.preview?.poster,
+        carouselFocused, pageStartsWithXl, enabled, frozen) {
+        if (frozen) {
             if (!state.owned) state.preview = scene.navigationFrozenBackdrop ?: state.preview ?: latestResolved
             state.owned = true
             return@LaunchedEffect
@@ -1318,7 +1324,7 @@ internal fun rememberXlBackdropPresentation(
             if (boundaryId != null) scene.complete(boundaryId)
             return@LaunchedEffect
         }
-        if (scene.consumeContinuousBackdropReveal(target)) {
+        if (scene.hasContinuousBackdropReveal(target)) {
             // Hold the exact previous presentation until the final artwork is
             // ready. A newly focused XL is not a cold-start backdrop.
             state.owned = true
@@ -1326,6 +1332,9 @@ internal fun rememberXlBackdropPresentation(
                 snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
                     firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
             }
+            // Keep the landing token pending while artwork is loading. An
+            // enrichment recomposition may restart this effect for the same item.
+            if (!scene.consumeContinuousBackdropReveal(target)) return@LaunchedEffect
             val needsDissolve = dark || state.blurred || state.directExit
             state.imageFadeMillis = 220
             state.directExit = !dark && needsDissolve
