@@ -1110,6 +1110,7 @@ internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListSta
     val composedCompactEpoch = scene.compactFocusCompositionEpoch
     return drawWithContent {
         val paintEpoch = scene.focusPaintEpoch
+        XlNavigationTrace.event("VIEWPORT_DRAW") { "mask=$mask size=$size focusPaint=$paintEpoch composed=$composedCompactEpoch" }
         clipRect {
             val top = mask?.first?.coerceAtLeast(0f) ?: 0f
             val bottom = mask?.second?.coerceAtMost(size.height) ?: 0f
@@ -1206,6 +1207,7 @@ internal fun XlSceneRowHeadroom(
 @Composable
 internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
     LocalHomeSceneInspection.current?.let { inspect -> SideEffect { inspect(scene, list) } }
+    ObserveXlNavigationTrace(scene, list)
     AnimateXlVerticalMotion(scene, list)
     AnimateXlPreviewReturn(scene, list)
     val move = scene.transition
@@ -1304,6 +1306,9 @@ internal fun rememberXlBackdropPresentation(
     val darkTarget = enabled && if (carouselFocused) pageStartsWithXl else selected?.isXl == true
     val state = remember(scene) { XlBackdropPresentation(if (darkTarget) selected?.preview ?: resolvedHero else resolvedHero, darkTarget) }
     val latestResolved by rememberUpdatedState(resolvedHero)
+    SideEffect {
+        XlNavigationTrace.event("BACKDROP") { "selected=${selected?.rowKey}/${selected?.itemKey} resolved=${resolvedHero?.title} presented=${state.preview?.title} token=${state.token} owned=${state.owned} blurred=${state.blurred} entering=${state.directEntry} exiting=${state.directExit} reveal=${state.continuousReveal} dim=${state.dim.value} gradient=${state.gradientAlpha.value} ready=${state.ready()} finished=${state.transitionFinished()} fade=${state.imageFadeMillis}" }
+    }
     val frozen = enabled && scene.navigationPresentationFrozen
     // A burst owns one frozen presentation, not a coroutine for every passing row.
     val selectionKey = if (frozen) null else selected?.let { it.rowKey to it.itemKey }
@@ -1636,6 +1641,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 }
                 val screenTop = metadataLayoutTop[0] + offset
                 val visible = maxOf(screenTop + top, 0f) < minOf(screenTop + size.height, viewportHeight)
+                XlNavigationTrace.event("METADATA_DRAW") { "row=${active.rowKey} title=${active.preview.title} top=$screenTop height=${size.height} clip=$top alpha=${paintedLayer[1]} visible=$visible outgoing=$outgoing epoch=$epoch currentEpoch=${scene.metadataEpoch}" }
                 scene.recordMetadata(active, offset, if (visible) paintedLayer[1] else 0f, epoch, top)
                 if (top < size.height) {
                     if (top > 0f) clipRect(top = top) { this@drawWithContent.drawContent() } else drawContent()
