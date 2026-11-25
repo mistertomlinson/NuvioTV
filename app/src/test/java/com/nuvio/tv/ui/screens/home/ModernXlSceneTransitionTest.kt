@@ -860,8 +860,8 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun doubleUpIntoAnXlRowCrossfadesBackdropInsteadOfInstantSnap() {
-        content(start = 3, summary = true)
+    private fun verifyDoubleUpXlBackdropReveal(summary: Boolean) {
+        content(start = 3, summary = summary)
         val destination = checkNotNull(rows[2].sceneSelection(0, 2))
         compose.runOnIdle {
             scene.beginFastReturn(destination, list.layoutInfo, rows)
@@ -893,6 +893,12 @@ class ModernXlSceneTransitionTest {
         assertFalse("The arrival is a one-shot event",
             scene.consumeFastReturnXlBackdropReveal(destination.rowKey))
     }
+
+    @Test fun doubleUpIntoSummaryXlCrossfadesBackdrop() =
+        verifyDoubleUpXlBackdropReveal(summary = true)
+
+    @Test fun doubleUpIntoCompactXlCrossfadesBackdrop() =
+        verifyDoubleUpXlBackdropReveal(summary = false)
 
     @Test fun initialXlBackdropRemainsImmediatelyInitializedWithoutDoubleUp() {
         content(start = 2, summary = true)
