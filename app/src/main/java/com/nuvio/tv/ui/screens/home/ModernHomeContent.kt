@@ -68,6 +68,8 @@ import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.FocusRequester
@@ -6356,7 +6358,9 @@ private fun EnhancedModernHomeRowsListBoundary(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.fixedFollowerTranslationPx
                     )
-                } else Modifier)) {
+                } else Modifier).onGloballyPositioned { coordinates ->
+                    XlNavigationTrace.event("ROW_BOUNDS") { "row=${row.key} index=$rowIndex xl=${row.isXl} top=${coordinates.positionInRoot().y} size=${coordinates.size} attached=${coordinates.isAttached}" }
+                }) {
             ModernRowSection(
                 row = row,
                 posterFadeViewport = posterFadeViewport,
