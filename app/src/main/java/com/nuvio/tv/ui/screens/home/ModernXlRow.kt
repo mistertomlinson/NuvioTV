@@ -351,7 +351,10 @@ internal fun ModernXlRowSection(
                     onUpPressed = if (featured) onUpPressed else null
                 )
             }
-            if (featured) Box(Modifier.testTag("xl-artwork-${row.key}-${if (jumping) jumpFirstPortrait.coerceIn(0, row.items.lastIndex) else presentedIndex}")) {
+            if (featured) Box(Modifier.testTag("xl-artwork-${row.key}-${if (jumping) jumpFirstPortrait.coerceIn(0, row.items.lastIndex) else presentedIndex}").drawWithContent {
+                XlNavigationTrace.event("XL_POSTER_DRAW") { "row=${row.key} item=${artworkItem.key} requested=${selectedItem.key} presented=$presentedKey frozen=$navigationFrozen size=$size image=${image?.hashCode()}" }
+                drawContent()
+            }) {
                 card()
             } else card()
         }
