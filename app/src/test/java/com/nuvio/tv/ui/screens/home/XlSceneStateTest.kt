@@ -531,4 +531,90 @@ class XlSceneStateTest {
         assertFalse(scene.continuousVerticalNavigation)
     }
 
+    @Test fun `single XL tap defers the opening until intent is resolved`() {
+        for (summary in listOf(false, true)) {
+            val xl = selection("XL", 0, true, summary)
+            val normal = selection("C", 1)
+            val scene = XlSceneState(xl)
+            val positions = positionedLayout("XL" to 54, "C" to 500)
+            scene.noteVerticalPress(1, 1000L, false)
+            scene.armDeferredDownwardExit("XL")
+            scene.focus(normal, positions, focusConfirmed = true)
+            assertTrue(scene.deferredDownwardExit)
+            assertEquals(xl, scene.selection)
+            assertEquals(0, scene.gapPx("C"))
+            assertNull(scene.verticalMotion)
+            assertNull(scene.transition)
+            assertNull(xlSceneMetadataMask(scene, positions, true, 260f, 1f))
+            scene.noteVerticalRelease()
+            scene.resolveDeferredDownwardExit(positions, emptyList())
+            assertFalse(scene.deferredDownwardExit)
+            assertFalse(scene.continuousVerticalNavigation)
+            assertEquals(normal, scene.selection)
+            assertTrue(checkNotNull(scene.transition).downwardExit)
+            assertNotNull(scene.verticalMotion)
+        }
+    }
+
+    @Test fun `held XL exit never expands the first follower gap`() {
+        val xl = selection("XL", 0, true)
+        val normal = selection("C", 1)
+        val scene = XlSceneState(xl)
+        val positions = positionedLayout("XL" to 54, "C" to 500)
+        scene.recordBackdrop(xl.preview)
+        scene.noteVerticalPress(1, 1000L, false)
+        scene.armDeferredDownwardExit("XL")
+        scene.focus(normal, positions)
+        scene.resolveDeferredDownwardExit(positions, emptyList())
+        assertTrue(scene.continuousVerticalNavigation)
+        assertTrue(scene.continuousGapsCollapsed)
+        assertEquals(normal, scene.selection)
+        assertEquals(xl.preview, scene.navigationFrozenBackdrop)
+        assertNull(scene.transition)
+        assertEquals(0, scene.gapPx("C"))
+        assertTrue(scene.verticalKeyHeld)
+    }
+
+    @Test fun `rapid taps promote deferred XL exit before gap expansion`() {
+        val xl = selection("XL", 0, true)
+        val normal = selection("C", 1)
+        val scene = XlSceneState(xl)
+        val positions = positionedLayout("XL" to 54, "C" to 500)
+        scene.noteVerticalPress(1, 1000L, false)
+        scene.armDeferredDownwardExit("XL")
+        scene.focus(normal, positions)
+        scene.noteVerticalRelease()
+        scene.noteVerticalPress(1, 1064L, false)
+        assertFalse(scene.deferredDownwardExit)
+        assertTrue(scene.continuousGapsCollapsed)
+        assertNull(scene.verticalMotion)
+        assertEquals(0, scene.gapPx("C"))
+        scene.focus(xl, positions)
+        scene.prepareContinuousLanding(emptyList())
+        scene.finishContinuousNavigation()
+        assertTrue(scene.consumeContinuousBackdropReveal(xl))
+        assertFalse(scene.consumeContinuousBackdropReveal(xl))
+        assertNull(scene.stationaryMetadata)
+    }
+
+    @Test fun `obsolete backdrop ready callback cannot overwrite matching final token`() {
+        val state = XlBackdropPresentation(null, false)
+        state.token = 2
+        state.expectFrame(2, "final", true)
+        state.frameReady(2, "final", true)
+        state.frameReady(1, "obsolete", false)
+        assertTrue(state.ready())
+    }
+
+    @Test fun `summary gap trim leaves the anchor and portrait clearance unchanged`() {
+        val height = 453f
+        val anchor = xlBalancedTop(540f, height, true)
+        val trim = xlSummaryTrailingGapReduction(540f, anchor, height, 24f, 8f)
+        assertTrue(trim > 0f)
+        assertTrue(trim <= 20f)
+        assertEquals(anchor, xlBalancedTop(540f, height, true), 0f)
+        assertEquals(540f - (anchor + height + 24f - trim + 24f),
+            540f - (anchor + height + 48f) + trim, 0.01f)
+    }
+
 }
