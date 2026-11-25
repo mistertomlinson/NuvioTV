@@ -5074,7 +5074,9 @@ private fun EnhancedModernHomeRowsListBoundary(
 
     // The initial XL exit waits for the tap/hold decision before opening any gap.
     LaunchedEffect(xlScene, xlSceneEnabled, xlScene.deferredDownwardExit) {
-        if (xlSceneEnabled && xlScene.deferredDownwardExit) {
+        if (!xlSceneEnabled) {
+            xlScene.cancelDeferredDownwardExit()
+        } else if (xlScene.deferredDownwardExit) {
             delay(XL_CONTINUOUS_NAV_INTERVAL_MS)
             xlScene.resolveDeferredDownwardExit(verticalRowListState.layoutInfo, currentCarouselRows)
         }
