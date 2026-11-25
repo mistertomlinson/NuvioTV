@@ -258,7 +258,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         focusPaintSignal = id to signal
         focusPaintEpoch = id
         transition?.let { move ->
-            if (move.from.isXl && !move.from.summary || move.to.isXl && !move.to.summary)
+            // Summary exits now use the same collapsed-following-row
+            // reveal path as compact exits. Guard their first spring frame
+            // against a recycled, stale focus composition too.
+            if (move.collapsedFollowerExit || move.to.isXl && !move.to.summary)
                 compactFocusCompositionEpoch = id
         }
         return signal
