@@ -172,7 +172,9 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 val trace = android.os.Build.VERSION.SDK_INT >= 29 && android.os.Trace.isEnabled()
                                 if (trace) android.os.Trace.beginSection("NuvioXL scrollBy")
                                 try {
-                                    scrollBy(travel - previous)
+                                    val requested = travel - previous
+                                    val consumed = scrollBy(requested)
+                                    XlNavigationTrace.event("SPRING_STEP") { "id=${active.id} row=${active.rowKey} requested=$requested consumed=$consumed fraction=$fraction virtualGapPx=$gapPx" }
                                 } finally {
                                     if (trace) android.os.Trace.endSection()
                                 }
