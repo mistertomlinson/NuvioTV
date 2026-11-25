@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
@@ -219,6 +220,15 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         private set
     var fastReturn by mutableStateOf<XlFastReturn?>(null)
         private set
+    // Double-Up clears fastReturn before the destination backdrop composes.
+    // Keep a one-shot arrival token so it cannot be mistaken for a cold
+    // first render, whose intentional zero-duration initialization differs.
+    private var pendingFastReturnXlBackdropKey by mutableStateOf<String?>(null)
+    fun consumeFastReturnXlBackdropReveal(rowKey: String): Boolean {
+        if (pendingFastReturnXlBackdropKey != rowKey) return false
+        pendingFastReturnXlBackdropKey = null
+        return true
+    }
     var previewReturn by mutableStateOf<XlPreviewReturn?>(null)
         internal set
     private var confirmedRowKey: String? = null
@@ -439,6 +449,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     } == true || previewReturn?.rowKey == rowKey
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
+        pendingFastReturnXlBackdropKey = null
         clearBoundaryFocusIntent()
         cancelVerticalMotion()
         interruptedRelocation = null
@@ -470,9 +481,15 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         confirmedRowKey = null
         paintedAlpha = 0f
         stationaryMetadata = if (target.isXl) null else XlMetadataSnapshot(target.rowKey, target.preview)
+        pendingFastReturnXlBackdropKey = target.rowKey.takeIf { target.isXl }
     }
 
-    fun cancelFastReturn() { fastReturn = null }
+    fun cancelFastReturn() {
+        // The Double-Up finally block runs after finishFastReturn, often
+        // before the next composition. Do not discard the completed arrival.
+        if (fastReturn != null) pendingFastReturnXlBackdropKey = null
+        fastReturn = null
+    }
     fun fastReturnTranslation(layout: LazyListLayoutInfo): Float = fastReturn?.let {
         it.translation + it.anchor.displacementFromLayout(layout)
     } ?: 0f
@@ -1099,15 +1116,28 @@ internal fun rememberXlBackdropPresentation(
         if (!state.owned && !dark && boundaryId == null) return@LaunchedEffect
         if (dark && target.isXl && boundary == null && !state.blurred) {
             state.directExit = false
-            // Initial/restored focus is already on XL, not a new row entry.
-            state.imageFadeMillis = 0
+            val doubleUpArrival = scene.consumeFastReturnXlBackdropReveal(target.rowKey)
+            // A real first render intentionally initializes without a fade.
+            // Double-Up is different: the ordinary backdrop has been visible
+            // during the travel. Replacing it with a blurred XL image using
+            // a zero-duration transition produces a visible one-frame snap.
+            state.imageFadeMillis = if (doubleUpArrival) 220 else 0
             state.token++
             state.preview = target.preview
             state.owned = true
             state.blurred = true
             state.revealing = true
-            state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
-            state.gradientAlpha.snapTo(0f)
+            if (doubleUpArrival) {
+                state.directEntry = true
+                kotlinx.coroutines.coroutineScope {
+                    launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing)) }
+                    launch { state.gradientAlpha.animateTo(0f, tween(220, easing = LinearEasing)) }
+                }
+                state.directEntry = false
+            } else {
+                state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
+                state.gradientAlpha.snapTo(0f)
+            }
             return@LaunchedEffect
         }
         if (dark && target.isXl && boundary != null) {
@@ -1132,6 +1162,9 @@ internal fun rememberXlBackdropPresentation(
             return@LaunchedEffect
         }
         if (dark && state.blurred && boundaryId == null) {
+            // Returning from another XL row already has the XL dimmer; the
+            // existing 220ms image transition is sufficient.
+            scene.consumeFastReturnXlBackdropReveal(target.rowKey)
             state.directExit = false
             // No normal-row debounce or fade-to-black on a horizontal XL move.
             // The row releases this barrier when its matching landscape and
