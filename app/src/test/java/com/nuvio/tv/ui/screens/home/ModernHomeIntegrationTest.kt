@@ -378,4 +378,38 @@ class ModernHomeIntegrationTest {
     @Test @Config(qualifiers = "w960dp-h540dp-land-hdpi")
     fun numberedCompactLandingHasNoPhysicalPixelCorrection() = verifyCompactLandingAtFractionalDensity(true)
 
+    private fun verifyRapidVerticalBurst(summary: Boolean) {
+        val rows = scenarioRows(5)
+        val xlKey = catalogRowKey(rows.first())
+        val follower = catalogRowKey(rows[1])
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true,
+            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(),
+            xlCatalogKeys = setOf(xlKey),
+            xlNoSummaryCatalogKeys = if (summary) emptySet() else setOf(xlKey),
+            fullWidthIconRowEnabled = true, aggregateStreamingPlatformsEnabled = true,
+            showAllCatalogsOnHome = true, posterLabelsEnabled = false))
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(48)
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 60)
+        assertTrue("A rapid second Down enters the compact burst", scene.continuousVerticalNavigation)
+        assertTrue(scene.continuousGapsCollapsed)
+        assertEquals(0, scene.gapPx(follower))
+        assertNull(xlSceneMetadataMask(scene, list.layoutInfo, true, scene.ordinaryTop.value, scene.density))
+        advance(48)
+        if (scene.continuousGapsCollapsed) {
+            assertEquals(0, scene.gapPx(follower))
+            assertNull(scene.verticalMotion)
+        }
+        advance(1800)
+        assertFalse("The burst must release its metadata suppression after landing", scene.continuousVerticalNavigation)
+        val selected = checkNotNull(scene.selection)
+        assertFalse(selected.isXl)
+        assertTrue("The final focused row owns the metadata",
+            compose.onAllNodesWithTag("ordinary-metadata-${selected.rowKey}", true).fetchSemanticsNodes().size == 1)
+    }
+
+    @Test fun compactRapidVerticalBurstHidesIntermediateMetadata() = verifyRapidVerticalBurst(false)
+    @Test fun summaryRapidVerticalBurstHidesIntermediateMetadata() = verifyRapidVerticalBurst(true)
+
 }
