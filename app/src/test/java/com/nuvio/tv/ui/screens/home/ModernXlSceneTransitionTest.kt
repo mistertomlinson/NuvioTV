@@ -158,7 +158,7 @@ class ModernXlSceneTransitionTest {
                                         if (row.isXl) Box(Modifier.padding(start = 52.dp, top = 12.dp).width(430.dp)) {
                                             HeroTitleContent(row.items.first().heroPreview, true,
                                                 showTitleLogo = false, showDescription = row.showXlSummary,
-                                                useFullSizeDescription = true)
+                                                useFullSizeDescription = true, descriptionLineLimit = 3)
                                         }
                                         }
                                     }
@@ -515,19 +515,26 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun summaryMetadataIsPreparedOpaqueAndSlidesInWithItsRow() {
+    @Test fun summaryFollowerStartsCollapsedAndOnlyOpensForItsFocusedOrdinaryRow() {
         content(start = 2, summary = true)
+        val before = y("heading-C")
+        assertEquals("Summary XL must not reserve metadata clearance below an unfocused row",
+            0.dp, scene.headroomValues["C"])
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        var enteredBeforeLanding = false
-        repeat(30) {
-            advance(16)
-            assertEquals(1f, scene.exitMetadataAlpha, 0f)
-            val bounds = compose.onNodeWithTag("ordinary-metadata-C", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-            if (bounds.bottom > 0 && bounds.top < 540 && list.isScrollInProgress) enteredBeforeLanding = true
-        }
-        assertTrue("Prepared summary-exit metadata enters during the row slide", enteredBeforeLanding)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue("Summary exit must share compact XL fixed follower geometry",
+            motion.fixedFollowerMeasurement && motion.compact)
+        assertTrue("The deliberate focus transition opens the required metadata clearance",
+            motion.toGap > 0.dp)
+        assertEquals("The first focused frame must not move the ordinary row",
+            before, y("heading-C"), 1.1f)
         settle()
+        assertEquals(260f, y("heading-C"), 2f)
+        assertEquals(motion.toGap, scene.headroomValues["C"])
     }
+
+    @Test fun summaryMetadataWaitsUntilXlIsCompletelyOffScreen() =
+        verifyDownwardMetadataWaitsForXlClearance(true)
 
     @Test fun aRapidSecondDownKeepsXlClearanceAndTheOrdinaryMetadataDebounce() {
         content(start = 2, summary = false, freezeHero = true)
@@ -1121,32 +1128,26 @@ class ModernXlSceneTransitionTest {
         assertNull(scene.transition)
     }
 
-    @Test fun summaryExitBringsTheIncomingBlockUpWithItsPosters() {
+    @Test fun summaryExitMovesPostersSmoothlyAndRevealsMetadataOnlyAfterLanding() {
         content(start = 2, summary = true)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        advance(32)
-        val header = y("heading-C")
-        val meta = y("ordinary-metadata-C")
-        advance(80)
-        assertEquals(y("heading-C") - header, y("ordinary-metadata-C") - meta, 2f)
-        var brightest = 0
-        repeat(18) {
+        var previous = y("heading-C")
+        var faded = false
+        repeat(55) {
             advance(16)
-            assertEquals("Prepared summary metadata has no alpha ramp", 1f, scene.exitMetadataAlpha, 0f)
-            if (list.isScrollInProgress) {
-                val bounds = compose.onNodeWithTag("ordinary-metadata-C", true).fetchSemanticsNode().boundsInRoot
-                compose.runOnUiThread {
-                    val view = activity.get().findViewById<android.view.View>(android.R.id.content)
-                    val image = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
-                    view.draw(android.graphics.Canvas(image))
-                    for (y in bounds.top.toInt().coerceAtLeast(0) until bounds.bottom.toInt().coerceAtMost(image.height))
-                        for (x in bounds.left.toInt().coerceAtLeast(0) until bounds.right.toInt().coerceAtMost(image.width))
-                            brightest = maxOf(brightest, android.graphics.Color.red(image.getPixel(x, y)))
-                    image.recycle()
-                }
+            val current = y("heading-C")
+            assertTrue("Summary follower must not snap backward during exit: $previous -> $current",
+                current <= previous + 2f)
+            previous = current
+            val xlBottom = scene.outgoingXlBottom(list.layoutInfo) ?: 0f
+            if (xlBottom > 0f) {
+                assertEquals("Summary's incoming ordinary metadata is hidden while XL remains",
+                    0f, scene.exitMetadataAlpha, 0f)
+            } else if (scene.exitMetadataAlpha in 0.001f..0.999f) {
+                faded = true
             }
         }
-        assertTrue("Already prepared metadata enters fully bright during the longer row slide", brightest >= 245)
+        assertTrue("The new summary-exit ordinary metadata fades in", faded)
         settle()
         assertEquals(260f, y("heading-C"), 2f)
         assertEquals(1, metadataCount())
