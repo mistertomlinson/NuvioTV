@@ -95,4 +95,23 @@ class ModernXlRowPolicyTest {
         }
     }
 
+    @Test fun `summary title matches actual portrait clearance without imposing a minimum`() {
+        val screen = 540f
+        val title = 20f
+        val portraitClearance = portraitNextTitleClearance(screen, 300f, 192f, title)
+        assertEquals(4f, portraitClearance, 0f)
+        val top = 54f
+        val height = 450f
+        val trim = xlSummaryTrailingGapReduction(screen, top, height, title, portraitClearance)
+        assertEquals(12f, trim, 0f)
+        assertEquals(portraitClearance, screen - (top + height + 24f - trim + title), 0f)
+        assertEquals(54f, xlBalancedTop(screen, height, false), 0f)
+    }
+
+    @Test fun `summary title restores spacing if it would otherwise sit too high`() {
+        val trim = xlSummaryTrailingGapReduction(540f, 54f, 430f, 20f, 4f)
+        assertEquals(-8f, trim, 0f)
+        assertEquals(4f, 540f - (54f + 430f + 24f - trim + 20f), 0f)
+    }
+
 }
