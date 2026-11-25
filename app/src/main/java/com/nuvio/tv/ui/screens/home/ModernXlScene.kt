@@ -254,7 +254,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         focusPaintSignal = id to signal
         focusPaintEpoch = id
         transition?.let { move ->
-            if (move.from.isXl && !move.from.summary || move.to.isXl && !move.to.summary)
+            if (move.from.isXl || move.to.isXl)
                 compactFocusCompositionEpoch = id
         }
         return signal
@@ -466,7 +466,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private fun prepareFastReturnGaps(target: XlSceneSelection, rows: List<HeroCarouselRow>, layout: LazyListLayoutInfo? = null) {
         if (target.isXl) expandedXlRows.remove(target.rowKey)
         val next = rows.getOrNull(target.rowIndex + 1) ?: return
-        val closeGap = target.isXl && !target.summary && !next.isXl || target.rowKey == "continue_watching" && next.isXl
+        val closeGap = target.isXl && !next.isXl || target.rowKey == "continue_watching" && next.isXl
         if (closeGap && (layout == null || layout.visibleItemsInfo.none { it.key == next.key })) {
             headroomValues[next.key] = 0.dp
             heldHeadroomGoals.remove(next.key)
@@ -539,7 +539,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val previousMove = transition
         val heldMetadata = stationaryMetadata
         var compactPaintHandoff: Float? = null
-        val interruptedReturn = verticalMotion != null && previousMove?.compactExit == true && next.rowKey == previousMove.from.rowKey
+        val interruptedReturn = verticalMotion != null && previousMove?.downwardExit == true && next.rowKey == previousMove.from.rowKey
         if (previous?.rowKey != next.rowKey) {
             confirmedRowKey = null
             previewReturn?.let { headroomMoving[it.rowKey] = false }
@@ -554,7 +554,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 interrupted.itemAnchor != null) fixedFollowerTranslationPx else null
             cancelVerticalMotion(preserveCompactFollowerPaint = compactPaintHandoff != null)
             interruptedRelocation = interrupted?.let { XlInterruptedRelocation(it.id, next.rowKey, previousJob) }
-            if (interrupted != null && previousMove?.compactExit == true && next.rowKey == previousMove.from.rowKey) {
+            if (interrupted != null && previousMove?.downwardExit == true && next.rowKey == previousMove.from.rowKey) {
                 // Rebuild the outgoing hero's full clearance while returning
                 // from a partly completed compact exit.
                 heldHeadroomGoals[interrupted.rowKey] = interrupted.toGap
@@ -614,9 +614,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             interruptedFollowerPaintPx = compactPaintHandoff
         )
         transition = move
-        exitMetadataAlpha = if (move.compactExit) 0f else 1f
+        exitMetadataAlpha = if (move.downwardExit) 0f else 1f
         if (move.downwardExit) expandedXlRows[previous.rowKey] = true
-        if (next.isXl && !next.summary && next.rowIndex < previous.rowIndex &&
+        if (next.isXl && next.rowIndex < previous.rowIndex &&
             compactPaintHandoff == null) {
             rows.getOrNull(next.rowIndex + 1)?.takeUnless { it.isXl }?.let {
                 previewReturn = XlPreviewReturn(move.id, it.key, next.rowKey)
@@ -706,7 +706,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                         (followerIndex + 1 until rows.size).firstOrNull { rows[it].isXl } ?: rows.size
                         else Int.MAX_VALUE
                     val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
-                        move.compactExit, secondary, itemAnchor,
+                        move.downwardExit, secondary, itemAnchor,
                         fixedFollowerMeasurement = move.downwardExit,
                         followerEndExclusiveIndex = endOfOrdinarySuffix,
                         landscapePrefix = landscapePrefix,
@@ -749,7 +749,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun rowsSettled(id: Int) {
         transition?.takeIf { it.id == id }?.let {
-            if (it.compactExit) compactRowRested = true
+            if (it.downwardExit) compactRowRested = true
             transition = it.copy(rowsSettled = true)
         }
     }
@@ -847,7 +847,7 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     val offset = when {
         xlSceneOutgoingMetadataVisible(scene, layout, ordinaryTopPx, viewportHeightPx, density, reserveSpace = true) -> scene.outgoingTranslation(layout)
         scene.selection?.isXl == true -> return null
-        move?.compactExit == true -> if (scene.compactRowRested || (scene.outgoingXlBottom(layout) ?: 0f) <= 0f) 0f else return null
+        move?.downwardExit == true -> if (scene.compactRowRested || (scene.outgoingXlBottom(layout) ?: 0f) <= 0f) 0f else return null
         move?.deferOrdinaryReveal == true -> if (move.rowsSettled) 0f else return null
         move != null -> scene.incomingTranslation(layout, ordinaryTopPx, density) ?: return null
         else -> 0f
@@ -891,7 +891,6 @@ internal fun XlSceneRowHeadroom(
     currentXl: Boolean
 ) {
     val followsXl = previous?.isXl == true && !currentXl
-    val compact = followsXl && previous?.showXlSummary == false
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     val expanded = previous?.key?.let { scene.expandedXlRows[it] } == true
     val computedTarget = when {
@@ -906,11 +905,11 @@ internal fun XlSceneRowHeadroom(
             scene.selection?.rowKey == previous.key &&
             scene.verticalMotion?.landscapePrefix?.xlKey != rowKey -> 0.dp
         currentXl && previous != null -> (scene.xlTop(rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
-        followsXl && (expanded || !compact) ->
+        followsXl && expanded ->
             scene.followingHeadroom(checkNotNull(previous).key, rowKey, density, clearXl = expanded)
         else -> 0.dp
     }
-    val target = if (compact && expanded) scene.heldHeadroomGoals[rowKey] ?: computedTarget else computedTarget
+    val target = if (followsXl && expanded) scene.heldHeadroomGoals[rowKey] ?: computedTarget else computedTarget
     val managed = scene.verticalMotion?.takeIf {
         it.rowKey == rowKey || it.secondaryGap?.rowKey == rowKey ||
             it.landscapePrefix?.xlKey == rowKey
@@ -973,10 +972,10 @@ internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
         scene.releasePreviewGap(move.id)
     }
     LaunchedEffect(scene, list, id) {
-        if (move?.compactExit != true) return@LaunchedEffect
+        if (move?.downwardExit != true) return@LaunchedEffect
         scene.exitMetadataAlpha = 0f
         snapshotFlow {
-            (scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f && (!move.compactExit || scene.compactRowRested)
+            (scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f && (!move.downwardExit || scene.compactRowRested)
         }.first { it }
         animate(0f, 1f, animationSpec = tween(220)) { value, _ ->
             scene.exitMetadataAlpha = value
@@ -1299,16 +1298,16 @@ internal fun ModernXlAwareHeroTitleBlock(
                 if (isActive) scene.metadataHeightPx = it.height.toFloat()
             },
             modifier = if (!isActive) Modifier else Modifier.testTag("ordinary-metadata-${active.rowKey}").graphicsLayer {
-                val incomingOffset = if (enabled && move != null && !outgoing && !move.deferOrdinaryReveal && !move.compactExit && scene.stationaryMetadata == null)
+                val incomingOffset = if (enabled && move != null && !outgoing && !move.deferOrdinaryReveal && !move.downwardExit && scene.stationaryMetadata == null)
                     scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) else 0f
                 translationY = when {
                     fast != null -> scene.fastReturnTranslation(list.layoutInfo)
                     outgoing -> scene.outgoingTranslation(list.layoutInfo)
-                    enabled && move?.compactExit == true -> 0f
+                    enabled && move?.downwardExit == true -> 0f
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (fast != null) fast.alpha else if (enabled && move?.compactExit == true && !outgoing) scene.exitMetadataAlpha
+                alpha = if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
