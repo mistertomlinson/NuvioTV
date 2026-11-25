@@ -223,7 +223,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // Double-Up clears fastReturn before the destination backdrop composes.
     // Keep a one-shot arrival token so it cannot be mistaken for a cold
     // first render, whose intentional zero-duration initialization differs.
-    private var pendingFastReturnXlBackdropKey by mutableStateOf<String?>(null)
+    internal var pendingFastReturnXlBackdropKey by mutableStateOf<String?>(null)
+        private set
     fun consumeFastReturnXlBackdropReveal(rowKey: String): Boolean {
         if (pendingFastReturnXlBackdropKey != rowKey) return false
         pendingFastReturnXlBackdropKey = null
