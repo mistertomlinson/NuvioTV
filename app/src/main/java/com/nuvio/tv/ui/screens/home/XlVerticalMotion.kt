@@ -332,7 +332,8 @@ internal fun rememberHomeVerticalScrollSpec(scene: XlSceneState, hasXlRows: Bool
         object : BringIntoViewSpec {
             override val scrollAnimationSpec: AnimationSpec<Float> = default.scrollAnimationSpec
             override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
-                if (latestFastScrolling() || scene.boundaryFocusArmed || scene.verticalMotion != null) return 0f
+                if (latestFastScrolling() || scene.deferredDownwardExit || scene.boundaryFocusArmed || scene.verticalMotion != null ||
+                    (scene.continuousVerticalNavigation && (!scene.continuousGapsCollapsed || scene.continuousHeldScroll))) return 0f
                 val selected = scene.selection
                 val anchor = with(density) {
                     if (!hasXlRows) 40.dp.toPx()
