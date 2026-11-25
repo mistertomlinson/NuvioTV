@@ -2828,7 +2828,8 @@ fun ModernHomeContent(
         }
         val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
             pageStartsWithXl = carouselRows.firstOrNull()?.isXl == true)
-        val visualHero = if (xlBackdrop.owned) xlBackdrop.preview
+        val visualHero = if (hasXlRows && xlScene.navigationPresentationFrozen) xlScene.navigationFrozenBackdrop ?: xlBackdrop.preview ?: resolvedHero
+            else if (xlBackdrop.owned) xlBackdrop.preview
             else xlScene.transition?.outgoingBackdrop ?: resolvedHero
         androidx.compose.runtime.SideEffect { xlScene.recordBackdrop(visualHero) }
 
@@ -3493,7 +3494,7 @@ fun ModernHomeContent(
                 onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                 onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                 backdropCrossfadeDuration =
-                    if ((xlBackdropBlurred || xlBackdrop.directExit) && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
+                    if ((xlBackdropBlurred || xlBackdrop.directExit || xlBackdrop.continuousReveal) && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
                     else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
                 heroBackdropAlpha = heroBackdropAlpha,
                 parallaxOffsetState = backdropParallaxOffset.asState(),
@@ -3606,7 +3607,7 @@ fun ModernHomeContent(
                     onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                     onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
                     backdropCrossfadeDuration =
-                        if ((xlBackdropBlurred || xlBackdrop.directExit) && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
+                        if ((xlBackdropBlurred || xlBackdrop.directExit || xlBackdrop.continuousReveal) && !isPlatformTransitioning) xlBackdrop.imageFadeMillis
                         else if (isPlatformTransitioning || instantTopRowTrailerExitBackdropSwap || xlBackdrop.owned) 0 else 400,
 
                     // The parent owns the backdrop + gradient fade.
@@ -5071,17 +5072,25 @@ private fun EnhancedModernHomeRowsListBoundary(
     val doubleUpRenderedRows =
         doubleUpCompressedRows ?: carouselRows
 
+    // The initial XL exit waits for the tap/hold decision before opening any gap.
+    LaunchedEffect(xlScene, xlSceneEnabled, xlScene.deferredDownwardExit) {
+        if (xlSceneEnabled && xlScene.deferredDownwardExit) {
+            delay(XL_CONTINUOUS_NAV_INTERVAL_MS)
+            xlScene.resolveDeferredDownwardExit(verticalRowListState.layoutInfo, currentCarouselRows)
+        }
+    }
+
     // Do not restore intermediate hero gaps on each key. Wait for the
     // actual held-scroll focus handoff or the end of a rapid tap burst.
     LaunchedEffect(xlScene, xlSceneEnabled, xlScene.continuousVerticalNavigation,
         xlScene.continuousInputEpoch, isFastScrolling, fastScrollLandingVisualPending,
-        activeRowKey, xlScene.selection?.rowKey) {
+        activeRowKey, xlScene.selection?.rowKey, xlScene.verticalKeyHeld) {
         if (!xlScene.continuousVerticalNavigation) return@LaunchedEffect
         if (!xlSceneEnabled) {
             xlScene.finishContinuousNavigation()
             return@LaunchedEffect
         }
-        if (isFastScrolling || fastScrollLandingVisualPending || doubleUpInProgress.get()) return@LaunchedEffect
+        if (isFastScrolling || fastScrollLandingVisualPending || xlScene.verticalKeyHeld || doubleUpInProgress.get()) return@LaunchedEffect
         delay(XL_CONTINUOUS_NAV_INTERVAL_MS)
         snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
         val selected = xlScene.selection
@@ -5099,7 +5108,16 @@ private fun EnhancedModernHomeRowsListBoundary(
         if (index in 0 until info.totalItemsCount) {
             val offset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
                 xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
-            verticalRowListState.animateScrollToItem(index, offset)
+            if (index == currentCarouselRows.lastIndex && xlScene.continuousHeldScroll) {
+                // At the bottom, restore geometry and position without a second
+                // spring that can visually bounce off the end of the list.
+                verticalRowListState.requestScrollToItem(index, offset)
+                repeat(2) { withFrameNanos { } }
+            } else {
+                val current = info.visibleItemsInfo.firstOrNull { it.index == index }
+                if (current == null || kotlin.math.abs(current.offset + offset) > 1)
+                    verticalRowListState.animateScrollToItem(index, offset)
+            }
         }
         xlScene.finishContinuousNavigation()
     }
@@ -5120,15 +5138,17 @@ private fun EnhancedModernHomeRowsListBoundary(
             .dpadVerticalFastScroll(
                 scrollableState = verticalRowListState,
                 verticalVelocityDpPerSec = 1200f,
+                holdAtEdgeUntilRelease = xlSceneEnabled,
                 onFastScrollingChanged = { scrolling ->
                     if (scrolling) {
-                        if (currentXlSceneEnabled) currentXlScene.beginContinuousNavigation()
+                        if (currentXlSceneEnabled) currentXlScene.startHeldVerticalScroll()
                         else {
                             xlScene.clearBoundaryFocusIntent()
                             xlScene.cancelVerticalMotion()
                         }
                     }
                     if (!scrolling) {
+                        if (currentXlSceneEnabled) currentXlScene.noteVerticalRelease()
                         fastScrollLandingVisualPendingRef
                             .set(true)
 
@@ -5251,6 +5271,12 @@ private fun EnhancedModernHomeRowsListBoundary(
 
                         activeItemIndex =
                             savedItemIndex
+                        if (currentXlSceneEnabled && currentXlScene.continuousVerticalNavigation) {
+                            targetRow.sceneSelection(savedItemIndex, targetRowIndex)?.let {
+                                currentXlScene.focus(it, layoutInfo, rows = currentCarouselRows,
+                                    focusConfirmed = destinationAlreadyFocused)
+                            }
+                        }
 
                         /*
                          * The saved horizontal destination card may not
@@ -5273,7 +5299,7 @@ private fun EnhancedModernHomeRowsListBoundary(
 
                             pendingRowFocus
                                 .suppressBringIntoView =
-                                false
+                                currentXlSceneEnabled && currentXlScene.continuousVerticalNavigation
 
                             pendingRowFocus.nonce++
                         }
@@ -5888,6 +5914,16 @@ private fun EnhancedModernHomeRowsListBoundary(
                 if (currentXlSceneEnabled && native.action == AndroidKeyEvent.ACTION_DOWN &&
                     (keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)) {
                     currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime, native.repeatCount > 0)
+                    if (!isUp && native.repeatCount == 0 && !currentXlScene.continuousVerticalNavigation) {
+                        val index = currentCarouselRows.indexOfFirst { it.key == focusHolder.activeRowKey }
+                        val source = currentCarouselRows.getOrNull(index)
+                        val destination = currentCarouselRows.getOrNull(index + 1)
+                        if (source?.isXl == true && destination?.isXl == false)
+                            currentXlScene.armDeferredDownwardExit(source.key)
+                    }
+                } else if (currentXlSceneEnabled && native.action == AndroidKeyEvent.ACTION_UP &&
+                    (keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)) {
+                    currentXlScene.noteVerticalRelease()
                 }
 
                 /*
