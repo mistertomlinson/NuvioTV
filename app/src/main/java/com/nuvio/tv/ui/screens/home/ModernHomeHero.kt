@@ -641,10 +641,11 @@ internal fun HeroTitleContent(
     useFullSizeDescription: Boolean = false,
     modifier: Modifier = Modifier,
     primaryMetadataModifier: Modifier = Modifier,
-    animateTitleLogo: Boolean = true
+    animateTitleLogo: Boolean = true,
+    descriptionLineLimit: Int? = null
 ) {
     if (preview == null) return
-    val descriptionMaxLines = if (portraitMode) 4 else 5
+    val descriptionMaxLines = descriptionLineLimit ?: if (portraitMode) 4 else 5
     // Single dial to shrink/grow the whole hero cluster uniformly. 0.7f = 30% smaller.
     val heroScale = if (heroMetadataLarge) 1.0f else 0.7f
     // Logo max width: large = original 220 cap; small = wider base so shrunk logos
