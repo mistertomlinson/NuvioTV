@@ -106,7 +106,7 @@ internal fun rememberHomePosterMask(scene: XlSceneState, list: LazyListState, en
                     // The viewport retains its original geometry. The feather
                     // occupies its first 32dp, before the 40dp poster anchor.
                     !enabled -> 0f to 0f
-                    scene.continuousVerticalNavigation -> null
+                    scene.navigationPresentationFrozen -> null
                     scene.transition == null && scene.fastReturn == null ->
                         if (scene.selection?.isXl == true) null else 0f to ordinaryTop.toPx()
                     else -> list.layoutInfo.let { info ->
