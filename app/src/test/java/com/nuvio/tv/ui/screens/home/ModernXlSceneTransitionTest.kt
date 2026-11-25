@@ -1510,4 +1510,34 @@ class ModernXlSceneTransitionTest {
     }
     @Test fun compactExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(false)
     @Test fun summaryExitHasNoFocusHandoffStallAfterMovementBegins() = verifyNoExitStall(true)
+    @Test fun continuousLandingOnXlCrossfadesOnlyTheFinalPreparedBackdrop() {
+        content(start = 1)
+        frameReady.value = false
+        val oldToken = backdrop.token
+        compose.runOnUiThread {
+            scene.beginContinuousNavigation()
+            scene.focus(checkNotNull(rows[2].sceneSelection(0, 2)), list.layoutInfo, rows = rows)
+        }
+        advance(96)
+        assertEquals("A", backdrop.preview?.title)
+        assertFalse(backdrop.blurred)
+        assertEquals(oldToken, backdrop.token)
+        assertEquals(0, metadataCount())
+        compose.runOnUiThread {
+            scene.prepareContinuousLanding(rows)
+            scene.finishContinuousNavigation()
+        }
+        advance(96)
+        assertTrue(backdrop.blurred)
+        assertEquals(220, backdrop.imageFadeMillis)
+        assertEquals("XL", backdrop.preview?.title)
+        assertEquals(0f, backdrop.dim.value, 0.001f)
+        frameReady.value = true
+        advance(112)
+        assertTrue("The blurred landing animates instead of snapping", backdrop.dim.value in 0.001f..(XL_BACKDROP_DIM_ALPHA - 0.001f))
+        advance(320)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        assertEquals(0, metadataCount())
+    }
+
 }
