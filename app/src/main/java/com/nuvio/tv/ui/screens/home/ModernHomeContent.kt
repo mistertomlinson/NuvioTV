@@ -5071,6 +5071,39 @@ private fun EnhancedModernHomeRowsListBoundary(
     val doubleUpRenderedRows =
         doubleUpCompressedRows ?: carouselRows
 
+    // Do not restore intermediate hero gaps on each key. Wait for the
+    // actual held-scroll focus handoff or the end of a rapid tap burst.
+    LaunchedEffect(xlScene, xlSceneEnabled, xlScene.continuousVerticalNavigation,
+        xlScene.continuousInputEpoch, isFastScrolling, fastScrollLandingVisualPending,
+        activeRowKey, xlScene.selection?.rowKey) {
+        if (!xlScene.continuousVerticalNavigation) return@LaunchedEffect
+        if (!xlSceneEnabled) {
+            xlScene.finishContinuousNavigation()
+            return@LaunchedEffect
+        }
+        if (isFastScrolling || fastScrollLandingVisualPending || doubleUpInProgress.get()) return@LaunchedEffect
+        delay(XL_CONTINUOUS_NAV_INTERVAL_MS)
+        snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
+        val selected = xlScene.selection
+        if (selected == null || selected.rowKey != activeRowKey) {
+            xlScene.prepareContinuousLanding(currentCarouselRows)
+            xlScene.finishContinuousNavigation()
+            return@LaunchedEffect
+        }
+        xlScene.prepareContinuousLanding(currentCarouselRows)
+        // Let the one-time geometry restoration reach LazyColumn before
+        // measuring its final alignment. Keep the poster mask disabled.
+        repeat(2) { withFrameNanos { } }
+        val info = verticalRowListState.layoutInfo
+        val index = currentCarouselRows.indexOfFirst { it.key == selected.rowKey }
+        if (index in 0 until info.totalItemsCount) {
+            val offset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
+                xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
+            verticalRowListState.animateScrollToItem(index, offset)
+        }
+        xlScene.finishContinuousNavigation()
+    }
+
     CompositionLocalProvider(
         LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
     ) {
@@ -5089,8 +5122,11 @@ private fun EnhancedModernHomeRowsListBoundary(
                 verticalVelocityDpPerSec = 1200f,
                 onFastScrollingChanged = { scrolling ->
                     if (scrolling) {
-                        xlScene.clearBoundaryFocusIntent()
-                        xlScene.cancelVerticalMotion()
+                        if (currentXlSceneEnabled) currentXlScene.beginContinuousNavigation()
+                        else {
+                            xlScene.clearBoundaryFocusIntent()
+                            xlScene.cancelVerticalMotion()
+                        }
                     }
                     if (!scrolling) {
                         fastScrollLandingVisualPendingRef
@@ -5845,6 +5881,13 @@ private fun EnhancedModernHomeRowsListBoundary(
                         doubleUpLastReleaseStartedBelowTop
                             .set(false)
                     }
+                }
+
+                // Double-Up has already had first refusal above. A rapid
+                // reversal outside a burst still uses the verified XL spring.
+                if (currentXlSceneEnabled && native.action == AndroidKeyEvent.ACTION_DOWN &&
+                    (keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)) {
+                    currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime, native.repeatCount > 0)
                 }
 
                 /*
