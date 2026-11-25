@@ -26,6 +26,8 @@ internal object XlNavigationTrace {
     @Volatile var frameNumber = 0L
         private set
     private val sequence = AtomicLong()
+    // UI-thread reference; sampled only in the opt-in frame observer.
+    var backdrop: XlBackdropPresentation? = null
     private val queue = Channel<String>(8192, BufferOverflow.DROP_OLDEST)
     private val writer = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val enabled: Boolean get() = directory != null
@@ -47,8 +49,8 @@ internal object XlNavigationTrace {
                     val first = queue.receive()
                     delay(80)
                     val batch = StringBuilder(first).append('\n')
-                    repeat(512) {
-                        val next = queue.tryReceive().getOrNull() ?: return@repeat
+                    for (i in 0 until 512) {
+                        val next = queue.tryReceive().getOrNull() ?: break
                         batch.append(next).append('\n')
                     }
                     out.appendText(batch.toString())
@@ -67,10 +69,12 @@ internal object XlNavigationTrace {
     }
 
     fun nextFrame() { frameNumber++ }
-    fun event(name: String, fields: () -> String) {
-        if (!active) return
+    inline fun event(name: String, fields: () -> String) {
+        if (active) emit(name, fields())
+    }
+    fun emit(name: String, fields: String) {
         val seq = sequence.incrementAndGet()
-        queue.trySend("$seq\t${SystemClock.elapsedRealtimeNanos()}\t$frameNumber\t$name\t${fields().replace('\n', ' ').replace('\t', ' ')}")
+        queue.trySend("$seq\t${SystemClock.elapsedRealtimeNanos()}\t$frameNumber\t$name\t${fields.replace('\n', ' ').replace('\t', ' ')}")
     }
 }
 
@@ -97,6 +101,7 @@ internal fun ObserveXlNavigationTrace(scene: XlSceneState, list: LazyListState) 
                     val move = scene.transition
                     val motion = scene.verticalMotion
                     val selected = scene.selection
+                    val backdrop = XlNavigationTrace.backdrop
                     val rows = info.visibleItemsInfo.joinToString(";") { row ->
                         val key = row.key.toString()
                         val fixed = scene.fixedFollowerOffsetForIndex(row.index)
@@ -107,6 +112,7 @@ internal fun ObserveXlNavigationTrace(scene: XlSceneState, list: LazyListState) 
                         "deferred=${scene.deferredDownwardExit} continuous=${scene.continuousVerticalNavigation} collapsed=${scene.continuousGapsCollapsed} held=${scene.verticalKeyHeld}/${scene.continuousHeldScroll} epoch=${scene.continuousInputEpoch} " +
                         "move=${move?.id}:${move?.from?.rowKey}>${move?.to?.rowKey} settled=${move?.rowsSettled} motion=${motion?.id}:${motion?.scrollPx} " +
                         "metadataEpoch=${scene.metadataEpoch} metadataAlpha=${scene.exitMetadataAlpha} stationary=${scene.stationaryMetadata?.rowKey} previewReturn=${scene.previewReturn?.rowKey} " +
+                        "backdrop=${backdrop?.preview?.title} token=${backdrop?.token} blur=${backdrop?.blurred} dim=${backdrop?.dim?.value} gradient=${backdrop?.gradientAlpha?.value} fade=${backdrop?.imageFadeMillis} ready=${backdrop?.ready()} finished=${backdrop?.transitionFinished()} " +
                         "scrolling=${list.isScrollInProgress} canUp=${list.canScrollBackward} canDown=${list.canScrollForward} first=${list.firstVisibleItemIndex}/${list.firstVisibleItemScrollOffset} " +
                         "viewport=${info.viewportStartOffset},${info.viewportEndOffset},${info.viewportSize.height} padding=${info.beforeContentPadding} total=${info.totalItemsCount} rows(index,key,top,size,gap,header,fixed,preview,trimDp)=$rows"
                 }
