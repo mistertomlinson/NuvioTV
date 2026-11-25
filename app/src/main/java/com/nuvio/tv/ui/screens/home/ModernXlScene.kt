@@ -851,7 +851,7 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     val offset = when {
         xlSceneOutgoingMetadataVisible(scene, layout, ordinaryTopPx, viewportHeightPx, density, reserveSpace = true) -> scene.outgoingTranslation(layout)
         scene.selection?.isXl == true -> return null
-        move?.compactExit == true -> if (scene.compactRowRested || (scene.outgoingXlBottom(layout) ?: 0f) <= 0f) 0f else return null
+        move?.collapsedFollowerExit == true -> if (scene.compactRowRested || (scene.outgoingXlBottom(layout) ?: 0f) <= 0f) 0f else return null
         move?.deferOrdinaryReveal == true -> if (move.rowsSettled) 0f else return null
         move != null -> scene.incomingTranslation(layout, ordinaryTopPx, density) ?: return null
         else -> 0f
@@ -977,7 +977,7 @@ internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
         scene.releasePreviewGap(move.id)
     }
     LaunchedEffect(scene, list, id) {
-        if (move?.compactExit != true) return@LaunchedEffect
+        if (move?.collapsedFollowerExit != true) return@LaunchedEffect
         scene.exitMetadataAlpha = 0f
         snapshotFlow {
             (scene.outgoingXlBottom(list.layoutInfo) ?: 0f) <= 0f && (!move.collapsedFollowerExit || scene.compactRowRested)
@@ -1308,11 +1308,11 @@ internal fun ModernXlAwareHeroTitleBlock(
                 translationY = when {
                     fast != null -> scene.fastReturnTranslation(list.layoutInfo)
                     outgoing -> scene.outgoingTranslation(list.layoutInfo)
-                    enabled && move?.compactExit == true -> 0f
+                    enabled && move?.collapsedFollowerExit == true -> 0f
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (fast != null) fast.alpha else if (enabled && move?.compactExit == true && !outgoing) scene.exitMetadataAlpha
+                alpha = if (fast != null) fast.alpha else if (enabled && move?.collapsedFollowerExit == true && !outgoing) scene.exitMetadataAlpha
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
