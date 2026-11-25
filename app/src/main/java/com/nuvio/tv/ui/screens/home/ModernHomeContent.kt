@@ -2828,7 +2828,7 @@ fun ModernHomeContent(
         }
         val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
             pageStartsWithXl = carouselRows.firstOrNull()?.isXl == true)
-        val visualHero = if (hasXlRows && xlScene.navigationPresentationFrozen) xlScene.navigationFrozenBackdrop ?: xlBackdrop.preview ?: resolvedHero
+        val visualHero = if (hasXlRows && xlScene.navigationPresentationFrozen) (if (xlBackdrop.owned) xlBackdrop.preview else xlScene.navigationFrozenBackdrop) ?: xlBackdrop.preview ?: resolvedHero
             else if (xlBackdrop.owned) xlBackdrop.preview
             else xlScene.transition?.outgoingBackdrop ?: resolvedHero
         androidx.compose.runtime.SideEffect { xlScene.recordBackdrop(visualHero) }
@@ -6347,6 +6347,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 row = row,
                 posterFadeViewport = posterFadeViewport,
                 xlArtworkPresentation = xlScene.artwork,
+                xlNavigationFrozen = row.isXl && xlScene.navigationPresentationFrozen,
                 onHeaderMeasured = remember(xlScene, row.key) { { height -> xlScene.headerHeights[row.key] = height } },
                 onOrdinaryRowMeasured = if (xlSceneEnabled) remember(xlScene, row.key) {
                     { height -> xlScene.rowHeights[row.key] = height }
