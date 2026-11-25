@@ -1129,11 +1129,17 @@ internal fun rememberXlBackdropPresentation(
             state.revealing = true
             if (doubleUpArrival) {
                 state.directEntry = true
-                kotlinx.coroutines.coroutineScope {
-                    launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing)) }
-                    launch { state.gradientAlpha.animateTo(0f, tween(220, easing = LinearEasing)) }
+                val revealToken = state.token
+                try {
+                    kotlinx.coroutines.coroutineScope {
+                        launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing)) }
+                        launch { state.gradientAlpha.animateTo(0f, tween(220, easing = LinearEasing)) }
+                    }
+                } finally {
+                    // A second navigation can cancel this reveal. Do not let
+                    // an obsolete job reset a later entry's animation flag.
+                    if (state.token == revealToken) state.directEntry = false
                 }
-                state.directEntry = false
             } else {
                 state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
                 state.gradientAlpha.snapTo(0f)
