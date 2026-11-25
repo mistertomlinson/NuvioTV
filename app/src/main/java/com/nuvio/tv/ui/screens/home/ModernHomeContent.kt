@@ -6334,11 +6334,42 @@ private fun EnhancedModernHomeRowsListBoundary(
                 }
                 val fullSummaryHeight = xlScene.summaryRowHeights[row.key]
                 val summaryGapReduction = if (row.isXl && row.showXlSummary && row.key != carouselRows.lastOrNull()?.key) {
-                    val portraitClearance = xlScene.screenHeight - ordinaryRowTop - titleHeight * 2 -
-                        rowTitleBottom - portraitBaseHeight * 0.84f * 1.08f - 24.dp
+                    // Use the same physical title bounds as the normal portrait
+                    // row: its measured body, actual poster anchor and the
+                    // text height of the next header (without bottom padding).
+                    val nextRow = carouselRows.getOrNull(carouselRows.indexOfFirst { it.key == row.key } + 1)
+                    val nextTitleHeight = nextRow?.let { xlScene.headerHeights[it.key] }?.let {
+                        (it / doubleUpDensity.density - rowTitleBottom.value).coerceAtLeast(0f)
+                    } ?: titleHeight.value
+                    val portraitReference = carouselRows.withIndex().firstOrNull { (index, candidate) ->
+                        !candidate.isXl && !candidate.landscapePosters &&
+                            candidate.key != "continue_watching" && index < carouselRows.lastIndex &&
+                            !carouselRows[index + 1].isXl &&
+                            xlScene.rowHeights[candidate.key] != null && xlScene.headerHeights[candidate.key] != null
+                    }
+                    val portraitAnchor = ordinaryRowTop.value + (portraitReference?.let {
+                        xlScene.ordinaryPosterInset(it.value.key, it.index, doubleUpDensity.density) / doubleUpDensity.density
+                    } ?: 40f)
+                    val portraitBodyHeight = portraitReference?.let {
+                        (xlScene.rowHeights.getValue(it.value.key).value -
+                            xlScene.headerHeights.getValue(it.value.key) / doubleUpDensity.density).coerceAtLeast(0f)
+                    } ?: (portraitBaseHeight * 0.84f * 1.08f).value
+                    val referenceTitleHeight = portraitReference?.let {
+                        xlScene.headerHeights[carouselRows[it.index + 1].key]
+                    }?.let { (it / doubleUpDensity.density - rowTitleBottom.value).coerceAtLeast(0f) }
+                        ?: nextTitleHeight
+                    val portraitClearance = portraitNextTitleClearance(xlScene.screenHeight.value,
+                        portraitAnchor, portraitBodyHeight, referenceTitleHeight)
                     val trim = xlSummaryTrailingGapReduction(xlScene.screenHeight.value,
                         xlScene.xlTop(row.key).value, (fullSummaryHeight ?: xlScene.estimatedXlHeight).value,
-                        titleHeight.value, portraitClearance.value).dp
+                        nextTitleHeight, portraitClearance).dp
+                    SideEffect {
+                        XlNavigationTrace.event("TITLE_CLEARANCE") {
+                            "row=${row.key} reference=${portraitReference?.value?.key} portraitClearance=$portraitClearance " +
+                                "portraitAnchor=$portraitAnchor portraitBody=$portraitBodyHeight title=$nextTitleHeight " +
+                                "xlTop=${xlScene.xlTop(row.key).value} xlHeight=${fullSummaryHeight?.value} trim=${trim.value}"
+                        }
+                    }
                     with(doubleUpDensity) { trim.roundToPx().toDp() }
                 } else 0.dp
                 if (row.isXl) SideEffect {
@@ -6346,9 +6377,9 @@ private fun EnhancedModernHomeRowsListBoundary(
                     if (row.showXlSummary && fullSummaryHeight != null)
                         xlScene.rowHeights[row.key] = fullSummaryHeight - summaryGapReduction
                 }
-                // Borrow only from the unused 24dp AFTER the row. The full
+                // Adjust only the spacing AFTER the row. The full
                 // summary, artwork and resting poster anchor are unchanged.
-                val trimTrailingGap = if (summaryGapReduction > 0.dp) Modifier.layout { measurable, constraints ->
+                val trimTrailingGap = if (summaryGapReduction != 0.dp) Modifier.layout { measurable, constraints ->
                     val child = measurable.measure(constraints)
                     layout(child.width, (child.height - summaryGapReduction.roundToPx()).coerceAtLeast(constraints.minHeight)) {
                         child.placeRelative(0, 0)
