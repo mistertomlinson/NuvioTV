@@ -860,6 +860,48 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
+    @Test fun doubleUpIntoAnXlRowCrossfadesBackdropInsteadOfInstantSnap() {
+        content(start = 3, summary = true)
+        val destination = checkNotNull(rows[2].sceneSelection(0, 2))
+        compose.runOnIdle {
+            scene.beginFastReturn(destination, list.layoutInfo, rows)
+            scene.finishFastReturn(destination, rows)
+            // Production's Double-Up finally block calls this immediately,
+            // before the destination backdrop's LaunchedEffect can run.
+            scene.cancelFastReturn()
+            startsWithXl.value = true
+            carouselFocused.value = true
+            resolved.value = destination.preview
+        }
+        advance(16)
+        assertEquals("Double-Up requires a real image crossfade", 220, backdrop.imageFadeMillis)
+        assertTrue("XL arrival is an animated entry, not an initial render", backdrop.directEntry)
+        assertEquals(destination.preview, backdrop.preview)
+        assertTrue("The XL dimmer must not snap to full dark in its first frame",
+            backdrop.dim.value < XL_BACKDROP_DIM_ALPHA - 0.01f)
+        assertTrue("The ordinary backdrop gradient must fade, not disappear instantly",
+            backdrop.gradientAlpha.value > 0.01f)
+
+        advance(96)
+        assertTrue("Dimmer should be moving toward XL in parallel with the image",
+            backdrop.dim.value in 0.001f..(XL_BACKDROP_DIM_ALPHA - 0.001f))
+        assertTrue("Ordinary gradient should be dissolving", backdrop.gradientAlpha.value in 0.001f..0.999f)
+        advance(192)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.002f)
+        assertEquals(0f, backdrop.gradientAlpha.value, 0.002f)
+        assertFalse(backdrop.directEntry)
+        assertFalse("The arrival is a one-shot event",
+            scene.consumeFastReturnXlBackdropReveal(destination.rowKey))
+    }
+
+    @Test fun initialXlBackdropRemainsImmediatelyInitializedWithoutDoubleUp() {
+        content(start = 2, summary = true)
+        assertEquals("A true initial XL render must not add an artificial transition",
+            0, backdrop.imageFadeMillis)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        assertEquals(0f, backdrop.gradientAlpha.value, 0.001f)
+    }
+
     @Test fun upwardXlEntryCrossfadesImmediatelyWithoutBlackOrWaitingForRows() {
         content(start = 3)
         press(KeyEvent.KEYCODE_DPAD_UP)
