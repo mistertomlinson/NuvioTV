@@ -442,7 +442,7 @@ class XlSceneStateTest {
         }
     }
 
-    @Test fun `summary entry and exit retain their existing draw only readiness`() {
+    @Test fun `summary entry keeps its draw readiness but collapsed exit commits new focus`() {
         for (entering in listOf(false, true)) {
             val xl = selection("XL", 1, true, true)
             val ordinary = selection("C", 2)
@@ -451,9 +451,19 @@ class XlSceneStateTest {
             scene.focus(if (entering) xl else ordinary, positionedLayout("XL" to 54, "C" to 500), focusConfirmed = false)
             val motion = checkNotNull(scene.verticalMotion)
             val signal = scene.requestFocusPaint(motion.id)
-            assertEquals("Summary must not invalidate the composition token", oldComposition, scene.compactFocusCompositionEpoch)
-            scene.recordFocusPaint(motion.id, oldComposition)
-            assertTrue("The existing summary draw is enough", signal.isCompleted)
+            if (entering) {
+                assertEquals("Summary entry retains the original draw readiness",
+                    oldComposition, scene.compactFocusCompositionEpoch)
+                scene.recordFocusPaint(motion.id, oldComposition)
+                assertTrue("Summary entry may use its already committed composition", signal.isCompleted)
+            } else {
+                assertEquals("Summary exit now requires its incoming ordinary focused frame",
+                    motion.id, scene.compactFocusCompositionEpoch)
+                scene.recordFocusPaint(motion.id, oldComposition)
+                assertFalse("Old cached focus must not launch the summary exit", signal.isCompleted)
+                scene.recordFocusPaint(motion.id, scene.compactFocusCompositionEpoch)
+                assertTrue(signal.isCompleted)
+            }
         }
     }
 
