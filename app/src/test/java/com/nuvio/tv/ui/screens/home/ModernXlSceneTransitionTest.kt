@@ -119,9 +119,11 @@ class ModernXlSceneTransitionTest {
                                         rows[candidate].isXl &&
                                             rows[candidate - 1].key != "continue_watching"
                                     }
+                                    val hasEarlierXl = (0 until index).any { rows[it].isXl }
                                     Column(Modifier.testTag("row-${row.key}").then(
-                                        if (hasCompressiblePrefixBeforeXl) Modifier.graphicsLayer {
-                                            translationY = scene.landscapePreXlDrawOffsetPx(index, rows)
+                                        if (hasCompressiblePrefixBeforeXl || hasEarlierXl) Modifier.graphicsLayer {
+                                            translationY = scene.landscapePreXlDrawOffsetPx(index, rows) +
+                                                scene.previewReturnOffsetForIndex(index)
                                         } else Modifier
                                     )) {
                                         XlSceneRowHeadroom(scene, row.key, rows.getOrNull(index - 1), row.isXl)
@@ -241,7 +243,7 @@ class ModernXlSceneTransitionTest {
         fun trackedTop(): Float? = list.layoutInfo.let { info ->
             info.visibleItemsInfo.firstOrNull { it.key == trackedKey }?.let {
                 val drawTranslation = scene.fixedFollowerOffsetForIndex(it.index) +
-                    scene.landscapePreXlDrawOffsetPx(it.index, rows)
+                    scene.landscapePreXlDrawOffsetPx(it.index, rows) + scene.previewReturnOffsetForIndex(it.index)
                 it.offset + info.beforeContentPadding + (scene.headroomValues[trackedKey]?.value ?: 0f) +
                     (scene.headerHeights[trackedKey] ?: 40f) + drawTranslation
             }
@@ -251,6 +253,7 @@ class ModernXlSceneTransitionTest {
         var peakAt = -1
         val samples = mutableListOf<String>()
         var firstRest = -1
+        var firstSpringRest = -1
         var lastY = Float.NaN
         var reversed = 0
         var direction = 0
@@ -270,6 +273,7 @@ class ModernXlSceneTransitionTest {
             lastY = position
             val moving = list.isScrollInProgress || scene.headroomMoving.values.any { it }
             if (!moving && firstRest < 0) firstRest = frame * 16
+            if (!list.isScrollInProgress && scene.verticalMotion == null && firstSpringRest < 0) firstSpringRest = frame * 16
             samples += "${frame * 16}:${position.toInt()}:${scene.headroomValues[target]?.value?.toInt() ?: 0}:$moving"
             advance(16)
         }
@@ -283,9 +287,15 @@ class ModernXlSceneTransitionTest {
             val peakReference = referenceSteps.zipWithNext().maxOf { (a, b) -> abs(b - a) }
             val referenceSettle = referenceSteps.indexOfFirst { abs(reference - it) < 0.5f } * 16
             val expectedSettle = referenceSettle * XL_SPRING_TIME_SCALE
-            println("XL_SPRING name=$name distance=$reference scale=$XL_SPRING_TIME_SCALE peak=$peakStep referencePeak=$peakReference settled=$firstRest regularSpringStop=$referenceSettle peakAt=$peakAt")
-            assertTrue("Only a modest stretch of the ordinary spring", firstRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
-            assertTrue("XL must not gain a long poster-size timing multiplier", firstRest <= referenceSettle + 80)
+            println("XL_SPRING name=$name distance=$reference scale=$XL_SPRING_TIME_SCALE peak=$peakStep referencePeak=$peakReference settled=$firstRest springSettled=$firstSpringRest regularSpringStop=$referenceSettle peakAt=$peakAt")
+            assertTrue("Only a modest stretch of the ordinary spring", firstSpringRest in (expectedSettle - 16).toInt()..(expectedSettle + 64).toInt())
+            assertTrue("XL must not gain a long poster-size timing multiplier", firstSpringRest <= referenceSettle + 80)
+            if (start == 3 && key == KeyEvent.KEYCODE_DPAD_UP) {
+                // The independent, mask-gated preview must not extend the list spring.
+                assertTrue("Title-peek return must settle within its separate 360ms clock", firstRest in firstSpringRest..(firstSpringRest + 408))
+            } else {
+                assertTrue("No independent geometry tail on this boundary", firstRest <= firstSpringRest + 32)
+            }
             assertTrue("The same spring keeps its familiar early movement", peakStep <= peakReference * 1.1f + 2f)
             if (start == 2) assertTrue("Regular spring acceleration must peak early, then decelerate", peakAt in 1 until (firstRest * 0.3f).toInt())
         }
@@ -451,7 +461,8 @@ class ModernXlSceneTransitionTest {
         var began = false
         repeat(60) {
             advance(16)
-            if (!began && checkNotNull(scene.headroomValues["C"]) < originalGap) {
+            if (scene.previewReturn != null) assertEquals("Preview return must keep measured headroom fixed", originalGap, scene.headroomValues["C"])
+            if (!began && scene.previewReturnPaintOffsetPx < -0.5f) {
                 began = true
                 assertTrue(checkNotNull(scene.transition).outgoingMetadataCleared)
                 assertTrue("The return starts before XL finishes its slide", list.isScrollInProgress)
@@ -461,6 +472,7 @@ class ModernXlSceneTransitionTest {
         frameReady.value = true
         settle()
         assertEquals(0.dp, scene.headroomValues["C"])
+        assertEquals(0f, scene.previewReturnPaintOffsetPx, 0f)
         assertEquals(0, metadataCount())
     }
 
