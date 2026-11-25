@@ -3286,6 +3286,7 @@ private fun ModernCarouselCard(
                     modifier = mediaLayerModifier
                         .graphicsLayer {
                             alpha = posterAlpha
+                            XlNavigationTrace.event("IMAGE_LAYER") { "item=${item.key} title=${item.title} loaded=${posterImageLoaded.value} hasImage=$hasImage alpha=$posterAlpha size=$size" }
                         }
                 ) {
                     if (!hasImage || !posterImageLoaded.value) {
@@ -3308,12 +3309,15 @@ private fun ModernCarouselCard(
                                 },
                             onLoading = {
                                 posterImageLoaded.value = false
+                                XlNavigationTrace.event("IMAGE_LOADING") { "item=${item.key} title=${item.title}" }
                             },
                             onSuccess = {
                                 posterImageLoaded.value = true
+                                XlNavigationTrace.event("IMAGE_READY") { "item=${item.key} title=${item.title}" }
                             },
                             onError = {
                                 posterImageLoaded.value = false
+                                XlNavigationTrace.event("IMAGE_ERROR") { "item=${item.key} title=${item.title}" }
                             }
                         )
                     }
