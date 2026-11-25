@@ -132,6 +132,8 @@ class ModernHomeIntegrationTest {
         compose.mainClock.autoAdvance = false
         advance(800)
         if (middle) { press(KeyEvent.KEYCODE_DPAD_DOWN); advance(800) }
+        assertEquals("Both XL modes keep the next ordinary row collapsed until focus", 0,
+            scene.gapPx(catalogRowKey(rows[nextIndex])))
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         var previousEdge = scene.outgoingXlBottom(list.layoutInfo)
         var slideStarted = false
@@ -144,8 +146,7 @@ class ModernHomeIntegrationTest {
                     assertTrue("Actual Home must not pause its visible XL slide at focus handoff", bottom < previousEdge!!)
             }
             previousEdge = bottom
-            if (!summary && bottom != null && bottom > 0f) assertEquals("Compact metadata waits until all XL pixels clear", 0f, scene.exitMetadataAlpha, 0f)
-            if (summary) assertEquals("Summary metadata stays opaque while sliding", 1f, scene.exitMetadataAlpha, 0f)
+            if (bottom != null && bottom > 0f) assertEquals("Both XL modes wait until all XL pixels clear", 0f, scene.exitMetadataAlpha, 0f)
         }
         assertEquals("$nextIndex-0", focused.lastOrNull())
         val nodes = compose.onAllNodesWithTag("ordinary-metadata-${catalogRowKey(rows[nextIndex])}", useUnmergedTree = true).fetchSemanticsNodes()
