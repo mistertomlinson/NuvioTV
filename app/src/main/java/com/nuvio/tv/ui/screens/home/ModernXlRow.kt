@@ -116,7 +116,8 @@ internal fun ModernXlRowSection(
     onUpPressed: (() -> Unit)?,
     artworkPresentation: XlArtworkPresentation? = null,
     onHeaderMeasured: (Float) -> Unit = {},
-    onRowMeasured: (Dp, Dp) -> Unit = { _, _ -> }
+    onRowMeasured: (Dp, Dp) -> Unit = { _, _ -> },
+    navigationFrozen: Boolean = false
 ) {
     if (row.items.isEmpty()) return
     val configuration = LocalConfiguration.current
@@ -144,14 +145,21 @@ internal fun ModernXlRowSection(
     val selectedItem = row.items[selected]
     val imageLoader = remember(context) { coil.Coil.imageLoader(context) }
     var presentedKey by remember(row.key) { mutableStateOf(selectedItem.key) }
-    val presentedIndex = if (artworkPresentation == null) selected else
+    val latestSelectedKey by rememberUpdatedState(selectedItem.key)
+    val latestNavigationFrozen by rememberUpdatedState(navigationFrozen)
+    val presentedIndex = if (artworkPresentation == null || navigationFrozen) selected else
         row.items.indexOfFirst { it.key == presentedKey }.takeIf { it >= 0 } ?: selected
     val presentedItem = row.items[presentedIndex]
     DisposableEffect(artworkPresentation, row.key) {
         artworkPresentation?.renderers?.set(row.key, true)
         onDispose { artworkPresentation?.renderers?.remove(row.key) }
     }
-    LaunchedEffect(rowHasFocus, jumping, selectedItem, artworkPresentation, geometry, density) {
+    LaunchedEffect(rowHasFocus, jumping, selectedItem, artworkPresentation, geometry, density, navigationFrozen) {
+        if (navigationFrozen) {
+            // Scroll artwork independently of the backdrop readiness gate.
+            presentedKey = selectedItem.key
+            return@LaunchedEffect
+        }
         if (!rowHasFocus || jumping || artworkPresentation == null) return@LaunchedEffect
         val blurUrl = selectedItem.xlLandscapeImageUrl()
         val requests = buildList {
@@ -162,6 +170,7 @@ internal fun ModernXlRowSection(
         prepareXlArtworkPair(imageLoader, requests)
         // Both cache entries are ready (or have failed). One composition commit
         // swaps the permanent card's artwork and releases the background fade.
+        if (!rowHasFocus || jumping || latestNavigationFrozen || latestSelectedKey != selectedItem.key) return@LaunchedEffect
         presentedKey = selectedItem.key
         artworkPresentation.frame = XlArtworkFrame(row.key, selectedItem.key, blurUrl)
     }
@@ -171,8 +180,8 @@ internal fun ModernXlRowSection(
             with(density) { geometry.cardHeight.dp.roundToPx() })
     }
     val nextBlurUrl = row.items.getOrNull(selected + 1)?.xlLandscapeImageUrl()
-    LaunchedEffect(rowHasFocus, jumping, nextLandscape, nextBlurUrl) {
-        if (!rowHasFocus || jumping || nextLandscape == null) return@LaunchedEffect
+    LaunchedEffect(rowHasFocus, jumping, nextLandscape, nextBlurUrl, navigationFrozen) {
+        if (navigationFrozen || !rowHasFocus || jumping || nextLandscape == null) return@LaunchedEffect
         // Conflate held D-pad presses; decode only one likely destination, on
         // Coil's background path. A changed selection/focus cancels this work.
         delay(80)
@@ -312,8 +321,8 @@ internal fun ModernXlRowSection(
                     modernCatalogCardHeight = geometry.cardHeight.dp,
                     landscapeTrailerExpandedHeight = geometry.cardHeight.dp,
                     focusedPosterBackdropTrailerMuted = muted,
-                    effectiveExpandEnabled = featured && autoplayEnabled && !jumping && presentedIndex == selected,
-                    effectiveAutoplayEnabled = featured && autoplayEnabled && !jumping && presentedIndex == selected,
+                    effectiveExpandEnabled = featured && autoplayEnabled && !navigationFrozen && !jumping && presentedIndex == selected,
+                    effectiveAutoplayEnabled = featured && autoplayEnabled && !navigationFrozen && !jumping && presentedIndex == selected,
                     expandLandscapePostersEnabled = false,
                     trailerPlaybackTarget = FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD,
                     expandedCatalogFocusKey = expandedFocusKey,
