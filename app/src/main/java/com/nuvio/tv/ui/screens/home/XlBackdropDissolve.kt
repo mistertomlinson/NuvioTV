@@ -106,6 +106,7 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
                         // Tint remains inside this cache, preserving per-draw alpha.
                         compositingStrategy = CompositingStrategy.Offscreen
                         alpha = layer.alpha.value
+                        XlNavigationTrace.event("BACKDROP_LAYER") { "image=${layer.frame.url?.hashCode()} blurred=${layer.frame.blurred} alpha=$alpha ready=${layer.ready}" }
                     }) {
                         latestContent(layer.frame) { layer.ready = true }
                     }
