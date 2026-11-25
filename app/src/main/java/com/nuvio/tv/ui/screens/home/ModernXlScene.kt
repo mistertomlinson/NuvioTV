@@ -61,7 +61,7 @@ internal fun ordinaryComingSoonText(
     resolvedHero: HeroPreview?,
     activeRowIsXl: Boolean
 ): String? {
-    if (scene.continuousVerticalNavigation || activeRowIsXl || scene.selection?.isXl == true) return null
+    if (scene.navigationPresentationFrozen || activeRowIsXl || scene.selection?.isXl == true) return null
     val move = scene.transition
     if (move != null && !move.rowsSettled) return null
     val managed = move != null || backdrop.owned || scene.stationaryMetadata != null
@@ -270,8 +270,71 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         private set
     private var lastVerticalPressTime = Long.MIN_VALUE
     private var lastVerticalPressSign = 0
+    var verticalKeyHeld by mutableStateOf(false)
+        private set
+    var continuousHeldScroll by mutableStateOf(false)
+        private set
+    var deferredDownwardExit by mutableStateOf(false)
+        private set
+    private var deferredExitSource: String? = null
+    private var deferredExitTarget: XlSceneSelection? = null
+    private var deferredExitConfirmed = false
+    var navigationFrozenBackdrop by mutableStateOf<HeroPreview?>(null)
+        private set
+    val navigationPresentationFrozen: Boolean
+        get() = deferredDownwardExit || continuousVerticalNavigation
+    private var pendingContinuousBackdrop: Pair<String, String>? = null
+
+    fun armDeferredDownwardExit(sourceKey: String) {
+        if (continuousVerticalNavigation || deferredDownwardExit || fastReturn != null) return
+        deferredExitSource = sourceKey
+        deferredExitTarget = null
+        deferredExitConfirmed = false
+        navigationFrozenBackdrop = paintedBackdrop ?: selection?.preview
+        deferredDownwardExit = true
+    }
+
+    private fun clearDeferredExit() {
+        deferredExitSource = null
+        deferredExitTarget = null
+        deferredExitConfirmed = false
+        deferredDownwardExit = false
+        clearBoundaryFocusIntent()
+    }
+
+    fun resolveDeferredDownwardExit(layout: LazyListLayoutInfo, rows: List<HeroCarouselRow>) {
+        if (!deferredDownwardExit) return
+        if (verticalKeyHeld) {
+            beginContinuousNavigation()
+            return
+        }
+        val target = deferredExitTarget
+        val confirmed = deferredExitConfirmed
+        clearDeferredExit()
+        navigationFrozenBackdrop = null
+        if (target != null) focus(target, layout, rows = rows, focusConfirmed = confirmed)
+    }
+
+    fun noteVerticalRelease() { verticalKeyHeld = false }
+
+    fun startHeldVerticalScroll() {
+        continuousHeldScroll = true
+        beginContinuousNavigation()
+    }
+
+    fun consumeContinuousBackdropReveal(target: XlSceneSelection): Boolean {
+        if (pendingContinuousBackdrop != (target.rowKey to target.itemKey)) return false
+        pendingContinuousBackdrop = null
+        return true
+    }
 
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
+        verticalKeyHeld = true
+        if (deferredDownwardExit && sign < 0) {
+            // An immediate reversal still owns the original XL scene.
+            clearDeferredExit()
+            navigationFrozenBackdrop = null
+        }
         val rapid = lastVerticalPressTime != Long.MIN_VALUE &&
             sign == lastVerticalPressSign &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
@@ -284,8 +347,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         if (fastReturn != null) return
         continuousInputEpoch++
         if (continuousGapsCollapsed) return
+        val pending = deferredExitTarget
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            if (!navigationPresentationFrozen || navigationFrozenBackdrop == null)
+                navigationFrozenBackdrop = paintedBackdrop ?: selection?.preview
+            pendingContinuousBackdrop = null
             continuousVerticalNavigation = true
+            clearDeferredExit()
+            if (pending != null) selection = pending
             continuousGapsCollapsed = true
             clearBoundaryFocusIntent()
             cancelVerticalMotion()
@@ -341,6 +410,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             continuousGapsCollapsed = false
             continuousVerticalNavigation = false
+            continuousHeldScroll = false
+            verticalKeyHeld = false
+            pendingContinuousBackdrop = selection?.let { it.rowKey to it.itemKey }
+            navigationFrozenBackdrop = null
             exitMetadataAlpha = 1f
             metadataEpoch++
             stationaryMetadata = selection?.takeUnless { it.isXl }?.let {
@@ -542,7 +615,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun confirmFocus(rowKey: String, layout: LazyListLayoutInfo? = null, rows: List<HeroCarouselRow> = emptyList()) {
         boundaryFocusArmed = false
-        if (continuousVerticalNavigation) return
+        if (deferredDownwardExit) {
+            if (deferredExitTarget?.rowKey == rowKey) deferredExitConfirmed = true
+            return
+        }
+        if (continuousVerticalNavigation) {
+            confirmedRowKey = rowKey
+            return
+        }
         // A recycled destination can be absent during logical selection and
         // become measurable only when its card receives actual focus.
         if (verticalMotion == null && layout != null) transition?.takeIf {
@@ -566,7 +646,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
         pendingFastReturnXlBackdropKey = null
+        clearDeferredExit()
         finishContinuousNavigation()
+        pendingContinuousBackdrop = null
+        navigationFrozenBackdrop = null
+        verticalKeyHeld = false
         clearBoundaryFocusIntent()
         cancelVerticalMotion()
         interruptedRelocation = null
@@ -635,7 +719,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun recordMetadata(snapshot: XlMetadataSnapshot, translation: Float = 0f, alpha: Float = 1f,
         epoch: Int = metadataEpoch, clipTop: Float = 0f) {
-        if (continuousVerticalNavigation) return
+        if (navigationPresentationFrozen || epoch != metadataEpoch && transition?.outgoingMetadataEpoch != epoch) return
         paintedMetadata = snapshot
         paintedTranslation = translation
         paintedAlpha = alpha
@@ -645,16 +729,26 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun hideMetadata() { paintedAlpha = 0f }
 
-    fun recordBackdrop(preview: HeroPreview?) { paintedBackdrop = preview }
+    fun recordBackdrop(preview: HeroPreview?) { if (!navigationPresentationFrozen) paintedBackdrop = preview }
 
     fun focus(next: XlSceneSelection, layout: LazyListLayoutInfo, animate: Boolean = true,
         rows: List<HeroCarouselRow> = emptyList(), focusConfirmed: Boolean = true) {
         if (rows.isNotEmpty()) rowCount = rows.size
         if (fastReturn != null) return
-        if (continuousVerticalNavigation) {
-            selection = next
+        if (deferredDownwardExit) {
+            if (next.rowKey != deferredExitSource) {
+                deferredExitTarget = next
+                if (focusConfirmed) deferredExitConfirmed = true
+            }
             return
         }
+        if (continuousVerticalNavigation) {
+            selection = next
+            if (focusConfirmed) confirmedRowKey = next.rowKey
+            return
+        }
+        if (pendingContinuousBackdrop != null &&
+            pendingContinuousBackdrop != (next.rowKey to next.itemKey)) pendingContinuousBackdrop = null
         val previous = selection
         val previousMove = transition
         val heldMetadata = stationaryMetadata
@@ -954,7 +1048,7 @@ internal fun xlSceneOutgoingMetadataVisible(scene: XlSceneState, layout: LazyLis
 
 internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo, enabled: Boolean,
     ordinaryTopPx: Float, density: Float, viewportHeightPx: Float = Float.POSITIVE_INFINITY): Pair<Float, Float>? {
-    if (!enabled || scene.continuousVerticalNavigation) return null
+    if (!enabled || scene.navigationPresentationFrozen) return null
     scene.fastReturn?.let { fast ->
         if (fast.metadata == null || fast.alpha <= 0f) return null
         val offset = scene.fastReturnTranslation(layout)
@@ -1128,6 +1222,7 @@ internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolea
     var imageFadeMillis by mutableIntStateOf(0)
     var directEntry by mutableStateOf(false)
     var directExit by mutableStateOf(false)
+    var continuousReveal by mutableStateOf(false)
     private var finishedToken by mutableIntStateOf(-1)
     private var finishedUrl by mutableStateOf<String?>(null)
     private var finishedBlurred by mutableStateOf(false)
@@ -1149,6 +1244,7 @@ internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolea
     }
 
     fun frameReady(renderToken: Int, url: String?, blurred: Boolean = this.blurred) {
+        if (renderToken != token) return
         readyToken = renderToken
         readyUrl = url
         readyBlurred = blurred
@@ -1183,14 +1279,19 @@ internal fun rememberXlBackdropPresentation(
     val latestResolved by rememberUpdatedState(resolvedHero)
     val selectionKey = selected?.let { it.rowKey to it.itemKey }
     LaunchedEffect(scene, selectionKey, selected?.preview?.backdrop, selected?.preview?.imageUrl,
-        selected?.preview?.poster, carouselFocused, pageStartsWithXl, enabled, scene.continuousVerticalNavigation) {
-        if (scene.continuousVerticalNavigation) return@LaunchedEffect
+        selected?.preview?.poster, carouselFocused, pageStartsWithXl, enabled, scene.navigationPresentationFrozen) {
+        if (enabled && scene.navigationPresentationFrozen) {
+            state.preview = scene.navigationFrozenBackdrop ?: state.preview ?: latestResolved
+            state.owned = true
+            return@LaunchedEffect
+        }
         val target = selected ?: return@LaunchedEffect
         val boundary = scene.transition
         val boundaryId = boundary?.id
         val dark = enabled && if (carouselFocused) pageStartsWithXl else target.isXl
         val exitingXl = !dark && (state.blurred || state.directExit || boundary?.from?.isXl == true)
         state.directEntry = false
+        state.continuousReveal = false
         if (!enabled) {
             state.directExit = false
             state.owned = false
@@ -1198,6 +1299,41 @@ internal fun rememberXlBackdropPresentation(
             state.dim.snapTo(0f)
             state.gradientAlpha.snapTo(1f)
             if (boundaryId != null) scene.complete(boundaryId)
+            return@LaunchedEffect
+        }
+        if (scene.consumeContinuousBackdropReveal(target)) {
+            // Hold the exact previous presentation until the final artwork is
+            // ready. A newly focused XL is not a cold-start backdrop.
+            state.owned = true
+            if (dark && !carouselFocused) withTimeoutOrNull(2_000L) {
+                snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
+                    firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
+            }
+            state.imageFadeMillis = 220
+            state.directExit = !dark && state.blurred
+            state.directEntry = dark
+            state.continuousReveal = true
+            state.revealing = true
+            state.token++
+            state.preview = target.preview
+            state.blurred = dark
+            val revealToken = state.token
+            try {
+                repeat(2) { withFrameNanos { } }
+                withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
+                kotlinx.coroutines.coroutineScope {
+                    launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f, tween(220, easing = LinearEasing)) }
+                    launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f, tween(220, easing = LinearEasing)) }
+                }
+                withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
+            } finally {
+                if (state.token == revealToken) {
+                    state.directEntry = false
+                    state.directExit = false
+                    state.continuousReveal = false
+                }
+            }
+            if (!dark && latestResolved == target.preview) state.owned = false
             return@LaunchedEffect
         }
         if (exitingXl) {
@@ -1344,8 +1480,8 @@ internal fun rememberXlBackdropPresentation(
         if (boundaryId != null) scene.complete(boundaryId)
         if (!dark && latestResolved == target.preview) state.owned = false
     }
-    LaunchedEffect(resolvedHero, state.owned, scene.transition, selected?.isXl, scene.continuousVerticalNavigation) {
-        if (scene.continuousVerticalNavigation) return@LaunchedEffect
+    LaunchedEffect(resolvedHero, state.owned, scene.transition, selected?.isXl, scene.navigationPresentationFrozen, state.continuousReveal) {
+        if (scene.navigationPresentationFrozen || state.continuousReveal) return@LaunchedEffect
         scene.resolveStationaryMetadata(resolvedHero)
         if (scene.transition == null && !state.directExit && selected?.isXl != true && state.dim.value == 0f &&
             resolvedHero == selected?.preview) state.owned = false
@@ -1386,7 +1522,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         }
     }
     val snapshot = when {
-        enabled && scene.continuousVerticalNavigation -> null
+        enabled && scene.navigationPresentationFrozen -> null
         fast != null -> if (outgoing) fast.metadata else null
         !enabled -> resolvedHero?.let { XlMetadataSnapshot(selected?.rowKey.orEmpty(), it) }
         outgoing -> move?.outgoingMetadata
@@ -1408,7 +1544,7 @@ internal fun ModernXlAwareHeroTitleBlock(
     XlMetadataHost(
         activeSlot = slot,
         activeSnapshot = snapshot,
-        neighbors = if (enabled && !scene.continuousVerticalNavigation && selected?.isXl == true) adjacentMetadata else emptyList(),
+        neighbors = if (enabled && !scene.navigationPresentationFrozen && selected?.isXl == true) adjacentMetadata else emptyList(),
         nextEpoch = scene.metadataEpoch + 1,
         modifier = modifier.zIndex(1f),
         retainPreparedLayout = enabled && (move != null || fast != null)
@@ -1436,7 +1572,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (enabled && scene.continuousVerticalNavigation) 0f else if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
+                alpha = if (enabled && (scene.navigationPresentationFrozen || (scene.selection?.isXl == true && !outgoing && fast == null))) 0f else if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
