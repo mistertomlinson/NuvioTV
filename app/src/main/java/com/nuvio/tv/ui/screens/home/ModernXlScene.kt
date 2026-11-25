@@ -233,6 +233,26 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
     var previewReturn by mutableStateOf<XlPreviewReturn?>(null)
         internal set
+    var previewReturnPaintOffsetPx by mutableFloatStateOf(0f)
+        internal set
+
+    fun previewReturnOffsetForIndex(index: Int): Float {
+        val preview = previewReturn ?: return 0f
+        return if (index >= preview.rowIndex) previewReturnPaintOffsetPx else 0f
+    }
+
+    // Materialize the actually painted gap exactly once if navigation
+    // interrupts the independent title-peek animation.
+    fun cancelPreviewReturn() {
+        val preview = previewReturn ?: return
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            val visualGap = (gapPx(preview.rowKey) + previewReturnPaintOffsetPx.roundToInt()).coerceAtLeast(0)
+            headroomValues[preview.rowKey] = (visualGap / density).dp
+            headroomMoving[preview.rowKey] = false
+            previewReturnPaintOffsetPx = 0f
+            previewReturn = null
+        }
+    }
     private var confirmedRowKey: String? = null
     var boundaryFocusArmed: Boolean = false
         private set
@@ -270,7 +290,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             clearBoundaryFocusIntent()
             cancelVerticalMotion()
             interruptedRelocation = null
-            previewReturn = null
+            cancelPreviewReturn()
             transition = null
             stationaryMetadata = null
             paintedMetadata = null
@@ -550,8 +570,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         clearBoundaryFocusIntent()
         cancelVerticalMotion()
         interruptedRelocation = null
-        previewReturn?.let { headroomMoving[it.rowKey] = false }
-        previewReturn = null
+        cancelPreviewReturn()
         transition = null
         stationaryMetadata = null
         fastReturn = XlFastReturn(target, paintedMetadata?.takeIf { paintedAlpha > 0f },
@@ -643,8 +662,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val interruptedReturn = verticalMotion != null && previousMove?.downwardExit == true && next.rowKey == previousMove.from.rowKey
         if (previous?.rowKey != next.rowKey) {
             confirmedRowKey = null
-            previewReturn?.let { headroomMoving[it.rowKey] = false }
-            previewReturn = null
+            cancelPreviewReturn()
             val interrupted = verticalMotion
             val previousJob = verticalJob
             // Keep the actual painted position of every ordinary row after
@@ -720,7 +738,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         if (next.isXl && next.rowIndex < previous.rowIndex &&
             compactPaintHandoff == null) {
             rows.getOrNull(next.rowIndex + 1)?.takeUnless { it.isXl }?.let {
-                previewReturn = XlPreviewReturn(move.id, it.key, next.rowKey)
+                previewReturn = XlPreviewReturn(move.id, it.key, next.rowKey, next.rowIndex + 1)
                 headroomMoving[it.key] = true
             }
         }
