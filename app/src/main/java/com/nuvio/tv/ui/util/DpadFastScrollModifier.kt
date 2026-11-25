@@ -32,6 +32,7 @@ fun Modifier.dpadVerticalFastScroll(
     verticalVelocityDpPerSec: Float = DEFAULT_VERTICAL_VELOCITY_DP_PER_SEC,
     endTimeoutMs: Long = DEFAULT_END_TIMEOUT_MS,
     maxFrameDtSec: Float = DEFAULT_MAX_FRAME_DT_SEC,
+    holdAtEdgeUntilRelease: Boolean = false,
 ): Modifier = composed {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -40,6 +41,7 @@ fun Modifier.dpadVerticalFastScroll(
     val modeRef = remember { AtomicReference(FastScrollMode.None) }
     val directionRef = remember { AtomicInteger(0) }
     val isActiveRef = remember { AtomicReference(false) }
+    val waitingAtEdge = remember { AtomicReference(false) }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -61,6 +63,7 @@ fun Modifier.dpadVerticalFastScroll(
         fun endFastScroll() {
             val mode = modeRef.getAndSet(FastScrollMode.None)
             val direction = directionRef.getAndSet(0)
+            waitingAtEdge.set(false)
             jobRef.getAndSet(null)?.cancel()
             endTimerRef.getAndSet(null)?.cancel()
             setActive(false)
@@ -85,18 +88,29 @@ fun Modifier.dpadVerticalFastScroll(
         }
 
         val sign = if (kc == KeyEvent.KEYCODE_DPAD_UP) -1 else 1
-        val needsStart = modeRef.get() != FastScrollMode.Vertical ||
-            directionRef.get() != sign || jobRef.get()?.isActive != true
+        val waitingForRelease = holdAtEdgeUntilRelease && waitingAtEdge.get() && directionRef.get() == sign
+        val needsStart = !waitingForRelease && (modeRef.get() != FastScrollMode.Vertical ||
+            directionRef.get() != sign || jobRef.get()?.isActive != true)
 
         if (needsStart) {
             jobRef.getAndSet(null)?.cancel()
+            waitingAtEdge.set(false)
             val atScrollEdge = (sign > 0 && !scrollableState.canScrollForward) ||
                 (sign < 0 && !scrollableState.canScrollBackward)
             val halted = sign > 0 && shouldHaltForward()
             if (atScrollEdge || halted) {
-                if (modeRef.get() != FastScrollMode.None) endFastScroll()
-                return@onPreviewKeyEvent true
-            }
+                if (holdAtEdgeUntilRelease) {
+                    // Keep the held scroll session alive at the limit. More
+                    // repeat events must not re-open gaps or trigger a landing.
+                    modeRef.set(FastScrollMode.Vertical)
+                    directionRef.set(sign)
+                    waitingAtEdge.set(true)
+                    setActive(true)
+                } else {
+                    if (modeRef.get() != FastScrollMode.None) endFastScroll()
+                    return@onPreviewKeyEvent true
+                }
+            } else {
             modeRef.set(FastScrollMode.Vertical)
             directionRef.set(sign)
             setActive(true)
@@ -115,9 +129,10 @@ fun Modifier.dpadVerticalFastScroll(
                             if (consumed == 0f && delta != 0f) break
                         }
                     }
-                    endFastScroll()
+                    if (holdAtEdgeUntilRelease) waitingAtEdge.set(true) else endFastScroll()
                 } catch (_: CancellationException) { }
             })
+            }
         }
 
         endTimerRef.getAndSet(null)?.cancel()
