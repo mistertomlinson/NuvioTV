@@ -5099,21 +5099,22 @@ private fun EnhancedModernHomeRowsListBoundary(
             xlScene.finishContinuousNavigation()
             return@LaunchedEffect
         }
-        xlScene.prepareContinuousLanding(currentCarouselRows)
-        // Let the one-time geometry restoration reach LazyColumn before
-        // measuring its final alignment. Keep the poster mask disabled.
-        repeat(2) { withFrameNanos { } }
-        val info = verticalRowListState.layoutInfo
         val index = currentCarouselRows.indexOfFirst { it.key == selected.rowKey }
-        if (index in 0 until info.totalItemsCount) {
+        val atHeldBottom = index >= 0 && index == currentCarouselRows.lastIndex && xlScene.continuousHeldScroll
+        xlScene.prepareContinuousLanding(currentCarouselRows)
+        if (atHeldBottom) {
+            // Apply restored gaps and the final position in the same measure.
+            val info = verticalRowListState.layoutInfo
             val offset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
                 xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
-            if (index == currentCarouselRows.lastIndex && xlScene.continuousHeldScroll) {
-                // At the bottom, restore geometry and position without a second
-                // spring that can visually bounce off the end of the list.
-                verticalRowListState.requestScrollToItem(index, offset)
-                repeat(2) { withFrameNanos { } }
-            } else {
+            verticalRowListState.requestScrollToItem(index, offset)
+            repeat(2) { withFrameNanos { } }
+        } else {
+            repeat(2) { withFrameNanos { } }
+            val info = verticalRowListState.layoutInfo
+            if (index in 0 until info.totalItemsCount) {
+                val offset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
+                    xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
                 val current = info.visibleItemsInfo.firstOrNull { it.index == index }
                 if (current == null || kotlin.math.abs(current.offset + offset) > 1)
                     verticalRowListState.animateScrollToItem(index, offset)
@@ -6310,12 +6311,38 @@ private fun EnhancedModernHomeRowsListBoundary(
                     doubleUpRenderedRows[it].isXl
                 } ?: -1
                 val fixedOrdinarySuffix = xlSceneEnabled && !row.isXl && precedingXlIndex >= 0
-                Box(modifier = if (fixedOrdinarySuffix) Modifier.graphicsLayer {
+                val titleLineHeight = MaterialTheme.typography.titleMedium.lineHeight
+                val titleHeight = with(doubleUpDensity) {
+                    runCatching { titleLineHeight.toDp() }.getOrDefault(24.dp)
+                }
+                val fullSummaryHeight = xlScene.summaryRowHeights[row.key]
+                val summaryGapReduction = if (row.isXl && row.showXlSummary && row.key != carouselRows.lastOrNull()?.key) {
+                    val portraitClearance = xlScene.screenHeight - ordinaryRowTop - titleHeight * 2 -
+                        rowTitleBottom - portraitBaseHeight * 0.84f * 1.08f - 24.dp
+                    val trim = xlSummaryTrailingGapReduction(xlScene.screenHeight.value,
+                        xlScene.xlTop(row.key).value, (fullSummaryHeight ?: xlScene.estimatedXlHeight).value,
+                        titleHeight.value, portraitClearance.value).dp
+                    with(doubleUpDensity) { trim.roundToPx().toDp() }
+                } else 0.dp
+                if (row.isXl) SideEffect {
+                    xlScene.summaryTrailingGapReductions[row.key] = summaryGapReduction
+                    if (row.showXlSummary && fullSummaryHeight != null)
+                        xlScene.rowHeights[row.key] = fullSummaryHeight - summaryGapReduction
+                }
+                // Borrow only from the unused 24dp AFTER the row. The full
+                // summary, artwork and resting poster anchor are unchanged.
+                val trimTrailingGap = if (summaryGapReduction > 0.dp) Modifier.layout { measurable, constraints ->
+                    val child = measurable.measure(constraints)
+                    layout(child.width, (child.height - summaryGapReduction.roundToPx()).coerceAtLeast(constraints.minHeight)) {
+                        child.placeRelative(0, 0)
+                    }
+                } else Modifier
+                Box(modifier = trimTrailingGap.then(if (fixedOrdinarySuffix) Modifier.graphicsLayer {
                     translationY = xlFixedOrdinarySuffixTranslationPx(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.fixedFollowerTranslationPx
                     )
-                } else Modifier) {
+                } else Modifier)) {
             ModernRowSection(
                 row = row,
                 posterFadeViewport = posterFadeViewport,
@@ -6324,8 +6351,8 @@ private fun EnhancedModernHomeRowsListBoundary(
                 onOrdinaryRowMeasured = if (xlSceneEnabled) remember(xlScene, row.key) {
                     { height -> xlScene.rowHeights[row.key] = height }
                 } else null,
-                onXlRowMeasured = remember(xlScene, row.key) { { height, withSummary ->
-                    xlScene.rowHeights[row.key] = height
+                onXlRowMeasured = remember(xlScene, row.key, summaryGapReduction) { { height, withSummary ->
+                    xlScene.rowHeights[row.key] = height - summaryGapReduction
                     xlScene.summaryRowHeights[row.key] = withSummary
                 } },
                 doubleLeftRowShortcutEnabled =
