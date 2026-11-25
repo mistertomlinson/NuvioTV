@@ -469,4 +469,66 @@ class XlSceneStateTest {
         assertEquals("Offsets are relative to the content-padding origin", -500, anchor.scrollOffset)
     }
 
+    @Test fun `rapid same direction taps suppress geometry and metadata until the final landing`() {
+        for (summary in listOf(false, true)) {
+            val xl = selection("XL", 0, true, summary)
+            val c = selection("C", 1)
+            val d = selection("D", 2)
+            fun row(item: XlSceneSelection) = HeroCarouselRow(item.rowKey, item.rowKey,
+                item.rowIndex, listOf(ModernCarouselItem(item.itemKey, item.itemKey, null, null,
+                    item.preview, ModernPayload.Catalog(item.itemKey, item.itemKey, "movie", "", item.itemKey, null, "movie"))),
+                isXl = item.isXl, showXlSummary = item.summary)
+            val rows = listOf(row(xl), row(c), row(d))
+            val scene = XlSceneState(xl, rows)
+            scene.noteVerticalPress(1, 1000L, false)
+            assertFalse(scene.continuousVerticalNavigation)
+            scene.focus(c, positionedLayout("XL" to 54, "C" to 500), rows = rows, focusConfirmed = false)
+            assertNotNull(scene.verticalMotion)
+            scene.noteVerticalPress(1, 1100L, false)
+            assertTrue(scene.continuousVerticalNavigation)
+            assertTrue(scene.continuousGapsCollapsed)
+            assertNull(scene.verticalMotion)
+            assertNull(scene.transition)
+            assertEquals(0, scene.gapPx("C"))
+            assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+            scene.focus(d, layout(), rows = rows)
+            scene.confirmFocus("D", layout(), rows)
+            scene.recordMetadata(XlMetadataSnapshot("C", c.preview))
+            assertNull(scene.stationaryMetadata)
+            assertNull(scene.verticalMotion)
+            scene.prepareContinuousLanding(rows)
+            assertTrue(scene.continuousVerticalNavigation)
+            assertFalse(scene.continuousGapsCollapsed)
+            assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+            scene.finishContinuousNavigation()
+            assertFalse(scene.continuousVerticalNavigation)
+            assertEquals(XlMetadataSnapshot("D", d.preview), scene.stationaryMetadata)
+            assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        }
+    }
+
+    @Test fun `a held key collapses gaps and a new press cancels pending restoration`() {
+        val scene = XlSceneState(selection("XL", 0, true))
+        scene.headroomValues["C"] = 140.dp
+        scene.noteVerticalPress(1, 1000L, true)
+        assertTrue(scene.continuousGapsCollapsed)
+        assertEquals(0, scene.gapPx("C"))
+        scene.prepareContinuousLanding(emptyList())
+        assertFalse(scene.continuousGapsCollapsed)
+        scene.headroomValues["C"] = 140.dp
+        scene.noteVerticalPress(-1, 1050L, false)
+        assertTrue(scene.continuousGapsCollapsed)
+        assertEquals(0, scene.gapPx("C"))
+        assertNull(scene.transition)
+    }
+
+    @Test fun `a single quick reversal retains the normal XL transition path`() {
+        val scene = XlSceneState(selection("XL", 0, true))
+        scene.noteVerticalPress(1, 1000L, false)
+        scene.noteVerticalPress(-1, 1080L, false)
+        assertFalse(scene.continuousVerticalNavigation)
+        scene.noteVerticalPress(-1, 1400L, false)
+        assertFalse(scene.continuousVerticalNavigation)
+    }
+
 }
