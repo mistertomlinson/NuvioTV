@@ -31,7 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
-internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 180L
+internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 130L
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
 internal data class XlSceneSelection(
@@ -254,7 +254,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
         val rapid = lastVerticalPressTime != Long.MIN_VALUE &&
             sign == lastVerticalPressSign &&
-            eventTime - lastVerticalPressTime in 0..XL_CONTINUOUS_NAV_INTERVAL_MS
+            eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
         if (repeated || rapid || continuousVerticalNavigation) beginContinuousNavigation()
@@ -333,7 +333,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private var launchedMotionId = -1
     var focusPaintEpoch by mutableIntStateOf(0)
         private set
-    // Compact previews are already visible and may replay their old display
+    // XL previews are already visible and may replay their old display
     // list. Their draw must belong to the newly committed focus composition.
     var compactFocusCompositionEpoch by mutableIntStateOf(0)
         private set
@@ -616,6 +616,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun recordMetadata(snapshot: XlMetadataSnapshot, translation: Float = 0f, alpha: Float = 1f,
         epoch: Int = metadataEpoch, clipTop: Float = 0f) {
+        if (continuousVerticalNavigation) return
         paintedMetadata = snapshot
         paintedTranslation = translation
         paintedAlpha = alpha
@@ -966,7 +967,7 @@ internal fun Modifier.xlSceneRowsViewport(scene: XlSceneState, list: LazyListSta
     ordinaryTop: Dp): Modifier {
     val mask by rememberHomePosterMask(scene, list, enabled, ordinaryTop)
     // Capture during composition, not during replay of a cached preview draw.
-    // Only a compact boundary changes this state; summary keeps its draw path.
+    // Both XL variants require the newly committed focus composition.
     val composedCompactEpoch = scene.compactFocusCompositionEpoch
     return drawWithContent {
         val paintEpoch = scene.focusPaintEpoch
