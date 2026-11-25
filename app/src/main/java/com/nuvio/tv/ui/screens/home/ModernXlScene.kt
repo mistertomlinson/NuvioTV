@@ -303,6 +303,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         clearBoundaryFocusIntent()
     }
 
+    fun cancelDeferredDownwardExit() {
+        if (!deferredDownwardExit) return
+        clearDeferredExit()
+        navigationFrozenBackdrop = null
+        verticalKeyHeld = false
+    }
+
     fun resolveDeferredDownwardExit(layout: LazyListLayoutInfo, rows: List<HeroCarouselRow>) {
         if (!deferredDownwardExit) return
         if (verticalKeyHeld) {
