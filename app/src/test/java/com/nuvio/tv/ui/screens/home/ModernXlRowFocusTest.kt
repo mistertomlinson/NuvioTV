@@ -478,6 +478,22 @@ class ModernXlRowFocusTest {
         assertXlFocus(7)
     }
 
+    @Test fun xlSummaryUsesExactlyThreeDescriptionLinesWithoutAHiddenFourthLine() {
+        val source = row()
+        val longSynopsis = List(36) { "Detailed synopsis" }.joinToString(" ")
+        val first = source.items.first()
+        rowState.value = source.copy(items = source.items.toMutableList().apply {
+            this[0] = first.copy(heroPreview = first.heroPreview.copy(description = longSynopsis))
+        })
+        content()
+        val layoutResults = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        compose.onNodeWithText(longSynopsis).performSemanticsAction(
+            androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult
+        ) { it(layoutResults) }
+        assertEquals("XL summary must reserve and render only three lines",
+            3, layoutResults.single().lineCount)
+    }
+
     @Test fun summaryOffRemovesItsSpaceAndShowsTheFollowingRow() {
         rowState.value = row().copy(showXlSummary = false)
         content()
