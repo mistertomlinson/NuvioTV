@@ -287,6 +287,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private var pendingContinuousBackdrop: Pair<String, String>? = null
 
     fun armDeferredDownwardExit(sourceKey: String) {
+        XlNavigationTrace.event("ARM_EXIT") { "source=$sourceKey" }
         if (continuousVerticalNavigation || deferredDownwardExit || fastReturn != null) return
         deferredExitSource = sourceKey
         deferredExitTarget = null
@@ -311,6 +312,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun resolveDeferredDownwardExit(layout: LazyListLayoutInfo, rows: List<HeroCarouselRow>) {
+        XlNavigationTrace.event("EXIT_DECISION") { "held=$verticalKeyHeld target=${deferredExitTarget?.rowKey} pending=$deferredDownwardExit" }
         if (!deferredDownwardExit) return
         if (verticalKeyHeld) {
             beginContinuousNavigation()
@@ -359,6 +361,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun beginContinuousNavigation() {
+        XlNavigationTrace.event("CONTINUOUS_START") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (fastReturn != null) return
         continuousInputEpoch++
         if (continuousGapsCollapsed) return
@@ -392,6 +395,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // Restore the normal geometry once, while the metadata and its mask are
     // still hidden. The landing owner aligns the final row before revealing it.
     fun prepareContinuousLanding(rows: List<HeroCarouselRow>) {
+        XlNavigationTrace.event("LAND_PREPARE") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (!continuousVerticalNavigation || !continuousGapsCollapsed) return
         val selected = selection
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
@@ -421,6 +425,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun finishContinuousNavigation() {
+        XlNavigationTrace.event("LAND_FINISH") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (!continuousVerticalNavigation) return
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             continuousGapsCollapsed = false
@@ -639,6 +644,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun confirmFocus(rowKey: String, layout: LazyListLayoutInfo? = null, rows: List<HeroCarouselRow> = emptyList()) {
+        XlNavigationTrace.event("FOCUS_CONFIRMED") { "row=$rowKey selected=${selection?.rowKey} deferred=$deferredDownwardExit continuous=$continuousVerticalNavigation" }
         boundaryFocusArmed = false
         if (deferredDownwardExit) {
             if (deferredExitTarget?.rowKey == rowKey) deferredExitConfirmed = true
@@ -758,6 +764,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun focus(next: XlSceneSelection, layout: LazyListLayoutInfo, animate: Boolean = true,
         rows: List<HeroCarouselRow> = emptyList(), focusConfirmed: Boolean = true) {
+        XlNavigationTrace.event("FOCUS_REQUEST") { "from=${selection?.rowKey}/${selection?.itemKey} next=${next.rowKey}/${next.itemKey} confirmed=$focusConfirmed deferred=$deferredDownwardExit continuous=$continuousVerticalNavigation" }
         if (rows.isNotEmpty()) rowCount = rows.size
         if (fastReturn != null) return
         if (deferredDownwardExit) {
@@ -1307,6 +1314,7 @@ internal fun rememberXlBackdropPresentation(
     val state = remember(scene) { XlBackdropPresentation(if (darkTarget) selected?.preview ?: resolvedHero else resolvedHero, darkTarget) }
     val latestResolved by rememberUpdatedState(resolvedHero)
     SideEffect {
+        if (XlNavigationTrace.enabled) XlNavigationTrace.backdrop = state
         XlNavigationTrace.event("BACKDROP") { "selected=${selected?.rowKey}/${selected?.itemKey} resolved=${resolvedHero?.title} presented=${state.preview?.title} token=${state.token} owned=${state.owned} blurred=${state.blurred} entering=${state.directEntry} exiting=${state.directExit} reveal=${state.continuousReveal} dim=${state.dim.value} gradient=${state.gradientAlpha.value} ready=${state.ready()} finished=${state.transitionFinished()} fade=${state.imageFadeMillis}" }
     }
     val frozen = enabled && scene.navigationPresentationFrozen
