@@ -43,7 +43,7 @@ internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     // An interrupted compact DOWN exit reuses its measured follower gap
     // while the UP spring restores its existing paint-only offset to zero.
     val fixedReturnFollowerMeasurement: Boolean = false)
-internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String)
+internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String, val rowIndex: Int)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
 
@@ -294,7 +294,9 @@ internal fun AnimateXlPreviewReturn(scene: XlSceneState, list: LazyListState) {
             val start = currentTop.coerceAtMost((scene.screenHeight.value + 8f) * scene.density)
             androidx.compose.animation.core.animate(start, finalTop, animationSpec = tween(360)) { top, _ ->
                 if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
-                baseTop()?.let { base -> scene.headroomValues[preview.rowKey] = ((top - base) / scene.density).coerceAtLeast(0f).dp }
+                baseTop()?.let { base ->
+                    scene.previewReturnPaintOffsetPx = (top - base).coerceAtLeast(0f) - scene.gapPx(preview.rowKey)
+                }
             }
             // If the longer XL entry is still moving, hold the visible preview
             // at its destination until the underlying row catches up. Do not
@@ -302,14 +304,18 @@ internal fun AnimateXlPreviewReturn(scene: XlSceneState, list: LazyListState) {
             while (list.isScrollInProgress) {
                 withFrameNanos { }
                 if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
-                baseTop()?.let { base -> scene.headroomValues[preview.rowKey] = ((finalTop - base) / scene.density).coerceAtLeast(0f).dp }
+                baseTop()?.let { base ->
+                    scene.previewReturnPaintOffsetPx = (finalTop - base).coerceAtLeast(0f) - scene.gapPx(preview.rowKey)
+                }
             }
-            scene.headroomValues[preview.rowKey] = 0.dp
-        } finally {
-            if (scene.previewReturn?.id == preview.id) {
+            if (scene.previewReturn?.id == preview.id) Snapshot.withMutableSnapshot {
+                scene.headroomValues[preview.rowKey] = 0.dp
+                scene.previewReturnPaintOffsetPx = 0f
                 scene.headroomMoving[preview.rowKey] = false
                 scene.previewReturn = null
             }
+        } finally {
+            if (scene.previewReturn?.id == preview.id) scene.cancelPreviewReturn()
         }
     }
 }
