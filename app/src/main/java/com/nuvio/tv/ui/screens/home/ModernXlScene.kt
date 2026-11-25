@@ -319,6 +319,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun startHeldVerticalScroll() {
         continuousHeldScroll = true
+        verticalKeyHeld = true
         beginContinuousNavigation()
     }
 
@@ -491,6 +492,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     val headerHeights = mutableStateMapOf<String, Float>()
     val rowHeights = mutableStateMapOf<String, Dp>()
     val summaryRowHeights = mutableStateMapOf<String, Dp>()
+    // The summary's untrimmed height defines its unchanged resting anchor.
+    // Only the measured list footprint is shortened into the trailing gap.
+    val summaryTrailingGapReductions = mutableStateMapOf<String, Dp>()
     var screenHeight by mutableStateOf(540.dp)
     var fullWidthIcons by mutableStateOf(false)
     var estimatedXlHeight by mutableStateOf(440.dp)
@@ -570,9 +574,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun followingHeadroom(previousKey: String, rowKey: String, density: Float, clearXl: Boolean): Dp {
-        val bottom = xlTop(previousKey) + (rowHeights[previousKey] ?: estimatedXlHeight)
-        return xlFollowingHeadroom(screenHeight.value, bottom.value, ordinaryTop.value,
-            metadataTopFor(rowKey).value, (headerHeights[rowKey] ?: 40f * density) / density - 40f, clearXl).dp
+        val trim = summaryTrailingGapReductions[previousKey] ?: 0.dp
+        val bottom = xlTop(previousKey) + (rowHeights[previousKey] ?: estimatedXlHeight - trim)
+        val correction = (headerHeights[rowKey] ?: 40f * density) / density - 40f
+        val gap = xlFollowingHeadroom(screenHeight.value, bottom.value, ordinaryTop.value,
+            metadataTopFor(rowKey).value, correction, clearXl)
+        return (if (clearXl) maxOf(gap, ordinaryTop.value - 24f + 1f - correction + trim.value) else gap).dp
     }
 
     fun cancelVerticalMotion(preserveCompactFollowerPaint: Boolean = false) {
@@ -719,7 +726,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun recordMetadata(snapshot: XlMetadataSnapshot, translation: Float = 0f, alpha: Float = 1f,
         epoch: Int = metadataEpoch, clipTop: Float = 0f) {
-        if (navigationPresentationFrozen || epoch != metadataEpoch && transition?.outgoingMetadataEpoch != epoch) return
+        if (navigationPresentationFrozen || epoch != metadataEpoch && transition?.outgoingMetadataEpoch != epoch && fastReturn?.epoch != epoch) return
         paintedMetadata = snapshot
         paintedTranslation = translation
         paintedAlpha = alpha
@@ -1029,7 +1036,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun outgoingXlBottom(layout: LazyListLayoutInfo): Float? {
         val move = transition?.takeIf { it.downwardExit } ?: return null
         val owner = layout.visibleItemsInfo.firstOrNull { it.key == move.from.rowKey } ?: return 0f
-        return (owner.offset + layout.beforeContentPadding + owner.size).toFloat().coerceAtLeast(0f)
+        val actualBottom = owner.offset + layout.beforeContentPadding + owner.size +
+            ((summaryTrailingGapReductions[move.from.rowKey]?.value ?: 0f) * density).roundToInt()
+        return actualBottom.toFloat().coerceAtLeast(0f)
     }
 }
 
