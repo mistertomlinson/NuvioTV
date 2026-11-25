@@ -711,7 +711,8 @@ internal fun ModernRowSection(
     onHeaderMeasured: (Float) -> Unit = {},
     onXlRowMeasured: (Dp, Dp) -> Unit = { _, _ -> },
     onOrdinaryRowMeasured: ((Dp) -> Unit)? = null,
-    posterFadeViewport: HomePosterFadeViewport? = null
+    posterFadeViewport: HomePosterFadeViewport? = null,
+    xlNavigationFrozen: Boolean = false
 ) {
     if (row.isXl && row.items.isNotEmpty()) {
         ModernXlRowSection(
@@ -745,6 +746,7 @@ internal fun ModernRowSection(
             useThemeColorForNumbers = useThemeColorForNumbers,
             doubleLeftRowShortcutEnabled = doubleLeftRowShortcutEnabled,
             artworkPresentation = xlArtworkPresentation,
+            navigationFrozen = xlNavigationFrozen,
             onUpPressed = if (isFirstRow) onRequestCarouselFocus else null,
             onHeaderMeasured = onHeaderMeasured,
             onRowMeasured = onXlRowMeasured
