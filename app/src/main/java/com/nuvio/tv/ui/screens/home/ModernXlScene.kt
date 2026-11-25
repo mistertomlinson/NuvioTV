@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
+internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 180L
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
 internal data class XlSceneSelection(
@@ -60,7 +61,7 @@ internal fun ordinaryComingSoonText(
     resolvedHero: HeroPreview?,
     activeRowIsXl: Boolean
 ): String? {
-    if (activeRowIsXl || scene.selection?.isXl == true) return null
+    if (scene.continuousVerticalNavigation || activeRowIsXl || scene.selection?.isXl == true) return null
     val move = scene.transition
     if (move != null && !move.rowsSettled) return null
     val managed = move != null || backdrop.owned || scene.stationaryMetadata != null
@@ -235,8 +236,100 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private var confirmedRowKey: String? = null
     var boundaryFocusArmed: Boolean = false
         private set
-    fun armBoundaryFocus() { boundaryFocusArmed = true }
+    fun armBoundaryFocus() { if (!continuousVerticalNavigation) boundaryFocusArmed = true }
     fun clearBoundaryFocusIntent() { boundaryFocusArmed = false }
+
+    // The held-key scroll owner and repeated same-direction taps share one
+    // compact scene. These flags change at input/landing boundaries, not on
+    // individual scroll frames. Metadata stays suppressed through alignment.
+    var continuousVerticalNavigation by mutableStateOf(false)
+        private set
+    var continuousGapsCollapsed by mutableStateOf(false)
+        private set
+    var continuousInputEpoch by mutableIntStateOf(0)
+        private set
+    private var lastVerticalPressTime = Long.MIN_VALUE
+    private var lastVerticalPressSign = 0
+
+    fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
+        val rapid = lastVerticalPressTime != Long.MIN_VALUE &&
+            sign == lastVerticalPressSign &&
+            eventTime - lastVerticalPressTime in 0..XL_CONTINUOUS_NAV_INTERVAL_MS
+        lastVerticalPressTime = eventTime
+        lastVerticalPressSign = sign
+        if (repeated || rapid || continuousVerticalNavigation) beginContinuousNavigation()
+    }
+
+    fun beginContinuousNavigation() {
+        if (fastReturn != null) return
+        continuousInputEpoch++
+        if (continuousGapsCollapsed) return
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            continuousVerticalNavigation = true
+            continuousGapsCollapsed = true
+            clearBoundaryFocusIntent()
+            cancelVerticalMotion()
+            interruptedRelocation = null
+            previewReturn = null
+            transition = null
+            stationaryMetadata = null
+            paintedMetadata = null
+            paintedAlpha = 0f
+            exitMetadataAlpha = 0f
+            compactRowRested = false
+            expandedXlRows.clear()
+            heldHeadroomGoals.clear()
+            headroomMoving.clear()
+            landscapePreXlCompression.clear()
+            headroomValues.keys.toList().forEach { headroomValues[it] = 0.dp }
+        }
+    }
+
+    // Restore the normal geometry once, while the metadata and its mask are
+    // still hidden. The landing owner aligns the final row before revealing it.
+    fun prepareContinuousLanding(rows: List<HeroCarouselRow>) {
+        if (!continuousVerticalNavigation || !continuousGapsCollapsed) return
+        val selected = selection
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            continuousGapsCollapsed = false
+            if (selected == null) return@withMutableSnapshot
+            openEarlierXlGaps(selected, rows)
+            rows.forEachIndexed { index, row ->
+                val previous = rows.getOrNull(index - 1)
+                val predecessorFocused = previous?.key == selected.rowKey
+                val target = when {
+                    row.isXl && previous != null -> {
+                        val compactPrefix = predecessorFocused &&
+                            (previous.key == "continue_watching" || !previous.landscapePosters)
+                        if (predecessorFocused && previous.key != "continue_watching")
+                            landscapePreXlCompression[row.key] = 1f
+                        if (compactPrefix) 0.dp else (xlTop(row.key) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                    }
+                    previous?.isXl == true && index <= selected.rowIndex ->
+                        followingHeadroom(previous.key, row.key, density, clearXl = true)
+                    else -> 0.dp
+                }
+                headroomValues[row.key] = target
+                if (!row.isXl && previous?.isXl == true && index <= selected.rowIndex)
+                    heldHeadroomGoals[row.key] = target
+            }
+        }
+    }
+
+    fun finishContinuousNavigation() {
+        if (!continuousVerticalNavigation) return
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            continuousGapsCollapsed = false
+            continuousVerticalNavigation = false
+            exitMetadataAlpha = 1f
+            metadataEpoch++
+            stationaryMetadata = selection?.takeUnless { it.isXl }?.let {
+                XlMetadataSnapshot(it.rowKey, it.preview)
+            }
+        }
+        lastVerticalPressTime = Long.MIN_VALUE
+        lastVerticalPressSign = 0
+    }
     private var launchedMotionId = -1
     var focusPaintEpoch by mutableIntStateOf(0)
         private set
@@ -346,6 +439,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
      * its measured prefix on individual spring frames.
      */
     fun landscapePreXlDrawOffsetPx(rowIndex: Int, rows: List<HeroCarouselRow>): Float {
+        if (continuousGapsCollapsed) return 0f
         var offset = 0f
         for (i in 1..minOf(rowIndex, rows.lastIndex)) {
             val xl = rows[i]
@@ -428,6 +522,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun confirmFocus(rowKey: String, layout: LazyListLayoutInfo? = null, rows: List<HeroCarouselRow> = emptyList()) {
         boundaryFocusArmed = false
+        if (continuousVerticalNavigation) return
         // A recycled destination can be absent during logical selection and
         // become measurable only when its card receives actual focus.
         if (verticalMotion == null && layout != null) transition?.takeIf {
@@ -451,6 +546,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
         pendingFastReturnXlBackdropKey = null
+        finishContinuousNavigation()
         clearBoundaryFocusIntent()
         cancelVerticalMotion()
         interruptedRelocation = null
@@ -535,6 +631,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         rows: List<HeroCarouselRow> = emptyList(), focusConfirmed: Boolean = true) {
         if (rows.isNotEmpty()) rowCount = rows.size
         if (fastReturn != null) return
+        if (continuousVerticalNavigation) {
+            selection = next
+            return
+        }
         val previous = selection
         val previousMove = transition
         val heldMetadata = stationaryMetadata
@@ -835,7 +935,7 @@ internal fun xlSceneOutgoingMetadataVisible(scene: XlSceneState, layout: LazyLis
 
 internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo, enabled: Boolean,
     ordinaryTopPx: Float, density: Float, viewportHeightPx: Float = Float.POSITIVE_INFINITY): Pair<Float, Float>? {
-    if (!enabled) return null
+    if (!enabled || scene.continuousVerticalNavigation) return null
     scene.fastReturn?.let { fast ->
         if (fast.metadata == null || fast.alpha <= 0f) return null
         val offset = scene.fastReturnTranslation(layout)
@@ -894,6 +994,7 @@ internal fun XlSceneRowHeadroom(
     val density = androidx.compose.ui.platform.LocalDensity.current.density
     val expanded = previous?.key?.let { scene.expandedXlRows[it] } == true
     val computedTarget = when {
+        scene.continuousGapsCollapsed -> 0.dp
         // The gap and prefix together clear the previous row beyond y=0 at
         // XL's measured landing position, including the balanced full-width mode.
         currentXl && previous?.key == "continue_watching" &&
@@ -909,7 +1010,7 @@ internal fun XlSceneRowHeadroom(
             scene.followingHeadroom(checkNotNull(previous).key, rowKey, density, clearXl = expanded)
         else -> 0.dp
     }
-    val target = if (followsXl && expanded) scene.heldHeadroomGoals[rowKey] ?: computedTarget else computedTarget
+    val target = if (!scene.continuousGapsCollapsed && followsXl && expanded) scene.heldHeadroomGoals[rowKey] ?: computedTarget else computedTarget
     val managed = scene.verticalMotion?.takeIf {
         it.rowKey == rowKey || it.secondaryGap?.rowKey == rowKey ||
             it.landscapePrefix?.xlKey == rowKey
@@ -918,7 +1019,13 @@ internal fun XlSceneRowHeadroom(
     remember(scene, rowKey) {
         if (rowKey !in scene.headroomValues) scene.headroomValues[rowKey] = target
     }
-    LaunchedEffect(scene, rowKey, target, managed?.id, retainedPreview?.id, scene.fastReturn) {
+    LaunchedEffect(scene, rowKey, target, managed?.id, retainedPreview?.id, scene.fastReturn, scene.continuousVerticalNavigation, scene.continuousGapsCollapsed) {
+        if (scene.continuousVerticalNavigation) {
+            if (scene.continuousGapsCollapsed) scene.headroomValues[rowKey] = 0.dp
+            else scene.headroomValues[rowKey] = target
+            scene.headroomMoving[rowKey] = false
+            return@LaunchedEffect
+        }
         if (scene.fastReturn != null) {
             scene.headroomMoving[rowKey] = false
             return@LaunchedEffect
@@ -928,7 +1035,7 @@ internal fun XlSceneRowHeadroom(
         scene.headroomMoving[rowKey] = followsXl && initial != target
         try {
             if (followsXl && initial != target) animate(initial.value, target.value, animationSpec = tween(360)) { value, _ ->
-                if (scene.fastReturn != null) throw kotlinx.coroutines.CancellationException("Fast return owns row geometry")
+                if (scene.fastReturn != null || scene.continuousVerticalNavigation) throw kotlinx.coroutines.CancellationException("Continuous navigation owns row geometry")
                 scene.headroomValues[rowKey] = value.dp
             } else scene.headroomValues[rowKey] = target
         } finally {
@@ -1057,7 +1164,8 @@ internal fun rememberXlBackdropPresentation(
     val latestResolved by rememberUpdatedState(resolvedHero)
     val selectionKey = selected?.let { it.rowKey to it.itemKey }
     LaunchedEffect(scene, selectionKey, selected?.preview?.backdrop, selected?.preview?.imageUrl,
-        selected?.preview?.poster, carouselFocused, pageStartsWithXl, enabled) {
+        selected?.preview?.poster, carouselFocused, pageStartsWithXl, enabled, scene.continuousVerticalNavigation) {
+        if (scene.continuousVerticalNavigation) return@LaunchedEffect
         val target = selected ?: return@LaunchedEffect
         val boundary = scene.transition
         val boundaryId = boundary?.id
@@ -1217,7 +1325,8 @@ internal fun rememberXlBackdropPresentation(
         if (boundaryId != null) scene.complete(boundaryId)
         if (!dark && latestResolved == target.preview) state.owned = false
     }
-    LaunchedEffect(resolvedHero, state.owned, scene.transition, selected?.isXl) {
+    LaunchedEffect(resolvedHero, state.owned, scene.transition, selected?.isXl, scene.continuousVerticalNavigation) {
+        if (scene.continuousVerticalNavigation) return@LaunchedEffect
         scene.resolveStationaryMetadata(resolvedHero)
         if (scene.transition == null && !state.directExit && selected?.isXl != true && state.dim.value == 0f &&
             resolvedHero == selected?.preview) state.owned = false
@@ -1258,6 +1367,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         }
     }
     val snapshot = when {
+        enabled && scene.continuousVerticalNavigation -> null
         fast != null -> if (outgoing) fast.metadata else null
         !enabled -> resolvedHero?.let { XlMetadataSnapshot(selected?.rowKey.orEmpty(), it) }
         outgoing -> move?.outgoingMetadata
@@ -1279,7 +1389,7 @@ internal fun ModernXlAwareHeroTitleBlock(
     XlMetadataHost(
         activeSlot = slot,
         activeSnapshot = snapshot,
-        neighbors = if (enabled && selected?.isXl == true) adjacentMetadata else emptyList(),
+        neighbors = if (enabled && !scene.continuousVerticalNavigation && selected?.isXl == true) adjacentMetadata else emptyList(),
         nextEpoch = scene.metadataEpoch + 1,
         modifier = modifier.zIndex(1f),
         retainPreparedLayout = enabled && (move != null || fast != null)
@@ -1307,7 +1417,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
+                alpha = if (enabled && scene.continuousVerticalNavigation) 0f else if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
