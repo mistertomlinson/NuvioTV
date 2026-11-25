@@ -28,15 +28,21 @@ internal fun xlBalancedTop(screenHeight: Float, summaryRowHeight: Float, fullWid
     if (fullWidthIcons) ((HOME_PLATFORM_SELECTOR_BOTTOM_DP + screenHeight - summaryRowHeight) / 2f).coerceAtLeast(54f)
     else 54f
 
-/** Shorten only the unused 24dp list gap, never the XL content or its anchor.
- * Match the small clearance of the standard portrait-row title peek.
+/** Clearance below the text itself, not the padded header or poster body.
+ * The portrait poster anchor is the same one used by the ordinary scroll spec.
+ */
+internal fun portraitNextTitleClearance(screenHeight: Float, posterAnchor: Float,
+    portraitBodyHeight: Float, nextTitleHeight: Float): Float =
+    screenHeight - (posterAnchor + portraitBodyHeight + 24f + nextTitleHeight)
+
+/** Adjust only the space after the summary, never the XL content or its anchor.
+ * A negative reduction restores spacing if the previous trim was too large.
+ * Do not borrow more than the actual 24dp gap or hide any title text.
  */
 internal fun xlSummaryTrailingGapReduction(screenHeight: Float, xlTop: Float,
-    fullSummaryHeight: Float, nextTitleHeight: Float, portraitTitleClearance: Float): Float {
-    val desired = portraitTitleClearance.coerceIn(6f, 14f)
-    return (xlTop + fullSummaryHeight + 24f + nextTitleHeight + desired - screenHeight)
-        .coerceIn(0f, 20f)
-}
+    fullSummaryHeight: Float, nextTitleHeight: Float, portraitTitleClearance: Float): Float =
+    (xlTop + fullSummaryHeight + 24f + nextTitleHeight +
+        portraitTitleClearance.coerceAtLeast(0f) - screenHeight).coerceAtMost(24f)
 
 /** Put the next hero just below the viewport, while letting the whole XL row clear it. */
 internal fun xlFollowingHeadroom(screenHeight: Float, xlBottom: Float, ordinaryTop: Float,
