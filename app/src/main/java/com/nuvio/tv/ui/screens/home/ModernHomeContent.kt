@@ -6261,8 +6261,10 @@ private fun EnhancedModernHomeRowsListBoundary(
                     doubleUpRenderedRows[i].isXl &&
                         doubleUpRenderedRows[i - 1].key != "continue_watching"
                 }
-            Column(modifier = if (hasCompressiblePrefixBeforeXl) Modifier.graphicsLayer {
-                translationY = xlScene.landscapePreXlDrawOffsetPx(rowIndex, doubleUpRenderedRows)
+            val hasEarlierXl = xlSceneEnabled && (0 until rowIndex).any { doubleUpRenderedRows[it].isXl }
+            Column(modifier = if (hasCompressiblePrefixBeforeXl || hasEarlierXl) Modifier.graphicsLayer {
+                translationY = xlScene.landscapePreXlDrawOffsetPx(rowIndex, doubleUpRenderedRows) +
+                    xlScene.previewReturnOffsetForIndex(rowIndex)
             } else Modifier) {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
                 // Downward XL exits retain the final measured follower gap.
