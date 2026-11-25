@@ -158,7 +158,7 @@ class ModernXlSceneTransitionTest {
                                         if (row.isXl) Box(Modifier.padding(start = 52.dp, top = 12.dp).width(430.dp)) {
                                             HeroTitleContent(row.items.first().heroPreview, true,
                                                 showTitleLogo = false, showDescription = row.showXlSummary,
-                                                useFullSizeDescription = true)
+                                                useFullSizeDescription = true, descriptionLineLimit = XL_SUMMARY_MAX_LINES)
                                         }
                                         }
                                     }
@@ -384,6 +384,8 @@ class ModernXlSceneTransitionTest {
         assertDownwardExitUsesStableMeasurements(summary = false, landscape = true)
     @Test fun summaryExitAvoidsPerFrameSpacerMeasurement() =
         assertDownwardExitUsesStableMeasurements(summary = true, landscape = false)
+    @Test fun summaryLandscapeExitAvoidsPerFrameSpacerMeasurement() =
+        assertDownwardExitUsesStableMeasurements(summary = true, landscape = true)
 
     private fun verifyFocusPaintPrecedesMotion(start: Int, key: Int) {
         content(start = start, summary = false)
@@ -515,22 +517,15 @@ class ModernXlSceneTransitionTest {
         settle()
     }
 
-    @Test fun summaryMetadataIsPreparedOpaqueAndSlidesInWithItsRow() {
-        content(start = 2, summary = true)
-        press(KeyEvent.KEYCODE_DPAD_DOWN)
-        var enteredBeforeLanding = false
-        repeat(30) {
-            advance(16)
-            assertEquals(1f, scene.exitMetadataAlpha, 0f)
-            val bounds = compose.onNodeWithTag("ordinary-metadata-C", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-            if (bounds.bottom > 0 && bounds.top < 540 && list.isScrollInProgress) enteredBeforeLanding = true
-        }
-        assertTrue("Prepared summary-exit metadata enters during the row slide", enteredBeforeLanding)
-        settle()
-    }
+    @Test fun summaryMetadataWaitsUntilXlIsCompletelyOffScreen() =
+        verifyDownwardMetadataWaitsForXlClearance(true)
 
-    @Test fun aRapidSecondDownKeepsXlClearanceAndTheOrdinaryMetadataDebounce() {
-        content(start = 2, summary = false, freezeHero = true)
+    @Test fun aRapidSecondDownKeepsXlClearanceAndTheOrdinaryMetadataDebounce() = verifyRapidSecondDown(false)
+
+    @Test fun summaryRapidSecondDownKeepsXlClearanceAndTheOrdinaryMetadataDebounce() = verifyRapidSecondDown(true)
+
+    private fun verifyRapidSecondDown(summary: Boolean) {
+        content(start = 2, summary = summary, freezeHero = true)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(32)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
@@ -970,10 +965,8 @@ class ModernXlSceneTransitionTest {
         assertEquals(xlTop - HOME_PLATFORM_SELECTOR_BOTTOM_DP, 540f - xlTop - xlBodyHeight, 2f)
         val previous = list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "A" }
         assertTrue(previous == null || previous.offset + list.layoutInfo.beforeContentPadding + previous.size <= 0)
-        // The next ordinary hero begins only a few pixels below the viewport.
-        val next = checkNotNull(list.layoutInfo.visibleItemsInfo.firstOrNull { it.key == "C" })
-        val nextMeta = next.offset + list.layoutInfo.beforeContentPadding + checkNotNull(scene.headroomValues["C"]).value - 260f + 96f
-        assertEquals("Incoming hero should start just off screen", 548f, nextMeta, 1f)
+        // Both XL variants show a collapsed follower before focus.
+        assertEquals("Summary XL must not reserve an ordinary hero gap at rest", 0, scene.gapPx("C"))
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(112)
         val edge = checkNotNull(scene.outgoingXlBottom(list.layoutInfo))
@@ -1121,34 +1114,18 @@ class ModernXlSceneTransitionTest {
         assertNull(scene.transition)
     }
 
-    @Test fun summaryExitBringsTheIncomingBlockUpWithItsPosters() {
+    @Test fun summaryExitOpensCollapsedHeadroomAndRevealsOnlyAfterLanding() {
         content(start = 2, summary = true)
+        assertEquals(0, scene.gapPx("C"))
         press(KeyEvent.KEYCODE_DPAD_DOWN)
-        advance(32)
-        val header = y("heading-C")
-        val meta = y("ordinary-metadata-C")
-        advance(80)
-        assertEquals(y("heading-C") - header, y("ordinary-metadata-C") - meta, 2f)
-        var brightest = 0
-        repeat(18) {
-            advance(16)
-            assertEquals("Prepared summary metadata has no alpha ramp", 1f, scene.exitMetadataAlpha, 0f)
-            if (list.isScrollInProgress) {
-                val bounds = compose.onNodeWithTag("ordinary-metadata-C", true).fetchSemanticsNode().boundsInRoot
-                compose.runOnUiThread {
-                    val view = activity.get().findViewById<android.view.View>(android.R.id.content)
-                    val image = android.graphics.Bitmap.createBitmap(view.width, view.height, android.graphics.Bitmap.Config.ARGB_8888)
-                    view.draw(android.graphics.Canvas(image))
-                    for (y in bounds.top.toInt().coerceAtLeast(0) until bounds.bottom.toInt().coerceAtMost(image.height))
-                        for (x in bounds.left.toInt().coerceAtLeast(0) until bounds.right.toInt().coerceAtMost(image.width))
-                            brightest = maxOf(brightest, android.graphics.Color.red(image.getPixel(x, y)))
-                    image.recycle()
-                }
-            }
-        }
-        assertTrue("Already prepared metadata enters fully bright during the longer row slide", brightest >= 245)
+        val motion = checkNotNull(scene.verticalMotion)
+        assertTrue(motion.fixedFollowerMeasurement)
+        assertEquals(0.dp, motion.fromGap)
+        assertTrue(motion.toGap > 0.dp)
+        assertEquals(0f, scene.exitMetadataAlpha, 0f)
         settle()
         assertEquals(260f, y("heading-C"), 2f)
+        assertEquals(1f, scene.exitMetadataAlpha, 0f)
         assertEquals(1, metadataCount())
     }
 
@@ -1197,8 +1174,8 @@ class ModernXlSceneTransitionTest {
      * a quick UP must not materialize that row's virtual headroom, snap its
      * LazyColumn position, and then independently tween it back into place.
      */
-    private fun verifyCompactPortraitReverseContinuity(exitMillis: Int) {
-        content(start = 2, summary = false, ordinaryPosterHeight = 200.dp)
+    private fun verifyCompactPortraitReverseContinuity(exitMillis: Int, summary: Boolean = false) {
+        content(start = 2, summary = summary, ordinaryPosterHeight = 200.dp)
         val originalCompactHeading = y("heading-C")
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(exitMillis)
@@ -1278,6 +1255,12 @@ class ModernXlSceneTransitionTest {
 
     @Test fun compactPortraitQuickUpAfter160msKeepsFollowerContinuous() =
         verifyCompactPortraitReverseContinuity(160)
+
+    @Test fun summaryPortraitQuickUpAfter80msKeepsFollowerContinuous() =
+        verifyCompactPortraitReverseContinuity(80, summary = true)
+
+    @Test fun summaryPortraitQuickUpAfter160msKeepsFollowerContinuous() =
+        verifyCompactPortraitReverseContinuity(160, summary = true)
 
     @Test fun reversingACompactExitCannotRevealTheHiddenPartOfItsPreparedHero() = verifyCompactReversal(80)
 
