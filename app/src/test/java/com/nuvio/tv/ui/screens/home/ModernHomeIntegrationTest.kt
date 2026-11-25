@@ -70,10 +70,10 @@ class ModernHomeIntegrationTest {
         return file.toURI().toString()
     }
     private fun advance(ms: Int) = repeat((ms + 15) / 16) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle() }
-    private fun press(code: Int, gapMs: Long = 150) {
+    private fun press(code: Int, gapMs: Long = 150, eventTime: Long? = null) {
         compose.runOnUiThread {
             ShadowSystemClock.advanceBy(Duration.ofMillis(gapMs))
-            val time = SystemClock.uptimeMillis()
+            val time = eventTime ?: SystemClock.uptimeMillis()
             activity.get().dispatchKeyEvent(KeyEvent(time, time, KeyEvent.ACTION_DOWN, code, 0))
             activity.get().dispatchKeyEvent(KeyEvent(time, time, KeyEvent.ACTION_UP, code, 0))
         }
@@ -177,7 +177,7 @@ class ModernHomeIntegrationTest {
                 val key = catalogRowKey(rows[nextIndex])
                 val owner = info.visibleItemsInfo.firstOrNull { it.key == key }
                 val gap = scene.headroomValues[key]?.value ?: 0f
-                val top = owner?.let { it.offset + info.beforeContentPadding + gap }
+                val top = owner?.let { it.offset + info.beforeContentPadding + gap + scene.previewReturnOffsetForIndex(it.index) }
                 tops += top
                 positions += "${frame * 16}:$top:$gap:${scene.transition?.outgoingMetadataCleared}:${list.isScrollInProgress}"
             }
@@ -389,9 +389,11 @@ class ModernHomeIntegrationTest {
             xlNoSummaryCatalogKeys = if (summary) emptySet() else setOf(xlKey),
             fullWidthIconRowEnabled = true, aggregateStreamingPlatformsEnabled = true,
             showAllCatalogsOnHome = true, posterLabelsEnabled = false))
-        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        val firstEventTime = SystemClock.uptimeMillis()
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = firstEventTime)
         advance(48)
-        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 60)
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = firstEventTime + 64)
+        println("RAPID_BURST summary=$summary interval=64 active=${scene.continuousVerticalNavigation} inputEpoch=${scene.continuousInputEpoch} selected=${scene.selection?.rowKey}")
         assertTrue("A rapid second Down enters the compact burst", scene.continuousVerticalNavigation)
         assertTrue(scene.continuousGapsCollapsed)
         assertEquals(0, scene.gapPx(follower))
