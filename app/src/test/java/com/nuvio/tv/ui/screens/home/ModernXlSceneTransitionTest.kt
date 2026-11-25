@@ -869,12 +869,25 @@ class ModernXlSceneTransitionTest {
             // Production's Double-Up finally block calls this immediately,
             // before the destination backdrop's LaunchedEffect can run.
             scene.cancelFastReturn()
+            assertEquals("Finish must retain the destination reveal event until composition",
+                destination.rowKey, scene.pendingFastReturnXlBackdropKey)
             startsWithXl.value = true
             carouselFocused.value = true
             resolved.value = destination.preview
         }
-        advance(16)
-        assertEquals("Double-Up requires a real image crossfade", 220, backdrop.imageFadeMillis)
+        // Diagnose the first composition/animation frames. On a paused
+        // Compose test clock, a LaunchedEffect can begin on the second frame.
+        // A zero fade *after* four frames means the arrival path was missed,
+        // not merely that the first frame had not yet dispatched.
+        repeat(4) { frame ->
+            advance(16)
+            println("XL_DOUBLEUP_DIAG summary=$summary frame=$frame pending=${scene.pendingFastReturnXlBackdropKey} " +
+                "selected=${scene.selection?.rowKey} blurred=${backdrop.blurred} owned=${backdrop.owned} " +
+                "token=${backdrop.token} directEntry=${backdrop.directEntry} duration=${backdrop.imageFadeMillis} " +
+                "dim=${backdrop.dim.value} gradient=${backdrop.gradientAlpha.value}")
+        }
+        assertEquals("Double-Up requires a real image crossfade; pending=${scene.pendingFastReturnXlBackdropKey} blurred=${backdrop.blurred} token=${backdrop.token}",
+            220, backdrop.imageFadeMillis)
         assertTrue("XL arrival is an animated entry, not an initial render", backdrop.directEntry)
         assertEquals(destination.preview, backdrop.preview)
         assertTrue("The XL dimmer must not snap to full dark in its first frame",
