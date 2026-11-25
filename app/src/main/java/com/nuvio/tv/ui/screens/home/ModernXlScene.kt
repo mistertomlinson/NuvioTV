@@ -1290,7 +1290,7 @@ internal fun rememberXlBackdropPresentation(
     LaunchedEffect(scene, selectionKey, selected?.preview?.backdrop, selected?.preview?.imageUrl,
         selected?.preview?.poster, carouselFocused, pageStartsWithXl, enabled, scene.navigationPresentationFrozen) {
         if (enabled && scene.navigationPresentationFrozen) {
-            state.preview = scene.navigationFrozenBackdrop ?: state.preview ?: latestResolved
+            if (!state.owned) state.preview = scene.navigationFrozenBackdrop ?: state.preview ?: latestResolved
             state.owned = true
             return@LaunchedEffect
         }
