@@ -276,7 +276,7 @@ internal fun ModernXlRowSection(
     } }
     val descriptionLineHeight = MaterialTheme.typography.bodyMedium.lineHeight
     val summaryExtra = with(density) {
-        (descriptionLineHeight * (if (portraitMetadata) 0.90f else 1f) * (if (portraitMetadata) 4 else 5)).toDp()
+        (descriptionLineHeight * (if (portraitMetadata) 0.90f else 1f) * 3).toDp()
     } + 8.dp * (if (portraitMetadata) 0.92f else 1f) * (if (heroMetadataLarge) 1f else 0.7f)
     var primaryMetadataHeight by remember(row.key, heroMetadataLarge) {
         mutableStateOf(if (heroMetadataLarge) 30.dp else 25.5.dp)
@@ -487,6 +487,7 @@ internal fun ModernXlRowSection(
                 showTitleLogo = false,
                 showDescription = row.showXlSummary,
                 useFullSizeDescription = true,
+                descriptionLineLimit = 3,
                 modifier = Modifier.width(geometry.featuredWidth.dp),
                 primaryMetadataModifier = Modifier.testTag("xl-primary-metadata-${row.key}").onSizeChanged {
                     primaryMetadataHeight = with(density) { it.height.toDp() }
