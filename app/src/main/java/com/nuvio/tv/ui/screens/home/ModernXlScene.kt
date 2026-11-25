@@ -270,6 +270,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         private set
     private var lastVerticalPressTime = Long.MIN_VALUE
     private var lastVerticalPressSign = 0
+    private var rapidVerticalStreak = 0
     var verticalKeyHeld by mutableStateOf(false)
         private set
     var continuousHeldScroll by mutableStateOf(false)
@@ -336,9 +337,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             clearDeferredExit()
             navigationFrozenBackdrop = null
         }
-        val rapid = lastVerticalPressTime != Long.MIN_VALUE &&
-            sign == lastVerticalPressSign &&
+        val close = lastVerticalPressTime != Long.MIN_VALUE &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
+        rapidVerticalStreak = if (close) rapidVerticalStreak + 1 else 1
+        // Preserve the deliberate two-key reversal, but a longer alternating
+        // burst must freeze presentation just like repeated Up or Down.
+        val rapid = close && (sign == lastVerticalPressSign || rapidVerticalStreak >= 3)
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
         if (repeated || rapid || continuousVerticalNavigation) beginContinuousNavigation()
@@ -393,7 +397,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                             (previous.key == "continue_watching" || !previous.landscapePosters)
                         if (predecessorFocused && previous.key != "continue_watching")
                             landscapePreXlCompression[row.key] = 1f
-                        if (compactPrefix) 0.dp else (xlTop(row.key) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                        if (compactPrefix) 0.dp else xlPrefixClearance(row.key, previous.key)
                     }
                     previous?.isXl == true && index <= selected.rowIndex ->
                         followingHeadroom(previous.key, row.key, density, clearXl = true)
@@ -423,6 +427,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         }
         lastVerticalPressTime = Long.MIN_VALUE
         lastVerticalPressSign = 0
+        rapidVerticalStreak = 0
     }
     private var launchedMotionId = -1
     var focusPaintEpoch by mutableIntStateOf(0)
@@ -508,6 +513,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun xlTop(rowKey: String): Dp = xlBalancedTop(screenHeight.value,
         (summaryRowHeights[rowKey] ?: estimatedXlHeight).value, fullWidthIcons).dp
 
+    fun xlPrefixClearance(rowKey: String, previousKey: String?): Dp =
+        (xlTop(rowKey) - 24.dp + 1.dp + (previousKey?.let { summaryTrailingGapReductions[it] } ?: 0.dp)).coerceAtLeast(0.dp)
+
     fun ordinaryPosterInset(rowKey: String, rowIndex: Int, density: Float = this.density): Float =
         if (rowIndex == 0) minOf(headerHeights[rowKey] ?: 40f * density, 40f * density) else 40f * density
 
@@ -551,7 +559,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     // Same physical spacer used by XlSceneRowHeadroom.
                     val prefix = headroomValues[xl.key] ?: if (
                         !preceding.landscapePosters && selection?.rowKey == preceding.key
-                    ) 0.dp else (xlTop(xl.key) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                    ) 0.dp else xlPrefixClearance(xl.key, preceding.key)
                     offset -= (prefix.value * density).roundToInt() * progress
                 }
             }
@@ -879,7 +887,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (ownerTop != null) {
                 val to = when {
                     move.downwardExit -> followingHeadroom(previous.rowKey, next.rowKey, density, clearXl = true)
-                    next.isXl && next.rowIndex > 0 -> (xlTop(next.rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+                    next.isXl && next.rowIndex > 0 -> xlPrefixClearance(next.rowKey, rows.getOrNull(next.rowIndex - 1)?.key)
                     else -> from
                 }.let { ((it.value * density).roundToInt() / density).dp }
                 val fromPx = (from.value * density).roundToInt()
@@ -1127,7 +1135,7 @@ internal fun XlSceneRowHeadroom(
         currentXl && previous != null && !previous.landscapePosters &&
             scene.selection?.rowKey == previous.key &&
             scene.verticalMotion?.landscapePrefix?.xlKey != rowKey -> 0.dp
-        currentXl && previous != null -> (scene.xlTop(rowKey) - 24.dp + 1.dp).coerceAtLeast(0.dp)
+        currentXl && previous != null -> scene.xlPrefixClearance(rowKey, previous.key)
         followsXl && expanded ->
             scene.followingHeadroom(checkNotNull(previous).key, rowKey, density, clearXl = expanded)
         else -> 0.dp
@@ -1318,8 +1326,9 @@ internal fun rememberXlBackdropPresentation(
                 snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
                     firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
             }
+            val needsDissolve = dark || state.blurred || state.directExit
             state.imageFadeMillis = 220
-            state.directExit = !dark && state.blurred
+            state.directExit = !dark && needsDissolve
             state.directEntry = dark
             state.continuousReveal = true
             state.revealing = true
@@ -1334,9 +1343,9 @@ internal fun rememberXlBackdropPresentation(
                     launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f, tween(220, easing = LinearEasing)) }
                     launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f, tween(220, easing = LinearEasing)) }
                 }
-                withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
+                if (needsDissolve) withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
             } finally {
-                if (state.token == revealToken) {
+                if (state.token == revealToken && !scene.navigationPresentationFrozen) {
                     state.directEntry = false
                     state.directExit = false
                     state.continuousReveal = false
