@@ -3086,8 +3086,13 @@ fun ModernHomeContent(
         val heroRegionHeight = (maxHeight - rowsViewportHeight) - heroRegionTopInset
         val localDensity = LocalDensity.current
         val xlLargeMetadata = if (effectiveFullWidthIconRowEnabled) heroMetadataLarge else true
+        val xlDescriptionLineHeight = MaterialTheme.typography.bodyMedium.lineHeight
+        val removedXlDescriptionHeight = with(localDensity) {
+            (xlDescriptionLineHeight * (if (useLandscapePosters) 1f else 0.90f) *
+                ((if (useLandscapePosters) 5 else 4) - XL_SUMMARY_MAX_LINES)).toDp()
+        }
         val estimatedXlHeight = 40.dp + xlRowGeometry(maxWidth.value, maxHeight.value, xlLargeMetadata).cardHeight.dp +
-            12.dp + if (xlLargeMetadata) 178.dp else 142.dp
+            12.dp + (if (xlLargeMetadata) 178.dp else 142.dp) - removedXlDescriptionHeight
         // An XL-first page has not mounted an ordinary hero yet. Estimate its
         // normal logo/two-line metadata/description slots until measured, rather
         // than placing that future hero as if it had zero height.
