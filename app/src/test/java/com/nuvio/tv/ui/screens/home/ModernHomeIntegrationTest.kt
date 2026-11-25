@@ -359,7 +359,7 @@ class ModernHomeIntegrationTest {
         repeat(64) {
             advance(16)
             val node = compose.onAllNodesWithTag("xl-headroom-$incomingKey", true).fetchSemanticsNodes().singleOrNull()
-            if (node != null && scene.verticalMotion == null && !list.isScrollInProgress) {
+            if (node != null && scene.selection?.rowKey == incomingKey && !scene.deferredDownwardExit && scene.verticalMotion == null && !list.isScrollInProgress) {
                 val top = node.layoutInfo.coordinates.positionInRoot().y + node.layoutInfo.height + scene.headerPx(incomingKey)
                 restingTops += top
                 assertEquals("The first resting frame already matches the final poster anchor",
@@ -392,6 +392,9 @@ class ModernHomeIntegrationTest {
         val firstEventTime = SystemClock.uptimeMillis()
         press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = firstEventTime)
         advance(48)
+        assertTrue("First XL exit must still await the navigation intent", scene.deferredDownwardExit)
+        assertNull(scene.verticalMotion)
+        assertEquals(0, scene.gapPx(follower))
         press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = firstEventTime + 64)
         println("RAPID_BURST summary=$summary interval=64 active=${scene.continuousVerticalNavigation} inputEpoch=${scene.continuousInputEpoch} selected=${scene.selection?.rowKey}")
         assertTrue("A rapid second Down enters the compact burst", scene.continuousVerticalNavigation)
@@ -413,5 +416,49 @@ class ModernHomeIntegrationTest {
 
     @Test fun compactRapidVerticalBurstHidesIntermediateMetadata() = verifyRapidVerticalBurst(false)
     @Test fun summaryRapidVerticalBurstHidesIntermediateMetadata() = verifyRapidVerticalBurst(true)
+
+    @Test fun heldDownFromXlKeepsGapsCollapsedThroughTheListEnd() {
+        val rows = scenarioRows(5)
+        val xlKey = catalogRowKey(rows.first())
+        val follower = catalogRowKey(rows[1])
+        val last = catalogRowKey(rows.last())
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true,
+            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(), xlCatalogKeys = setOf(xlKey),
+            fullWidthIconRowEnabled = true, aggregateStreamingPlatformsEnabled = true,
+            showAllCatalogsOnHome = true, posterLabelsEnabled = false))
+        val downTime = SystemClock.uptimeMillis()
+        fun heldEvent(action: Int, repeat: Int, elapsed: Long) {
+            compose.runOnUiThread {
+                activity.get().dispatchKeyEvent(KeyEvent(downTime, downTime + elapsed, action,
+                    KeyEvent.KEYCODE_DPAD_DOWN, repeat))
+            }
+            compose.waitForIdle()
+        }
+        heldEvent(KeyEvent.ACTION_DOWN, 0, 0)
+        advance(48)
+        assertTrue(scene.deferredDownwardExit)
+        assertEquals(0, scene.gapPx(follower))
+        assertNull(scene.verticalMotion)
+        advance(112)
+        assertTrue(scene.continuousVerticalNavigation)
+        assertEquals(0, scene.gapPx(follower))
+        repeat(30) { i ->
+            heldEvent(KeyEvent.ACTION_DOWN, i + 1, 400L + 64L * i)
+            advance(64)
+            assertTrue("The held session cannot finish while repeat events arrive", scene.continuousVerticalNavigation)
+            assertTrue(scene.continuousGapsCollapsed)
+            assertEquals(0, scene.gapPx(follower))
+        }
+        heldEvent(KeyEvent.ACTION_UP, 0, 2400)
+        advance(1600)
+        assertEquals(last, scene.selection?.rowKey)
+        assertFalse(scene.continuousVerticalNavigation)
+        assertFalse(list.isScrollInProgress)
+        val offset = list.layoutInfo.visibleItemsInfo.first { it.key == last }.offset
+        advance(320)
+        assertEquals("The final row cannot bounce after metadata returns", offset,
+            list.layoutInfo.visibleItemsInfo.first { it.key == last }.offset)
+    }
 
 }
