@@ -67,6 +67,7 @@ internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?, rowKey: 
         val overhang = 48.dp.toPx()
         onDrawWithContent {
             val edge = geometry
+            XlNavigationTrace.event("POSTER_MASK_DRAW") { "row=$rowKey mask=$mask edge=$edge body=$bodyHeight size=$size hidden=${edge === hiddenPoster}" }
             when {
                 edge == null -> drawContent()
                 edge === hiddenPoster -> Unit
