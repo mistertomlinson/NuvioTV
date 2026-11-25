@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -351,7 +353,9 @@ internal fun ModernXlRowSection(
                     onUpPressed = if (featured) onUpPressed else null
                 )
             }
-            if (featured) Box(Modifier.testTag("xl-artwork-${row.key}-${if (jumping) jumpFirstPortrait.coerceIn(0, row.items.lastIndex) else presentedIndex}").drawWithContent {
+            if (featured) Box(Modifier.testTag("xl-artwork-${row.key}-${if (jumping) jumpFirstPortrait.coerceIn(0, row.items.lastIndex) else presentedIndex}").onGloballyPositioned { coordinates ->
+                XlNavigationTrace.event("XL_POSTER_BOUNDS") { "row=${row.key} item=${artworkItem.key} top=${coordinates.positionInRoot().y} size=${coordinates.size} attached=${coordinates.isAttached}" }
+            }.drawWithContent {
                 XlNavigationTrace.event("XL_POSTER_DRAW") { "row=${row.key} item=${artworkItem.key} requested=${selectedItem.key} presented=$presentedKey frozen=$navigationFrozen size=$size image=${image?.hashCode()}" }
                 drawContent()
             }) {
