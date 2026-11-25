@@ -6318,6 +6318,7 @@ private fun EnhancedModernHomeRowsListBoundary(
             Column(modifier = if (hasCompressiblePrefixBeforeXl || hasEarlierXl) Modifier.graphicsLayer {
                 translationY = xlScene.landscapePreXlDrawOffsetPx(rowIndex, doubleUpRenderedRows) +
                     xlScene.previewReturnOffsetForIndex(rowIndex)
+                XlNavigationTrace.event("ROW_PREFIX_LAYER") { "row=${row.key} index=$rowIndex dy=$translationY" }
             } else Modifier) {
                 XlSceneRowHeadroom(xlScene, row.key, previousRow, row.isXl)
                 // Downward XL exits retain the final measured follower gap.
@@ -6358,6 +6359,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.fixedFollowerTranslationPx
                     )
+                    XlNavigationTrace.event("ROW_FOLLOWER_LAYER") { "row=${row.key} index=$rowIndex dy=$translationY" }
                 } else Modifier).onGloballyPositioned { coordinates ->
                     XlNavigationTrace.event("ROW_BOUNDS") { "row=${row.key} index=$rowIndex xl=${row.isXl} top=${coordinates.positionInRoot().y} size=${coordinates.size} attached=${coordinates.isAttached}" }
                 }) {
