@@ -442,7 +442,7 @@ class XlSceneStateTest {
         }
     }
 
-    @Test fun `summary entry and exit retain their existing draw only readiness`() {
+    @Test fun `summary entry and exit require the newly committed focus composition`() {
         for (entering in listOf(false, true)) {
             val xl = selection("XL", 1, true, true)
             val ordinary = selection("C", 2)
@@ -451,9 +451,11 @@ class XlSceneStateTest {
             scene.focus(if (entering) xl else ordinary, positionedLayout("XL" to 54, "C" to 500), focusConfirmed = false)
             val motion = checkNotNull(scene.verticalMotion)
             val signal = scene.requestFocusPaint(motion.id)
-            assertEquals("Summary must not invalidate the composition token", oldComposition, scene.compactFocusCompositionEpoch)
+            assertEquals(motion.id, scene.compactFocusCompositionEpoch)
             scene.recordFocusPaint(motion.id, oldComposition)
-            assertTrue("The existing summary draw is enough", signal.isCompleted)
+            assertFalse("An old summary preview draw cannot acknowledge new focus", signal.isCompleted)
+            scene.recordFocusPaint(motion.id, scene.compactFocusCompositionEpoch)
+            assertTrue(signal.isCompleted)
         }
     }
 
