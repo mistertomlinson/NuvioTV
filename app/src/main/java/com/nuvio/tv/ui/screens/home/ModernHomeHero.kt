@@ -639,10 +639,10 @@ internal fun HeroTitleContent(
     showTitleLogo: Boolean = true,
     showDescription: Boolean = true,
     useFullSizeDescription: Boolean = false,
-    descriptionLineLimit: Int? = null,
     modifier: Modifier = Modifier,
     primaryMetadataModifier: Modifier = Modifier,
-    animateTitleLogo: Boolean = true
+    animateTitleLogo: Boolean = true,
+    descriptionLineLimit: Int? = null
 ) {
     if (preview == null) return
     val descriptionMaxLines = descriptionLineLimit ?: if (portraitMode) 4 else 5
