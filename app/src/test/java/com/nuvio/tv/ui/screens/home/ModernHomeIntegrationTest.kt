@@ -70,7 +70,7 @@ class ModernHomeIntegrationTest {
         return file.toURI().toString()
     }
     private fun advance(ms: Int) = repeat((ms + 15) / 16) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle() }
-    private fun press(code: Int, gapMs: Long = 150, eventTime: Long? = null) {
+    private fun press(code: Int, gapMs: Long = 350, eventTime: Long? = null) {
         compose.runOnUiThread {
             ShadowSystemClock.advanceBy(Duration.ofMillis(gapMs))
             val time = eventTime ?: SystemClock.uptimeMillis()
@@ -356,7 +356,7 @@ class ModernHomeIntegrationTest {
         assertEquals(1.5f, scene.density, 0f)
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         val restingTops = mutableListOf<Float>()
-        repeat(64) {
+        repeat(100) {
             advance(16)
             val node = compose.onAllNodesWithTag("xl-headroom-$incomingKey", true).fetchSemanticsNodes().singleOrNull()
             if (node != null && scene.selection?.rowKey == incomingKey && !scene.deferredDownwardExit && scene.verticalMotion == null && !list.isScrollInProgress) {
@@ -392,11 +392,14 @@ class ModernHomeIntegrationTest {
         val firstEventTime = SystemClock.uptimeMillis()
         press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = firstEventTime)
         advance(48)
-        assertTrue("First XL exit must still await the navigation intent", scene.deferredDownwardExit)
-        assertNull(scene.verticalMotion)
-        assertEquals(0, scene.gapPx(follower))
-        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = firstEventTime + 64)
-        println("RAPID_BURST summary=$summary interval=64 active=${scene.continuousVerticalNavigation} inputEpoch=${scene.continuousInputEpoch} selected=${scene.selection?.rowKey}")
+        assertTrue("First XL exit must await separation intent, not movement", scene.deferredDownwardExit)
+        assertTrue(checkNotNull(scene.verticalMotion).coupledExit)
+        assertEquals(0f, scene.gapPx(follower) + scene.fixedFollowerTranslationPx, 1f)
+        advance(112)
+        assertTrue("Shared motion continues during the gate", scene.deferredDownwardExit)
+        assertEquals(0f, scene.gapPx(follower) + scene.fixedFollowerTranslationPx, 1f)
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = firstEventTime + 225)
+        println("RAPID_BURST summary=$summary interval=225 active=${scene.continuousVerticalNavigation} inputEpoch=${scene.continuousInputEpoch} selected=${scene.selection?.rowKey}")
         assertTrue("A rapid second Down enters the compact burst", scene.continuousVerticalNavigation)
         assertTrue(scene.continuousGapsCollapsed)
         assertEquals(0, scene.gapPx(follower))
@@ -409,6 +412,7 @@ class ModernHomeIntegrationTest {
         advance(1800)
         assertFalse("The burst must release its metadata suppression after landing", scene.continuousVerticalNavigation)
         val selected = checkNotNull(scene.selection)
+        assertEquals("Two Down presses must land two rows lower", catalogRowKey(rows[2]), selected.rowKey)
         assertFalse(selected.isXl)
         assertTrue("The final focused row owns the metadata",
             compose.onAllNodesWithTag("ordinary-metadata-${selected.rowKey}", true).fetchSemanticsNodes().size == 1)
@@ -424,7 +428,7 @@ class ModernHomeIntegrationTest {
         val last = catalogRowKey(rows.last())
         mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
             skeletonReady = true, layoutPreferencesReady = true,
-            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(), xlCatalogKeys = setOf(xlKey),
+            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(), xlCatalogKeys = setOf(xlKey, last),
             fullWidthIconRowEnabled = true, aggregateStreamingPlatformsEnabled = true,
             showAllCatalogsOnHome = true, posterLabelsEnabled = false))
         val downTime = SystemClock.uptimeMillis()
@@ -438,9 +442,9 @@ class ModernHomeIntegrationTest {
         heldEvent(KeyEvent.ACTION_DOWN, 0, 0)
         advance(48)
         assertTrue(scene.deferredDownwardExit)
-        assertEquals(0, scene.gapPx(follower))
-        assertNull(scene.verticalMotion)
-        advance(112)
+        assertEquals(0f, scene.gapPx(follower) + scene.fixedFollowerTranslationPx, 1f)
+        assertTrue(checkNotNull(scene.verticalMotion).coupledExit)
+        advance(256)
         assertTrue(scene.continuousVerticalNavigation)
         assertEquals(0, scene.gapPx(follower))
         repeat(30) { i ->
