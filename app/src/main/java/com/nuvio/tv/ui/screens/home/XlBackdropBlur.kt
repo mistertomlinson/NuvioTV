@@ -19,6 +19,9 @@ import kotlinx.coroutines.withContext
 internal const val XL_BLUR_WIDTH = 160
 internal const val XL_BLUR_HEIGHT = 90
 
+internal fun isPreparedXlBlurBitmap(bitmap: Bitmap?): Boolean =
+    bitmap != null && !bitmap.isRecycled && bitmap.width == XL_BLUR_WIDTH && bitmap.height == XL_BLUR_HEIGHT
+
 // Share one CPU lane across rendering and lookahead. No blur runs on the main
 // thread, in a draw callback, or once per animation frame.
 @OptIn(ExperimentalCoroutinesApi::class)
