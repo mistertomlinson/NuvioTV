@@ -5126,12 +5126,30 @@ private fun EnhancedModernHomeRowsListBoundary(
             else -> null
         }
     }
+    fun rapidLandingPlan(selected: XlSceneSelection): XlLandingPaintPlan {
+        val rows = currentCarouselRows
+        val scene = currentXlScene
+        val gaps = scene.continuousLandingGaps(rows, selected)
+        val physicalGaps = rows.map { with(doubleUpDensity) { (gaps[it.key] ?: 0.dp).roundToPx().toFloat() } }
+        val compressed = (selected.rowIndex + 1).takeIf {
+            rows.getOrNull(it)?.isXl == true && selected.rowKey != "continue_watching"
+        }
+        val previousBottom = scene.posterAnchorPx(selected) - scene.headerPx(selected.rowKey) -
+            with(doubleUpDensity) { 24.dp.toPx() }
+        return xlLandingPaintPlan(rows.map { it.key }, physicalGaps, selected.rowIndex,
+            compressed, !selected.isXl, previousBottom, with(doubleUpDensity) { 48.dp.toPx() })
+    }
+    val liveLandingPlan by rememberUpdatedState<(XlSceneSelection) -> XlLandingPaintPlan>({ rapidLandingPlan(it) })
     val liveDistance by rememberUpdatedState<(XlSceneSelection) -> Float?>({ compactDistanceTo(it) })
     val liveForwardRemaining by rememberUpdatedState<() -> Float>({ lastAnchorRemaining() })
     val liveScrollDensity by rememberUpdatedState(doubleUpDensity.density)
     val continuousScroll = remember(verticalRowListState, xlScene, doubleUpScope) {
         XlContinuousScroll(doubleUpScope, verticalRowListState, { liveScrollDensity },
-            { liveDistance(it) }, { liveForwardRemaining() }, { xlScene.recordVerticalVelocity(it) })
+            { liveDistance(it) }, { liveForwardRemaining() }, { xlScene.recordVerticalVelocity(it) },
+            onTargetFrame = { selected, remaining, dt ->
+                xlScene.advanceRapidLanding(selected, remaining, dt) { liveLandingPlan(selected) }
+            },
+            onHeldFrame = { dt -> xlScene.advanceHeldLandingPaint(dt) })
     }
     DisposableEffect(continuousScroll, xlSceneEnabled) {
         onDispose { continuousScroll.stop() }
@@ -5192,6 +5210,7 @@ private fun EnhancedModernHomeRowsListBoundary(
             repeat(2) { withFrameNanos { } }
             snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
         }
+        if (!xlScene.rapidLandingReady) {
         val plannedGaps = xlScene.continuousLandingGaps(currentCarouselRows, selected)
         val offsets = mutableMapOf<String, Float>()
         // Relative body positions change by the sum of inserted spacers.
@@ -5219,6 +5238,7 @@ private fun EnhancedModernHomeRowsListBoundary(
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             xlScene.clearContinuousLandingPaint()
             throw cancelled
+        }
         }
         xlScene.prepareContinuousLanding(currentCarouselRows)
         val restoredOffset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
@@ -6541,7 +6561,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 // Move only the XL content, not its measured footprint,
                 // the scroll anchor, or the following row's title.
                 val bodyTranslation = if (row.isXl || fixedOrdinarySuffix ||
-                    (xlSceneEnabled && row.key in xlScene.continuousLandingOffsets)) Modifier.graphicsLayer {
+                    (xlSceneEnabled && xlScene.hasContinuousLandingOffset(row.key))) Modifier.graphicsLayer {
                     val follower = if (fixedOrdinarySuffix) xlFixedOrdinarySuffixTranslationPx(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.fixedFollowerTranslationPx
