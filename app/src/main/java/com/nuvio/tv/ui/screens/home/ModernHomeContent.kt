@@ -5146,8 +5146,8 @@ private fun EnhancedModernHomeRowsListBoundary(
             val inherited = xlScene.inheritedVerticalVelocity()
             val anchor = if (xlScene.verticalKeyHeld) compactScrollAnchor() else null
             xlScene.resolveDeferredDownwardExit(verticalRowListState.layoutInfo, currentCarouselRows)
-            if (anchor != null && xlScene.continuousGapsCollapsed) {
-                verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
+            if (xlScene.continuousGapsCollapsed) {
+                if (anchor != null) verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
                 // A physical Down held beyond the separation window continues
                 // the already-started travel while Android waits to emit repeats.
                 xlScene.selection?.let { continuousScroll.retarget(it, inherited) }
@@ -5207,7 +5207,8 @@ private fun EnhancedModernHomeRowsListBoundary(
             if (row.isXl && currentCarouselRows.getOrNull(i - 1)?.key == selected.rowKey &&
                 selected.rowKey != "continue_watching") compressedPrefix += gap
             val displacement = cumulative - anchorPrefix - compressedPrefix
-            if (displacement != 0f && kotlin.math.abs(i - index) <= 3)
+            if (displacement != 0f && (kotlin.math.abs(i - index) <= 3 ||
+                    verticalRowListState.layoutInfo.visibleItemsInfo.any { it.key == row.key }))
                 offsets[row.key] = displacement
         }
         xlScene.continuousLandingOffsets = offsets
@@ -6538,19 +6539,17 @@ private fun EnhancedModernHomeRowsListBoundary(
                 } else Modifier
                 // Move only the XL content, not its measured footprint,
                 // the scroll anchor, or the following row's title.
-                val xlContentLift = if (row.isXl) Modifier.graphicsLayer {
-                    translationY = -XL_CONTENT_LIFT_DP.dp.toPx()
-                } else Modifier
-                val landingPaint = if (xlSceneEnabled) Modifier.graphicsLayer {
-                    translationY = xlScene.continuousLandingOffsetPx(row.key)
-                } else Modifier
-                Box(modifier = trimTrailingGap.then(xlContentLift).then(landingPaint).then(if (fixedOrdinarySuffix) Modifier.graphicsLayer {
-                    translationY = xlFixedOrdinarySuffixTranslationPx(
+                val bodyTranslation = if (row.isXl || fixedOrdinarySuffix ||
+                    (xlSceneEnabled && row.key in xlScene.continuousLandingOffsets)) Modifier.graphicsLayer {
+                    val follower = if (fixedOrdinarySuffix) xlFixedOrdinarySuffixTranslationPx(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.fixedFollowerTranslationPx
-                    )
-                    XlNavigationTrace.event("ROW_FOLLOWER_LAYER") { "row=${row.key} index=$rowIndex dy=$translationY" }
-                } else Modifier).onGloballyPositioned { coordinates ->
+                    ) else 0f
+                    val landing = xlScene.continuousLandingOffsetPx(row.key)
+                    translationY = follower + landing - if (row.isXl) XL_CONTENT_LIFT_DP.dp.toPx() else 0f
+                    XlNavigationTrace.event("ROW_FOLLOWER_LAYER") { "row=${row.key} index=$rowIndex dy=$follower landing=$landing total=$translationY" }
+                } else Modifier
+                Box(modifier = trimTrailingGap.then(bodyTranslation).onGloballyPositioned { coordinates ->
                     XlNavigationTrace.event("ROW_BOUNDS") { "row=${row.key} index=$rowIndex xl=${row.isXl} top=${coordinates.positionInRoot().y} size=${coordinates.size} attached=${coordinates.isAttached}" }
                 }) {
             ModernRowSection(
