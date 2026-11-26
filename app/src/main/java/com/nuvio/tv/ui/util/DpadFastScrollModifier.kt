@@ -33,6 +33,7 @@ fun Modifier.dpadVerticalFastScroll(
     endTimeoutMs: Long = DEFAULT_END_TIMEOUT_MS,
     maxFrameDtSec: Float = DEFAULT_MAX_FRAME_DT_SEC,
     holdAtEdgeUntilRelease: Boolean = false,
+    maxForwardScrollPx: () -> Float = { Float.POSITIVE_INFINITY },
 ): Modifier = composed {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -98,7 +99,7 @@ fun Modifier.dpadVerticalFastScroll(
             val atScrollEdge = (sign > 0 && !scrollableState.canScrollForward) ||
                 (sign < 0 && !scrollableState.canScrollBackward)
             val halted = sign > 0 && shouldHaltForward()
-            if (atScrollEdge || halted) {
+            if (!holdAtEdgeUntilRelease && (atScrollEdge || halted)) {
                 if (holdAtEdgeUntilRelease) {
                     // Keep the held scroll session alive at the limit. More
                     // repeat events must not re-open gaps or trigger a landing.
@@ -124,7 +125,9 @@ fun Modifier.dpadVerticalFastScroll(
                             val dtSec = ((now - lastFrame) / 1_000_000_000f).coerceAtMost(maxFrameDtSec)
                             lastFrame = now
                             if (sign > 0 && shouldHaltForward()) break
-                            val delta = sign * velocityPxPerSec * dtSec
+                            val rawDelta = sign * velocityPxPerSec * dtSec
+                            val delta = if (sign > 0) minOf(rawDelta, maxForwardScrollPx().coerceAtLeast(0f)) else rawDelta
+                            if (delta == 0f && rawDelta != 0f) break
                             val consumed = scrollBy(delta)
                             if (consumed == 0f && delta != 0f) break
                         }
