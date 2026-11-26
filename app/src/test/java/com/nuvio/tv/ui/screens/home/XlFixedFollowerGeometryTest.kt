@@ -174,7 +174,7 @@ class XlFixedFollowerGeometryTest {
     @Test fun coupledTravelRemainsInMotionAsSeparationStarts() {
         val sharedDuration = xlCoupledSharedDurationMs(XL_SPRING_TIME_SCALE)
         val splitDuration = xlCoupledSplitDurationMs(XL_SPRING_TIME_SCALE)
-        val gate = XL_CONTINUOUS_NAV_INTERVAL_MS.toFloat()
+        val gate = XL_EXIT_SEPARATION_DELAY_MS.toFloat()
         for (sharedDistance in listOf(100f, 180f, 260f, 330f)) {
             val separationDistance = 280f
             var previousTravel = 0f
@@ -195,6 +195,35 @@ class XlFixedFollowerGeometryTest {
             }
             assertEquals(sharedDistance + separationDistance, previousTravel, 0.001f)
         }
+    }
+
+    @Test fun continuousDriverRetainsVelocityWhenTheTargetReverses() {
+        val acceleration = XL_BURST_ACCEL_DP_PER_SEC2
+        val speed = XL_BURST_SPEED_DP_PER_SEC
+        val dt = 0.016f
+        var velocity = 900f
+        val desired = xlTargetVelocity(-300f, speed, acceleration)
+        assertEquals(-speed, desired, 0f)
+        val first = xlApproachVelocity(velocity, desired, acceleration, dt)
+        org.junit.Assert.assertTrue("A reverse input brakes rather than jumping to a negative velocity", first > 0f)
+        repeat(30) {
+            val next = xlApproachVelocity(velocity, desired, acceleration, dt)
+            org.junit.Assert.assertTrue(kotlin.math.abs(next - velocity) <= acceleration * dt + 0.001f)
+            org.junit.Assert.assertTrue(kotlin.math.abs(next) <= speed)
+            velocity = next
+        }
+        assertEquals(-speed, velocity, 0.001f)
+    }
+
+    @Test fun heldDriverBrakesAsTheLastAnchorApproaches() {
+        val speed = XL_BURST_SPEED_DP_PER_SEC
+        val acceleration = XL_BURST_ACCEL_DP_PER_SEC2
+        assertEquals(speed, xlTargetVelocity(Float.POSITIVE_INFINITY, speed, acceleration), 0f)
+        assertEquals(-speed, xlTargetVelocity(Float.NEGATIVE_INFINITY, speed, acceleration), 0f)
+        org.junit.Assert.assertTrue(xlTargetVelocity(10f, speed, acceleration) < speed)
+        assertEquals(0f, xlTargetVelocity(0f, speed, acceleration), 0f)
+        assertEquals(250L, XL_EXIT_SEPARATION_DELAY_MS)
+        assertEquals(400L, XL_CONTINUOUS_NAV_INTERVAL_MS)
     }
 
 }
