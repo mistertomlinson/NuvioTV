@@ -171,4 +171,30 @@ class XlFixedFollowerGeometryTest {
         assertEquals(0f, scene.fixedFollowerTranslationPx, 0f)
         assertEquals(null, scene.verticalMotion)
     }
+    @Test fun coupledTravelRemainsInMotionAsSeparationStarts() {
+        val sharedDuration = xlCoupledSharedDurationMs(XL_SPRING_TIME_SCALE)
+        val splitDuration = xlCoupledSplitDurationMs(XL_SPRING_TIME_SCALE)
+        val gate = XL_CONTINUOUS_NAV_INTERVAL_MS.toFloat()
+        for (sharedDistance in listOf(100f, 180f, 260f, 330f)) {
+            val separationDistance = 280f
+            var previousTravel = 0f
+            var previousShared = 0f
+            for (ms in 0..600 step 16) {
+                val time = ms.toFloat()
+                val shared = sharedDistance * xlCoupledSharedProgress(time, sharedDuration)
+                val separation = separationDistance * xlCoupledSplitProgress((time - gate).coerceAtLeast(0f), splitDuration)
+                val outgoing = shared + separation
+                if (time <= gate) assertEquals("Rows must travel together before the gate", shared, outgoing, 0f)
+                if (time in 208f..320f) {
+                    org.junit.Assert.assertTrue("No outgoing pause around the gate: ms=$ms distance=$sharedDistance", outgoing - previousTravel > 1f)
+                    org.junit.Assert.assertTrue("Shared travel cannot finish before separation starts", shared > previousShared)
+                }
+                org.junit.Assert.assertTrue("No backwards motion", outgoing >= previousTravel)
+                previousTravel = outgoing
+                previousShared = shared
+            }
+            assertEquals(sharedDistance + separationDistance, previousTravel, 0.001f)
+        }
+    }
+
 }
