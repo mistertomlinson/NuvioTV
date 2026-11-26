@@ -5149,7 +5149,8 @@ private fun EnhancedModernHomeRowsListBoundary(
             onTargetFrame = { selected, remaining, dt ->
                 xlScene.advanceRapidLanding(selected, remaining, dt, liveLandingPlan)
             },
-            onHeldFrame = { dt -> xlScene.advanceHeldLandingPaint(dt) })
+            onHeldFrame = { dt -> xlScene.advanceHeldLandingPaint(dt) },
+            onScrollDelta = { consumed -> xlScene.advanceBurstOutgoingMask(consumed) })
     }
     DisposableEffect(continuousScroll, xlSceneEnabled) {
         onDispose { continuousScroll.stop() }
@@ -5883,6 +5884,9 @@ private fun EnhancedModernHomeRowsListBoundary(
                                             ).coerceAtLeast(0)
                                         )
 
+                                    // Commit the first-row measurement before releasing the
+                                    // frozen backdrop. The focus handoff is not a new target.
+                                    if (xlSceneEnabled) repeat(2) { withFrameNanos { } }
                                     if (xlSceneEnabled) firstRow.sceneSelection(savedItemIndex, 0)?.let {
                                         currentXlScene.finishFastReturn(it, currentCarouselRows)
                                     }
@@ -6066,7 +6070,13 @@ private fun EnhancedModernHomeRowsListBoundary(
                 if (currentXlSceneEnabled && native.action == AndroidKeyEvent.ACTION_DOWN &&
                     (keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)) {
                     val inherited = currentXlScene.inheritedVerticalVelocity()
-                    val anchor = if (currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)) compactScrollAnchor() else null
+                    val collapsing = currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)
+                    val anchor = if (collapsing) compactScrollAnchor() else null
+                    if (collapsing && !isUp && native.repeatCount == 0) {
+                        currentXlScene.captureBurstOutgoingMask(xlSceneMetadataMask(currentXlScene,
+                            verticalRowListState.layoutInfo, true, currentXlScene.ordinaryTop.value * currentXlScene.density,
+                            currentXlScene.density))
+                    }
                     currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime, native.repeatCount > 0)
                     if (anchor != null && currentXlScene.continuousGapsCollapsed)
                         verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
