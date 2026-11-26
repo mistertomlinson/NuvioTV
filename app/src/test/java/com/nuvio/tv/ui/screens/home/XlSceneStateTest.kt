@@ -522,12 +522,15 @@ class XlSceneStateTest {
         assertNull(scene.transition)
     }
 
-    @Test fun `a single quick reversal retains the normal XL transition path`() {
+    @Test fun `rapid alternating directions share the compact navigation owner`() {
         val scene = XlSceneState(selection("XL", 0, true))
         scene.noteVerticalPress(1, 1000L, false)
-        scene.noteVerticalPress(-1, 1080L, false)
-        assertFalse(scene.continuousVerticalNavigation)
-        scene.noteVerticalPress(-1, 1400L, false)
+        scene.noteVerticalRelease()
+        scene.noteVerticalPress(-1, 1225L, false)
+        assertTrue(scene.continuousVerticalNavigation)
+        assertTrue(scene.continuousGapsCollapsed)
+        scene.finishContinuousNavigation()
+        scene.noteVerticalPress(-1, 1600L, false)
         assertFalse(scene.continuousVerticalNavigation)
     }
 
@@ -541,10 +544,11 @@ class XlSceneStateTest {
             scene.armDeferredDownwardExit("XL")
             scene.focus(normal, positions, focusConfirmed = true)
             assertTrue(scene.deferredDownwardExit)
-            assertEquals(xl, scene.selection)
-            assertEquals(0, scene.gapPx("C"))
-            assertNull(scene.verticalMotion)
-            assertNull(scene.transition)
+            assertEquals(normal, scene.selection)
+            val motion = checkNotNull(scene.verticalMotion)
+            assertTrue(motion.coupledExit)
+            assertEquals(0f, scene.gapPx("C") + scene.fixedFollowerTranslationPx, 0.01f)
+            assertTrue(checkNotNull(scene.transition).downwardExit)
             assertNull(xlSceneMetadataMask(scene, positions, true, 260f, 1f))
             scene.noteVerticalRelease()
             scene.resolveDeferredDownwardExit(positions, emptyList())
@@ -584,7 +588,7 @@ class XlSceneStateTest {
         scene.armDeferredDownwardExit("XL")
         scene.focus(normal, positions)
         scene.noteVerticalRelease()
-        scene.noteVerticalPress(1, 1064L, false)
+        scene.noteVerticalPress(1, 1225L, false)
         assertFalse(scene.deferredDownwardExit)
         assertTrue(scene.continuousGapsCollapsed)
         assertNull(scene.verticalMotion)
