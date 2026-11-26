@@ -31,7 +31,7 @@ internal const val XL_SPRING_TIME_SCALE = 1.10f
 // input gate; the separation leg starts from zero velocity. No independent
 // short-distance spring is allowed to reach rest before separation starts.
 internal fun xlCoupledSharedDurationMs(scale: Float): Float =
-    if (scale <= 0f) 0f else XL_CONTINUOUS_NAV_INTERVAL_MS.toFloat() + 200f * scale
+    if (scale <= 0f) 0f else XL_EXIT_SEPARATION_DELAY_MS.toFloat() + 200f * scale
 
 internal fun xlCoupledSplitDurationMs(scale: Float): Float =
     if (scale <= 0f) 0f else 280f * scale
@@ -136,6 +136,14 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                             try { focusPaint.await() } finally { fallback.cancel() }
                         }
                         var previous = 0f
+                        var velocityFrame = Long.MIN_VALUE
+                        fun recordDelta(delta: Float, frame: Long) {
+                            if (velocityFrame != Long.MIN_VALUE && frame > velocityFrame) {
+                                val dt = (frame - velocityFrame) / 1_000_000_000f
+                                scene.recordVerticalVelocity(delta / dt)
+                            }
+                            velocityFrame = frame
+                        }
                         val fromPx = (active.fromGap.value * scene.density).roundToInt()
                         val toPx = (active.toGap.value * scene.density).roundToInt()
                         val visiblePx = active.scrollPx - (toPx - fromPx)
@@ -175,7 +183,8 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                     // Keep scroll and visual separation in the
                                     // same physical-pixel coordinate system.
                                     scene.fixedFollowerTranslationPx = fromPx + extra - toPx
-                                    scrollBy(travel - previous)
+                                    val consumed = scrollBy(travel - previous)
+                                    recordDelta(consumed, now)
                                     previous = travel
                                     if (splitStart != Long.MIN_VALUE && elapsed >= sharedDuration &&
                                         splitElapsed >= splitDuration) break
@@ -232,6 +241,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 try {
                                     val requested = travel - previous
                                     val consumed = scrollBy(requested)
+                                    recordDelta(consumed, lastFrameTimeNanos)
                                     XlNavigationTrace.event("SPRING_STEP") { "id=${active.id} row=${active.rowKey} requested=$requested consumed=$consumed fraction=$fraction virtualGapPx=$gapPx" }
                                 } finally {
                                     if (trace) android.os.Trace.endSection()
@@ -286,6 +296,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         scene.compactRowRested = true
                     }
                     completed = true
+                    scene.recordVerticalVelocity(0f)
                 } finally {
                     if (scene.verticalMotion === active) {
                         if (active.fixedFollowerMeasurement || active.fixedReturnFollowerMeasurement) {
