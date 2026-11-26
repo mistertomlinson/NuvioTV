@@ -36,7 +36,8 @@ internal class XlContinuousScroll(
     // The final paint-only separation shares this frame clock. Return true
     // to retain the owner after its list offset reaches the target.
     private val onTargetFrame: (XlSceneSelection, Float, Float) -> Boolean = { _, _, _ -> false },
-    private val onHeldFrame: (Float) -> Unit = {}
+    private val onHeldFrame: (Float) -> Unit = {},
+    private val onScrollDelta: (Float) -> Unit = {}
 ) {
     private var job: Job? = null
     private var target: XlSceneSelection? = null
@@ -115,6 +116,7 @@ internal class XlContinuousScroll(
                             continue
                         }
                         val consumed = scrollBy(delta)
+                        onScrollDelta(consumed)
                         val hitLimit = abs(delta) > 1f && abs(consumed) < 0.5f
                         velocity = if (hitLimit || abs(remaining - delta) <= 0.5f) 0f else next
                         onVelocity(velocity)
