@@ -1738,10 +1738,11 @@ internal fun rememberXlBackdropPresentation(
                 if (!artworkKey.isNullOrBlank()) snapshotFlow { state.ready() }.first { it }
                 repeat(XL_MIXED_BACKDROP_WARM_FRAMES) { withFrameNanos { } }
             }
-            kotlinx.coroutines.coroutineScope {
-                launch { state.gradientAlpha.animateTo(0f, tween(fade, easing = LinearEasing)) }
-                launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(fade, easing = LinearEasing)) }
-            }
+            // The ordinary gradient is already part of the retained image
+            // composite. Do not apply a second screen-wide tint during entry.
+            state.gradientAlpha.snapTo(0f)
+            state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(fade, easing = LinearEasing))
+            withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
             snapshotFlow { scene.transition?.let { it.id != boundary.id || it.rowsSettled } ?: true }.first { it }
             scene.complete(boundary.id)
             state.directEntry = false
