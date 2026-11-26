@@ -658,6 +658,18 @@ class XlSceneStateTest {
         assertEquals(1f, scene.rapidLandingMetadataAlpha, 0f)
         assertTrue(scene.continuousGapsCollapsed)
         assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        val rows = listOf(selection("XL", 0, true), selection("A", 1), target).map { item ->
+            HeroCarouselRow(item.rowKey, item.rowKey, item.rowIndex,
+                listOf(ModernCarouselItem(item.itemKey, item.itemKey, null, null, item.preview,
+                    ModernPayload.Catalog(item.itemKey, item.itemKey, "movie", "", item.itemKey, null, "movie"))),
+                isXl = item.isXl)
+        }
+        scene.prepareContinuousLanding(rows)
+        assertFalse(scene.continuousGapsCollapsed)
+        assertEquals("No frame may expose the preceding row before the final mask commits",
+            -538f, scene.continuousLandingOffsetPx("A"), 0.01f)
+        assertTrue(scene.rapidLandingMetadata)
+        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
         scene.finishContinuousNavigation()
         assertEquals(0f, scene.continuousLandingOffsetPx("A"), 0f)
         assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
