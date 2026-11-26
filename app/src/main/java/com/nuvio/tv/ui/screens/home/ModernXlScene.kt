@@ -32,6 +32,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
 internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 250L
+internal const val XL_CONTENT_LIFT_DP = 4f
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
 internal data class XlSceneSelection(
@@ -269,6 +270,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var continuousInputEpoch by mutableIntStateOf(0)
         private set
     private var lastVerticalPressTime = Long.MIN_VALUE
+    var verticalInputIntent = false
+        private set
     private var lastVerticalPressSign = 0
     private var rapidVerticalStreak = 0
     var verticalKeyHeld by mutableStateOf(false)
@@ -345,6 +348,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
         verticalKeyHeld = true
+        verticalInputIntent = true
         val close = lastVerticalPressTime != Long.MIN_VALUE &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
         rapidVerticalStreak = if (close) rapidVerticalStreak + 1 else 1
@@ -434,6 +438,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             }
         }
         lastVerticalPressTime = Long.MIN_VALUE
+        verticalInputIntent = false
         lastVerticalPressSign = 0
         rapidVerticalStreak = 0
     }
@@ -509,6 +514,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // Only the measured list footprint is shortened into the trailing gap.
     val summaryTrailingGapReductions = mutableStateMapOf<String, Dp>()
     var screenHeight by mutableStateOf(540.dp)
+    var xlContentLift by mutableStateOf(0.dp)
     var fullWidthIcons by mutableStateOf(false)
     var estimatedXlHeight by mutableStateOf(440.dp)
     var ordinaryTop by mutableStateOf(260.dp)
@@ -945,7 +951,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                         followerEndExclusiveIndex = endOfOrdinarySuffix,
                         landscapePrefix = landscapePrefix,
                         fixedPrefixMeasurement = fixedPortraitPrefixOnEntry,
-                        fixedReturnFollowerMeasurement = reverseFixedFollower)
+                        fixedReturnFollowerMeasurement = reverseFixedFollower,
+                        coupledExit = move.downwardExit && deferredDownwardExit)
                     // Establish the final measured row geometry BEFORE the
                     // focus paint gate. Its visual position stays unchanged:
                     // the identical difference is applied to all ordinary
@@ -1001,6 +1008,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun complete(id: Int) {
         if (transition?.id != id) return
+        verticalInputIntent = false
         val move = transition
         transition = null
         if (move?.from?.isXl == true && selection?.isXl == false) {
@@ -1052,7 +1060,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val owner = layout.visibleItemsInfo.firstOrNull { it.key == move.from.rowKey } ?: return 0f
         val actualBottom = owner.offset + layout.beforeContentPadding + owner.size +
             ((summaryTrailingGapReductions[move.from.rowKey]?.value ?: 0f) * density).roundToInt() -
-            (4f * density).roundToInt()
+            (xlContentLift.value * density).roundToInt()
         return actualBottom.toFloat().coerceAtLeast(0f)
     }
 }
@@ -1375,7 +1383,7 @@ internal fun rememberXlBackdropPresentation(
         }
         // A vertical boundary must settle before publishing the next backdrop.
         // A later key cancels this wait and freezes the old presentation.
-        if (boundaryId != null && !carouselFocused) {
+        if (boundaryId != null && !carouselFocused && scene.verticalInputIntent) {
             if (!state.owned) state.preview = boundary?.outgoingBackdrop ?: state.preview ?: latestResolved
             state.owned = true
             snapshotFlow { scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true }.first { it }
