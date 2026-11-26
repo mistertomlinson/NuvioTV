@@ -42,11 +42,11 @@ class XlBackdropDissolveTest {
     @After fun cleanup() {
         if (::activity.isInitialized) compose.runOnUiThread { activity.pause().stop().destroy() }
     }
-    private fun content() {
+    private fun content(mixed: Boolean = false) {
         compose.runOnUiThread {
             activity = Robolectric.buildActivity(ComponentActivity::class.java).setup()
             activity.get().setContent {
-                val transition = rememberModernHeroBackdropTransition(target.value, 1f, false, true, true, 160, 90)
+                val transition = rememberModernHeroBackdropTransition(target.value, 1f, false, !mixed || target.value != "A", true, 160, 90)
                 Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
                     XlBackdropDissolve(transition, 180, onFinished = { finished += it.url }) { frame, ready ->
                         val color = when (frame.url) { "A" -> android.graphics.Color.RED; "B" -> android.graphics.Color.BLUE; else -> android.graphics.Color.GREEN }
@@ -106,6 +106,22 @@ class XlBackdropDissolveTest {
         assertEquals("Keep the old image rather than expose an unready blur", android.graphics.Color.RED, pixel())
         assertTrue(finished.isEmpty())
         compose.runOnIdle { checkNotNull(readyCallbacks["B"])() }
+        advance(240)
+        assertEquals(android.graphics.Color.BLUE, pixel())
+        assertEquals(listOf("B"), finished)
+    }
+
+    @Test fun mixedModeDissolveRetainsTheOutgoingImageThroughPreparationFrames() {
+        content(mixed = true)
+        compose.runOnIdle { target.value = "B" }
+        advance(96)
+        assertEquals(android.graphics.Color.RED, pixel())
+        compose.runOnIdle { checkNotNull(readyCallbacks["B"])() }
+        advance(16)
+        assertEquals("Warm the prepared image without exposing it", android.graphics.Color.RED, pixel())
+        advance(112)
+        assertTrue(android.graphics.Color.red(pixel()) in 1..254)
+        assertTrue(android.graphics.Color.blue(pixel()) in 1..254)
         advance(240)
         assertEquals(android.graphics.Color.BLUE, pixel())
         assertEquals(listOf("B"), finished)
