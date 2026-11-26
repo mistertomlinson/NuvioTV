@@ -137,6 +137,7 @@ import com.nuvio.tv.ui.theme.NuvioColors
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import com.nuvio.tv.ui.util.dpadRepeatThrottle
 import com.nuvio.tv.domain.model.CardDepthSurface
@@ -1126,12 +1127,12 @@ internal fun ModernRowSection(
 
         LaunchedEffect(row.key) {
             snapshotFlow { Triple(pendingRowFocus.nonce, pendingRowFocus.key, pendingRowFocus.index) }
-                .collect { (_, pendingKey, pendingIndex) ->
+                .collectLatest { (nonce, pendingKey, pendingIndex) ->
             val liveItems = currentRowState.value.items
-            if (pendingKey != row.key) return@collect
+            if (pendingKey != row.key) return@collectLatest
             val targetIndex = (pendingIndex ?: 0)
                 .coerceIn(0, (liveItems.size - 1).coerceAtLeast(0))
-            val targetItemKey = liveItems.getOrNull(targetIndex)?.key ?: return@collect
+            val targetItemKey = liveItems.getOrNull(targetIndex)?.key ?: return@collectLatest
             val requester = uiCaches.requesterFor(row.key, targetItemKey)
             var didFocus = false
             var attemptsRemaining = 20
@@ -1168,7 +1169,8 @@ internal fun ModernRowSection(
                     withFrameNanos { }
                     withFrameNanos { }
                 }
-                onPendingRowFocusCleared()
+                if (pendingRowFocus.nonce == nonce && pendingRowFocus.key == row.key)
+                    onPendingRowFocusCleared()
             }
                 }
         }
