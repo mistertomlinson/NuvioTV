@@ -697,4 +697,29 @@ class XlSceneStateTest {
         assertFalse(scene.rapidLandingReady)
     }
 
+    @Test fun `rapid downward travel retains and moves the outgoing metadata mask`() {
+        val scene = XlSceneState(selection("B", 1))
+        scene.captureBurstOutgoingMask(0f to 260f)
+        scene.beginContinuousNavigation()
+        scene.focus(selection("XL", 2, true), layout())
+        assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        scene.advanceBurstOutgoingMask(72f)
+        assertEquals(-72f to 188f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        scene.advanceBurstOutgoingMask(188f)
+        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        scene.advanceBurstOutgoingMask(-20f)
+        assertNull("A retired mask must not reappear on reversal", scene.retainedBurstOutgoingMask())
+    }
+
+    @Test fun `held scroll and reversal do not retain a stale burst mask`() {
+        val scene = XlSceneState(selection("A", 1))
+        scene.captureBurstOutgoingMask(0f to 260f)
+        scene.beginContinuousNavigation()
+        scene.noteVerticalPress(-1, 1000L, false)
+        assertNull(scene.retainedBurstOutgoingMask())
+        scene.captureBurstOutgoingMask(0f to 260f)
+        scene.startHeldVerticalScroll()
+        assertNull(scene.retainedBurstOutgoingMask())
+    }
+
 }
