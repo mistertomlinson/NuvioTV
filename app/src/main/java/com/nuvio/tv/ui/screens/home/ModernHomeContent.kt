@@ -2831,7 +2831,7 @@ fun ModernHomeContent(
         }
         val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
             pageStartsWithXl = carouselRows.firstOrNull()?.isXl == true)
-        val visualHero = if (hasXlRows && xlScene.navigationPresentationFrozen) (if (xlBackdrop.owned) xlBackdrop.preview else xlScene.navigationFrozenBackdrop) ?: xlBackdrop.preview ?: resolvedHero
+        val visualHero = if (hasXlRows && xlScene.backdropPresentationFrozen) (if (xlBackdrop.owned) xlBackdrop.preview else xlScene.navigationFrozenBackdrop) ?: xlBackdrop.preview ?: resolvedHero
             else if (xlBackdrop.owned) xlBackdrop.preview
             else xlScene.transition?.outgoingBackdrop ?: resolvedHero
         androidx.compose.runtime.SideEffect { xlScene.recordBackdrop(visualHero) }
@@ -3494,7 +3494,7 @@ fun ModernHomeContent(
                 viewportHeight = heroAvailableHeight,
                 backdropTransition = heroBackdropTransition,
                 dissolveFromXl = xlBackdrop.directExit,
-                freezeXlDissolve = xlScene.navigationPresentationFrozen,
+                freezeXlDissolve = xlScene.backdropPresentationFrozen,
                 backdropGradientColor = bgColor,
                 onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                 onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
@@ -3608,7 +3608,7 @@ fun ModernHomeContent(
                     viewportHeight = heroAvailableHeight,
                     backdropTransition = heroBackdropTransition,
                     dissolveFromXl = xlBackdrop.directExit,
-                    freezeXlDissolve = xlScene.navigationPresentationFrozen,
+                    freezeXlDissolve = xlScene.backdropPresentationFrozen,
                     backdropGradientColor = bgColor,
                     onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                     onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
@@ -5403,6 +5403,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                             targetRow.sceneSelection(savedItemIndex, targetRowIndex)?.let {
                                 currentXlScene.focus(it, layoutInfo, rows = currentCarouselRows,
                                     focusConfirmed = destinationAlreadyFocused)
+                                currentXlScene.armHeldLandingBackdrop(it)
                                 continuousScroll.retarget(it, currentXlScene.inheritedVerticalVelocity())
                             } ?: continuousScroll.stop()
                         }
