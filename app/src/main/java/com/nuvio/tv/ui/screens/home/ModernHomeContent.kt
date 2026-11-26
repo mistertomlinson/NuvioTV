@@ -126,6 +126,7 @@ import com.nuvio.tv.LocalIsScrolling
 import com.nuvio.tv.LocalRowFocusRestorer
 import com.nuvio.tv.ui.theme.NuvioColors
 import kotlinx.coroutines.coroutineScope
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import android.view.KeyEvent as AndroidKeyEvent
@@ -2825,7 +2826,7 @@ fun ModernHomeContent(
         val sceneRow = activeRow ?: carouselRows.firstOrNull()
         val sceneSelection = restoredSceneSelection ?: sceneRow?.sceneSelection(clampedActiveItemIndex, carouselRows.indexOf(sceneRow))
         androidx.compose.runtime.SideEffect {
-            sceneSelection?.let { xlScene.focus(it, verticalRowListState.layoutInfo,
+            sceneSelection?.takeUnless { xlScene.continuousVerticalNavigation && xlScene.selection?.rowKey != it.rowKey }?.let { xlScene.focus(it, verticalRowListState.layoutInfo,
                 hasXlRows && !isPlatformTransitioning && restoredSceneSelection == null, carouselRows, focusConfirmed = false) }
         }
         val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
@@ -3492,6 +3493,7 @@ fun ModernHomeContent(
                 viewportHeight = heroAvailableHeight,
                 backdropTransition = heroBackdropTransition,
                 dissolveFromXl = xlBackdrop.directExit,
+                freezeXlDissolve = xlScene.navigationPresentationFrozen,
                 backdropGradientColor = bgColor,
                 onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                 onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
@@ -3605,6 +3607,7 @@ fun ModernHomeContent(
                     viewportHeight = heroAvailableHeight,
                     backdropTransition = heroBackdropTransition,
                     dissolveFromXl = xlBackdrop.directExit,
+                freezeXlDissolve = xlScene.navigationPresentationFrozen,
                     backdropGradientColor = bgColor,
                     onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                     onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
@@ -5238,7 +5241,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                         layoutInfo.viewportEndOffset
 
                     val lastRowAtBottom =
-                        sign > 0 && lastIdx >= 0 && (lastAnchorRemaining() <= 1f ||
+                        (!currentXlSceneEnabled || sign > 0) && lastIdx >= 0 && (lastAnchorRemaining() <= 1f ||
                             visibleItems
                                 .lastOrNull {
                                     it.index == lastIdx
