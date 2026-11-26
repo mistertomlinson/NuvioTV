@@ -5147,7 +5147,7 @@ private fun EnhancedModernHomeRowsListBoundary(
         XlContinuousScroll(doubleUpScope, verticalRowListState, { liveScrollDensity },
             { liveDistance(it) }, { liveForwardRemaining() }, { xlScene.recordVerticalVelocity(it) },
             onTargetFrame = { selected, remaining, dt ->
-                xlScene.advanceRapidLanding(selected, remaining, dt) { liveLandingPlan(selected) }
+                xlScene.advanceRapidLanding(selected, remaining, dt, liveLandingPlan)
             },
             onHeldFrame = { dt -> xlScene.advanceHeldLandingPaint(dt) })
     }
@@ -5211,6 +5211,7 @@ private fun EnhancedModernHomeRowsListBoundary(
             snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
         }
         if (!xlScene.rapidLandingReady) {
+        xlScene.clearContinuousLandingPaint()
         val plannedGaps = xlScene.continuousLandingGaps(currentCarouselRows, selected)
         val offsets = mutableMapOf<String, Float>()
         // Relative body positions change by the sum of inserted spacers.
