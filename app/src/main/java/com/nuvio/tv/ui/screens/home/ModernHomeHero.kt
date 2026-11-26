@@ -216,6 +216,28 @@ internal fun ModernHeroMediaLayer(
                     .width(rootWidth * MODERN_HERO_MEDIA_WIDTH_FRACTION)
                     .height(with(density) { frame.sourceHeightPx.toDp() })
             } else Modifier.fillMaxSize()
+            // XL requests always return the exact transformed 160x90 bitmap.
+            // Never let a failed request or a mismatched drawable release the
+            // blurred layer's opacity gate.
+            val reportSuccess: (android.graphics.drawable.Drawable) -> Unit = { drawable ->
+                val bitmap = (drawable as? BitmapDrawable)?.bitmap
+                val valid = !frame.blurred || isPreparedXlBlurBitmap(bitmap)
+                XlNavigationTrace.event("BACKDROP_BITMAP_READY") {
+                    "image=${frame.url?.hashCode()} blurred=${frame.blurred} width=${bitmap?.width} height=${bitmap?.height} valid=$valid"
+                }
+                if (valid) {
+                    if (frame.blurred) frame.blurredBitmap = bitmap
+                    ready()
+                    if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred)
+                }
+            }
+            val reportError: () -> Unit = {
+                XlNavigationTrace.event("BACKDROP_BITMAP_ERROR") { "image=${frame.url?.hashCode()} blurred=${frame.blurred}" }
+                if (!frame.blurred) {
+                    ready()
+                    if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, false)
+                }
+            }
             val composite = frame.compositedBitmap
             if (renderCinematic && composite != null) {
                 LaunchedEffect(frame) { ready() }
@@ -225,11 +247,8 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
-                    onSuccess = {
-                        if (frame.blurred) frame.blurredBitmap = (it.result.drawable as? BitmapDrawable)?.bitmap
-                        ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred)
-                    },
-                    onError = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onSuccess = { reportSuccess(it.result.drawable) },
+                    onError = { reportError() },
                     modifier = Modifier
                         .then(frameModifier)
                         .graphicsLayer {
@@ -251,8 +270,8 @@ internal fun ModernHeroMediaLayer(
                 AsyncImage(
                     model = imageModel,
                     contentDescription = null,
-                    onSuccess = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
-                    onError = { ready(); if (frame == targetBackdropFrame) onBackdropFrameReady(frame.url, frame.blurred) },
+                    onSuccess = { reportSuccess(it.result.drawable) },
+                    onError = { reportError() },
                     modifier = frameModifier,
                     contentScale = ContentScale.Crop,
                     alignment =
