@@ -348,8 +348,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val close = lastVerticalPressTime != Long.MIN_VALUE &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
         rapidVerticalStreak = if (close) rapidVerticalStreak + 1 else 1
-        // Preserve the deliberate two-key reversal, but a longer alternating
-        // burst must freeze presentation just like repeated Up or Down.
+        // Both rapid reversals and same-direction taps use one compact owner.
         val rapid = close
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
@@ -1373,6 +1372,14 @@ internal fun rememberXlBackdropPresentation(
             }
             if (!dark && latestResolved == target.preview) state.owned = false
             return@LaunchedEffect
+        }
+        // A vertical boundary must settle before publishing the next backdrop.
+        // A later key cancels this wait and freezes the old presentation.
+        if (boundaryId != null && !carouselFocused) {
+            if (!state.owned) state.preview = boundary?.outgoingBackdrop ?: state.preview ?: latestResolved
+            state.owned = true
+            snapshotFlow { scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true }.first { it }
+            if (scene.selection?.rowKey != target.rowKey || scene.navigationPresentationFrozen) return@LaunchedEffect
         }
         if (exitingXl) {
             // The old composite remains visible while the destination loads.
