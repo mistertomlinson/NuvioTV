@@ -32,7 +32,11 @@ internal class XlContinuousScroll(
     private val density: () -> Float,
     private val distanceTo: (XlSceneSelection) -> Float?,
     private val forwardRemaining: () -> Float,
-    private val onVelocity: (Float) -> Unit
+    private val onVelocity: (Float) -> Unit,
+    // The final paint-only separation shares this frame clock. Return true
+    // to retain the owner after its list offset reaches the target.
+    private val onTargetFrame: (XlSceneSelection, Float, Float) -> Boolean = { _, _, _ -> false },
+    private val onHeldFrame: (Float) -> Unit = {}
 ) {
     private var job: Job? = null
     private var target: XlSceneSelection? = null
@@ -86,8 +90,9 @@ internal class XlContinuousScroll(
                         if (distance == null) break
                         val remaining = if (heldSign > 0) distance.coerceAtLeast(0f) else distance
                         val desired = xlTargetVelocity(remaining, speedNow, acceleration)
+                        if (heldSign != 0) onHeldFrame(dt)
                         if (abs(remaining) <= 0.5f && abs(velocity) <= 1f) {
-                            if (heldSign == 0) break
+                            if (heldSign == 0 && (selected == null || !onTargetFrame(selected, remaining, dt))) break
                             continue
                         }
                         val next = xlApproachVelocity(velocity, desired, acceleration, dt)
@@ -100,7 +105,9 @@ internal class XlContinuousScroll(
                         if (heldSign > 0 && delta > 0f) delta = minOf(delta, remaining)
                         if (heldSign == 0 && abs(remaining) <= 0.5f) {
                             velocity = 0f
-                            break
+                            onVelocity(0f)
+                            if (selected == null || !onTargetFrame(selected, remaining, dt)) break
+                            continue
                         }
                         if (heldSign != 0 && abs(remaining) <= 0.5f && sign(velocity) == heldSign.toFloat()) {
                             velocity = 0f
@@ -112,7 +119,11 @@ internal class XlContinuousScroll(
                         velocity = if (hitLimit || abs(remaining - delta) <= 0.5f) 0f else next
                         onVelocity(velocity)
                         XlNavigationTrace.event("CONTINUOUS_STEP") { "target=${selected?.rowKey} held=$heldSign remaining=$remaining delta=$delta consumed=$consumed velocity=$velocity" }
-                        if (heldSign == 0 && hitLimit) break
+                        if (heldSign == 0 && selected != null) {
+                            val after = distanceTo(selected) ?: (remaining - consumed)
+                            val keep = onTargetFrame(selected, after, dt)
+                            if (hitLimit && !keep) break
+                        } else if (heldSign == 0 && hitLimit) break
                     }
                 }
             } finally {
