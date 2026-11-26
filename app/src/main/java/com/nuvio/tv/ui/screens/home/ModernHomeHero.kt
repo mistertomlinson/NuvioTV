@@ -163,6 +163,7 @@ internal fun ModernHeroMediaLayer(
     viewportHeight: androidx.compose.ui.unit.Dp = 0.dp,
     backdropTransition: Transition<ModernHeroBackdropFrame>? = null,
     dissolveFromXl: Boolean = false,
+    freezeXlDissolve: Boolean = false,
     backdropGradientColor: Color? = null,
     onBackdropTransitionFinished: (String?, Boolean) -> Unit = { _, _ -> },
     onBackdropFrameReady: (String?, Boolean) -> Unit = { _, _ -> }
@@ -277,7 +278,7 @@ internal fun ModernHeroMediaLayer(
         if (usingXlDissolve) {
             // Keep the outgoing composite under the incoming image. Fading both
             // alpha values exposes black at the midpoint, even with equal artwork.
-            XlBackdropDissolve(transition, backdropCrossfadeDuration,
+            XlBackdropDissolve(transition, backdropCrossfadeDuration, frozen = freezeXlDissolve,
                 onFinished = { onBackdropTransitionFinished(it.url, it.blurred) }, content = image)
         } else {
             transition.Crossfade(modifier = Modifier.fillMaxSize().graphicsLayer { alpha = heroBackdropAlpha },
