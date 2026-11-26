@@ -760,10 +760,10 @@ class ModernXlSceneTransitionTest {
         press(KeyEvent.KEYCODE_DPAD_UP)
         advance(112)
         assertTrue("Exit should blend out the light XL tint without inserting black", backdrop.dim.value in 0f..0.11f)
-        advance(80)
+        advance(144)
         assertTrue(backdrop.dim.value in 0f..0.06f)
-        advance(96)
-        assertEquals("A ready backdrop must not retain v7's 400ms reveal", 0f, backdrop.dim.value, 0.001f)
+        advance(128)
+        assertEquals("A ready mixed backdrop finishes its 300ms dissolve", 0f, backdrop.dim.value, 0.001f)
         settle()
         assertEquals(0f, backdrop.dim.value, 0.001f)
     }
@@ -894,7 +894,7 @@ class ModernXlSceneTransitionTest {
                 "dim=${backdrop.dim.value} gradient=${backdrop.gradientAlpha.value}")
         }
         assertEquals("Double-Up requires a real image crossfade; pending=${scene.pendingFastReturnXlBackdropKey} blurred=${backdrop.blurred} token=${backdrop.token}",
-            220, backdrop.imageFadeMillis)
+            XL_MIXED_BACKDROP_FADE_MS, backdrop.imageFadeMillis)
         assertTrue("XL arrival is an animated entry, not an initial render", backdrop.directEntry)
         assertEquals(destination.preview, backdrop.preview)
         assertTrue("The XL dimmer must not snap to full dark in its first frame",
@@ -906,7 +906,7 @@ class ModernXlSceneTransitionTest {
         assertTrue("Dimmer should be moving toward XL in parallel with the image",
             backdrop.dim.value in 0.001f..(XL_BACKDROP_DIM_ALPHA - 0.001f))
         assertTrue("Ordinary gradient should be dissolving", backdrop.gradientAlpha.value in 0.001f..0.999f)
-        advance(192)
+        advance(256)
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.002f)
         assertEquals(0f, backdrop.gradientAlpha.value, 0.002f)
         assertFalse(backdrop.directEntry)
@@ -969,9 +969,8 @@ class ModernXlSceneTransitionTest {
             if (backdrop.gradientAlpha.value > 0f && backdrop.gradientAlpha.value < 1f) sawGradientFade = true
             advance(16)
         }
-        assertEquals("Ordinary shading is now included inside the dissolving image", 0f, backdrop.gradientAlpha.value, 0.001f)
-        assertEquals(0f, backdrop.gradientAlpha.value, 0.001f)
         settle()
+        assertEquals("Ordinary shading is now included inside the dissolving image", 0f, backdrop.gradientAlpha.value, 0.001f)
     }
 
     @Test fun upwardXlEntryKeepsTheOldFrameUntilTheLandscapeAndBlurAreReady() {
@@ -1110,7 +1109,7 @@ class ModernXlSceneTransitionTest {
         assertEquals("Backdrop XL", backdrop.preview?.backdrop)
         assertTrue(backdrop.revealing)
         assertTrue(backdrop.directEntry)
-        assertEquals(220, backdrop.imageFadeMillis)
+        assertEquals(XL_MIXED_BACKDROP_FADE_MS, backdrop.imageFadeMillis)
         assertFalse(checkNotNull(scene.transition).rowsSettled)
         repeat(16) {
             assertTrue("Downward entry must never fade through black", backdrop.dim.value <= XL_BACKDROP_DIM_ALPHA + 0.001f)
@@ -1561,7 +1560,7 @@ class ModernXlSceneTransitionTest {
         frameReady.value = true
         advance(112)
         assertTrue("The blurred landing animates instead of snapping", backdrop.dim.value in 0.001f..(XL_BACKDROP_DIM_ALPHA - 0.001f))
-        advance(320)
+        advance(400)
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
         assertEquals(0, metadataCount())
     }
@@ -1600,6 +1599,29 @@ class ModernXlSceneTransitionTest {
         assertEquals("Landing completion must not create another backdrop token", oldToken + 1, backdrop.token)
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
         assertFalse(backdrop.continuousReveal)
+    }
+
+    @Test fun doubleUpRetainsBlurredBackdropUntilTheFinalDestinationIsCommitted() {
+        content(start = 2)
+        val original = backdrop.preview
+        val token = backdrop.token
+        val destination = checkNotNull(rows[0].sceneSelection(0, 0))
+        compose.runOnIdle { scene.beginFastReturn(destination, list.layoutInfo, rows) }
+        advance(64)
+        assertTrue(scene.backdropPresentationFrozen)
+        compose.runOnIdle { resolved.value = destination.preview }
+        advance(320)
+        assertEquals("No intermediate sharp backdrop may be committed during travel", token, backdrop.token)
+        assertEquals(original, backdrop.preview)
+        assertTrue(backdrop.blurred)
+        compose.runOnIdle { scene.finishFastReturn(destination, rows) }
+        advance(96)
+        assertFalse(scene.backdropPresentationFrozen)
+        assertFalse(backdrop.blurred)
+        assertEquals(token + 1, backdrop.token)
+        assertEquals(XL_MIXED_BACKDROP_FADE_MS, backdrop.imageFadeMillis)
+        advance(400)
+        assertEquals(0f, backdrop.dim.value, 0.001f)
     }
 
 }
