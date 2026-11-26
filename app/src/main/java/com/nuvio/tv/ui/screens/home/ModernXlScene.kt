@@ -32,7 +32,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
 internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 250L
-internal const val XL_CONTENT_LIFT_DP = 4f
+internal const val XL_CONTENT_LIFT_DP = 8f
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
 internal data class XlSceneSelection(
