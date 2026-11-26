@@ -346,6 +346,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         return true
     }
 
+    fun willCollapseOnVerticalPress(eventTime: Long, repeated: Boolean): Boolean =
+        !continuousGapsCollapsed && (continuousVerticalNavigation || repeated ||
+            lastVerticalPressTime != Long.MIN_VALUE && eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS)
+
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
         verticalKeyHeld = true
         verticalInputIntent = true
@@ -948,7 +952,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                     val motion = XlVerticalMotion(move.id, next.rowKey, from, to, scroll,
                         move.downwardExit, secondary, itemAnchor,
                         fixedFollowerMeasurement = move.downwardExit,
-                        followerEndExclusiveIndex = endOfOrdinarySuffix,
+                        followerEndExclusiveIndex = if (move.downwardExit && deferredDownwardExit) Int.MAX_VALUE else endOfOrdinarySuffix,
                         landscapePrefix = landscapePrefix,
                         fixedPrefixMeasurement = fixedPortraitPrefixOnEntry,
                         fixedReturnFollowerMeasurement = reverseFixedFollower,
