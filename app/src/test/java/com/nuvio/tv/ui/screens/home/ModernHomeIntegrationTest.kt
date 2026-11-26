@@ -70,7 +70,7 @@ class ModernHomeIntegrationTest {
         return file.toURI().toString()
     }
     private fun advance(ms: Int) = repeat((ms + 15) / 16) { compose.mainClock.advanceTimeBy(16); compose.waitForIdle() }
-    private fun press(code: Int, gapMs: Long = 350, eventTime: Long? = null) {
+    private fun press(code: Int, gapMs: Long = 500, eventTime: Long? = null) {
         compose.runOnUiThread {
             ShadowSystemClock.advanceBy(Duration.ofMillis(gapMs))
             val time = eventTime ?: SystemClock.uptimeMillis()
@@ -415,7 +415,7 @@ class ModernHomeIntegrationTest {
             assertEquals(0, scene.gapPx(follower))
             assertNull(scene.verticalMotion)
         }
-        advance(1800)
+        advance(2300)
         assertFalse("The burst must release its metadata suppression after landing", scene.continuousVerticalNavigation)
         val selected = checkNotNull(scene.selection)
         assertEquals("Two Down presses must land two rows lower", catalogRowKey(rows[2]), selected.rowKey)
@@ -461,7 +461,7 @@ class ModernHomeIntegrationTest {
             assertEquals(0, scene.gapPx(follower))
         }
         heldEvent(KeyEvent.ACTION_UP, 0, 2400)
-        advance(1600)
+        advance(2200)
         assertEquals(last, scene.selection?.rowKey)
         assertFalse(scene.continuousVerticalNavigation)
         assertFalse(list.isScrollInProgress)
@@ -469,6 +469,32 @@ class ModernHomeIntegrationTest {
         advance(320)
         assertEquals("The final row cannot bounce after metadata returns", offset,
             list.layoutInfo.visibleItemsInfo.first { it.key == last }.offset)
+    }
+
+    @Test fun rapidReversalRetargetsTheSameLogicalRows() {
+        val rows = scenarioRows(6)
+        val first = catalogRowKey(rows.first())
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true,
+            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(), xlCatalogKeys = setOf(first),
+            fullWidthIconRowEnabled = true, aggregateStreamingPlatformsEnabled = true,
+            showAllCatalogsOnHome = true, doubleUpPlatformShortcutEnabled = false, posterLabelsEnabled = false))
+        val start = SystemClock.uptimeMillis()
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = start)
+        advance(280)
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = start + 320)
+        assertTrue("320ms is rapid navigation, not a new independent XL transition", scene.continuousVerticalNavigation)
+        assertEquals(catalogRowKey(rows[2]), scene.selection?.rowKey)
+        advance(96)
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start + 480)
+        assertEquals(catalogRowKey(rows[1]), scene.selection?.rowKey)
+        advance(96)
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = start + 640)
+        assertEquals(catalogRowKey(rows[2]), scene.selection?.rowKey)
+        advance(2400)
+        assertEquals(catalogRowKey(rows[2]), scene.selection?.rowKey)
+        assertFalse(scene.continuousVerticalNavigation)
+        assertFalse(list.isScrollInProgress)
     }
 
 }
