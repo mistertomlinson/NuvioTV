@@ -34,6 +34,7 @@ fun Modifier.dpadVerticalFastScroll(
     maxFrameDtSec: Float = DEFAULT_MAX_FRAME_DT_SEC,
     holdAtEdgeUntilRelease: Boolean = false,
     maxForwardScrollPx: () -> Float = { Float.POSITIVE_INFINITY },
+    externalVerticalDriver: ((Int) -> Unit)? = null,
 ): Modifier = composed {
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -91,7 +92,7 @@ fun Modifier.dpadVerticalFastScroll(
         val sign = if (kc == KeyEvent.KEYCODE_DPAD_UP) -1 else 1
         val waitingForRelease = holdAtEdgeUntilRelease && waitingAtEdge.get() && directionRef.get() == sign
         val needsStart = !waitingForRelease && (modeRef.get() != FastScrollMode.Vertical ||
-            directionRef.get() != sign || jobRef.get()?.isActive != true)
+            directionRef.get() != sign || (externalVerticalDriver == null && jobRef.get()?.isActive != true))
 
         if (needsStart) {
             jobRef.getAndSet(null)?.cancel()
@@ -99,7 +100,12 @@ fun Modifier.dpadVerticalFastScroll(
             val atScrollEdge = (sign > 0 && !scrollableState.canScrollForward) ||
                 (sign < 0 && !scrollableState.canScrollBackward)
             val halted = sign > 0 && shouldHaltForward()
-            if (!holdAtEdgeUntilRelease && (atScrollEdge || halted)) {
+            if (externalVerticalDriver != null) {
+                modeRef.set(FastScrollMode.Vertical)
+                directionRef.set(sign)
+                setActive(true)
+                externalVerticalDriver(sign)
+            } else if (!holdAtEdgeUntilRelease && (atScrollEdge || halted)) {
                 if (holdAtEdgeUntilRelease) {
                     // Keep the held scroll session alive at the limit. More
                     // repeat events must not re-open gaps or trigger a landing.
