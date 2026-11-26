@@ -31,7 +31,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
-internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 250L
+internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 400L
+internal const val XL_EXIT_SEPARATION_DELAY_MS = 250L
 internal const val XL_CONTENT_LIFT_DP = 8f
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
@@ -270,6 +271,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     var continuousInputEpoch by mutableIntStateOf(0)
         private set
     private var lastVerticalPressTime = Long.MIN_VALUE
+    // UI-thread only; captured before canceling the preceding XL spring.
+    var verticalVelocityPxPerSec = 0f
+    var verticalVelocityRecordedAt = Long.MIN_VALUE
+    fun recordVerticalVelocity(value: Float) {
+        verticalVelocityPxPerSec = value
+        verticalVelocityRecordedAt = android.os.SystemClock.uptimeMillis()
+    }
+    fun inheritedVerticalVelocity(): Float = if (verticalVelocityRecordedAt != Long.MIN_VALUE &&
+        android.os.SystemClock.uptimeMillis() - verticalVelocityRecordedAt in 0L..100L)
+        verticalVelocityPxPerSec else 0f
     var verticalInputIntent = false
         private set
     private var lastVerticalPressSign = 0
@@ -372,6 +383,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (!navigationPresentationFrozen || navigationFrozenBackdrop == null)
                 navigationFrozenBackdrop = paintedBackdrop ?: selection?.preview
             pendingContinuousBackdrop = null
+            clearContinuousLandingPaint()
             continuousVerticalNavigation = true
             clearDeferredExit()
             continuousGapsCollapsed = true
@@ -395,6 +407,35 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     // Restore the normal geometry once, while the metadata and its mask are
     // still hidden. The landing owner aligns the final row before revealing it.
+    // Landing geometry is calculated without mutating LazyColumn. Animate
+    // neighboring rows on the compact geometry, then commit the spacers once.
+    var continuousLandingOffsets by mutableStateOf<Map<String, Float>>(emptyMap())
+    var continuousLandingProgress by mutableFloatStateOf(0f)
+    fun continuousLandingOffsetPx(rowKey: String): Float =
+        (continuousLandingOffsets[rowKey] ?: 0f) * continuousLandingProgress
+
+    fun clearContinuousLandingPaint() {
+        continuousLandingProgress = 0f
+        continuousLandingOffsets = emptyMap()
+    }
+
+    fun continuousLandingGaps(rows: List<HeroCarouselRow>, selected: XlSceneSelection): Map<String, Dp> =
+        rows.mapIndexed { index, row ->
+            val previous = rows.getOrNull(index - 1)
+            val predecessorFocused = previous?.key == selected.rowKey
+            val target = when {
+                row.isXl && previous != null -> {
+                    val compactPrefix = predecessorFocused &&
+                        (previous.key == "continue_watching" || !previous.landscapePosters)
+                    if (compactPrefix) 0.dp else xlPrefixClearance(row.key, previous.key)
+                }
+                previous?.isXl == true && index <= selected.rowIndex ->
+                    followingHeadroom(previous.key, row.key, density, clearXl = true)
+                else -> 0.dp
+            }
+            row.key to target
+        }.toMap()
+
     fun prepareContinuousLanding(rows: List<HeroCarouselRow>) {
         XlNavigationTrace.event("LAND_PREPARE") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (!continuousVerticalNavigation || !continuousGapsCollapsed) return
@@ -403,25 +444,17 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             continuousGapsCollapsed = false
             if (selected == null) return@withMutableSnapshot
             openEarlierXlGaps(selected, rows)
+            val gaps = continuousLandingGaps(rows, selected)
             rows.forEachIndexed { index, row ->
                 val previous = rows.getOrNull(index - 1)
-                val predecessorFocused = previous?.key == selected.rowKey
-                val target = when {
-                    row.isXl && previous != null -> {
-                        val compactPrefix = predecessorFocused &&
-                            (previous.key == "continue_watching" || !previous.landscapePosters)
-                        if (predecessorFocused && previous.key != "continue_watching")
-                            landscapePreXlCompression[row.key] = 1f
-                        if (compactPrefix) 0.dp else xlPrefixClearance(row.key, previous.key)
-                    }
-                    previous?.isXl == true && index <= selected.rowIndex ->
-                        followingHeadroom(previous.key, row.key, density, clearXl = true)
-                    else -> 0.dp
-                }
+                if (row.isXl && previous?.key == selected.rowKey && previous.key != "continue_watching")
+                    landscapePreXlCompression[row.key] = 1f
+                val target = gaps.getValue(row.key)
                 headroomValues[row.key] = target
                 if (!row.isXl && previous?.isXl == true && index <= selected.rowIndex)
                     heldHeadroomGoals[row.key] = target
             }
+            clearContinuousLandingPaint()
         }
     }
 
@@ -429,6 +462,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         XlNavigationTrace.event("LAND_FINISH") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (!continuousVerticalNavigation) return
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            clearContinuousLandingPaint()
             continuousGapsCollapsed = false
             continuousVerticalNavigation = false
             continuousHeldScroll = false
