@@ -526,11 +526,11 @@ class XlSceneStateTest {
         val scene = XlSceneState(selection("XL", 0, true))
         scene.noteVerticalPress(1, 1000L, false)
         scene.noteVerticalRelease()
-        scene.noteVerticalPress(-1, 1225L, false)
+        scene.noteVerticalPress(-1, 1375L, false)
         assertTrue(scene.continuousVerticalNavigation)
         assertTrue(scene.continuousGapsCollapsed)
         scene.finishContinuousNavigation()
-        scene.noteVerticalPress(-1, 1600L, false)
+        scene.noteVerticalPress(-1, 1850L, false)
         assertFalse(scene.continuousVerticalNavigation)
     }
 
