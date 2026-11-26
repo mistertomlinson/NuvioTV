@@ -1387,7 +1387,8 @@ internal fun rememberXlBackdropPresentation(
     val selectionKey = if (frozen) null else selected?.let { it.rowKey to it.itemKey }
     val artworkKey = if (frozen) null else selected?.preview?.let { firstNonBlank(it.backdrop, it.imageUrl) }
     val latestCarouselFocused by rememberUpdatedState(carouselFocused)
-    LaunchedEffect(scene, selectionKey, artworkKey, darkTarget, enabled, frozen) {
+    LaunchedEffect(scene, selectionKey, artworkKey, if (frozen) null else darkTarget,
+        if (frozen || darkTarget) null else carouselFocused, enabled, frozen) {
         if (frozen) {
             if (!state.owned) state.preview = scene.navigationFrozenBackdrop ?: state.preview ?: latestResolved
             state.owned = true
@@ -1567,8 +1568,6 @@ internal fun rememberXlBackdropPresentation(
             // No normal-row debounce or fade-to-black on a horizontal XL move.
             // The row releases this barrier when its matching landscape and
             // blur are prepared; the image crossfade starts on that commit.
-            if (!latestCarouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
-                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) || latestCarouselFocused }.first { it }
             val previousUrl = firstNonBlank(state.preview?.backdrop, state.preview?.imageUrl)
             val nextUrl = firstNonBlank(target.preview.backdrop, target.preview.imageUrl)
             if (previousUrl == nextUrl) {
@@ -1576,6 +1575,8 @@ internal fun rememberXlBackdropPresentation(
                 state.owned = true
                 return@LaunchedEffect
             }
+            if (!latestCarouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
+                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) || latestCarouselFocused }.first { it }
             state.imageFadeMillis = 220
             state.token++
             state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
