@@ -452,7 +452,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private var rapidLandingEpoch = -1
     private var rapidLandingReleasedSeconds = 0f
     private var rapidLandingPlan: XlLandingPaintPlan? = null
-    private var rapidLandingKey: Pair<String, String>? = null
+    private var rapidLandingRowKey: String? = null
+    private var rapidLandingItemKey: String? = null
     private var rapidLandingBlendSeconds = 0f
     var rapidLandingReady = false
         private set
@@ -487,7 +488,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private fun resetRapidLandingIntent() {
         rapidLandingEpoch = -1
         rapidLandingReleasedSeconds = 0f
-        rapidLandingKey = null
+        rapidLandingRowKey = null
+        rapidLandingItemKey = null
         rapidLandingPlan = null
         rapidLandingReady = false
         rapidLandingMetadata = false
@@ -504,11 +506,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // A held session keeps the already verified landing behavior. If it
     // interrupts a rapid tap, release that tap's paint offset continuously.
     fun advanceHeldLandingPaint(dt: Float) {
-        if (rapidLandingPlan != null || rapidLandingKey != null) {
+        if (rapidLandingPlan != null || rapidLandingRowKey != null) {
             resetRapidLandingIntent()
             retargetLandingPaint(emptyMap())
         }
-        if (continuousLandingStartOffsets.isNotEmpty()) advanceLandingPaint(dt)
+        if (continuousLandingStartOffsets.isNotEmpty()) {
+            advanceLandingPaint(dt)
+            if (continuousLandingProgress >= 1f) clearContinuousLandingPaint()
+        }
     }
 
     /**
@@ -517,13 +522,15 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
      * expires; metadata itself stays hidden until that window is over.
      */
     fun advanceRapidLanding(target: XlSceneSelection, remaining: Float, dt: Float,
-        plan: () -> XlLandingPaintPlan): Boolean {
+        plan: (XlSceneSelection) -> XlLandingPaintPlan): Boolean {
         if (!continuousVerticalNavigation || !continuousGapsCollapsed || continuousHeldScroll) return false
-        val key = target.rowKey to target.itemKey
-        if (selection?.let { it.rowKey to it.itemKey } != key) return false
-        if (rapidLandingEpoch != continuousInputEpoch || rapidLandingKey != key) {
+        val selected = selection
+        if (selected?.rowKey != target.rowKey || selected.itemKey != target.itemKey) return false
+        if (rapidLandingEpoch != continuousInputEpoch || rapidLandingRowKey != target.rowKey ||
+            rapidLandingItemKey != target.itemKey) {
             rapidLandingEpoch = continuousInputEpoch
-            rapidLandingKey = key
+            rapidLandingRowKey = target.rowKey
+            rapidLandingItemKey = target.itemKey
             rapidLandingReleasedSeconds = 0f
             rapidLandingPlan = null
             rapidLandingReady = false
@@ -535,7 +542,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         else rapidLandingReleasedSeconds += dt
         if (!verticalKeyHeld && rapidLandingReleasedSeconds >= 0.07f &&
             kotlin.math.abs(remaining) <= 180f * density && rapidLandingPlan == null) {
-            val prepared = plan()
+            val prepared = plan(target)
             rapidLandingPlan = prepared
             retargetLandingPaint(prepared.offsets)
             XlNavigationTrace.event("RAPID_LANDING_ARM") { "row=${target.rowKey} remaining=$remaining clearance=${prepared.virtualClearancePx}" }
@@ -556,7 +563,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun retainRapidClearanceAfterMeasure(rows: List<HeroCarouselRow>, selected: XlSceneSelection): Boolean {
         val clearance = rapidLandingPlan?.virtualClearancePx ?: return false
-        if (!rapidLandingReady || rapidLandingKey != (selected.rowKey to selected.itemKey)) return false
+        if (!rapidLandingReady || rapidLandingRowKey != selected.rowKey || rapidLandingItemKey != selected.itemKey) return false
         // The measured spacers have taken over the structural displacement.
         // Keep only the virtual clearance until the ordinary mask commits.
         continuousLandingStartOffsets = emptyMap()
