@@ -5028,6 +5028,8 @@ private fun EnhancedModernHomeRowsListBoundary(
     val doubleUpScope =
         rememberCoroutineScope()
 
+    val rapidRowJob = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
+
     val doubleUpDensity =
         LocalDensity.current
 
@@ -5189,6 +5191,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 onFastScrollingChanged = { scrolling ->
                     XlNavigationTrace.event("FAST_SCROLL") { "active=$scrolling focused=$activeRowKey" }
                     if (scrolling) {
+                        rapidRowJob.getAndSet(null)?.cancel()
                         if (currentXlSceneEnabled) {
                             val anchor = if (!currentXlScene.continuousGapsCollapsed) compactScrollAnchor() else null
                             currentXlScene.startHeldVerticalScroll()
@@ -5973,6 +5976,47 @@ private fun EnhancedModernHomeRowsListBoundary(
                     currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime, native.repeatCount > 0)
                     if (anchor != null && currentXlScene.continuousGapsCollapsed)
                         verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
+                    if (native.repeatCount == 0 && currentXlScene.continuousVerticalNavigation) {
+                        // In a burst, row ordering (not the temporarily painted
+                        // geometry of focus nodes) defines the next destination.
+                        val sign = if (isUp) -1 else 1
+                        val source = currentXlScene.selection?.rowIndex
+                            ?: currentCarouselRows.indexOfFirst { it.key == focusHolder.activeRowKey }
+                        val destinationIndex = source + sign
+                        val destination = currentCarouselRows.getOrNull(destinationIndex)
+                        val itemIndex = destination?.let { row ->
+                            (uiCaches.focusedItemByRow[row.key] ?: 0).coerceIn(0, (row.items.size - 1).coerceAtLeast(0))
+                        } ?: 0
+                        val selected = destination?.sceneSelection(itemIndex, destinationIndex)
+                        if (selected != null) {
+                            rapidRowJob.getAndSet(null)?.cancel()
+                            currentXlScene.focus(selected, verticalRowListState.layoutInfo,
+                                rows = currentCarouselRows, focusConfirmed = false)
+                            activeRowKey = selected.rowKey
+                            activeItemIndex = itemIndex
+                            pendingRowFocus.key = selected.rowKey
+                            pendingRowFocus.index = itemIndex
+                            pendingRowFocus.suppressBringIntoView = true
+                            pendingRowFocus.nonce++
+                            rapidRowJob.set(doubleUpScope.launch {
+                                // Let the compact structural remeasure commit
+                                // before a new scroll owner starts.
+                                withFrameNanos { }
+                                if (currentXlScene.selection?.rowKey != selected.rowKey) return@launch
+                                val info = verticalRowListState.layoutInfo
+                                val offset = info.beforeContentPadding - currentXlScene.posterAnchorPx(selected) +
+                                    currentXlScene.headerPx(selected.rowKey) + currentXlScene.gapPx(selected.rowKey)
+                                if (destinationIndex in 0 until info.totalItemsCount)
+                                    verticalRowListState.animateScrollToItem(destinationIndex, offset)
+                            })
+                            return@onPreviewKeyEvent true
+                        } else if (destinationIndex >= currentCarouselRows.size || destinationIndex < 0) {
+                            // At a list edge, keep the compact session rather
+                            // than letting the focus finder reverse direction.
+                            if (!(isUp && destinationIndex < 0 && aggregatePlatformsEnabled))
+                                return@onPreviewKeyEvent true
+                        }
+                    }
                     if (!isUp && native.repeatCount == 0 && !currentXlScene.continuousVerticalNavigation) {
                         val index = currentCarouselRows.indexOfFirst { it.key == focusHolder.activeRowKey }
                         val source = currentCarouselRows.getOrNull(index)
@@ -6122,6 +6166,8 @@ private fun EnhancedModernHomeRowsListBoundary(
             val stableOnRowItemFocused = remember(Unit) {
                 rowFocused@{ rowKey: String, index: Int, isContinueWatchingRow: Boolean, confirmedFocus: Boolean ->
                     if (currentXlSceneEnabled && suppressCatalogSelectionForDoubleUpRef.get()) return@rowFocused
+                    if (currentXlSceneEnabled && currentXlScene.continuousVerticalNavigation &&
+                        currentXlScene.selection?.rowKey != rowKey) return@rowFocused
                     /*
                      * Logical row focus updates also pass through this
                      * callback so hero/navigation state can stay fast.
