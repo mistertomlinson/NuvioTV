@@ -5976,7 +5976,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 // reversal outside a burst still uses the verified XL spring.
                 if (currentXlSceneEnabled && native.action == AndroidKeyEvent.ACTION_DOWN &&
                     (keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)) {
-                    val anchor = if (!currentXlScene.continuousGapsCollapsed) compactScrollAnchor() else null
+                    val anchor = if (currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)) compactScrollAnchor() else null
                     currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime, native.repeatCount > 0)
                     if (anchor != null && currentXlScene.continuousGapsCollapsed)
                         verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
@@ -6419,7 +6419,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 val precedingXlIndex = (rowIndex - 1 downTo 0).firstOrNull {
                     doubleUpRenderedRows[it].isXl
                 } ?: -1
-                val fixedOrdinarySuffix = xlSceneEnabled && !row.isXl && precedingXlIndex >= 0
+                val fixedOrdinarySuffix = xlSceneEnabled && precedingXlIndex >= 0
                 val titleLineHeight = MaterialTheme.typography.titleMedium.lineHeight
                 val titleHeight = with(doubleUpDensity) {
                     runCatching { titleLineHeight.toDp() }.getOrDefault(24.dp)
