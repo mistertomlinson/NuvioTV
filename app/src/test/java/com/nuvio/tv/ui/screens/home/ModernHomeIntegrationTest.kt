@@ -137,13 +137,19 @@ class ModernHomeIntegrationTest {
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         var previousEdge = scene.outgoingXlBottom(list.layoutInfo)
         var slideStarted = false
-        repeat(110) {
+        repeat(110) { frame ->
             advance(16)
             val bottom = scene.outgoingXlBottom(list.layoutInfo)
             if (bottom != null && previousEdge != null) {
                 if (bottom < previousEdge!!) slideStarted = true
-                if (slideStarted && bottom > 40f)
-                    assertTrue("Actual Home must not pause its visible XL slide at focus handoff", bottom < previousEdge!!)
+                if (slideStarted && bottom > 40f && bottom >= previousEdge!!) {
+                    val info = list.layoutInfo
+                    fail("Actual Home must not pause its visible XL slide at focus handoff: " +
+                        "frame=$frame elapsedMs=${(frame + 1) * 16} previous=$previousEdge bottom=$bottom " +
+                        "gate=${scene.deferredDownwardExit} motion=${scene.verticalMotion} " +
+                        "translation=${scene.fixedFollowerTranslationPx} scrolling=${list.isScrollInProgress} " +
+                        "rows=${info.visibleItemsInfo.map { Triple(it.key, it.offset, it.size) }}")
+                }
             }
             previousEdge = bottom
             if (bottom != null && bottom > 0f) assertEquals("Both XL modes wait until all XL pixels clear", 0f, scene.exitMetadataAlpha, 0f)
