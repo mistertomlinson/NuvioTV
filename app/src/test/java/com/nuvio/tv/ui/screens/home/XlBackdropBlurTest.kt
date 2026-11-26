@@ -34,6 +34,21 @@ class XlBackdropBlurTest {
         assertNull("Never borrow a sharp image as the blurred placeholder", request.placeholderMemoryCacheKey)
     }
 
+    @Test fun readinessRejectsMissingWrongSizeAndRecycledBitmaps() {
+        val sharp = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888)
+        val prepared = Bitmap.createBitmap(XL_BLUR_WIDTH, XL_BLUR_HEIGHT, Bitmap.Config.ARGB_8888)
+        try {
+            assertFalse(isPreparedXlBlurBitmap(null))
+            assertFalse(isPreparedXlBlurBitmap(sharp))
+            assertTrue(isPreparedXlBlurBitmap(prepared))
+            prepared.recycle()
+            assertFalse(isPreparedXlBlurBitmap(prepared))
+        } finally {
+            sharp.recycle()
+            if (!prepared.isRecycled) prepared.recycle()
+        }
+    }
+
     @Test fun thePreparedBlurSmoothsEdgesWithoutMutatingOrRecyclingItsSource() = runBlocking {
         val input = Bitmap.createBitmap(1280, 720, Bitmap.Config.ARGB_8888)
         val canvas = android.graphics.Canvas(input)
