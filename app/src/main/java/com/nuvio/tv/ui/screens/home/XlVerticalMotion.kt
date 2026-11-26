@@ -62,7 +62,7 @@ internal fun xlFixedOrdinarySuffixTranslationPx(
         motion?.fixedReturnFollowerMeasurement != true) return 0f
     val firstOrdinaryIndex = motion.itemAnchor?.index ?: return 0f
     return if (rowIndex >= firstOrdinaryIndex && rowIndex < motion.followerEndExclusiveIndex &&
-        precedingXlIndex == firstOrdinaryIndex - 1) translationPx else 0f
+        (motion.coupledExit || precedingXlIndex == firstOrdinaryIndex - 1)) translationPx else 0f
 }
 
 /** Share one spring clock across XL travel and the shorter incoming-row leg. */
