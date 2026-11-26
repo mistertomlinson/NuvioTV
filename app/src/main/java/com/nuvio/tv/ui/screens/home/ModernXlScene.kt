@@ -525,7 +525,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         plan: (XlSceneSelection) -> XlLandingPaintPlan): Boolean {
         if (!continuousVerticalNavigation || !continuousGapsCollapsed || continuousHeldScroll) return false
         val selected = selection
-        if (selected?.rowKey != target.rowKey || selected.itemKey != target.itemKey) return false
+        if (selected == null || selected.rowKey != target.rowKey || selected.itemKey != target.itemKey) return false
         if (rapidLandingEpoch != continuousInputEpoch || rapidLandingRowKey != target.rowKey ||
             rapidLandingItemKey != target.itemKey) {
             rapidLandingEpoch = continuousInputEpoch
