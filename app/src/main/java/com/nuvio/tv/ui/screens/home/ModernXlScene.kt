@@ -299,6 +299,26 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     val navigationPresentationFrozen: Boolean
         get() = deferredDownwardExit || continuousVerticalNavigation
     private var pendingContinuousBackdrop: Pair<String, String>? = null
+    // Only the final held-scroll XL destination can reveal before the
+    // geometry settles. Metadata and poster focus suppression remain intact.
+    private var earlyContinuousBackdrop by mutableStateOf<Pair<String, String>?>(null)
+    val backdropPresentationFrozen: Boolean
+        get() = navigationPresentationFrozen && !(continuousHeldScroll && !verticalKeyHeld &&
+            earlyContinuousBackdrop != null &&
+            earlyContinuousBackdrop == selection?.let { it.rowKey to it.itemKey })
+
+    fun armHeldLandingBackdrop(target: XlSceneSelection) {
+        if (!continuousVerticalNavigation || !continuousHeldScroll || verticalKeyHeld || !target.isXl ||
+            selection?.let { it.rowKey to it.itemKey } != (target.rowKey to target.itemKey)) return
+        val key = target.rowKey to target.itemKey
+        if (earlyContinuousBackdrop == key) return
+        pendingContinuousBackdrop = key
+        earlyContinuousBackdrop = key
+        XlNavigationTrace.event("BACKDROP_LANDING_ARM") { "row=${target.rowKey} item=${target.itemKey}" }
+    }
+
+    fun isEarlyContinuousBackdrop(target: XlSceneSelection): Boolean =
+        earlyContinuousBackdrop == (target.rowKey to target.itemKey)
 
     fun armDeferredDownwardExit(sourceKey: String) {
         XlNavigationTrace.event("ARM_EXIT") { "source=$sourceKey" }
@@ -378,6 +398,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         XlNavigationTrace.event("CONTINUOUS_START") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (fastReturn != null) return
         continuousInputEpoch++
+        // A new input cancels an early reveal, even if compact geometry
+        // was already active. It must not reappear for an obsolete target.
+        if (earlyContinuousBackdrop != null) {
+            earlyContinuousBackdrop = null
+            pendingContinuousBackdrop = null
+        }
         if (continuousGapsCollapsed) return
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             if (!navigationPresentationFrozen || navigationFrozenBackdrop == null)
@@ -467,7 +493,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             continuousVerticalNavigation = false
             continuousHeldScroll = false
             verticalKeyHeld = false
-            pendingContinuousBackdrop = selection?.let { it.rowKey to it.itemKey }
+            val key = selection?.let { it.rowKey to it.itemKey }
+            if (earlyContinuousBackdrop != key || key == null) pendingContinuousBackdrop = key
+            earlyContinuousBackdrop = null
             navigationFrozenBackdrop = null
             exitMetadataAlpha = 1f
             metadataEpoch++
@@ -794,7 +822,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun hideMetadata() { paintedAlpha = 0f }
 
-    fun recordBackdrop(preview: HeroPreview?) { if (!navigationPresentationFrozen) paintedBackdrop = preview }
+    fun recordBackdrop(preview: HeroPreview?) { if (!backdropPresentationFrozen) paintedBackdrop = preview }
 
     fun focus(next: XlSceneSelection, layout: LazyListLayoutInfo, animate: Boolean = true,
         rows: List<HeroCarouselRow> = emptyList(), focusConfirmed: Boolean = true) {
@@ -1353,12 +1381,13 @@ internal fun rememberXlBackdropPresentation(
         if (XlNavigationTrace.enabled) XlNavigationTrace.backdrop = state
         XlNavigationTrace.event("BACKDROP") { "selected=${selected?.rowKey}/${selected?.itemKey} resolved=${resolvedHero?.title} presented=${state.preview?.title} token=${state.token} owned=${state.owned} blurred=${state.blurred} entering=${state.directEntry} exiting=${state.directExit} reveal=${state.continuousReveal} dim=${state.dim.value} gradient=${state.gradientAlpha.value} ready=${state.ready()} finished=${state.transitionFinished()} fade=${state.imageFadeMillis}" }
     }
-    val frozen = enabled && scene.navigationPresentationFrozen
-    // A burst owns one frozen presentation, not a coroutine for every passing row.
+    val frozen = enabled && scene.backdropPresentationFrozen
+    // The top XL row and its platform icons share exactly one backdrop
+    // identity. Focus transferring to those icons is NOT a new image commit.
     val selectionKey = if (frozen) null else selected?.let { it.rowKey to it.itemKey }
-    LaunchedEffect(scene, selectionKey, if (frozen) null else selected?.preview?.backdrop,
-        if (frozen) null else selected?.preview?.imageUrl, if (frozen) null else selected?.preview?.poster,
-        carouselFocused, pageStartsWithXl, enabled, frozen) {
+    val artworkKey = if (frozen) null else selected?.preview?.let { firstNonBlank(it.backdrop, it.imageUrl) }
+    val latestCarouselFocused by rememberUpdatedState(carouselFocused)
+    LaunchedEffect(scene, selectionKey, artworkKey, darkTarget, enabled, frozen) {
         if (frozen) {
             if (!state.owned) state.preview = scene.navigationFrozenBackdrop ?: state.preview ?: latestResolved
             state.owned = true
@@ -1367,7 +1396,7 @@ internal fun rememberXlBackdropPresentation(
         val target = selected ?: return@LaunchedEffect
         val boundary = scene.transition
         val boundaryId = boundary?.id
-        val dark = enabled && if (carouselFocused) pageStartsWithXl else target.isXl
+        val dark = darkTarget
         val exitingXl = !dark && (state.blurred || state.directExit || boundary?.from?.isXl == true)
         state.directEntry = false
         state.continuousReveal = false
@@ -1384,9 +1413,12 @@ internal fun rememberXlBackdropPresentation(
             // Hold the exact previous presentation until the final artwork is
             // ready. A newly focused XL is not a cold-start backdrop.
             state.owned = true
-            if (dark && !carouselFocused) withTimeoutOrNull(2_000L) {
+            // During an early landing the row's artwork pipeline is still
+            // intentionally frozen. The backdrop renderer independently
+            // prepares and verifies the actual transformed bitmap.
+            if (dark && !latestCarouselFocused && !scene.isEarlyContinuousBackdrop(target)) withTimeoutOrNull(2_000L) {
                 snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
-                    firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
+                    firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) || latestCarouselFocused }.first { it }
             }
             // Keep the landing token pending while artwork is loading. An
             // enrichment recomposition may restart this effect for the same item.
@@ -1403,14 +1435,16 @@ internal fun rememberXlBackdropPresentation(
             val revealToken = state.token
             try {
                 repeat(2) { withFrameNanos { } }
-                withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
+                if (dark && !artworkKey.isNullOrBlank())
+                    snapshotFlow { state.ready() }.first { it }
+                else withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
                 kotlinx.coroutines.coroutineScope {
                     launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f, tween(220, easing = LinearEasing)) }
                     launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f, tween(220, easing = LinearEasing)) }
                 }
                 if (needsDissolve) withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
             } finally {
-                if (state.token == revealToken && !scene.navigationPresentationFrozen) {
+                if (state.token == revealToken && !scene.backdropPresentationFrozen) {
                     state.directEntry = false
                     state.directExit = false
                     state.continuousReveal = false
@@ -1468,7 +1502,8 @@ internal fun rememberXlBackdropPresentation(
             return@LaunchedEffect
         }
         if (!state.owned && !dark && boundaryId == null) return@LaunchedEffect
-        if (dark && target.isXl && boundary == null && !state.blurred) {
+        if (dark && target.isXl && boundary == null &&
+            (!state.blurred || scene.pendingFastReturnXlBackdropKey == target.rowKey)) {
             state.directExit = false
             val doubleUpArrival = scene.consumeFastReturnXlBackdropReveal(target.rowKey)
             // A real first render intentionally initializes without a fade.
@@ -1485,10 +1520,13 @@ internal fun rememberXlBackdropPresentation(
                 state.directEntry = true
                 val revealToken = state.token
                 try {
+                    repeat(2) { withFrameNanos { } }
+                    if (!artworkKey.isNullOrBlank()) snapshotFlow { state.ready() }.first { it }
                     kotlinx.coroutines.coroutineScope {
                         launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing)) }
                         launch { state.gradientAlpha.animateTo(0f, tween(220, easing = LinearEasing)) }
                     }
+                    withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
                 } finally {
                     // A second navigation can cancel this reveal. Do not let
                     // an obsolete job reset a later entry's animation flag.
@@ -1506,8 +1544,8 @@ internal fun rememberXlBackdropPresentation(
             state.owned = true
             // Keep the current composite visible while the prepared landscape
             // and blur are pending. Neither entry direction waits for a black beat or row settlement.
-            if (!carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
-                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
+            if (!latestCarouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
+                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) || latestCarouselFocused }.first { it }
             state.token++
             state.preview = target.preview
             state.blurred = true
@@ -1529,10 +1567,16 @@ internal fun rememberXlBackdropPresentation(
             // No normal-row debounce or fade-to-black on a horizontal XL move.
             // The row releases this barrier when its matching landscape and
             // blur are prepared; the image crossfade starts on that commit.
-            if (!carouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
-                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) }.first { it }
-            if (firstNonBlank(state.preview?.backdrop, state.preview?.imageUrl) !=
-                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) state.imageFadeMillis = 220
+            if (!latestCarouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
+                firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) || latestCarouselFocused }.first { it }
+            val previousUrl = firstNonBlank(state.preview?.backdrop, state.preview?.imageUrl)
+            val nextUrl = firstNonBlank(target.preview.backdrop, target.preview.imageUrl)
+            if (previousUrl == nextUrl) {
+                state.preview = target.preview
+                state.owned = true
+                return@LaunchedEffect
+            }
+            state.imageFadeMillis = 220
             state.token++
             state.dim.snapTo(XL_BACKDROP_DIM_ALPHA)
             state.gradientAlpha.snapTo(0f)
