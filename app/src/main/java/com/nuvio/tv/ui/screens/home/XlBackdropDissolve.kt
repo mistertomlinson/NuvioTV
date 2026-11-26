@@ -70,6 +70,7 @@ private suspend fun flattenBlurredLayers(layers: List<XlDissolveLayer>): ModernH
 @Composable
 internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>, duration: Int,
     onFinished: (ModernHeroBackdropFrame) -> Unit = {},
+    frozen: Boolean = false,
     content: @Composable (ModernHeroBackdropFrame, () -> Unit) -> Unit) {
     val layers = remember(transition) {
         mutableStateListOf(XlDissolveLayer(transition.currentState, 1f))
@@ -77,7 +78,8 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
     val latestContent by rememberUpdatedState(content)
     val latestFinished by rememberUpdatedState(onFinished)
     val target = transition.targetState
-    LaunchedEffect(target, duration) {
+    LaunchedEffect(target, duration, frozen) {
+        if (frozen) return@LaunchedEffect
         if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) return@LaunchedEffect
         // Cancelling a previous effect freezes its partial opacity. Keep that
         // composite intact underneath this new fade, even when reversing.
@@ -85,12 +87,14 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
         // share a crop/gradient, so retain them as one tiny opaque field rather
         // than accumulating full-screen alpha surfaces on every rapid D-pad.
         layers.removeAll { it.alpha.value <= 0f }
-        flattenBlurredLayers(layers.toList())?.let { composite ->
-            layers.clear()
-            layers.add(XlDissolveLayer(composite, 1f))
+        val retained = layers.lastOrNull()?.takeIf { it.frame == target }
+        val incoming = if (retained != null) retained else {
+            flattenBlurredLayers(layers.toList())?.let { composite ->
+                layers.clear()
+                layers.add(XlDissolveLayer(composite, 1f))
+            }
+            XlDissolveLayer(target, 0f).also { layers.add(it) }
         }
-        val incoming = XlDissolveLayer(target, 0f)
-        layers.add(incoming)
         withTimeoutOrNull(2_000) { snapshotFlow { incoming.ready }.first { it } }
         incoming.alpha.animateTo(1f, tween(duration, easing = LinearEasing))
         layers.removeAll { it !== incoming }
