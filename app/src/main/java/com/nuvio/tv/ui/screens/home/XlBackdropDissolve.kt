@@ -80,7 +80,10 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
     val target = transition.targetState
     LaunchedEffect(target, duration, frozen) {
         if (frozen) return@LaunchedEffect
-        if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) return@LaunchedEffect
+        if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) {
+            latestFinished(target)
+            return@LaunchedEffect
+        }
         // Cancelling a previous effect freezes its partial opacity. Keep that
         // composite intact underneath this new fade, even when reversing.
         // Unseen cancelled requests contribute no pixels. Ready partial blurs
@@ -95,7 +98,11 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
             }
             XlDissolveLayer(target, 0f).also { layers.add(it) }
         }
-        withTimeoutOrNull(2_000) { snapshotFlow { incoming.ready }.first { it } }
+        // A timeout is not a prepared blurred bitmap. Keep the old image
+        // visible until the transformed result succeeds or the target changes.
+        if (target.blurred && !target.url.isNullOrBlank())
+            snapshotFlow { incoming.ready }.first { it }
+        else withTimeoutOrNull(2_000) { snapshotFlow { incoming.ready }.first { it } }
         incoming.alpha.animateTo(1f, tween(duration, easing = LinearEasing))
         layers.removeAll { it !== incoming }
         latestFinished(target)
