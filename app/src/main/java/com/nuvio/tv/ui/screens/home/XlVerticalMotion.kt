@@ -1,8 +1,6 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.core.AnimationSpec
-import androidx.compose.animation.core.TargetBasedAnimation
-import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateTo
 import androidx.compose.animation.core.tween
@@ -28,6 +26,28 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 internal const val XL_SPRING_TIME_SCALE = 1.10f
+
+// Keep a meaningful amount of the shared leg moving beyond the 250ms
+// input gate; the separation leg starts from zero velocity. No independent
+// short-distance spring is allowed to reach rest before separation starts.
+internal fun xlCoupledSharedDurationMs(scale: Float): Float =
+    if (scale <= 0f) 0f else XL_CONTINUOUS_NAV_INTERVAL_MS.toFloat() + 200f * scale
+
+internal fun xlCoupledSplitDurationMs(scale: Float): Float =
+    if (scale <= 0f) 0f else 280f * scale
+
+internal fun xlCoupledSharedProgress(elapsedMs: Float, durationMs: Float): Float {
+    if (durationMs <= 0f) return 1f
+    val t = (elapsedMs / durationMs).coerceIn(0f, 1f)
+    // Nonzero launch velocity, continuous acceleration, zero landing velocity.
+    return t + t * t * (1f - t)
+}
+
+internal fun xlCoupledSplitProgress(elapsedMs: Float, durationMs: Float): Float {
+    if (durationMs <= 0f) return 1f
+    val t = (elapsedMs / durationMs).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
 
 internal data class XlScrollItemAnchor(val index: Int, val scrollOffset: Int)
 
@@ -132,9 +152,12 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 // only after the input gate has accepted a single tap.
                                 // Both components are evaluated by one frame clock
                                 // and one scroll owner; no second relocation.
-                                val shared = TargetBasedAnimation(animation, Float.VectorConverter, 0f, visiblePx)
-                                val separation = TargetBasedAnimation(animation, Float.VectorConverter, 0f, (toPx - fromPx).toFloat())
                                 val scale = systemScale * XL_SPRING_TIME_SCALE
+                                // A short spring for the incoming leg can run out
+                                // of visible pixels before the gate opens. Reserve
+                                // enough shared travel for both legs to overlap.
+                                val sharedDuration = xlCoupledSharedDurationMs(scale)
+                                val splitDuration = xlCoupledSplitDurationMs(scale)
                                 var start = Long.MIN_VALUE
                                 var splitStart = Long.MIN_VALUE
                                 while (true) {
@@ -142,22 +165,20 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                     if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
                                     if (start == Long.MIN_VALUE) start = now
                                     if (!scene.deferredDownwardExit && splitStart == Long.MIN_VALUE) splitStart = now
-                                    val sharedTime = if (scale <= 0f) shared.durationNanos else
-                                        ((now - start) / scale.toDouble()).toLong().coerceAtMost(shared.durationNanos)
-                                    val splitTime = if (splitStart == Long.MIN_VALUE) 0L else if (scale <= 0f)
-                                        separation.durationNanos else ((now - splitStart) / scale.toDouble()).toLong().coerceAtMost(separation.durationNanos)
-                                    val incoming = shared.getValueFromNanos(sharedTime).coerceIn(minOf(0f, visiblePx), maxOf(0f, visiblePx)).roundToInt()
-                                    val splitDistance = (toPx - fromPx).toFloat()
-                                    val extra = separation.getValueFromNanos(splitTime).coerceIn(minOf(0f, splitDistance), maxOf(0f, splitDistance)).roundToInt()
+                                    val elapsed = (now - start) / 1_000_000f
+                                    val splitElapsed = if (splitStart == Long.MIN_VALUE) 0f else
+                                        (now - splitStart) / 1_000_000f
+                                    val incoming = visiblePx * xlCoupledSharedProgress(elapsed, sharedDuration)
+                                    val extra = if (splitStart == Long.MIN_VALUE) 0f else
+                                        (toPx - fromPx) * xlCoupledSplitProgress(splitElapsed, splitDuration)
                                     val travel = incoming + extra
-                                    val gapPx = fromPx + extra
-                                    scene.fixedFollowerTranslationPx = xlFixedFollowerOffsetPx(gapPx, toPx)
-                                    val delta = travel - previous
-                                    scrollBy(delta)
-                                    previous = travel.toFloat()
-                                    if (splitStart != Long.MIN_VALUE &&
-                                        (sharedTime >= shared.durationNanos || incoming == visiblePx.roundToInt()) &&
-                                        (splitTime >= separation.durationNanos || extra == toPx - fromPx)) break
+                                    // Keep scroll and visual separation in the
+                                    // same physical-pixel coordinate system.
+                                    scene.fixedFollowerTranslationPx = fromPx + extra - toPx
+                                    scrollBy(travel - previous)
+                                    previous = travel
+                                    if (splitStart != Long.MIN_VALUE && elapsed >= sharedDuration &&
+                                        splitElapsed >= splitDuration) break
                                 }
                                 scene.compactRowRested = true
                             } else AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
