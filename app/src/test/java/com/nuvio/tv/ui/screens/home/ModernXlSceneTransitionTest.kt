@@ -93,10 +93,10 @@ class ModernXlSceneTransitionTest {
                         backdrop.expectFrame(token, visibleBackdrop?.backdrop)
                         if (frameReady.value) backdrop.frameReady(token, visibleBackdrop?.backdrop)
                     }
-                    LaunchedEffect(token, backdrop.directExit, frameReady.value) {
-                        if (backdrop.directExit && frameReady.value) {
-                            kotlinx.coroutines.delay(XL_BACKDROP_REVEAL_MS.toLong())
-                            backdrop.transitionFinished(token, visibleBackdrop?.backdrop, false)
+                    LaunchedEffect(token, backdrop.directExit, backdrop.directEntry, backdrop.continuousReveal, frameReady.value) {
+                        if ((backdrop.directExit || backdrop.directEntry || backdrop.continuousReveal) && frameReady.value) {
+                            kotlinx.coroutines.delay(backdrop.imageFadeMillis.toLong())
+                            backdrop.transitionFinished(token, visibleBackdrop?.backdrop, backdrop.blurred)
                         }
                     }
                     ObserveXlSceneMotion(scene, list)
@@ -914,6 +914,32 @@ class ModernXlSceneTransitionTest {
             scene.consumeFastReturnXlBackdropReveal(destination.rowKey))
     }
 
+    @Test fun doubleUpPlatformFocusDoesNotRestartTheSameXlReveal() {
+        content(start = 3, summary = true)
+        val destination = checkNotNull(rows[2].sceneSelection(0, 2))
+        compose.runOnIdle {
+            startsWithXl.value = true
+            scene.beginFastReturn(destination, list.layoutInfo, rows)
+            scene.finishFastReturn(destination, rows)
+            scene.cancelFastReturn()
+            resolved.value = destination.preview
+        }
+        advance(64)
+        val committedToken = backdrop.token
+        assertTrue(backdrop.directEntry)
+        val dimBeforeHandoff = backdrop.dim.value
+        assertTrue(dimBeforeHandoff < XL_BACKDROP_DIM_ALPHA - 0.01f)
+        compose.runOnIdle { carouselFocused.value = true }
+        advance(16)
+        assertEquals("Same target must retain its token when platform focus arrives", committedToken, backdrop.token)
+        assertTrue("Platform handoff cannot end the active dissolve", backdrop.directEntry)
+        assertTrue("Dimmer may advance but must not snap", backdrop.dim.value < XL_BACKDROP_DIM_ALPHA - 0.01f)
+        advance(400)
+        assertEquals(committedToken, backdrop.token)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        assertFalse(backdrop.directEntry)
+    }
+
     @Test fun doubleUpIntoSummaryXlCrossfadesBackdrop() =
         verifyDoubleUpXlBackdropReveal(summary = true)
 
@@ -1538,6 +1564,42 @@ class ModernXlSceneTransitionTest {
         advance(320)
         assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
         assertEquals(0, metadataCount())
+    }
+
+    @Test fun heldXlLandingCanRevealBeforeTheCompactGeometryIsRestored() {
+        content(start = 1)
+        frameReady.value = false
+        val destination = checkNotNull(rows[2].sceneSelection(0, 2))
+        val oldToken = backdrop.token
+        compose.runOnUiThread {
+            scene.startHeldVerticalScroll()
+            scene.focus(destination, list.layoutInfo, rows = rows)
+        }
+        advance(96)
+        assertEquals(oldToken, backdrop.token)
+        assertTrue(scene.backdropPresentationFrozen)
+        compose.runOnUiThread {
+            scene.noteVerticalRelease()
+            scene.armHeldLandingBackdrop(destination)
+        }
+        advance(96)
+        assertTrue("Metadata stays frozen during the backdrop reveal", scene.navigationPresentationFrozen)
+        assertTrue("Geometry is still compact", scene.continuousGapsCollapsed)
+        assertFalse(scene.backdropPresentationFrozen)
+        assertEquals(oldToken + 1, backdrop.token)
+        assertTrue(backdrop.blurred)
+        assertEquals(0f, backdrop.dim.value, 0.001f)
+        frameReady.value = true
+        advance(96)
+        assertTrue("The reveal begins before landing geometry is restored", backdrop.dim.value > 0f)
+        compose.runOnUiThread {
+            scene.prepareContinuousLanding(rows)
+            scene.finishContinuousNavigation()
+        }
+        advance(400)
+        assertEquals("Landing completion must not create another backdrop token", oldToken + 1, backdrop.token)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        assertFalse(backdrop.continuousReveal)
     }
 
 }
