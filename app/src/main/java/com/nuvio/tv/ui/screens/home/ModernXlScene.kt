@@ -31,6 +31,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
+internal const val XL_MIXED_BACKDROP_FADE_MS = 300
+internal const val XL_MIXED_BACKDROP_WARM_FRAMES = 2
 internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 400L
 internal const val XL_EXIT_SEPARATION_DELAY_MS = 250L
 internal const val XL_CONTENT_LIFT_DP = 8f
@@ -303,9 +305,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // geometry settles. Metadata and poster focus suppression remain intact.
     private var earlyContinuousBackdrop by mutableStateOf<Pair<String, String>?>(null)
     val backdropPresentationFrozen: Boolean
-        get() = navigationPresentationFrozen && !(continuousHeldScroll && !verticalKeyHeld &&
+        get() = fastReturn != null || (navigationPresentationFrozen && !(continuousHeldScroll && !verticalKeyHeld &&
             earlyContinuousBackdrop != null &&
-            earlyContinuousBackdrop == selection?.let { it.rowKey to it.itemKey })
+            earlyContinuousBackdrop == selection?.let { it.rowKey to it.itemKey }))
 
     fun armHeldLandingBackdrop(target: XlSceneSelection) {
         if (!continuousVerticalNavigation || !continuousHeldScroll || verticalKeyHeld || !target.isXl ||
@@ -363,6 +365,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun noteVerticalRelease() { verticalKeyHeld = false }
 
     fun startHeldVerticalScroll() {
+        captureBurstOutgoingMask(null)
         continuousHeldScroll = true
         verticalKeyHeld = true
         beginContinuousNavigation()
@@ -381,9 +384,39 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         !continuousGapsCollapsed && (continuousVerticalNavigation || repeated ||
             lastVerticalPressTime != Long.MIN_VALUE && eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS)
 
+    // Retain the outgoing ordinary mask through the initial downward travel.
+    // Its edge follows consumed scroll pixels, independent of spacer remeasure.
+    private var burstOutgoingMask by mutableStateOf<Pair<Float, Float>?>(null)
+    private var burstMaskTravel by mutableFloatStateOf(0f)
+
+    fun captureBurstOutgoingMask(mask: Pair<Float, Float>?) {
+        burstOutgoingMask = mask?.takeIf { it.second > 0f && it.first < it.second }
+        burstMaskTravel = 0f
+    }
+
+    fun advanceBurstOutgoingMask(consumed: Float) {
+        val mask = burstOutgoingMask ?: return
+        // Never resurrect an outgoing mask once its trailing edge leaves
+        // the viewport. A direction reversal can only retire it earlier.
+        if (consumed < 0f) {
+            burstOutgoingMask = null
+            return
+        }
+        burstMaskTravel += consumed
+        if (burstMaskTravel >= mask.second) burstOutgoingMask = null
+    }
+
+    fun retainedBurstOutgoingMask(): Pair<Float, Float>? {
+        val mask = burstOutgoingMask ?: return null
+        val bottom = mask.second - burstMaskTravel
+        val top = mask.first - burstMaskTravel
+        return if (bottom > 0f && top < bottom) top to bottom else null
+    }
+
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
         verticalKeyHeld = true
         verticalInputIntent = true
+        if (sign < 0 || repeated) captureBurstOutgoingMask(null)
         val close = lastVerticalPressTime != Long.MIN_VALUE &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
         rapidVerticalStreak = if (close) rapidVerticalStreak + 1 else 1
@@ -616,6 +649,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         XlNavigationTrace.event("LAND_FINISH") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (!continuousVerticalNavigation) return
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            captureBurstOutgoingMask(null)
             clearContinuousLandingPaint()
             continuousGapsCollapsed = false
             continuousVerticalNavigation = false
@@ -867,10 +901,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
         pendingFastReturnXlBackdropKey = null
+        val retainedBackdrop = paintedBackdrop ?: selection?.preview
         clearDeferredExit()
         finishContinuousNavigation()
         pendingContinuousBackdrop = null
-        navigationFrozenBackdrop = null
+        navigationFrozenBackdrop = retainedBackdrop
+        captureBurstOutgoingMask(null)
         verticalKeyHeld = false
         clearBoundaryFocusIntent()
         cancelVerticalMotion()
@@ -902,13 +938,17 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         confirmedRowKey = null
         paintedAlpha = 0f
         stationaryMetadata = if (target.isXl) null else XlMetadataSnapshot(target.rowKey, target.preview)
+        navigationFrozenBackdrop = null
         pendingFastReturnXlBackdropKey = target.rowKey.takeIf { target.isXl }
     }
 
     fun cancelFastReturn() {
         // The Double-Up finally block runs after finishFastReturn, often
         // before the next composition. Do not discard the completed arrival.
-        if (fastReturn != null) pendingFastReturnXlBackdropKey = null
+        if (fastReturn != null) {
+            pendingFastReturnXlBackdropKey = null
+            navigationFrozenBackdrop = null
+        }
         fastReturn = null
     }
     fun fastReturnTranslation(layout: LazyListLayoutInfo): Float = fastReturn?.let {
@@ -1274,7 +1314,8 @@ internal fun xlSceneOutgoingMetadataVisible(scene: XlSceneState, layout: LazyLis
 
 internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo, enabled: Boolean,
     ordinaryTopPx: Float, density: Float, viewportHeightPx: Float = Float.POSITIVE_INFINITY): Pair<Float, Float>? {
-    if (!enabled || scene.navigationPresentationFrozen) return null
+    if (!enabled) return null
+    if (scene.navigationPresentationFrozen) return scene.retainedBurstOutgoingMask()
     scene.fastReturn?.let { fast ->
         if (fast.metadata == null || fast.alpha <= 0f) return null
         val offset = scene.fastReturnTranslation(layout)
@@ -1553,7 +1594,9 @@ internal fun rememberXlBackdropPresentation(
             // enrichment recomposition may restart this effect for the same item.
             if (!scene.consumeContinuousBackdropReveal(target)) return@LaunchedEffect
             val needsDissolve = dark || state.blurred || state.directExit
-            state.imageFadeMillis = 220
+            val fade = if (dark != state.blurred) XL_MIXED_BACKDROP_FADE_MS else 220
+            val warm = if (dark != state.blurred) XL_MIXED_BACKDROP_WARM_FRAMES else 0
+            state.imageFadeMillis = fade
             state.directExit = !dark && needsDissolve
             state.directEntry = dark
             state.continuousReveal = true
@@ -1567,9 +1610,10 @@ internal fun rememberXlBackdropPresentation(
                 if (dark && !artworkKey.isNullOrBlank())
                     snapshotFlow { state.ready() }.first { it }
                 else withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
+                repeat(warm) { withFrameNanos { } }
                 kotlinx.coroutines.coroutineScope {
-                    launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f, tween(220, easing = LinearEasing)) }
-                    launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f, tween(220, easing = LinearEasing)) }
+                    launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f, tween(fade, easing = LinearEasing)) }
+                    launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f, tween(fade, easing = LinearEasing)) }
                 }
                 if (needsDissolve) withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
             } finally {
@@ -1596,14 +1640,17 @@ internal fun rememberXlBackdropPresentation(
             state.owned = true
             state.revealing = true
             state.directExit = true
-            state.imageFadeMillis = XL_BACKDROP_REVEAL_MS
+            val fade = if (state.blurred) XL_MIXED_BACKDROP_FADE_MS else XL_BACKDROP_REVEAL_MS
+            val warm = if (state.blurred) XL_MIXED_BACKDROP_WARM_FRAMES else 0
+            state.imageFadeMillis = fade
             state.gradientAlpha.snapTo(0f)
             state.token++
             state.preview = scene.stationaryMetadata?.preview ?: target.preview
             state.blurred = false
             repeat(2) { withFrameNanos { } }
             withTimeoutOrNull(2_000) { snapshotFlow { state.ready() }.first { it } }
-            state.dim.animateTo(0f, tween(XL_BACKDROP_REVEAL_MS, easing = LinearEasing))
+            repeat(warm) { withFrameNanos { } }
+            state.dim.animateTo(0f, tween(fade, easing = LinearEasing))
             withTimeoutOrNull(2_000) { snapshotFlow { state.transitionFinished() }.first { it } }
             state.directExit = false
             state.gradientAlpha.snapTo(1f)
@@ -1639,7 +1686,9 @@ internal fun rememberXlBackdropPresentation(
             // Double-Up is different: the ordinary backdrop has been visible
             // during the travel. Replacing it with a blurred XL image using
             // a zero-duration transition produces a visible one-frame snap.
-            state.imageFadeMillis = if (doubleUpArrival) 220 else 0
+            val mixed = !state.blurred
+            val fade = if (mixed) XL_MIXED_BACKDROP_FADE_MS else 220
+            state.imageFadeMillis = if (doubleUpArrival) fade else 0
             state.token++
             state.preview = target.preview
             state.owned = true
@@ -1651,9 +1700,10 @@ internal fun rememberXlBackdropPresentation(
                 try {
                     repeat(2) { withFrameNanos { } }
                     if (!artworkKey.isNullOrBlank()) snapshotFlow { state.ready() }.first { it }
+                    if (mixed) repeat(XL_MIXED_BACKDROP_WARM_FRAMES) { withFrameNanos { } }
                     kotlinx.coroutines.coroutineScope {
-                        launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing)) }
-                        launch { state.gradientAlpha.animateTo(0f, tween(220, easing = LinearEasing)) }
+                        launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(fade, easing = LinearEasing)) }
+                        launch { state.gradientAlpha.animateTo(0f, tween(fade, easing = LinearEasing)) }
                     }
                     withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
                 } finally {
@@ -1675,14 +1725,23 @@ internal fun rememberXlBackdropPresentation(
             // and blur are pending. Neither entry direction waits for a black beat or row settlement.
             if (!latestCarouselFocused) snapshotFlow { scene.artwork.ready(target.rowKey, target.itemKey,
                 firstNonBlank(target.preview.backdrop, target.preview.imageUrl)) || latestCarouselFocused }.first { it }
+            val mixed = !state.blurred
+            val fade = if (mixed) XL_MIXED_BACKDROP_FADE_MS else 220
             state.token++
             state.preview = target.preview
             state.blurred = true
             state.directEntry = true
-            state.imageFadeMillis = 220
+            state.imageFadeMillis = fade
             state.revealing = true
-            state.gradientAlpha.snapTo(0f)
-            state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(220, easing = LinearEasing))
+            if (mixed) {
+                repeat(2) { withFrameNanos { } }
+                if (!artworkKey.isNullOrBlank()) snapshotFlow { state.ready() }.first { it }
+                repeat(XL_MIXED_BACKDROP_WARM_FRAMES) { withFrameNanos { } }
+            }
+            kotlinx.coroutines.coroutineScope {
+                launch { state.gradientAlpha.animateTo(0f, tween(fade, easing = LinearEasing)) }
+                launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(fade, easing = LinearEasing)) }
+            }
             snapshotFlow { scene.transition?.let { it.id != boundary.id || it.rowsSettled } ?: true }.first { it }
             scene.complete(boundary.id)
             state.directEntry = false
@@ -1744,8 +1803,8 @@ internal fun rememberXlBackdropPresentation(
         if (boundaryId != null) scene.complete(boundaryId)
         if (!dark && latestResolved == target.preview) state.owned = false
     }
-    LaunchedEffect(resolvedHero, state.owned, scene.transition, selected?.isXl, scene.navigationPresentationFrozen, state.continuousReveal) {
-        if (scene.navigationPresentationFrozen || state.continuousReveal) return@LaunchedEffect
+    LaunchedEffect(resolvedHero, state.owned, scene.transition, selected?.isXl, scene.backdropPresentationFrozen, state.continuousReveal) {
+        if (scene.backdropPresentationFrozen || state.continuousReveal) return@LaunchedEffect
         scene.resolveStationaryMetadata(resolvedHero)
         if (scene.transition == null && !state.directExit && selected?.isXl != true && state.dim.value == 0f &&
             resolvedHero == selected?.preview) state.owned = false
