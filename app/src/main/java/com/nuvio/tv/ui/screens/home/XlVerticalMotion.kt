@@ -44,7 +44,8 @@ internal data class XlVerticalMotion(val id: Int, val rowKey: String,
     val fixedPrefixMeasurement: Boolean = false,
     // An interrupted compact DOWN exit reuses its measured follower gap
     // while the UP spring restores its existing paint-only offset to zero.
-    val fixedReturnFollowerMeasurement: Boolean = false)
+    val fixedReturnFollowerMeasurement: Boolean = false,
+    val coupledExit: Boolean = false)
 internal data class XlPreviewReturn(val id: Int, val rowKey: String, val xlKey: String, val rowIndex: Int)
 
 internal data class XlInterruptedRelocation(val id: Int, val rowKey: String, val previousJob: kotlinx.coroutines.Job?)
@@ -125,7 +126,7 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         withContext(object : MotionDurationScale {
                             override val scaleFactor = systemScale * XL_SPRING_TIME_SCALE
                         }) {
-                            if (active.fixedFollowerMeasurement && active.compact) {
+                            if (active.coupledExit && active.fixedFollowerMeasurement && active.compact) {
                                 // The outgoing XL and all of its followers share the
                                 // incoming travel. A second spring adds separation
                                 // only after the input gate has accepted a single tap.
@@ -145,16 +146,18 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                         ((now - start) / scale.toDouble()).toLong().coerceAtMost(shared.durationNanos)
                                     val splitTime = if (splitStart == Long.MIN_VALUE) 0L else if (scale <= 0f)
                                         separation.durationNanos else ((now - splitStart) / scale.toDouble()).toLong().coerceAtMost(separation.durationNanos)
-                                    val incoming = shared.getValueFromNanos(sharedTime).roundToInt()
-                                    val extra = separation.getValueFromNanos(splitTime).roundToInt()
+                                    val incoming = shared.getValueFromNanos(sharedTime).coerceIn(minOf(0f, visiblePx), maxOf(0f, visiblePx)).roundToInt()
+                                    val splitDistance = (toPx - fromPx).toFloat()
+                                    val extra = separation.getValueFromNanos(splitTime).coerceIn(minOf(0f, splitDistance), maxOf(0f, splitDistance)).roundToInt()
                                     val travel = incoming + extra
                                     val gapPx = fromPx + extra
                                     scene.fixedFollowerTranslationPx = xlFixedFollowerOffsetPx(gapPx, toPx)
                                     val delta = travel - previous
                                     scrollBy(delta)
                                     previous = travel.toFloat()
-                                    if (sharedTime >= shared.durationNanos && splitStart != Long.MIN_VALUE &&
-                                        splitTime >= separation.durationNanos) break
+                                    if (splitStart != Long.MIN_VALUE &&
+                                        (sharedTime >= shared.durationNanos || incoming == visiblePx.roundToInt()) &&
+                                        (splitTime >= separation.durationNanos || extra == toPx - fromPx)) break
                                 }
                                 scene.compactRowRested = true
                             } else AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
