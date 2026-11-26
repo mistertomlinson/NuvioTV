@@ -99,6 +99,18 @@ class XlBackdropDissolveTest {
         assertEquals(listOf("B"), finished)
     }
 
+    @Test fun unreadyBlurCannotRevealEvenAfterTheFormerTimeout() {
+        content()
+        compose.runOnIdle { target.value = "B" }
+        advance(2300)
+        assertEquals("Keep the old image rather than expose an unready blur", android.graphics.Color.RED, pixel())
+        assertTrue(finished.isEmpty())
+        compose.runOnIdle { checkNotNull(readyCallbacks["B"])() }
+        advance(240)
+        assertEquals(android.graphics.Color.BLUE, pixel())
+        assertEquals(listOf("B"), finished)
+    }
+
     @Test fun aLateReadyCallbackCannotReviveAnObsoleteTarget() {
         content()
         compose.runOnIdle { target.value = "B" }
