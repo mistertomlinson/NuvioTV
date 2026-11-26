@@ -100,6 +100,13 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
         if (target.blurred && !target.url.isNullOrBlank())
             snapshotFlow { incoming.ready }.first { it }
         else withTimeoutOrNull(2_000) { snapshotFlow { incoming.ready }.first { it } }
+        val mixed = layers.any { it !== incoming && it.frame.blurred != target.blurred }
+        // Compose and draw the complete incoming image + gradient before
+        // exposing it. Only the mixed-mode path needs this warm-up.
+        if (mixed && duration > 0) {
+            repeat(XL_MIXED_BACKDROP_WARM_FRAMES) { withFrameNanos { } }
+            XlNavigationTrace.event("BACKDROP_MIXED_WARM") { "image=${target.url?.hashCode()} blurred=${target.blurred} fade=$duration" }
+        }
         incoming.alpha.animateTo(1f, tween(duration, easing = LinearEasing))
         layers.removeAll { it !== incoming }
         latestFinished(target)
