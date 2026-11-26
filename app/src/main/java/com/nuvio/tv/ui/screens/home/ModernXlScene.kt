@@ -404,7 +404,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             earlyContinuousBackdrop = null
             pendingContinuousBackdrop = null
         }
-        if (continuousGapsCollapsed) return
+        if (continuousGapsCollapsed) {
+            // Suppress obsolete metadata synchronously; the scroll driver
+            // interpolates the existing row translations on its next frame.
+            rapidLandingMetadata = false
+            rapidLandingMetadataAlpha = 0f
+            rapidLandingReady = false
+            return
+        }
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             if (!navigationPresentationFrozen || navigationFrozenBackdrop == null)
                 navigationFrozenBackdrop = paintedBackdrop ?: selection?.preview
@@ -436,13 +443,127 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // Landing geometry is calculated without mutating LazyColumn. Animate
     // neighboring rows on the compact geometry, then commit the spacers once.
     var continuousLandingOffsets by mutableStateOf<Map<String, Float>>(emptyMap())
+    private var continuousLandingStartOffsets by mutableStateOf<Map<String, Float>>(emptyMap())
     var continuousLandingProgress by mutableFloatStateOf(0f)
-    fun continuousLandingOffsetPx(rowKey: String): Float =
-        (continuousLandingOffsets[rowKey] ?: 0f) * continuousLandingProgress
+    var rapidLandingMetadata by mutableStateOf(false)
+        private set
+    var rapidLandingMetadataAlpha by mutableFloatStateOf(0f)
+        private set
+    private var rapidLandingEpoch = -1
+    private var rapidLandingReleasedSeconds = 0f
+    private var rapidLandingPlan: XlLandingPaintPlan? = null
+    private var rapidLandingKey: Pair<String, String>? = null
+    private var rapidLandingBlendSeconds = 0f
+    var rapidLandingReady = false
+        private set
+
+    fun hasContinuousLandingOffset(rowKey: String): Boolean =
+        rowKey in continuousLandingOffsets || rowKey in continuousLandingStartOffsets
+
+    fun continuousLandingOffsetPx(rowKey: String): Float {
+        val from = continuousLandingStartOffsets[rowKey] ?: 0f
+        val to = continuousLandingOffsets[rowKey] ?: 0f
+        return from + (to - from) * continuousLandingProgress
+    }
+
+    private fun retargetLandingPaint(offsets: Map<String, Float>) {
+        // Capture exactly the currently painted position, not a stale target.
+        val start = (continuousLandingOffsets.keys + continuousLandingStartOffsets.keys)
+            .associateWith { continuousLandingOffsetPx(it) }.filterValues { it != 0f }
+        androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
+            continuousLandingStartOffsets = start
+            continuousLandingOffsets = offsets
+            continuousLandingProgress = 0f
+        }
+        rapidLandingBlendSeconds = 0f
+    }
+
+    private fun advanceLandingPaint(dt: Float) {
+        rapidLandingBlendSeconds = (rapidLandingBlendSeconds + dt).coerceAtMost(0.24f)
+        val t = rapidLandingBlendSeconds / 0.24f
+        continuousLandingProgress = t * t * (3f - 2f * t)
+    }
+
+    private fun resetRapidLandingIntent() {
+        rapidLandingEpoch = -1
+        rapidLandingReleasedSeconds = 0f
+        rapidLandingKey = null
+        rapidLandingPlan = null
+        rapidLandingReady = false
+        rapidLandingMetadata = false
+        rapidLandingMetadataAlpha = 0f
+    }
 
     fun clearContinuousLandingPaint() {
         continuousLandingProgress = 0f
+        continuousLandingStartOffsets = emptyMap()
         continuousLandingOffsets = emptyMap()
+        resetRapidLandingIntent()
+    }
+
+    // A held session keeps the already verified landing behavior. If it
+    // interrupts a rapid tap, release that tap's paint offset continuously.
+    fun advanceHeldLandingPaint(dt: Float) {
+        if (rapidLandingPlan != null || rapidLandingKey != null) {
+            resetRapidLandingIntent()
+            retargetLandingPaint(emptyMap())
+        }
+        if (continuousLandingStartOffsets.isNotEmpty()) advanceLandingPaint(dt)
+    }
+
+    /**
+     * Called by the same list-scroll frame owner, including its braking tail.
+     * A tentative final gap can start opening before the 400ms burst window
+     * expires; metadata itself stays hidden until that window is over.
+     */
+    fun advanceRapidLanding(target: XlSceneSelection, remaining: Float, dt: Float,
+        plan: () -> XlLandingPaintPlan): Boolean {
+        if (!continuousVerticalNavigation || !continuousGapsCollapsed || continuousHeldScroll) return false
+        val key = target.rowKey to target.itemKey
+        if (selection?.let { it.rowKey to it.itemKey } != key) return false
+        if (rapidLandingEpoch != continuousInputEpoch || rapidLandingKey != key) {
+            rapidLandingEpoch = continuousInputEpoch
+            rapidLandingKey = key
+            rapidLandingReleasedSeconds = 0f
+            rapidLandingPlan = null
+            rapidLandingReady = false
+            rapidLandingMetadata = false
+            rapidLandingMetadataAlpha = 0f
+            retargetLandingPaint(emptyMap())
+        }
+        if (verticalKeyHeld) rapidLandingReleasedSeconds = 0f
+        else rapidLandingReleasedSeconds += dt
+        if (!verticalKeyHeld && rapidLandingReleasedSeconds >= 0.07f &&
+            kotlin.math.abs(remaining) <= 180f * density && rapidLandingPlan == null) {
+            val prepared = plan()
+            rapidLandingPlan = prepared
+            retargetLandingPaint(prepared.offsets)
+            XlNavigationTrace.event("RAPID_LANDING_ARM") { "row=${target.rowKey} remaining=$remaining clearance=${prepared.virtualClearancePx}" }
+        }
+        advanceLandingPaint(dt)
+        // A new input invalidates the plan immediately. While a burst is
+        // still possible only rows move: no intermediate metadata appears.
+        val accepted = !verticalKeyHeld && rapidLandingReleasedSeconds >= XL_CONTINUOUS_NAV_INTERVAL_MS / 1000f
+        val prepared = rapidLandingPlan != null && continuousLandingProgress >= 1f
+        val aligned = kotlin.math.abs(remaining) <= 1f
+        if (accepted && prepared && aligned && !target.isXl) {
+            rapidLandingMetadata = true
+            rapidLandingMetadataAlpha = (rapidLandingMetadataAlpha + dt / 0.12f).coerceAtMost(1f)
+        }
+        rapidLandingReady = accepted && prepared && aligned && (target.isXl || rapidLandingMetadataAlpha >= 1f)
+        return !rapidLandingReady
+    }
+
+    fun retainRapidClearanceAfterMeasure(rows: List<HeroCarouselRow>, selected: XlSceneSelection): Boolean {
+        val clearance = rapidLandingPlan?.virtualClearancePx ?: return false
+        if (!rapidLandingReady || rapidLandingKey != (selected.rowKey to selected.itemKey)) return false
+        // The measured spacers have taken over the structural displacement.
+        // Keep only the virtual clearance until the ordinary mask commits.
+        continuousLandingStartOffsets = emptyMap()
+        continuousLandingOffsets = if (clearance > 0f)
+            rows.take(selected.rowIndex).associate { it.key to -clearance } else emptyMap()
+        continuousLandingProgress = 1f
+        return true
     }
 
     fun continuousLandingGaps(rows: List<HeroCarouselRow>, selected: XlSceneSelection): Map<String, Dp> =
@@ -480,7 +601,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 if (!row.isXl && previous?.isXl == true && index <= selected.rowIndex)
                     heldHeadroomGoals[row.key] = target
             }
-            clearContinuousLandingPaint()
+            if (!retainRapidClearanceAfterMeasure(rows, selected)) clearContinuousLandingPaint()
         }
     }
 
@@ -1658,7 +1779,8 @@ internal fun ModernXlAwareHeroTitleBlock(
         }
     }
     val snapshot = when {
-        enabled && scene.navigationPresentationFrozen -> null
+        enabled && scene.navigationPresentationFrozen -> if (scene.rapidLandingMetadata)
+            selected?.takeUnless { it.isXl }?.let { XlMetadataSnapshot(it.rowKey, it.preview) } else null
         fast != null -> if (outgoing) fast.metadata else null
         !enabled -> resolvedHero?.let { XlMetadataSnapshot(selected?.rowKey.orEmpty(), it) }
         outgoing -> move?.outgoingMetadata
@@ -1693,7 +1815,7 @@ internal fun ModernXlAwareHeroTitleBlock(
             platformTransitionSnap = platformTransitionSnap,
             fullWidthIconRowEnabled = fullWidthIconRowEnabled,
             heroMetadataLarge = heroMetadataLarge,
-            animateTitleLogo = isActive && (!enabled || (move == null && !backdrop.owned)),
+            animateTitleLogo = isActive && !scene.rapidLandingMetadata && (!enabled || (move == null && !backdrop.owned)),
             contentModifier = Modifier.onSizeChanged {
                 scene.metadataHeights[active.rowKey] = it.height.toFloat()
                 if (isActive) scene.metadataHeightPx = it.height.toFloat()
@@ -1708,7 +1830,9 @@ internal fun ModernXlAwareHeroTitleBlock(
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (enabled && (scene.navigationPresentationFrozen || (scene.selection?.isXl == true && !outgoing && fast == null))) 0f else if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
+                alpha = if (enabled && scene.rapidLandingMetadata && scene.continuousVerticalNavigation)
+                    scene.rapidLandingMetadataAlpha
+                else if (enabled && (scene.navigationPresentationFrozen || (scene.selection?.isXl == true && !outgoing && fast == null))) 0f else if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
