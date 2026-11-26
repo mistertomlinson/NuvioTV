@@ -31,7 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withTimeoutOrNull
 
 internal const val XL_BACKDROP_REVEAL_MS = 180
-internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 130L
+internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 250L
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
 internal data class XlSceneSelection(
@@ -322,7 +322,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val confirmed = deferredExitConfirmed
         clearDeferredExit()
         navigationFrozenBackdrop = null
-        if (target != null) focus(target, layout, rows = rows, focusConfirmed = confirmed)
+        if (target != null && selection?.rowKey != target.rowKey)
+            focus(target, layout, rows = rows, focusConfirmed = confirmed)
     }
 
     fun noteVerticalRelease() { verticalKeyHeld = false }
@@ -344,17 +345,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
         verticalKeyHeld = true
-        if (deferredDownwardExit && sign < 0) {
-            // An immediate reversal still owns the original XL scene.
-            clearDeferredExit()
-            navigationFrozenBackdrop = null
-        }
         val close = lastVerticalPressTime != Long.MIN_VALUE &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
         rapidVerticalStreak = if (close) rapidVerticalStreak + 1 else 1
         // Preserve the deliberate two-key reversal, but a longer alternating
         // burst must freeze presentation just like repeated Up or Down.
-        val rapid = close && (sign == lastVerticalPressSign || rapidVerticalStreak >= 3)
+        val rapid = close
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
         if (repeated || rapid || continuousVerticalNavigation) beginContinuousNavigation()
@@ -365,14 +361,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         if (fastReturn != null) return
         continuousInputEpoch++
         if (continuousGapsCollapsed) return
-        val pending = deferredExitTarget
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
             if (!navigationPresentationFrozen || navigationFrozenBackdrop == null)
                 navigationFrozenBackdrop = paintedBackdrop ?: selection?.preview
             pendingContinuousBackdrop = null
             continuousVerticalNavigation = true
             clearDeferredExit()
-            if (pending != null) selection = pending
             continuousGapsCollapsed = true
             clearBoundaryFocusIntent()
             cancelVerticalMotion()
@@ -646,10 +640,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun confirmFocus(rowKey: String, layout: LazyListLayoutInfo? = null, rows: List<HeroCarouselRow> = emptyList()) {
         XlNavigationTrace.event("FOCUS_CONFIRMED") { "row=$rowKey selected=${selection?.rowKey} deferred=$deferredDownwardExit continuous=$continuousVerticalNavigation" }
         boundaryFocusArmed = false
-        if (deferredDownwardExit) {
-            if (deferredExitTarget?.rowKey == rowKey) deferredExitConfirmed = true
-            return
-        }
+        if (deferredDownwardExit && deferredExitTarget?.rowKey == rowKey) deferredExitConfirmed = true
         if (continuousVerticalNavigation) {
             confirmedRowKey = rowKey
             return
@@ -767,12 +758,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         XlNavigationTrace.event("FOCUS_REQUEST") { "from=${selection?.rowKey}/${selection?.itemKey} next=${next.rowKey}/${next.itemKey} confirmed=$focusConfirmed deferred=$deferredDownwardExit continuous=$continuousVerticalNavigation" }
         if (rows.isNotEmpty()) rowCount = rows.size
         if (fastReturn != null) return
-        if (deferredDownwardExit) {
-            if (next.rowKey != deferredExitSource) {
-                deferredExitTarget = next
-                if (focusConfirmed) deferredExitConfirmed = true
-            }
-            return
+        // The intent gate holds only separation and presentation. Focus and
+        // the shared vertical travel start on the first key, not after debounce.
+        if (deferredDownwardExit && next.rowKey != deferredExitSource) {
+            deferredExitTarget = next
+            if (focusConfirmed) deferredExitConfirmed = true
         }
         if (continuousVerticalNavigation) {
             selection = next
@@ -1062,7 +1052,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val move = transition?.takeIf { it.downwardExit } ?: return null
         val owner = layout.visibleItemsInfo.firstOrNull { it.key == move.from.rowKey } ?: return 0f
         val actualBottom = owner.offset + layout.beforeContentPadding + owner.size +
-            ((summaryTrailingGapReductions[move.from.rowKey]?.value ?: 0f) * density).roundToInt()
+            ((summaryTrailingGapReductions[move.from.rowKey]?.value ?: 0f) * density).roundToInt() -
+            (4f * density).roundToInt()
         return actualBottom.toFloat().coerceAtLeast(0f)
     }
 }
