@@ -415,7 +415,23 @@ class ModernHomeIntegrationTest {
             assertEquals(0, scene.gapPx(follower))
             assertNull(scene.verticalMotion)
         }
-        advance(2300)
+        var observedClearance = false
+        var observedReveal = false
+        repeat(144) {
+            advance(16)
+            if (scene.continuousVerticalNavigation &&
+                scene.continuousLandingOffsetPx(follower) < -1f) observedClearance = true
+            if (scene.rapidLandingMetadata) {
+                observedReveal = true
+                assertTrue("The previous ordinary row must move away before metadata appears",
+                    scene.continuousLandingOffsetPx(follower) < -1f)
+                assertEquals("The focused row must not be translated by metadata clearance",
+                    0f, scene.continuousLandingOffsetPx(catalogRowKey(rows[2])), 0.01f)
+                assertNull(xlSceneMetadataMask(scene, list.layoutInfo, true, scene.ordinaryTop.value, scene.density))
+            }
+        }
+        assertTrue("Actual Home must animate preceding-row clearance", observedClearance)
+        assertTrue("Actual Home must reveal metadata before the final mask commits", observedReveal)
         assertFalse("The burst must release its metadata suppression after landing", scene.continuousVerticalNavigation)
         val selected = checkNotNull(scene.selection)
         assertEquals("Two Down presses must land two rows lower", catalogRowKey(rows[2]), selected.rowKey)
