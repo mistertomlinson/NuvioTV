@@ -41,7 +41,8 @@ internal fun Modifier.homePosterFade(viewport: HomePosterFadeViewport?, rowKey: 
                 val bodyTop = owner.offset + info.beforeContentPadding +
                     (viewport.scene.headroomValues[rowKey]?.toPx() ?: 0f) +
                     (viewport.scene.headerHeights[rowKey] ?: 40.dp.toPx()) +
-                    viewport.scene.fixedFollowerOffsetForIndex(owner.index)
+                    viewport.scene.fixedFollowerOffsetForIndex(owner.index) +
+                    viewport.scene.continuousLandingOffsetPx(rowKey)
                 val top = bounds.first - bodyTop
                 val clearUntil = bounds.second + 12.dp.toPx() - bodyTop
                 val end = clearUntil + HOME_POSTER_FADE_HEIGHT.toPx()
@@ -107,7 +108,7 @@ internal fun rememberHomePosterMask(scene: XlSceneState, list: LazyListState, en
                     // The viewport retains its original geometry. The feather
                     // occupies its first 32dp, before the 40dp poster anchor.
                     !enabled -> 0f to 0f
-                    scene.navigationPresentationFrozen -> null
+                    scene.navigationPresentationFrozen -> scene.retainedBurstOutgoingMask()
                     scene.transition == null && scene.fastReturn == null ->
                         if (scene.selection?.isXl == true) null else 0f to ordinaryTop.toPx()
                     else -> list.layoutInfo.let { info ->
