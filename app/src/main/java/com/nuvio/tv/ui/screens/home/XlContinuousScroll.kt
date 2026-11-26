@@ -120,9 +120,9 @@ internal class XlContinuousScroll(
                         onVelocity(velocity)
                         XlNavigationTrace.event("CONTINUOUS_STEP") { "target=${selected?.rowKey} held=$heldSign remaining=$remaining delta=$delta consumed=$consumed velocity=$velocity" }
                         if (heldSign == 0 && selected != null) {
-                            val after = distanceTo(selected) ?: (remaining - consumed)
+                            val after = remaining - consumed
                             val keep = onTargetFrame(selected, after, dt)
-                            if (hitLimit && !keep) break
+                            if (hitLimit && (kotlin.math.abs(after) > 1f || !keep)) break
                         } else if (heldSign == 0 && hitLimit) break
                     }
                 }
