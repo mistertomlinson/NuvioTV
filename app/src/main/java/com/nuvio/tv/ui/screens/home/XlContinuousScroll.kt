@@ -38,6 +38,7 @@ internal class XlContinuousScroll(
     private var target: XlSceneSelection? = null
     private var heldSign = 0
     private var velocity = 0f
+    private var generation = 0
 
     fun retarget(selection: XlSceneSelection, inheritedVelocity: Float = 0f) {
         target = selection
@@ -52,6 +53,7 @@ internal class XlContinuousScroll(
     }
 
     fun stop() {
+        generation++
         job?.cancel()
         job = null
         target = null
@@ -64,6 +66,7 @@ internal class XlContinuousScroll(
         if (job?.isActive == true) return
         val speed = XL_BURST_SPEED_DP_PER_SEC * density()
         velocity = inheritedVelocity.coerceIn(-speed, speed)
+        val owner = ++generation
         job = scope.launch {
             // A compact anchor request may have been issued in the same
             // key event. Acquire the scroll mutex after its measure commits.
@@ -105,7 +108,7 @@ internal class XlContinuousScroll(
                             continue
                         }
                         val consumed = scrollBy(delta)
-                        val hitLimit = abs(delta) > 0.5f && abs(consumed - delta) > 0.5f
+                        val hitLimit = abs(delta) > 1f && abs(consumed) < 0.5f
                         velocity = if (hitLimit || abs(remaining - delta) <= 0.5f) 0f else next
                         onVelocity(velocity)
                         XlNavigationTrace.event("CONTINUOUS_STEP") { "target=${selected?.rowKey} held=$heldSign remaining=$remaining delta=$delta consumed=$consumed velocity=$velocity" }
@@ -113,8 +116,10 @@ internal class XlContinuousScroll(
                     }
                 }
             } finally {
-                velocity = 0f
-                onVelocity(0f)
+                if (generation == owner) {
+                    velocity = 0f
+                    onVelocity(0f)
+                }
             }
         }
     }
