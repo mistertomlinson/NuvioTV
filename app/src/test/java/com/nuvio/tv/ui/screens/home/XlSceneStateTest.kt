@@ -620,4 +620,69 @@ class XlSceneStateTest {
         assertEquals(8f, 540f - (anchor + height + 24f - trim + 24f), 0.01f)
     }
 
+    @Test fun `ordinary landing clears a visible preceding row even when no structural spacer changes`() {
+        val plan = xlLandingPaintPlan(listOf("XL", "A", "B", "C"),
+            listOf(0f, 116f, 0f, 0f), 2, null, true, 490f, 48f)
+        assertEquals(538f, plan.virtualClearancePx, 0.01f)
+        assertEquals(-538f, plan.offsets["A"] ?: 0f, 0.01f)
+        assertEquals(0f, plan.offsets["B"] ?: 0f, 0.01f)
+        assertEquals(0f, plan.offsets["C"] ?: 0f, 0.01f)
+        assertTrue(490f + plan.offsets.getValue("A") < 0f)
+    }
+
+    @Test fun `XL landing keeps only the actual structural spacing correction`() {
+        val plan = xlLandingPaintPlan(listOf("A", "XL", "B", "C"),
+            listOf(0f, 116f, 0f, 0f), 1, null, false, 490f, 48f)
+        assertEquals(0f, plan.virtualClearancePx, 0f)
+        assertEquals(-116f, plan.offsets.getValue("A"), 0f)
+        assertFalse(plan.offsets.containsKey("XL"))
+        assertFalse(plan.offsets.containsKey("B"))
+    }
+
+    @Test fun `rapid separation begins during travel and metadata waits for clearance and alignment`() {
+        val target = selection("B", 2)
+        val scene = XlSceneState(target)
+        val plan = XlLandingPaintPlan(mapOf("A" to -538f), 538f)
+        scene.beginContinuousNavigation()
+        repeat(12) { scene.advanceRapidLanding(target, 80f, 0.016f) { plan } }
+        assertTrue("The preceding row moves before the selected row reaches its anchor",
+            scene.continuousLandingOffsetPx("A") < -1f)
+        assertEquals(0f, scene.continuousLandingOffsetPx("B"), 0f)
+        assertFalse(scene.rapidLandingMetadata)
+        repeat(24) { scene.advanceRapidLanding(target, 16f, 0.016f) { plan } }
+        assertEquals(-538f, scene.continuousLandingOffsetPx("A"), 0.01f)
+        assertFalse("Metadata cannot appear while the selected row is still traveling", scene.rapidLandingMetadata)
+        repeat(12) { scene.advanceRapidLanding(target, 0f, 0.016f) { plan } }
+        assertTrue(scene.rapidLandingReady)
+        assertTrue(scene.rapidLandingMetadata)
+        assertEquals(1f, scene.rapidLandingMetadataAlpha, 0f)
+        assertTrue(scene.continuousGapsCollapsed)
+        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        scene.finishContinuousNavigation()
+        assertEquals(0f, scene.continuousLandingOffsetPx("A"), 0f)
+        assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+    }
+
+    @Test fun `another press retargets partial clearance without resetting the painted row`() {
+        val first = selection("B", 2)
+        val next = selection("C", 3)
+        val scene = XlSceneState(first)
+        scene.beginContinuousNavigation()
+        repeat(12) {
+            scene.advanceRapidLanding(first, 50f, 0.016f) {
+                XlLandingPaintPlan(mapOf("A" to -538f), 538f)
+            }
+        }
+        val before = scene.continuousLandingOffsetPx("A")
+        assertTrue(before < -1f && before > -538f)
+        scene.noteVerticalPress(1, 1000L, false)
+        scene.focus(next, layout(), focusConfirmed = true)
+        assertEquals("Input must retain the current painted position", before, scene.continuousLandingOffsetPx("A"), 0f)
+        scene.advanceRapidLanding(next, 300f, 0.016f) { error("Distant target must not open a gap") }
+        val after = scene.continuousLandingOffsetPx("A")
+        assertTrue("The old gap reverses gradually", after > before && after < 0f)
+        assertFalse(scene.rapidLandingMetadata)
+        assertFalse(scene.rapidLandingReady)
+    }
+
 }
