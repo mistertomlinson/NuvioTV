@@ -80,10 +80,7 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
     val target = transition.targetState
     LaunchedEffect(target, duration, frozen) {
         if (frozen) return@LaunchedEffect
-        if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) {
-            latestFinished(target)
-            return@LaunchedEffect
-        }
+        if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) return@LaunchedEffect
         // Cancelling a previous effect freezes its partial opacity. Keep that
         // composite intact underneath this new fade, even when reversing.
         // Unseen cancelled requests contribute no pixels. Ready partial blurs
