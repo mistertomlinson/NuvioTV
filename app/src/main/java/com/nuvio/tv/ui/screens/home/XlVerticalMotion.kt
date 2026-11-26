@@ -1,6 +1,8 @@
 package com.nuvio.tv.ui.screens.home
 
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.AnimationState
 import androidx.compose.animation.core.animateTo
 import androidx.compose.animation.core.tween
@@ -123,7 +125,39 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                         withContext(object : MotionDurationScale {
                             override val scaleFactor = systemScale * XL_SPRING_TIME_SCALE
                         }) {
-                            AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
+                            if (active.fixedFollowerMeasurement && active.compact) {
+                                // The outgoing XL and all of its followers share the
+                                // incoming travel. A second spring adds separation
+                                // only after the input gate has accepted a single tap.
+                                // Both components are evaluated by one frame clock
+                                // and one scroll owner; no second relocation.
+                                val shared = TargetBasedAnimation(animation, Float.VectorConverter, 0f, visiblePx)
+                                val separation = TargetBasedAnimation(animation, Float.VectorConverter, 0f, (toPx - fromPx).toFloat())
+                                val scale = systemScale * XL_SPRING_TIME_SCALE
+                                var start = Long.MIN_VALUE
+                                var splitStart = Long.MIN_VALUE
+                                while (true) {
+                                    val now = withFrameNanos { it }
+                                    if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
+                                    if (start == Long.MIN_VALUE) start = now
+                                    if (!scene.deferredDownwardExit && splitStart == Long.MIN_VALUE) splitStart = now
+                                    val sharedTime = if (scale <= 0f) shared.durationNanos else
+                                        ((now - start) / scale.toDouble()).toLong().coerceAtMost(shared.durationNanos)
+                                    val splitTime = if (splitStart == Long.MIN_VALUE) 0L else if (scale <= 0f)
+                                        separation.durationNanos else ((now - splitStart) / scale.toDouble()).toLong().coerceAtMost(separation.durationNanos)
+                                    val incoming = shared.getValueFromNanos(sharedTime).roundToInt()
+                                    val extra = separation.getValueFromNanos(splitTime).roundToInt()
+                                    val travel = incoming + extra
+                                    val gapPx = fromPx + extra
+                                    scene.fixedFollowerTranslationPx = xlFixedFollowerOffsetPx(gapPx, toPx)
+                                    val delta = travel - previous
+                                    scrollBy(delta)
+                                    previous = travel.toFloat()
+                                    if (sharedTime >= shared.durationNanos && splitStart != Long.MIN_VALUE &&
+                                        splitTime >= separation.durationNanos) break
+                                }
+                                scene.compactRowRested = true
+                            } else AnimationState(0f).animateTo(active.scrollPx, animationSpec = animation) {
                                 if (scene.verticalMotion !== active) throw CancellationException("XL focus changed")
                                 val fraction = (value / active.scrollPx).coerceIn(0f, 1f)
                                 val travel = (active.scrollPx * fraction).roundToInt()
