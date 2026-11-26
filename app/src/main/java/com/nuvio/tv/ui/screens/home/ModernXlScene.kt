@@ -447,7 +447,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             val gaps = continuousLandingGaps(rows, selected)
             rows.forEachIndexed { index, row ->
                 val previous = rows.getOrNull(index - 1)
-                if (row.isXl && previous?.key == selected.rowKey && previous.key != "continue_watching")
+                if (row.isXl && previous != null && previous.key == selected.rowKey && previous.key != "continue_watching")
                     landscapePreXlCompression[row.key] = 1f
                 val target = gaps.getValue(row.key)
                 headroomValues[row.key] = target
