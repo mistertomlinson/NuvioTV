@@ -6385,7 +6385,12 @@ private fun EnhancedModernHomeRowsListBoundary(
                         child.placeRelative(0, 0)
                     }
                 } else Modifier
-                Box(modifier = trimTrailingGap.then(if (fixedOrdinarySuffix) Modifier.graphicsLayer {
+                // Move only the XL content, not its measured footprint,
+                // the scroll anchor, or the following row's title.
+                val xlContentLift = if (row.isXl) Modifier.graphicsLayer {
+                    translationY = -4.dp.toPx()
+                } else Modifier
+                Box(modifier = trimTrailingGap.then(xlContentLift).then(if (fixedOrdinarySuffix) Modifier.graphicsLayer {
                     translationY = xlFixedOrdinarySuffixTranslationPx(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.fixedFollowerTranslationPx
