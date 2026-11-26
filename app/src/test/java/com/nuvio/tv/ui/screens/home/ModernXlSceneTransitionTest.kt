@@ -758,12 +758,35 @@ class ModernXlSceneTransitionTest {
     @Test fun theXlExitBackdropHasAVisibleFadeAndFinishesBeforeTheOldFourHundredMillisecondReveal() {
         content(start = 2)
         press(KeyEvent.KEYCODE_DPAD_UP)
-        advance(112)
-        assertTrue("Exit should blend out the light XL tint without inserting black", backdrop.dim.value in 0f..0.11f)
-        advance(144)
-        assertTrue(backdrop.dim.value in 0f..0.06f)
-        advance(128)
-        assertEquals("A ready mixed backdrop finishes its 300ms dissolve", 0f, backdrop.dim.value, 0.001f)
+        // Readiness and the mixed-mode preparation frames precede the
+        // dissolve. Measure its duration from the first actual opacity
+        // change, not from the key event.
+        var previous = XL_BACKDROP_DIM_ALPHA
+        var firstMovingFrame = -1
+        var middleFrames = 0
+        var finishedFrame = -1
+        for (frame in 1..40) {
+            advance(16)
+            val dim = backdrop.dim.value
+            assertTrue("Exit cannot insert a black beat: frame=$frame dim=$dim",
+                dim in 0f..(XL_BACKDROP_DIM_ALPHA + 0.001f))
+            assertTrue("Exit tint must decrease monotonically: frame=$frame previous=$previous dim=$dim",
+                dim <= previous + 0.001f)
+            if (dim < XL_BACKDROP_DIM_ALPHA - 0.0001f && firstMovingFrame < 0)
+                firstMovingFrame = frame
+            if (dim > 0.001f && dim < XL_BACKDROP_DIM_ALPHA - 0.001f) middleFrames++
+            if (firstMovingFrame >= 0 && dim <= 0.001f) {
+                finishedFrame = frame
+                break
+            }
+            previous = dim
+        }
+        assertEquals(XL_MIXED_BACKDROP_FADE_MS, backdrop.imageFadeMillis)
+        assertTrue("Prepared backdrop must start revealing within 192ms: first=$firstMovingFrame",
+            firstMovingFrame in 1..12)
+        assertTrue("Exit must show a sustained fade, not a snap: middle=$middleFrames", middleFrames >= 12)
+        assertTrue("The 300ms dissolve must finish in 250-352ms after motion begins: first=$firstMovingFrame end=$finishedFrame",
+            finishedFrame >= 0 && (finishedFrame - firstMovingFrame) * 16 in 250..352)
         settle()
         assertEquals(0f, backdrop.dim.value, 0.001f)
     }
@@ -1554,7 +1577,7 @@ class ModernXlSceneTransitionTest {
         }
         advance(96)
         assertTrue(backdrop.blurred)
-        assertEquals(220, backdrop.imageFadeMillis)
+        assertEquals(XL_MIXED_BACKDROP_FADE_MS, backdrop.imageFadeMillis)
         assertEquals("XL", backdrop.preview?.title)
         assertEquals(0f, backdrop.dim.value, 0.001f)
         frameReady.value = true
