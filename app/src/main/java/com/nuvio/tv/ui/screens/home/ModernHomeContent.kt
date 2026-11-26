@@ -5032,8 +5032,6 @@ private fun EnhancedModernHomeRowsListBoundary(
     val doubleUpScope =
         rememberCoroutineScope()
 
-    val rapidRowJob = remember { java.util.concurrent.atomic.AtomicReference<kotlinx.coroutines.Job?>(null) }
-
     val doubleUpDensity =
         LocalDensity.current
 
@@ -5111,16 +5109,49 @@ private fun EnhancedModernHomeRowsListBoundary(
             currentXlScene.headerPx(row.key) - currentXlScene.posterAnchorPx(selected)).toFloat()
     }
 
+    fun compactDistanceTo(selected: XlSceneSelection): Float? {
+        val info = verticalRowListState.layoutInfo
+        val owner = info.visibleItemsInfo.firstOrNull { it.key == selected.rowKey }
+        if (owner != null) return (owner.offset + info.beforeContentPadding +
+            currentXlScene.gapPx(selected.rowKey) + currentXlScene.headerPx(selected.rowKey) -
+            currentXlScene.posterAnchorPx(selected)).toFloat()
+        if (selected.rowIndex !in 0 until info.totalItemsCount) return null
+        val first = info.visibleItemsInfo.firstOrNull() ?: return null
+        val last = info.visibleItemsInfo.lastOrNull() ?: return null
+        // Do not estimate a remote item's height or jump to its index.
+        // Advance at bounded velocity until its real geometry is available.
+        return when {
+            selected.rowIndex < first.index -> Float.NEGATIVE_INFINITY
+            selected.rowIndex > last.index -> Float.POSITIVE_INFINITY
+            else -> null
+        }
+    }
+    val liveDistance by rememberUpdatedState<(XlSceneSelection) -> Float?>({ compactDistanceTo(it) })
+    val liveForwardRemaining by rememberUpdatedState<() -> Float>({ lastAnchorRemaining() })
+    val liveScrollDensity by rememberUpdatedState(doubleUpDensity.density)
+    val continuousScroll = remember(verticalRowListState, xlScene, doubleUpScope) {
+        XlContinuousScroll(doubleUpScope, verticalRowListState, { liveScrollDensity },
+            { liveDistance(it) }, { liveForwardRemaining() }, { xlScene.recordVerticalVelocity(it) })
+    }
+    DisposableEffect(continuousScroll, xlSceneEnabled) {
+        onDispose { continuousScroll.stop() }
+    }
+
     // The initial XL exit moves immediately, but waits before separating.
     LaunchedEffect(xlScene, xlSceneEnabled, xlScene.deferredDownwardExit) {
         if (!xlSceneEnabled) {
             xlScene.cancelDeferredDownwardExit()
         } else if (xlScene.deferredDownwardExit) {
-            delay(XL_CONTINUOUS_NAV_INTERVAL_MS)
+            delay(XL_EXIT_SEPARATION_DELAY_MS)
+            val inherited = xlScene.inheritedVerticalVelocity()
             val anchor = if (xlScene.verticalKeyHeld) compactScrollAnchor() else null
             xlScene.resolveDeferredDownwardExit(verticalRowListState.layoutInfo, currentCarouselRows)
-            if (anchor != null && xlScene.continuousGapsCollapsed)
+            if (anchor != null && xlScene.continuousGapsCollapsed) {
                 verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
+                // A physical Down held beyond the separation window continues
+                // the already-started travel while Android waits to emit repeats.
+                xlScene.selection?.let { continuousScroll.retarget(it, inherited) }
+            }
         }
     }
 
@@ -5156,7 +5187,37 @@ private fun EnhancedModernHomeRowsListBoundary(
             xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
         val current = info.visibleItemsInfo.firstOrNull { it.index == index }
         if (current == null || kotlin.math.abs(current.offset + offset) > 1) {
-            verticalRowListState.animateScrollToItem(index, offset)
+            continuousScroll.retarget(selected, xlScene.inheritedVerticalVelocity())
+            // Wait for the driver's first frame before checking its mutex.
+            repeat(2) { withFrameNanos { } }
+            snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
+        }
+        val plannedGaps = xlScene.continuousLandingGaps(currentCarouselRows, selected)
+        val offsets = mutableMapOf<String, Float>()
+        // Relative body positions change by the sum of inserted spacers.
+        // Animate only these local paint deltas while the list stays compact.
+        var cumulative = 0f
+        val anchorPrefix = currentCarouselRows.take(index + 1).sumOf {
+            with(doubleUpDensity) { (plannedGaps[it.key] ?: 0.dp).roundToPx() }.toDouble()
+        }.toFloat()
+        var compressedPrefix = 0f
+        currentCarouselRows.forEachIndexed { i, row ->
+            val gap = with(doubleUpDensity) { (plannedGaps[row.key] ?: 0.dp).roundToPx() }.toFloat()
+            cumulative += gap
+            if (row.isXl && currentCarouselRows.getOrNull(i - 1)?.key == selected.rowKey &&
+                selected.rowKey != "continue_watching") compressedPrefix += gap
+            val displacement = cumulative - anchorPrefix - compressedPrefix
+            if (displacement != 0f && kotlin.math.abs(i - index) <= 3)
+                offsets[row.key] = displacement
+        }
+        xlScene.continuousLandingOffsets = offsets
+        try {
+            if (offsets.isNotEmpty()) androidx.compose.animation.core.animate(
+                0f, 1f, animationSpec = androidx.compose.animation.core.tween(180)
+            ) { value, _ -> xlScene.continuousLandingProgress = value }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            xlScene.clearContinuousLandingPaint()
+            throw cancelled
         }
         xlScene.prepareContinuousLanding(currentCarouselRows)
         val restoredOffset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
@@ -5192,10 +5253,12 @@ private fun EnhancedModernHomeRowsListBoundary(
                 holdAtEdgeUntilRelease = xlSceneEnabled,
                 endTimeoutMs = if (xlSceneEnabled) 350L else 160L,
                 maxForwardScrollPx = { lastAnchorRemaining() },
+                externalVerticalDriver = if (xlSceneEnabled) ({ sign ->
+                    continuousScroll.hold(sign, currentXlScene.inheritedVerticalVelocity())
+                }) else null,
                 onFastScrollingChanged = { scrolling ->
                     XlNavigationTrace.event("FAST_SCROLL") { "active=$scrolling focused=$activeRowKey" }
                     if (scrolling) {
-                        rapidRowJob.getAndSet(null)?.cancel()
                         if (currentXlSceneEnabled) {
                             val anchor = if (!currentXlScene.continuousGapsCollapsed) compactScrollAnchor() else null
                             currentXlScene.startHeldVerticalScroll()
@@ -5291,6 +5354,7 @@ private fun EnhancedModernHomeRowsListBoundary(
 
                     XlNavigationTrace.event("RESOLVE_LANDING") { "sign=$sign targetIndex=$targetRowIndex target=${targetRow?.key} lastAtBottom=$lastRowAtBottom focused=$activeRowKey" }
                     if (targetRow == null) {
+                        if (currentXlSceneEnabled) continuousScroll.stop()
                         fastScrollLandingVisualPendingRef
                             .set(false)
 
@@ -5338,7 +5402,8 @@ private fun EnhancedModernHomeRowsListBoundary(
                             targetRow.sceneSelection(savedItemIndex, targetRowIndex)?.let {
                                 currentXlScene.focus(it, layoutInfo, rows = currentCarouselRows,
                                     focusConfirmed = destinationAlreadyFocused)
-                            }
+                                continuousScroll.retarget(it, currentXlScene.inheritedVerticalVelocity())
+                            } ?: continuousScroll.stop()
                         }
 
                         /*
@@ -5538,6 +5603,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                                 .set(false)
 
                             doubleUpInProgress.set(true)
+                            continuousScroll.stop()
                             if (xlSceneEnabled) firstRow.sceneSelection(uiCaches.focusedItemByRow[firstRow.key] ?: 0, 0)?.let {
                                 currentXlScene.beginFastReturn(it, verticalRowListState.layoutInfo, currentCarouselRows)
                             }
@@ -5976,6 +6042,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 // reversal outside a burst still uses the verified XL spring.
                 if (currentXlSceneEnabled && native.action == AndroidKeyEvent.ACTION_DOWN &&
                     (keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP || keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN)) {
+                    val inherited = currentXlScene.inheritedVerticalVelocity()
                     val anchor = if (currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)) compactScrollAnchor() else null
                     currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime, native.repeatCount > 0)
                     if (anchor != null && currentXlScene.continuousGapsCollapsed)
@@ -5993,7 +6060,6 @@ private fun EnhancedModernHomeRowsListBoundary(
                         } ?: 0
                         val selected = destination?.sceneSelection(itemIndex, destinationIndex)
                         if (selected != null) {
-                            rapidRowJob.getAndSet(null)?.cancel()
                             currentXlScene.focus(selected, verticalRowListState.layoutInfo,
                                 rows = currentCarouselRows, focusConfirmed = false)
                             activeRowKey = selected.rowKey
@@ -6002,23 +6068,16 @@ private fun EnhancedModernHomeRowsListBoundary(
                             pendingRowFocus.index = itemIndex
                             pendingRowFocus.suppressBringIntoView = true
                             pendingRowFocus.nonce++
-                            rapidRowJob.set(doubleUpScope.launch {
-                                // Let the compact structural remeasure commit
-                                // before a new scroll owner starts.
-                                withFrameNanos { }
-                                if (currentXlScene.selection?.rowKey != selected.rowKey) return@launch
-                                val info = verticalRowListState.layoutInfo
-                                val offset = info.beforeContentPadding - currentXlScene.posterAnchorPx(selected) +
-                                    currentXlScene.headerPx(selected.rowKey) + currentXlScene.gapPx(selected.rowKey)
-                                if (destinationIndex in 0 until info.totalItemsCount)
-                                    verticalRowListState.animateScrollToItem(destinationIndex, offset)
-                            })
+                            continuousScroll.retarget(selected, inherited)
                             return@onPreviewKeyEvent true
                         } else if (destinationIndex >= currentCarouselRows.size || destinationIndex < 0) {
                             // At a list edge, keep the compact session rather
                             // than letting the focus finder reverse direction.
                             if (!(isUp && destinationIndex < 0 && aggregatePlatformsEnabled))
                                 return@onPreviewKeyEvent true
+                            continuousScroll.stop()
+                            currentXlScene.prepareContinuousLanding(currentCarouselRows)
+                            currentXlScene.finishContinuousNavigation()
                         }
                     }
                     if (!isUp && native.repeatCount == 0 && !currentXlScene.continuousVerticalNavigation) {
@@ -6482,7 +6541,10 @@ private fun EnhancedModernHomeRowsListBoundary(
                 val xlContentLift = if (row.isXl) Modifier.graphicsLayer {
                     translationY = -XL_CONTENT_LIFT_DP.dp.toPx()
                 } else Modifier
-                Box(modifier = trimTrailingGap.then(xlContentLift).then(if (fixedOrdinarySuffix) Modifier.graphicsLayer {
+                val landingPaint = if (xlSceneEnabled) Modifier.graphicsLayer {
+                    translationY = xlScene.continuousLandingOffsetPx(row.key)
+                } else Modifier
+                Box(modifier = trimTrailingGap.then(xlContentLift).then(landingPaint).then(if (fixedOrdinarySuffix) Modifier.graphicsLayer {
                     translationY = xlFixedOrdinarySuffixTranslationPx(
                         xlScene.verticalMotion, rowIndex, precedingXlIndex,
                         xlScene.fixedFollowerTranslationPx
