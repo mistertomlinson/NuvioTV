@@ -3120,6 +3120,7 @@ fun ModernHomeContent(
             xlScene.fullWidthIcons = effectiveFullWidthIconRowEnabled
             xlScene.estimatedXlHeight = estimatedXlHeight
             xlScene.ordinaryTop = ordinaryRowsTop
+            xlScene.xlContentLift = XL_CONTENT_LIFT_DP.dp
             xlScene.metadataRestingTop = if (effectiveFullWidthIconRowEnabled) {
                 heroRegionTopInset + (heroRegionHeight - measuredHeroHeight) / 2 -
                     if (uiState.hidePlatformIconsOnRowExitEnabled) 6.dp else 0.dp
@@ -3607,7 +3608,7 @@ fun ModernHomeContent(
                     viewportHeight = heroAvailableHeight,
                     backdropTransition = heroBackdropTransition,
                     dissolveFromXl = xlBackdrop.directExit,
-                freezeXlDissolve = xlScene.navigationPresentationFrozen,
+                    freezeXlDissolve = xlScene.navigationPresentationFrozen,
                     backdropGradientColor = bgColor,
                     onBackdropTransitionFinished = { url, blurred -> xlBackdrop.transitionFinished(xlBackdropFrameToken, url, blurred) },
                     onBackdropFrameReady = { url, blurred -> xlBackdrop.frameReady(xlBackdropFrameToken, url, blurred) },
@@ -6479,7 +6480,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                 // Move only the XL content, not its measured footprint,
                 // the scroll anchor, or the following row's title.
                 val xlContentLift = if (row.isXl) Modifier.graphicsLayer {
-                    translationY = -4.dp.toPx()
+                    translationY = -XL_CONTENT_LIFT_DP.dp.toPx()
                 } else Modifier
                 Box(modifier = trimTrailingGap.then(xlContentLift).then(if (fixedOrdinarySuffix) Modifier.graphicsLayer {
                     translationY = xlFixedOrdinarySuffixTranslationPx(
