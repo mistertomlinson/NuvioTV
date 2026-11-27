@@ -410,6 +410,47 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // This is not a compact XL landing and never creates paint clearance.
     var ordinaryVerticalHold by mutableStateOf<HeroPreview?>(null)
         private set
+    var ordinaryVerticalHoldOffset by mutableFloatStateOf(0f)
+        private set
+    var ordinaryVerticalHoldReadyEpoch by mutableIntStateOf(-1)
+        private set
+
+    // If another ordinary row is selected before an upward XL exit has
+    // settled, promote the already prepared block, NOT an XL burst. The
+    // existing scroll spring can be redirected while the metadata finishes
+    // its original slide into the stationary hero band.
+    fun retainUpwardExitForOrdinaryNavigation(layout: LazyListLayoutInfo): Boolean {
+        val move = transition ?: return false
+        val selected = selection ?: return false
+        if (!move.upwardExit || selected.rowKey != move.to.rowKey ||
+            continuousVerticalNavigation || deferredDownwardExit || fastReturn != null) return false
+        if (ordinaryVerticalHold == null) {
+            val actual = paintedMetadata?.takeIf { it.rowKey == selected.rowKey && paintedAlpha > 0f }
+            ordinaryVerticalHold = actual?.preview ?: selected.preview
+            ordinaryVerticalHoldOffset = if (actual != null) paintedTranslation
+                else incomingTranslation(layout, ordinaryTop.value * density, density) ?: 0f
+            ordinaryVerticalHoldReadyEpoch = -1
+        }
+        return true
+    }
+
+    fun advanceOrdinaryHoldOffset(epoch: Int, offset: Float) {
+        if (epoch == verticalMetadataEpoch && ordinaryVerticalHold != null)
+            ordinaryVerticalHoldOffset = offset
+    }
+
+    fun markOrdinaryHoldSettled(epoch: Int) {
+        if (epoch == verticalMetadataEpoch && ordinaryVerticalHold != null && !verticalKeyHeld)
+            ordinaryVerticalHoldReadyEpoch = epoch
+    }
+
+    fun commitOrdinaryHoldIfResolved(resolved: HeroPreview?) {
+        val selected = selection ?: return
+        if (ordinaryVerticalHold == null || ordinaryVerticalHoldReadyEpoch != verticalMetadataEpoch ||
+            verticalKeyHeld || selected.isXl || transition != null || resolved != selected.preview) return
+        stationaryMetadata = null
+        releaseOrdinaryVerticalHero()
+    }
 
     fun holdOrdinaryVerticalHero() {
         if (ordinaryVerticalHold == null)
@@ -435,7 +476,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     }
 
     fun releaseOrdinaryVerticalHero(epoch: Int = verticalMetadataEpoch) {
-        if (epoch == verticalMetadataEpoch) ordinaryVerticalHold = null
+        if (epoch == verticalMetadataEpoch) {
+            ordinaryVerticalHold = null
+            ordinaryVerticalHoldOffset = 0f
+            ordinaryVerticalHoldReadyEpoch = -1
+        }
     }
 
     fun noteVerticalRelease() { verticalKeyHeld = false }
@@ -513,6 +558,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         verticalMetadataEpoch++
         if (ordinaryOnly) {
             holdOrdinaryVerticalHero()
+            ordinaryVerticalHoldReadyEpoch = -1
             verticalMetadataAlpha = 1f
         } else {
             releaseOrdinaryVerticalHero()
@@ -1182,7 +1228,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         // Once an XL exit reaches a second ordinary row, that hero resumes the
         // normal stationary presentation. Never drag the first incoming logo
         // down with an unrelated row on a rapid second Up.
-        if (ordinaryVerticalHold != null && previous?.isXl == false && !next.isXl && previousMove == null) {
+        if (ordinaryVerticalHold != null && previous?.isXl == false && !next.isXl &&
+            (previousMove == null || previousMove.upwardExit)) {
+            // Retain the exact same ordinary block and its offset, even
+            // when the old XL spring was canceled midway through its slide.
+            transition = null
             stationaryMetadata = null
             return
         }
@@ -1463,6 +1513,10 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     ordinaryTopPx: Float, density: Float, viewportHeightPx: Float = Float.POSITIVE_INFINITY): Pair<Float, Float>? {
     if (!enabled) return null
     if (scene.navigationPresentationFrozen) return scene.continuousPresentationMask(ordinaryTopPx)
+    if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false) {
+        val offset = scene.ordinaryVerticalHoldOffset
+        return offset to (offset + ordinaryTopPx)
+    }
     scene.fastReturn?.let { fast ->
         if (fast.metadata == null || fast.alpha <= 0f) return null
         val offset = scene.fastReturnTranslation(layout)
@@ -2070,7 +2124,7 @@ internal fun ModernXlAwareHeroTitleBlock(
         !enabled -> resolvedHero?.let { XlMetadataSnapshot(selected?.rowKey.orEmpty(), it) }
         outgoing -> move?.outgoingMetadata
         selected?.isXl == true -> null
-        scene.ordinaryVerticalHold != null && move == null -> selected?.let {
+        scene.ordinaryVerticalHold != null -> selected?.let {
             XlMetadataSnapshot(it.rowKey, checkNotNull(scene.ordinaryVerticalHold))
         }
         move != null -> scene.stationaryMetadata ?: selected?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
@@ -2117,6 +2171,8 @@ internal fun ModernXlAwareHeroTitleBlock(
                 }
                 translationY = when {
                     liveRetained != null -> liveRetained.translation
+                    scene.ordinaryVerticalHold != null && scene.selection?.isXl == false &&
+                        !scene.navigationPresentationFrozen -> scene.ordinaryVerticalHoldOffset
                     fast != null -> scene.fastReturnTranslation(list.layoutInfo)
                     outgoing -> scene.outgoingTranslation(list.layoutInfo)
                     enabled && move?.downwardExit == true -> 0f
@@ -2139,8 +2195,8 @@ internal fun ModernXlAwareHeroTitleBlock(
                 // been accepted; a stale slot must not inherit its alpha.
                 alpha = if (liveRetained != null) baseAlpha else if (enabled && !scene.continuousVerticalNavigation &&
                     fast == null && !outgoing) {
-                    if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false && scene.transition == null)
-                        baseAlpha
+                    if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false)
+                        1f
                     else if (scene.selection?.rowKey != active.rowKey || epoch != scene.metadataEpoch)
                         0f else if (move?.upwardExit == true) baseAlpha
                         else baseAlpha * scene.verticalMetadataGateFor(active.rowKey)
