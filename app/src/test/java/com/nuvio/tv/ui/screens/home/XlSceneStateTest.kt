@@ -770,4 +770,19 @@ class XlSceneStateTest {
         assertEquals(1f, scene.verticalMetadataAlpha, 0f)
     }
 
+    @Test fun `first Up retains the visible outgoing ordinary block until the XL focus commits`() {
+        val ordinary = selection("A", 2)
+        val scene = XlSceneState(ordinary)
+        scene.recordMetadata(XlMetadataSnapshot(ordinary.rowKey, ordinary.preview))
+        scene.noteVerticalPress(-1, 1000L, false)
+        assertEquals("The destination gate is closed", 0f, scene.verticalMetadataAlpha, 0f)
+        assertEquals("Do not erase the old block before the focus handoff",
+            1f, scene.verticalMetadataGateFor(ordinary.rowKey), 0f)
+        scene.recordMetadata(XlMetadataSnapshot(ordinary.rowKey, ordinary.preview),
+            alpha = scene.verticalMetadataGateFor(ordinary.rowKey))
+        scene.focus(selection("XL", 1, true), layout())
+        assertEquals(ordinary.rowKey, scene.transition?.outgoingMetadata?.rowKey)
+        assertEquals(0f, scene.verticalMetadataGateFor("XL"), 0f)
+    }
+
 }
