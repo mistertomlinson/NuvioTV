@@ -1922,9 +1922,14 @@ internal fun ModernXlAwareHeroTitleBlock(
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (enabled && scene.rapidLandingMetadata && scene.continuousVerticalNavigation)
-                    scene.rapidLandingMetadataAlpha
-                else if (enabled && (scene.navigationPresentationFrozen || (scene.selection?.isXl == true && !outgoing && fast == null))) 0f else if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
+                alpha = if (enabled && scene.continuousVerticalNavigation) {
+                    // Read the live owner in the layer, not the captured slot.
+                    // A stale composition from an interrupted landing cannot
+                    // borrow the next row's reveal alpha.
+                    if (scene.rapidLandingMetadata && !scene.verticalKeyHeld &&
+                        scene.selection?.rowKey == active.rowKey && epoch == scene.metadataEpoch)
+                        scene.rapidLandingMetadataAlpha else 0f
+                } else if (enabled && (scene.navigationPresentationFrozen || (scene.selection?.isXl == true && !outgoing && fast == null))) 0f else if (fast != null) fast.alpha else if (enabled && move?.downwardExit == true && !outgoing) scene.exitMetadataAlpha
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
