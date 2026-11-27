@@ -752,4 +752,22 @@ class XlSceneStateTest {
         assertNull(scene.navigationFrozenBackdrop)
     }
 
+    @Test fun `new vertical press invalidates an earlier metadata reveal`() {
+        val scene = XlSceneState(selection("A", 1))
+        scene.noteVerticalPress(1, 1000L, false)
+        val obsolete = scene.verticalMetadataEpoch
+        assertEquals(0f, scene.verticalMetadataAlpha, 0f)
+        scene.advanceVerticalMetadataAlpha(obsolete, 1f)
+        assertEquals("Held key cannot reveal incoming metadata", 0f, scene.verticalMetadataAlpha, 0f)
+        scene.noteVerticalRelease()
+        scene.advanceVerticalMetadataAlpha(obsolete, 0.4f)
+        assertEquals(0.4f, scene.verticalMetadataAlpha, 0f)
+        scene.noteVerticalPress(-1, 1200L, false)
+        scene.noteVerticalRelease()
+        scene.advanceVerticalMetadataAlpha(obsolete, 1f)
+        assertEquals("Obsolete reveal cannot set the new epoch's opacity", 0f, scene.verticalMetadataAlpha, 0f)
+        scene.advanceVerticalMetadataAlpha(scene.verticalMetadataEpoch, 1f)
+        assertEquals(1f, scene.verticalMetadataAlpha, 0f)
+    }
+
 }
