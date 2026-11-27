@@ -594,8 +594,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
      * expires; metadata itself stays hidden until that window is over.
      */
     fun advanceRapidLanding(target: XlSceneSelection, remaining: Float, dt: Float,
+        plan: (XlSceneSelection) -> XlLandingPaintPlan): Boolean =
+        advanceRapidLanding(target, remaining, dt, plan, releaseAlreadyDebounced = false)
+
+    fun advanceRapidLanding(target: XlSceneSelection, remaining: Float, dt: Float,
         plan: (XlSceneSelection) -> XlLandingPaintPlan,
-        releaseAlreadyDebounced: Boolean = false): Boolean {
+        releaseAlreadyDebounced: Boolean): Boolean {
         if (!continuousVerticalNavigation || !continuousGapsCollapsed ||
             (continuousHeldScroll && verticalKeyHeld)) return false
         val selected = selection
