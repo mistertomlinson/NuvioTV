@@ -77,9 +77,21 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
     }
     val latestContent by rememberUpdatedState(content)
     val latestFinished by rememberUpdatedState(onFinished)
-    val target = transition.targetState
-    LaunchedEffect(target, duration, frozen) {
-        if (frozen) return@LaunchedEffect
+    // Selection may freeze while a committed image is already fading.
+    // Admit a new frame only when unfrozen; neither a freeze nor a duration
+    // recomposition may cancel/restart the animation of an admitted image.
+    var admittedFrame by remember(transition) { mutableStateOf(transition.currentState) }
+    var admittedDuration by remember(transition) { mutableIntStateOf(duration) }
+    val requested = transition.targetState
+    SideEffect {
+        if (!frozen && requested != admittedFrame) {
+            admittedDuration = duration
+            admittedFrame = requested
+        }
+    }
+    val target = admittedFrame
+    val fadeDuration = admittedDuration
+    LaunchedEffect(target) {
         if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) return@LaunchedEffect
         // Cancelling a previous effect freezes its partial opacity. Keep that
         // composite intact underneath this new fade, even when reversing.
@@ -103,11 +115,11 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
         val mixed = layers.any { it !== incoming && it.frame.blurred != target.blurred }
         // Compose and draw the complete incoming image + gradient before
         // exposing it. Only the mixed-mode path needs this warm-up.
-        if (mixed && duration > 0) {
+        if (mixed && fadeDuration > 0) {
             repeat(XL_MIXED_BACKDROP_WARM_FRAMES) { withFrameNanos { } }
-            XlNavigationTrace.event("BACKDROP_MIXED_WARM") { "image=${target.url?.hashCode()} blurred=${target.blurred} fade=$duration" }
+            XlNavigationTrace.event("BACKDROP_MIXED_WARM") { "image=${target.url?.hashCode()} blurred=${target.blurred} fade=$fadeDuration" }
         }
-        incoming.alpha.animateTo(1f, tween(duration, easing = LinearEasing))
+        incoming.alpha.animateTo(1f, tween(fadeDuration, easing = LinearEasing))
         layers.removeAll { it !== incoming }
         latestFinished(target)
     }
