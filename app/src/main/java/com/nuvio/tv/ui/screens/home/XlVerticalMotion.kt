@@ -28,11 +28,11 @@ import kotlin.math.roundToInt
 internal const val XL_SPRING_TIME_SCALE = 1.10f
 internal const val XL_PREVIEW_RETURN_MS = 260
 
-// Keep a meaningful amount of the shared leg moving beyond the 250ms
-// input gate; the separation leg starts from zero velocity. No independent
-// short-distance spring is allowed to reach rest before separation starts.
+// Retain a short overlap with the separation leg, not the former
+// 220ms tail that slowed the entire incoming regular row. At the default
+// scale the follower completes in 410ms, while the XL can continue exiting.
 internal fun xlCoupledSharedDurationMs(scale: Float): Float =
-    if (scale <= 0f) 0f else XL_EXIT_SEPARATION_DELAY_MS.toFloat() + 200f * scale
+    if (scale <= 0f) 0f else XL_EXIT_SEPARATION_DELAY_MS.toFloat() + 100f * scale
 
 internal fun xlCoupledSplitDurationMs(scale: Float): Float =
     if (scale <= 0f) 0f else 280f * scale
@@ -167,6 +167,9 @@ internal fun AnimateXlVerticalMotion(scene: XlSceneState, list: LazyListState) {
                                 // enough shared travel for both legs to overlap.
                                 val sharedDuration = xlCoupledSharedDurationMs(scale)
                                 val splitDuration = xlCoupledSplitDurationMs(scale)
+                                XlNavigationTrace.event("COUPLED_TIMING") {
+                                    "row=${active.rowKey} distance=$visiblePx shared=$sharedDuration gate=$XL_EXIT_SEPARATION_DELAY_MS split=$splitDuration"
+                                }
                                 var start = Long.MIN_VALUE
                                 var splitStart = Long.MIN_VALUE
                                 while (true) {
