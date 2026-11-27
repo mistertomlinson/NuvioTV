@@ -13,6 +13,11 @@ import kotlin.math.sqrt
 internal const val XL_BURST_SPEED_DP_PER_SEC = 1200f
 internal const val XL_BURST_ACCEL_DP_PER_SEC2 = 6000f
 
+// A remote item, an unmeasured item or a logical list boundary is not an
+// aligned anchor. Only a measured physical distance can complete a landing.
+internal fun xlLandingAligned(remainingPx: Float?): Boolean =
+    remainingPx != null && remainingPx.isFinite() && abs(remainingPx) <= 1f
+
 /** A bounded-acceleration controller, shared by repeated taps and held navigation. */
 internal fun xlApproachVelocity(current: Float, desired: Float, acceleration: Float, dt: Float): Float =
     current + (desired - current).coerceIn(-acceleration * dt, acceleration * dt)
