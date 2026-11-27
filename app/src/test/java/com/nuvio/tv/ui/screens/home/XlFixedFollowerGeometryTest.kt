@@ -179,13 +179,16 @@ class XlFixedFollowerGeometryTest {
             val separationDistance = 280f
             var previousTravel = 0f
             var previousShared = 0f
-            for (ms in 0..600 step 16) {
+            // Sample past both complete legs, including the last partial
+            // frame. The longer 300ms gate ends the split at 608ms.
+            val endMs = (kotlin.math.ceil(maxOf(sharedDuration, gate + splitDuration) / 16f).toInt() + 1) * 16
+            for (ms in 0..endMs step 16) {
                 val time = ms.toFloat()
                 val shared = sharedDistance * xlCoupledSharedProgress(time, sharedDuration)
                 val separation = separationDistance * xlCoupledSplitProgress((time - gate).coerceAtLeast(0f), splitDuration)
                 val outgoing = shared + separation
                 if (time <= gate) assertEquals("Rows must travel together before the gate", shared, outgoing, 0f)
-                if (time in 208f..320f) {
+                if (time in (gate - 48f)..(gate + 72f)) {
                     org.junit.Assert.assertTrue("No outgoing pause around the gate: ms=$ms distance=$sharedDistance", outgoing - previousTravel > 1f)
                     org.junit.Assert.assertTrue("Shared travel cannot finish before separation starts", shared > previousShared)
                 }
@@ -222,7 +225,7 @@ class XlFixedFollowerGeometryTest {
         assertEquals(-speed, xlTargetVelocity(Float.NEGATIVE_INFINITY, speed, acceleration), 0f)
         org.junit.Assert.assertTrue(xlTargetVelocity(10f, speed, acceleration) < speed)
         assertEquals(0f, xlTargetVelocity(0f, speed, acceleration), 0f)
-        assertEquals(250L, XL_EXIT_SEPARATION_DELAY_MS)
+        assertEquals(300L, XL_EXIT_SEPARATION_DELAY_MS)
         assertEquals(400L, XL_CONTINUOUS_NAV_INTERVAL_MS)
     }
 
