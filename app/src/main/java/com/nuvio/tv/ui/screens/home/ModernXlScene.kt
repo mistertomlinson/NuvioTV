@@ -2076,8 +2076,8 @@ internal fun ModernXlAwareHeroTitleBlock(
             platformTransitionSnap = platformTransitionSnap,
             fullWidthIconRowEnabled = fullWidthIconRowEnabled,
             heroMetadataLarge = heroMetadataLarge,
-            animateTitleLogo = isActive && !scene.rapidLandingMetadata && (!enabled || (move == null &&
-                (!backdrop.owned || scene.ordinaryVerticalHold != null))),
+            animateTitleLogo = isActive && !scene.rapidLandingMetadata && (!enabled ||
+                (move == null && fast == null && selected?.isXl == false && !scene.navigationPresentationFrozen)),
             contentModifier = Modifier.onSizeChanged {
                 scene.metadataHeights[active.rowKey] = it.height.toFloat()
                 if (isActive) scene.metadataHeightPx = it.height.toFloat()
