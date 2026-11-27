@@ -405,6 +405,21 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             verticalMetadataAlpha = alpha.coerceIn(0f, 1f)
     }
 
+    // Ordinary-to-ordinary navigation keeps its screen-space hero and mask.
+    // This is not a compact XL landing and never creates paint clearance.
+    var ordinaryVerticalHold by mutableStateOf<HeroPreview?>(null)
+        private set
+
+    fun holdOrdinaryVerticalHero() {
+        if (ordinaryVerticalHold == null)
+            ordinaryVerticalHold = paintedMetadata?.takeIf { paintedAlpha > 0f }?.preview
+                ?: selection?.preview
+    }
+
+    fun releaseOrdinaryVerticalHero(epoch: Int = verticalMetadataEpoch) {
+        if (epoch == verticalMetadataEpoch) ordinaryVerticalHold = null
+    }
+
     fun noteVerticalRelease() { verticalKeyHeld = false }
 
     fun startHeldVerticalScroll() {
@@ -456,14 +471,20 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         return if (bottom > 0f && top < bottom) top to bottom else null
     }
 
-    fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
+    fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean, ordinaryOnly: Boolean = false) {
         verticalKeyHeld = true
         verticalInputIntent = true
         val outgoingRow = selection?.rowKey
         verticalMetadataOutgoingGate = outgoingRow?.let { verticalMetadataGateFor(it) } ?: 0f
         verticalMetadataOutgoingRow = outgoingRow
         verticalMetadataEpoch++
-        verticalMetadataAlpha = 0f
+        if (ordinaryOnly) {
+            holdOrdinaryVerticalHero()
+            verticalMetadataAlpha = 1f
+        } else {
+            releaseOrdinaryVerticalHero()
+            verticalMetadataAlpha = 0f
+        }
         if (sign < 0 || repeated) captureBurstOutgoingMask(null)
         val close = lastVerticalPressTime != Long.MIN_VALUE &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
@@ -472,12 +493,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val rapid = close
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
-        if (repeated || rapid || continuousVerticalNavigation) beginContinuousNavigation()
+        if (!ordinaryOnly && (repeated || rapid || continuousVerticalNavigation)) beginContinuousNavigation()
     }
 
     fun beginContinuousNavigation() {
         XlNavigationTrace.event("CONTINUOUS_START") { "selected=${selection?.rowKey} collapsed=$continuousGapsCollapsed" }
         if (fastReturn != null) return
+        releaseOrdinaryVerticalHero()
         continuousInputEpoch++
         // A new input cancels an early reveal, even if compact geometry
         // was already active. It must not reappear for an obsolete target.
@@ -965,6 +987,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     } == true || previewReturn?.rowKey == rowKey
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
+        releaseOrdinaryVerticalHero()
         pendingFastReturnXlBackdropKey = null
         val retainedBackdrop = navigationFrozenBackdrop ?: paintedBackdrop ?: selection?.preview
         clearDeferredExit()
@@ -1022,6 +1045,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     } ?: 0f
 
     fun resolveStationaryMetadata(preview: HeroPreview?) {
+        if (ordinaryVerticalHold != null) return
         if (selection?.isXl == false && selection?.preview == preview) stationaryMetadata = null
     }
 
@@ -1103,6 +1127,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             openEarlierXlGaps(next, rows)
         }
         selection = next
+        if (next.isXl) releaseOrdinaryVerticalHero()
         if (previous?.rowKey != next.rowKey) {
             verticalMetadataOutgoingRow = null
             verticalMetadataOutgoingGate = 0f
@@ -1114,6 +1139,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         // Once an XL exit reaches a second ordinary row, that hero resumes the
         // normal stationary presentation. Never drag the first incoming logo
         // down with an unrelated row on a rapid second Up.
+        if (ordinaryVerticalHold != null && previous?.isXl == false && !next.isXl && previousMove == null) {
+            stationaryMetadata = null
+            return
+        }
         if (animate && previous != null && !previous.isXl && !next.isXl &&
             (previousMove?.from?.isXl == true && previousMove.outgoingMetadata == null || stationaryMetadata != null)) {
             // The first XL exit is immediate. Further ordinary navigation uses
@@ -1961,6 +1990,9 @@ internal fun ModernXlAwareHeroTitleBlock(
         !enabled -> resolvedHero?.let { XlMetadataSnapshot(selected?.rowKey.orEmpty(), it) }
         outgoing -> move?.outgoingMetadata
         selected?.isXl == true -> null
+        scene.ordinaryVerticalHold != null && move == null -> selected?.let {
+            XlMetadataSnapshot(it.rowKey, checkNotNull(scene.ordinaryVerticalHold))
+        }
         move != null -> scene.stationaryMetadata ?: selected?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
         else -> scene.stationaryMetadata ?: (if (backdrop.owned) selected?.preview else resolvedHero)?.let {
             XlMetadataSnapshot(selected?.rowKey.orEmpty(), it)
@@ -1991,7 +2023,8 @@ internal fun ModernXlAwareHeroTitleBlock(
             platformTransitionSnap = platformTransitionSnap,
             fullWidthIconRowEnabled = fullWidthIconRowEnabled,
             heroMetadataLarge = heroMetadataLarge,
-            animateTitleLogo = isActive && !scene.rapidLandingMetadata && (!enabled || (move == null && !backdrop.owned)),
+            animateTitleLogo = isActive && !scene.rapidLandingMetadata && (!enabled || (move == null &&
+                (!backdrop.owned || scene.ordinaryVerticalHold != null))),
             contentModifier = Modifier.onSizeChanged {
                 scene.metadataHeights[active.rowKey] = it.height.toFloat()
                 if (isActive) scene.metadataHeightPx = it.height.toFloat()
@@ -2022,7 +2055,9 @@ internal fun ModernXlAwareHeroTitleBlock(
                 // been accepted; a stale slot must not inherit its alpha.
                 alpha = if (enabled && !scene.continuousVerticalNavigation &&
                     fast == null && !outgoing) {
-                    if (scene.selection?.rowKey != active.rowKey || epoch != scene.metadataEpoch)
+                    if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false && scene.transition == null)
+                        baseAlpha
+                    else if (scene.selection?.rowKey != active.rowKey || epoch != scene.metadataEpoch)
                         0f else baseAlpha * scene.verticalMetadataGateFor(active.rowKey)
                 } else baseAlpha
                 paintedLayer[0] = translationY
