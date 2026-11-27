@@ -36,6 +36,8 @@ class XlBackdropDissolveTest {
     @get:Rule val compose = createEmptyComposeRule()
     private lateinit var activity: ActivityController<ComponentActivity>
     private val target = mutableStateOf("A")
+    private val frozen = mutableStateOf(false)
+    private val duration = mutableIntStateOf(180)
     private val readyCallbacks = mutableMapOf<String, () -> Unit>()
     private val finished = mutableListOf<String?>()
     private val activeFrames = mutableSetOf<ModernHeroBackdropFrame>()
@@ -48,7 +50,7 @@ class XlBackdropDissolveTest {
             activity.get().setContent {
                 val transition = rememberModernHeroBackdropTransition(target.value, 1f, false, !mixed || target.value != "A", true, 160, 90)
                 Box(Modifier.width(960.dp).height(540.dp).background(Color.Black)) {
-                    XlBackdropDissolve(transition, 180, onFinished = { finished += it.url }) { frame, ready ->
+                    XlBackdropDissolve(transition, duration.intValue, frozen = frozen.value, onFinished = { finished += it.url }) { frame, ready ->
                         val color = when (frame.url) { "A" -> android.graphics.Color.RED; "B" -> android.graphics.Color.BLUE; else -> android.graphics.Color.GREEN }
                         val image = frame.compositedBitmap ?: remember(frame) {
                             Bitmap.createBitmap(160, 90, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
@@ -217,4 +219,28 @@ class XlBackdropDissolveTest {
             }
         }
     }
+    @Test fun selectionFreezeAndDurationChangesCannotRestartAnAdmittedMixedFade() {
+        duration.intValue = 300
+        content(mixed = true)
+        compose.runOnIdle { target.value = "B" }
+        advance(96)
+        compose.runOnIdle { checkNotNull(readyCallbacks["B"])() }
+        advance(144)
+        val middle = android.graphics.Color.blue(pixel())
+        assertTrue(middle in 1..254)
+        compose.runOnIdle { frozen.value = true; duration.intValue = 180; target.value = "C" }
+        advance(64)
+        assertTrue("The active fade continues even during the selection freeze",
+            android.graphics.Color.blue(pixel()) > middle)
+        assertFalse("No intermediate image is admitted while frozen",
+            activeFrames.any { it.url == "C" })
+        advance(240)
+        assertEquals(android.graphics.Color.BLUE, pixel())
+        assertEquals(listOf("B"), finished)
+        compose.runOnIdle { target.value = "B"; frozen.value = false }
+        advance(320)
+        assertEquals("Returning to the same committed image does not start another fade", listOf("B"), finished)
+        assertEquals(android.graphics.Color.BLUE, pixel())
+    }
+
 }
