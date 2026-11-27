@@ -513,4 +513,47 @@ class ModernHomeIntegrationTest {
         assertFalse(list.isScrollInProgress)
     }
 
+    @Test fun redundantRapidUpAtTheFirstXlRowCannotFinishBeforePhysicalAlignment() {
+        val rows = scenarioRows(6)
+        val first = catalogRowKey(rows.first())
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true,
+            enrichmentReadyRowKeys = rows.map(::catalogRowKey).toSet(), xlCatalogKeys = setOf(first),
+            fullWidthIconRowEnabled = true, aggregateStreamingPlatformsEnabled = true,
+            showAllCatalogsOnHome = true, doubleUpPlatformShortcutEnabled = false, posterLabelsEnabled = false))
+        advance(800)
+        fun firstAnchorDistance(): Float? {
+            val selected = scene.selection?.takeIf { it.rowKey == first } ?: return null
+            val info = list.layoutInfo
+            val item = info.visibleItemsInfo.firstOrNull { it.key == first } ?: return null
+            return (item.offset + info.beforeContentPadding + scene.gapPx(first) +
+                scene.headerPx(first) - scene.posterAnchorPx(selected)).toFloat()
+        }
+        assertTrue("Initial XL anchor must be measured", xlLandingAligned(firstAnchorDistance()))
+        repeat(2) { press(KeyEvent.KEYCODE_DPAD_DOWN); advance(1000) }
+        assertEquals(catalogRowKey(rows[2]), scene.selection?.rowKey)
+        val start = SystemClock.uptimeMillis()
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start)
+        advance(96)
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start + 120)
+        assertEquals(first, scene.selection?.rowKey)
+        advance(32)
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start + 200)
+        assertTrue("An extra Up at the logical boundary must not finish travel",
+            scene.continuousVerticalNavigation)
+        assertEquals(first, scene.selection?.rowKey)
+        var completed = false
+        repeat(160) {
+            advance(16)
+            if (!scene.continuousVerticalNavigation) {
+                completed = true
+                assertTrue("LAND_FINISH cannot precede physical alignment; remaining=${firstAnchorDistance()}",
+                    xlLandingAligned(firstAnchorDistance()))
+            }
+        }
+        assertTrue("The first row eventually settles", completed)
+        assertFalse(list.isScrollInProgress)
+        assertEquals(first, scene.selection?.rowKey)
+    }
+
 }
