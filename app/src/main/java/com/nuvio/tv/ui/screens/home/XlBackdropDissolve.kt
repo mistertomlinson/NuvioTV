@@ -75,6 +75,12 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
     val layers = remember(transition) {
         mutableStateListOf(XlDissolveLayer(transition.currentState, 1f))
     }
+    DisposableEffect(transition) {
+        XlNavigationTrace.event("BACKDROP_DISSOLVE_MOUNT") { "owner=${System.identityHashCode(transition)}" }
+        onDispose {
+            XlNavigationTrace.event("BACKDROP_DISSOLVE_DISPOSE") { "owner=${System.identityHashCode(transition)}" }
+        }
+    }
     val latestContent by rememberUpdatedState(content)
     val latestFinished by rememberUpdatedState(onFinished)
     // Selection may freeze while a committed image is already fading.
