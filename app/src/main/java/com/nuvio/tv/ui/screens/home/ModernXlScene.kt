@@ -520,13 +520,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         if (mask.first >= mask.second || mask.second <= 0f ||
             mask.first >= screenHeight.value * density) return
         val landing = selection?.takeIf { rapidLandingMetadata && !it.isXl }
-        val metadata = landing?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
+        val held = ordinaryVerticalHold?.let { preview ->
+            selection?.takeUnless { it.isXl }?.let { XlMetadataSnapshot(it.rowKey, preview) }
+        }
+        val metadata = held ?: landing?.let { XlMetadataSnapshot(it.rowKey, it.preview) }
             ?: paintedMetadata?.takeIf { paintedAlpha > 0f }
         rapidPresentation.capture(XlRetainedPresentation(metadata,
-            if (landing != null) metadataEpoch else paintedEpoch,
-            if (landing != null) 0f else paintedTranslation,
-            if (landing != null) rapidLandingMetadataAlpha else paintedAlpha,
-            if (landing != null) 0f else paintedClipTop, mask))
+            if (held != null || landing != null) metadataEpoch else paintedEpoch,
+            if (held != null) ordinaryVerticalHoldOffset else if (landing != null) 0f else paintedTranslation,
+            if (held != null) 1f else if (landing != null) rapidLandingMetadataAlpha else paintedAlpha,
+            if (held != null || landing != null) 0f else paintedClipTop, mask))
     }
 
     fun advanceBurstOutgoingMask(consumed: Float) {
@@ -744,7 +747,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 rapidLandingReleasedSeconds = maxOf(rapidLandingReleasedSeconds, XL_CONTINUOUS_NAV_INTERVAL_MS / 1000f)
         }
         val accepted = !verticalKeyHeld && rapidLandingReleasedSeconds >= XL_CONTINUOUS_NAV_INTERVAL_MS / 1000f
-        if (accepted && xlLandingAligned(remaining)) retireRetainedPresentationAtLanding(dt)
+        // XL owns no stationary ordinary hero band. Finish moving the
+        // outgoing band out during the approach, rather than leaving an
+        // ordinary mask across the XL posters for the entire release gate.
+        // A reversal still starts from the current painted presentation.
+        if (!verticalKeyHeld && target.isXl && remaining.isFinite() &&
+            kotlin.math.abs(remaining) <= 180f * density) {
+            retireRetainedPresentationAtLanding(dt)
+        } else if (accepted && xlLandingAligned(remaining)) {
+            retireRetainedPresentationAtLanding(dt)
+        }
         if (!verticalKeyHeld && rapidLandingReleasedSeconds >= 0.07f &&
             kotlin.math.abs(remaining) <= 180f * density && rapidLandingPlan == null &&
             retainedBurstPresentation == null) {
@@ -2179,7 +2191,9 @@ internal fun ModernXlAwareHeroTitleBlock(
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                val baseAlpha = if (liveRetained != null) liveRetained.alpha else if (enabled && scene.continuousVerticalNavigation) {
+                val baseAlpha = if (liveRetained != null) liveRetained.alpha
+                else if (retained != null) 0f
+                else if (enabled && scene.continuousVerticalNavigation) {
                     // Read the live owner in the layer, not the captured slot.
                     // A stale composition from an interrupted landing cannot
                     // borrow the next row's reveal alpha.
@@ -2193,7 +2207,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 // Outgoing metadata travels with its old row. The incoming
                 // block cannot appear until the latest vertical release has
                 // been accepted; a stale slot must not inherit its alpha.
-                alpha = if (liveRetained != null) baseAlpha else if (enabled && !scene.continuousVerticalNavigation &&
+                alpha = if (liveRetained != null || retained != null) baseAlpha else if (enabled && !scene.continuousVerticalNavigation &&
                     fast == null && !outgoing) {
                     if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false)
                         1f
