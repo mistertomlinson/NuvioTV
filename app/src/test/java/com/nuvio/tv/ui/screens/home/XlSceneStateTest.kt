@@ -706,20 +706,64 @@ class XlSceneStateTest {
         scene.advanceBurstOutgoingMask(72f)
         assertEquals(-72f to 188f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
         scene.advanceBurstOutgoingMask(188f)
+        assertEquals(-260f to 0f, scene.retainedBurstOutgoingMask())
+        scene.advanceBurstOutgoingMask(32f)
         assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
         scene.advanceBurstOutgoingMask(-20f)
         assertNull("A retired mask must not reappear on reversal", scene.retainedBurstOutgoingMask())
     }
 
-    @Test fun `held scroll and reversal do not retain a stale burst mask`() {
-        val scene = XlSceneState(selection("A", 1))
-        scene.captureBurstOutgoingMask(0f to 260f)
+    @Test fun `held scroll and reversal preserve the same painted metadata and mask until offscreen`() {
+        val first = selection("A", 1)
+        val scene = XlSceneState(first).apply { screenHeight = 540.dp; density = 1f }
+        val painted = XlMetadataSnapshot(first.rowKey, first.preview)
+        scene.recordMetadata(painted, translation = 12f, alpha = 0.65f)
+        scene.captureBurstOutgoingMask(12f to 272f)
         scene.beginContinuousNavigation()
+        scene.advanceBurstOutgoingMask(72f)
+        assertEquals(-60f to 200f, scene.retainedBurstOutgoingMask())
+        assertEquals(-60f, scene.retainedBurstPresentation!!.translation, 0f)
         scene.noteVerticalPress(-1, 1000L, false)
-        assertNull(scene.retainedBurstOutgoingMask())
-        scene.captureBurstOutgoingMask(0f to 260f)
+        scene.focus(selection("XL", 0, true), layout())
         scene.startHeldVerticalScroll()
-        assertNull(scene.retainedBurstOutgoingMask())
+        assertEquals(painted, scene.retainedBurstPresentation!!.metadata)
+        assertEquals(0.65f, scene.retainedBurstPresentation!!.alpha, 0f)
+        scene.advanceBurstOutgoingMask(-40f)
+        assertEquals(-20f to 240f, scene.retainedBurstOutgoingMask())
+        assertEquals(-20f, scene.retainedBurstPresentation!!.translation, 0f)
+        scene.advanceBurstOutgoingMask(-560f)
+        assertNull(scene.retainedBurstPresentation)
+        scene.advanceBurstOutgoingMask(20f)
+        assertNull("An offscreen retired block cannot resurrect", scene.retainedBurstPresentation)
+    }
+
+    @Test fun `ordinary rapid landing grows its mask before metadata and keeps row geometry`() {
+        val target = selection("B", 2)
+        val scene = XlSceneState(target)
+        scene.beginContinuousNavigation()
+        val plan = XlLandingPaintPlan(emptyMap(), 0f)
+        repeat(10) { scene.advanceRapidLanding(target, 80f, 0.016f) { plan } }
+        val partial = checkNotNull(scene.continuousPresentationMask(260f))
+        assertTrue(partial.second in 0.01f..259.99f)
+        assertFalse(scene.rapidLandingMetadata)
+        assertEquals(0f, scene.continuousLandingOffsetPx("A"), 0f)
+        repeat(32) { scene.advanceRapidLanding(target, 0f, 0.016f) { plan } }
+        assertEquals(0f to 260f, scene.continuousPresentationMask(260f))
+        assertTrue(scene.rapidLandingReady)
+        assertEquals(1f, scene.rapidLandingMetadataAlpha, 0f)
+    }
+
+    @Test fun `compact takeover starts at the previous painted row offset`() {
+        val target = selection("B", 2)
+        val scene = XlSceneState(target)
+        scene.beginContinuousNavigation()
+        scene.seedCompactHandoff(mapOf("A" to -82f, "C" to 120f))
+        assertEquals(-82f, scene.continuousLandingOffsetPx("A"), 0f)
+        assertEquals(120f, scene.continuousLandingOffsetPx("C"), 0f)
+        scene.advanceRapidLanding(target, 300f, 0.016f) { error("No distant landing") }
+        assertTrue(scene.continuousLandingOffsetPx("A") > -82f)
+        assertTrue(scene.continuousLandingOffsetPx("C") < 120f)
+        assertFalse(scene.rapidLandingMetadata)
     }
 
     @Test fun `a logical boundary and an unmeasured target cannot count as a completed landing`() {
