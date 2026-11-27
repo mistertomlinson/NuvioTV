@@ -210,6 +210,7 @@ internal data class XlSceneTransition(
     // instead of briefly materializing it and snapping the LazyColumn anchor.
     val interruptedFollowerPaintPx: Float? = null
 ) {
+    val upwardExit = from.isXl && !to.isXl && to.rowIndex < from.rowIndex
     val downwardExit = from.isXl && !to.isXl && to.rowIndex > from.rowIndex
     val compactExit = downwardExit && !from.summary
     val summaryExit = downwardExit && from.summary
@@ -413,7 +414,24 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun holdOrdinaryVerticalHero() {
         if (ordinaryVerticalHold == null)
             ordinaryVerticalHold = paintedMetadata?.takeIf { paintedAlpha > 0f }?.preview
-                ?: selection?.preview
+                ?: stationaryMetadata?.preview ?: selection?.preview
+    }
+
+    // Physical row settlement and backdrop settlement are independent.
+    // Promote an aligned upward XL exit to the stationary ordinary hero
+    // before the next ordinary key, even if its backdrop is still fading.
+    fun promoteAlignedUpwardExit(layout: LazyListLayoutInfo, scrolling: Boolean): Boolean {
+        val move = transition ?: return false
+        if (!move.upwardExit || scrolling || verticalMotion != null ||
+            headroomMoving.values.any { it }) return false
+        val remaining = incomingTranslation(layout, ordinaryTop.value * density, density)
+        if (!xlLandingAligned(remaining)) return false
+        val selected = selection ?: return false
+        if (selected.rowKey != move.to.rowKey) return false
+        stationaryMetadata = XlMetadataSnapshot(selected.rowKey, selected.preview)
+        verticalMetadataAlpha = 1f
+        complete(move.id)
+        return true
     }
 
     fun releaseOrdinaryVerticalHero(epoch: Int = verticalMetadataEpoch) {
@@ -1187,6 +1205,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             interruptedFollowerPaintPx = compactPaintHandoff
         )
         transition = move
+        // An isolated Up out of XL reveals a prepared ordinary block by
+        // translation, not by fading it in after the row has arrived.
+        // Rapid navigation still suppresses intermediate destinations.
+        if (move.upwardExit) verticalMetadataAlpha = 1f
         exitMetadataAlpha = if (move.downwardExit) 0f else 1f
         if (move.downwardExit) expandedXlRows[previous.rowKey] = true
         if (next.isXl && next.rowIndex < previous.rowIndex &&
@@ -1345,6 +1367,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val move = transition
         transition = null
         if (move?.from?.isXl == true && selection?.isXl == false) {
+            if (move.upwardExit) verticalMetadataAlpha = 1f
             val selected = checkNotNull(selection)
             stationaryMetadata = stationaryMetadata ?: paintedMetadata?.takeIf { paintedAlpha > 0f && it.rowKey == selected.rowKey }
                 ?: XlMetadataSnapshot(selected.rowKey, selected.preview)
@@ -2088,7 +2111,8 @@ internal fun ModernXlAwareHeroTitleBlock(
                     if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false && scene.transition == null)
                         baseAlpha
                     else if (scene.selection?.rowKey != active.rowKey || epoch != scene.metadataEpoch)
-                        0f else baseAlpha * scene.verticalMetadataGateFor(active.rowKey)
+                        0f else if (move?.upwardExit == true) baseAlpha
+                        else baseAlpha * scene.verticalMetadataGateFor(active.rowKey)
                 } else baseAlpha
                 paintedLayer[0] = translationY
                 paintedLayer[1] = alpha
