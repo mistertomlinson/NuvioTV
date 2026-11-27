@@ -1582,6 +1582,39 @@ internal fun ObserveXlSceneMotion(scene: XlSceneState, list: LazyListState) {
 internal class XlBackdropPresentation(initial: HeroPreview?, initiallyXl: Boolean) {
     val dim = Animatable(if (initiallyXl) XL_BACKDROP_DIM_ALPHA else 0f)
     val gradientAlpha = Animatable(if (initiallyXl) 0f else 1f)
+    // A committed image owns its tint animation independently of the
+    // selection effect. Freezing selection must not cancel that animation.
+    private var tintJob: kotlinx.coroutines.Job? = null
+    private var tintToken = -1
+
+    fun cancelCommittedTint() {
+        tintJob?.cancel()
+        tintJob = null
+        tintToken = -1
+    }
+
+    suspend fun animateCommittedTint(scope: kotlinx.coroutines.CoroutineScope,
+        duration: Int, dark: Boolean, animateGradient: Boolean = true) {
+        val ownerToken = token
+        if (tintToken != ownerToken || tintJob == null) {
+            cancelCommittedTint()
+            tintToken = ownerToken
+            tintJob = scope.launch {
+                XlNavigationTrace.event("BACKDROP_TINT_START") { "token=$ownerToken dark=$dark fade=$duration" }
+                kotlinx.coroutines.coroutineScope {
+                    launch { dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f,
+                        tween(duration, easing = LinearEasing)) }
+                    if (animateGradient) launch { gradientAlpha.animateTo(if (dark) 0f else 1f,
+                        tween(duration, easing = LinearEasing)) }
+                }
+                XlNavigationTrace.event("BACKDROP_TINT_FINISH") { "token=$ownerToken dark=$dark" }
+            }
+        }
+        // Cancelling the caller (e.g. another key) does not cancel the
+        // committed tint. A resume for this token joins the original job.
+        tintJob?.join()
+    }
+
     var preview by mutableStateOf(initial)
     var owned by mutableStateOf(initiallyXl)
     var revealing by mutableStateOf(false)
@@ -1645,6 +1678,7 @@ internal fun rememberXlBackdropPresentation(
     val darkTarget = enabled && if (carouselFocused) pageStartsWithXl else selected?.isXl == true
     val state = remember(scene) { XlBackdropPresentation(if (darkTarget) selected?.preview ?: resolvedHero else resolvedHero, darkTarget) }
     val latestResolved by rememberUpdatedState(resolvedHero)
+    val tintScope = rememberCoroutineScope()
     SideEffect {
         if (XlNavigationTrace.enabled) XlNavigationTrace.backdrop = state
         XlNavigationTrace.event("BACKDROP") { "selected=${selected?.rowKey}/${selected?.itemKey} resolved=${resolvedHero?.title} presented=${state.preview?.title} token=${state.token} owned=${state.owned} blurred=${state.blurred} entering=${state.directEntry} exiting=${state.directExit} reveal=${state.continuousReveal} dim=${state.dim.value} gradient=${state.gradientAlpha.value} ready=${state.ready()} finished=${state.transitionFinished()} fade=${state.imageFadeMillis}" }
@@ -1684,12 +1718,11 @@ internal fun rememberXlBackdropPresentation(
             XlNavigationTrace.event("BACKDROP_RESUME_OWNER") {
                 "token=$token row=${target.rowKey} fade=$fade"
             }
-            kotlinx.coroutines.coroutineScope {
-                launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f,
-                    tween(fade, easing = LinearEasing)) }
-                launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f,
-                    tween(fade, easing = LinearEasing)) }
+            if (!artworkKey.isNullOrBlank() && !state.ready()) {
+                if (dark) snapshotFlow { state.ready() }.first { it }
+                else withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
             }
+            state.animateCommittedTint(tintScope, fade, dark)
             withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
             if (boundaryId != null) {
                 snapshotFlow { scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true }.first { it }
@@ -1706,6 +1739,9 @@ internal fun rememberXlBackdropPresentation(
             }
             return@LaunchedEffect
         }
+        // A genuinely different target may cancel the previous tint.
+        // The frozen branch above never does.
+        state.cancelCommittedTint()
         state.directEntry = false
         state.continuousReveal = false
         if (!enabled) {
@@ -1749,10 +1785,7 @@ internal fun rememberXlBackdropPresentation(
                     snapshotFlow { state.ready() }.first { it }
                 else withTimeoutOrNull(2_000L) { snapshotFlow { state.ready() }.first { it } }
                 repeat(warm) { withFrameNanos { } }
-                kotlinx.coroutines.coroutineScope {
-                    launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f, tween(fade, easing = LinearEasing)) }
-                    launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f, tween(fade, easing = LinearEasing)) }
-                }
+                state.animateCommittedTint(tintScope, fade, dark)
                 if (needsDissolve) withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
             } finally {
                 if (state.token == revealToken && !scene.backdropPresentationFrozen) {
@@ -1788,7 +1821,7 @@ internal fun rememberXlBackdropPresentation(
             repeat(2) { withFrameNanos { } }
             withTimeoutOrNull(2_000) { snapshotFlow { state.ready() }.first { it } }
             repeat(warm) { withFrameNanos { } }
-            state.dim.animateTo(0f, tween(fade, easing = LinearEasing))
+            state.animateCommittedTint(tintScope, fade, dark = false, animateGradient = false)
             withTimeoutOrNull(2_000) { snapshotFlow { state.transitionFinished() }.first { it } }
             state.directExit = false
             state.gradientAlpha.snapTo(1f)
@@ -1839,10 +1872,7 @@ internal fun rememberXlBackdropPresentation(
                     repeat(2) { withFrameNanos { } }
                     if (!artworkKey.isNullOrBlank()) snapshotFlow { state.ready() }.first { it }
                     if (mixed) repeat(XL_MIXED_BACKDROP_WARM_FRAMES) { withFrameNanos { } }
-                    kotlinx.coroutines.coroutineScope {
-                        launch { state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(fade, easing = LinearEasing)) }
-                        launch { state.gradientAlpha.animateTo(0f, tween(fade, easing = LinearEasing)) }
-                    }
+                    state.animateCommittedTint(tintScope, fade, dark = true)
                     withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
                 } finally {
                     // A second navigation can cancel this reveal. Do not let
@@ -1879,7 +1909,7 @@ internal fun rememberXlBackdropPresentation(
             // The ordinary gradient is already part of the retained image
             // composite. Do not apply a second screen-wide tint during entry.
             state.gradientAlpha.snapTo(0f)
-            state.dim.animateTo(XL_BACKDROP_DIM_ALPHA, tween(fade, easing = LinearEasing))
+            state.animateCommittedTint(tintScope, fade, dark = true, animateGradient = false)
             withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
             snapshotFlow { scene.transition?.let { it.id != boundary.id || it.rowsSettled } ?: true }.first { it }
             scene.complete(boundary.id)
