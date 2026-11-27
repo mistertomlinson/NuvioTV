@@ -81,17 +81,16 @@ internal fun XlBackdropDissolve(transition: Transition<ModernHeroBackdropFrame>,
     // Admit a new frame only when unfrozen; neither a freeze nor a duration
     // recomposition may cancel/restart the animation of an admitted image.
     var admittedFrame by remember(transition) { mutableStateOf(transition.currentState) }
-    var admittedDuration by remember(transition) { mutableIntStateOf(duration) }
     val requested = transition.targetState
+    // Use the live target immediately when admission is open. SideEffect
+    // only latches its identity for a future freeze, not for a second
+    // composition pass. Capture the duration once when this effect starts.
+    val target = if (frozen) admittedFrame else requested
     SideEffect {
-        if (!frozen && requested != admittedFrame) {
-            admittedDuration = duration
-            admittedFrame = requested
-        }
+        if (!frozen && admittedFrame != requested) admittedFrame = requested
     }
-    val target = admittedFrame
-    val fadeDuration = admittedDuration
     LaunchedEffect(target) {
+        val fadeDuration = duration
         if (layers.lastOrNull()?.let { it.frame == target && it.alpha.value == 1f } == true) return@LaunchedEffect
         // Cancelling a previous effect freezes its partial opacity. Keep that
         // composite intact underneath this new fade, even when reversing.
