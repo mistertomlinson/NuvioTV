@@ -5189,28 +5189,42 @@ private fun EnhancedModernHomeRowsListBoundary(
         snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
         val selected = xlScene.selection
         if (selected == null || selected.rowKey != activeRowKey) {
-            xlScene.prepareContinuousLanding(currentCarouselRows)
-            xlScene.finishContinuousNavigation()
+            // Focus can be a frame behind the logical target. Do not reveal
+            // metadata or restore geometry for that stale intermediate row.
             return@LaunchedEffect
         }
         val index = currentCarouselRows.indexOfFirst { it.key == selected.rowKey }
-        if (index !in 0 until verticalRowListState.layoutInfo.totalItemsCount) {
-            xlScene.prepareContinuousLanding(currentCarouselRows)
-            xlScene.finishContinuousNavigation()
-            return@LaunchedEffect
+        if (index !in 0 until verticalRowListState.layoutInfo.totalItemsCount) return@LaunchedEffect
+
+        // Logical focus at a boundary is not physical alignment. Require the
+        // measured target anchor both before and after restoring its spacers.
+        suspend fun awaitAligned(phase: String) {
+            if (!xlLandingAligned(compactDistanceTo(selected))) {
+                continuousScroll.retarget(selected, xlScene.inheritedVerticalVelocity())
+                repeat(2) { withFrameNanos { } }
+                snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
+            }
+            if (!xlLandingAligned(compactDistanceTo(selected))) {
+                // Recovery only when the continuous driver cannot consume
+                // the last pixels (e.g. a changed list boundary). No normal
+                // rapid landing takes this direct alignment path.
+                val measured = verticalRowListState.layoutInfo
+                val offset = measured.beforeContentPadding - xlScene.posterAnchorPx(selected) +
+                    xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
+                XlNavigationTrace.event("LAND_ALIGN_RETRY") {
+                    "phase=$phase row=${selected.rowKey} remaining=${compactDistanceTo(selected)}"
+                }
+                verticalRowListState.requestScrollToItem(index, offset)
+                repeat(2) { withFrameNanos { } }
+            }
+            snapshotFlow { !verticalRowListState.isScrollInProgress &&
+                xlLandingAligned(compactDistanceTo(selected)) }.first { it }
+            XlNavigationTrace.event("LAND_ALIGNED") {
+                "phase=$phase row=${selected.rowKey} remaining=${compactDistanceTo(selected)}"
+            }
         }
-        // Align once while compact. Restoring the preceding spacers must not
-        // change the selected row's painted position or start a second spring.
+        awaitAligned("compact")
         val info = verticalRowListState.layoutInfo
-        val offset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
-            xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
-        val current = info.visibleItemsInfo.firstOrNull { it.index == index }
-        if (current == null || kotlin.math.abs(current.offset + offset) > 1) {
-            continuousScroll.retarget(selected, xlScene.inheritedVerticalVelocity())
-            // Wait for the driver's first frame before checking its mutex.
-            repeat(2) { withFrameNanos { } }
-            snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
-        }
         if (!xlScene.rapidLandingReady) {
         xlScene.clearContinuousLandingPaint()
         val plannedGaps = xlScene.continuousLandingGaps(currentCarouselRows, selected)
@@ -5238,7 +5252,9 @@ private fun EnhancedModernHomeRowsListBoundary(
                 0f, 1f, animationSpec = androidx.compose.animation.core.tween(180)
             ) { value, _ -> xlScene.continuousLandingProgress = value }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            xlScene.clearContinuousLandingPaint()
+            // A new press must start from the positions already painted.
+            // Only clear these offsets when navigation actually ends.
+            if (!xlScene.continuousVerticalNavigation) xlScene.clearContinuousLandingPaint()
             throw cancelled
         }
         }
@@ -5247,7 +5263,11 @@ private fun EnhancedModernHomeRowsListBoundary(
             xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
         verticalRowListState.requestScrollToItem(index, restoredOffset)
         repeat(2) { withFrameNanos { } }
-        xlScene.finishContinuousNavigation()
+        awaitAligned("restored")
+        if (xlScene.selection?.rowKey == selected.rowKey &&
+            !xlScene.verticalKeyHeld && xlLandingAligned(compactDistanceTo(selected))) {
+            xlScene.finishContinuousNavigation()
+        }
     }
 
     CompositionLocalProvider(
@@ -5543,6 +5563,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                     isDpad &&
                     !isUp
                 ) {
+                    if (currentXlSceneEnabled) currentXlScene.releaseDoubleUpBackdrop()
                     doubleUpLastReleaseMs.set(0L)
 
                     doubleUpLastReleaseStartedBelowTop
@@ -5569,6 +5590,7 @@ private fun EnhancedModernHomeRowsListBoundary(
                     if (
                         native.repeatCount > 0
                     ) {
+                        if (currentXlSceneEnabled) currentXlScene.releaseDoubleUpBackdrop()
                         doubleUpLastReleaseMs.set(0L)
 
                         doubleUpLastReleaseStartedBelowTop
@@ -5615,6 +5637,9 @@ private fun EnhancedModernHomeRowsListBoundary(
 
                         doubleUpCurrentPressStartedBelowTop
                             .set(startedBelowTop)
+
+                        if (currentXlSceneEnabled && !isDoubleUp && startedBelowTop)
+                            currentXlScene.armDoubleUpBackdrop()
 
                         if (
                             isDoubleUp &&
@@ -6057,7 +6082,15 @@ private fun EnhancedModernHomeRowsListBoundary(
 
                         doubleUpLastReleaseStartedBelowTop
                             .set(true)
+                        if (currentXlSceneEnabled) {
+                            val epoch = currentXlScene.doubleUpBackdropArmEpoch()
+                            doubleUpScope.launch {
+                                delay(HOME_DOUBLE_UP_GAP_MS + 1L)
+                                currentXlScene.releaseDoubleUpBackdrop(epoch)
+                            }
+                        }
                     } else {
+                        if (currentXlSceneEnabled) currentXlScene.releaseDoubleUpBackdrop()
                         doubleUpLastReleaseMs.set(0L)
 
                         doubleUpLastReleaseStartedBelowTop
@@ -6104,13 +6137,16 @@ private fun EnhancedModernHomeRowsListBoundary(
                             continuousScroll.retarget(selected, inherited)
                             return@onPreviewKeyEvent true
                         } else if (destinationIndex >= currentCarouselRows.size || destinationIndex < 0) {
-                            // At a list edge, keep the compact session rather
-                            // than letting the focus finder reverse direction.
-                            if (!(isUp && destinationIndex < 0 && aggregatePlatformsEnabled))
-                                return@onPreviewKeyEvent true
-                            continuousScroll.stop()
-                            currentXlScene.prepareContinuousLanding(currentCarouselRows)
-                            currentXlScene.finishContinuousNavigation()
+                            // A redundant tap at an edge does not end travel.
+                            // Keep the same destination until it is physically
+                            // aligned. A later isolated Up can focus platforms.
+                            currentXlScene.selection?.let { selectedAtEdge ->
+                                XlNavigationTrace.event("EDGE_RETARGET") {
+                                    "row=${selectedAtEdge.rowKey} remaining=${compactDistanceTo(selectedAtEdge)} sign=$sign"
+                                }
+                                continuousScroll.retarget(selectedAtEdge, inherited)
+                            }
+                            return@onPreviewKeyEvent true
                         }
                     }
                     if (!isUp && native.repeatCount == 0 && !currentXlScene.continuousVerticalNavigation) {
