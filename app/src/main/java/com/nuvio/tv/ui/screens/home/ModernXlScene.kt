@@ -34,7 +34,7 @@ internal const val XL_BACKDROP_REVEAL_MS = 180
 internal const val XL_MIXED_BACKDROP_FADE_MS = 300
 internal const val XL_MIXED_BACKDROP_WARM_FRAMES = 2
 internal const val XL_CONTINUOUS_NAV_INTERVAL_MS = 400L
-internal const val XL_EXIT_SEPARATION_DELAY_MS = 250L
+internal const val XL_EXIT_SEPARATION_DELAY_MS = 300L
 internal const val XL_CONTENT_LIFT_DP = 8f
 internal val LocalHomeSceneInspection = staticCompositionLocalOf<((XlSceneState, LazyListState) -> Unit)?> { null }
 
