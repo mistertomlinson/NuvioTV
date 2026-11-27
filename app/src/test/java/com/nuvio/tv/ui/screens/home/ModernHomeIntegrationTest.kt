@@ -556,4 +556,36 @@ class ModernHomeIntegrationTest {
         assertEquals(first, scene.selection?.rowKey)
     }
 
+    @Test fun isolatedOrdinaryRowLandingAnimatesPredecessorClearanceBeforeMetadata() {
+        val rows = scenarioRows(6)
+        val keys = rows.map(::catalogRowKey)
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true, enrichmentReadyRowKeys = keys.toSet(),
+            xlCatalogKeys = setOf(keys.last()), fullWidthIconRowEnabled = true,
+            aggregateStreamingPlatformsEnabled = true, showAllCatalogsOnHome = true,
+            doubleUpPlatformShortcutEnabled = false, posterLabelsEnabled = false))
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        advance(1600)
+        assertEquals(keys[1], scene.selection?.rowKey)
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        assertTrue("An isolated ordinary move uses the clearance owner", scene.continuousVerticalNavigation)
+        var sawClearance = false
+        var sawReveal = false
+        repeat(120) { frame ->
+            advance(16)
+            if (scene.continuousVerticalNavigation && scene.continuousLandingOffsetPx(keys[1]) < -1f)
+                sawClearance = true
+            if (scene.rapidLandingMetadata) {
+                assertTrue("Metadata must wait for the release debounce", frame >= 23)
+                assertTrue("Predecessor must slide away before metadata appears", sawClearance)
+                sawReveal = true
+            }
+        }
+        assertTrue(sawClearance)
+        assertTrue(sawReveal)
+        assertEquals(keys[2], scene.selection?.rowKey)
+        assertFalse(scene.continuousVerticalNavigation)
+        assertFalse(list.isScrollInProgress)
+    }
+
 }
