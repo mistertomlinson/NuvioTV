@@ -383,6 +383,18 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             focus(target, layout, rows = rows, focusConfirmed = confirmed)
     }
 
+    // One release epoch for every physical vertical press. Ordinary
+    // spring landings and compact landings share the same debounce policy.
+    var verticalMetadataEpoch by mutableIntStateOf(0)
+        private set
+    var verticalMetadataAlpha by mutableFloatStateOf(1f)
+        private set
+
+    fun advanceVerticalMetadataAlpha(epoch: Int, alpha: Float) {
+        if (epoch == verticalMetadataEpoch && !verticalKeyHeld)
+            verticalMetadataAlpha = alpha.coerceIn(0f, 1f)
+    }
+
     fun noteVerticalRelease() { verticalKeyHeld = false }
 
     fun startHeldVerticalScroll() {
@@ -437,6 +449,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
         verticalKeyHeld = true
         verticalInputIntent = true
+        verticalMetadataEpoch++
+        verticalMetadataAlpha = 0f
         if (sign < 0 || repeated) captureBurstOutgoingMask(null)
         val close = lastVerticalPressTime != Long.MIN_VALUE &&
             eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS
@@ -464,6 +478,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             rapidLandingMetadata = false
             rapidLandingMetadataAlpha = 0f
             rapidLandingReady = false
+            metadataEpoch++
             return
         }
         androidx.compose.runtime.snapshots.Snapshot.withMutableSnapshot {
@@ -580,7 +595,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
      */
     fun advanceRapidLanding(target: XlSceneSelection, remaining: Float, dt: Float,
         plan: (XlSceneSelection) -> XlLandingPaintPlan): Boolean {
-        if (!continuousVerticalNavigation || !continuousGapsCollapsed || continuousHeldScroll) return false
+        if (!continuousVerticalNavigation || !continuousGapsCollapsed ||
+            (continuousHeldScroll && verticalKeyHeld)) return false
         val selected = selection
         if (selected == null || selected.rowKey != target.rowKey || selected.itemKey != target.itemKey) return false
         if (rapidLandingEpoch != continuousInputEpoch || rapidLandingRowKey != target.rowKey ||
@@ -684,6 +700,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             earlyContinuousBackdrop = null
             if (!doubleUpBackdropArmed) navigationFrozenBackdrop = null
             exitMetadataAlpha = 1f
+            verticalMetadataAlpha = 1f
             metadataEpoch++
             stationaryMetadata = selection?.takeUnless { it.isXl }?.let {
                 XlMetadataSnapshot(it.rowKey, it.preview)
@@ -1593,6 +1610,43 @@ internal fun rememberXlBackdropPresentation(
         val boundaryId = boundary?.id
         val dark = darkTarget
         val exitingXl = !dark && (state.blurred || state.directExit || boundary?.from?.isXl == true)
+        // The renderer owns the admitted image fade independently of the
+        // selection gate. A resumed effect for that same image may finish
+        // its tint/row handoff, but must not publish a new token or duration.
+        val matchingCommittedImage = state.token > 0 && state.owned &&
+            state.blurred == dark && !artworkKey.isNullOrBlank() &&
+            firstNonBlank(state.preview?.backdrop, state.preview?.imageUrl) == artworkKey
+        if (enabled && matchingCommittedImage &&
+            (state.directEntry || state.directExit || state.continuousReveal)) {
+            scene.consumeContinuousBackdropReveal(target)
+            if (dark) scene.consumeFastReturnXlBackdropReveal(target.rowKey)
+            val fade = state.imageFadeMillis
+            val token = state.token
+            XlNavigationTrace.event("BACKDROP_RESUME_OWNER") {
+                "token=$token row=${target.rowKey} fade=$fade"
+            }
+            kotlinx.coroutines.coroutineScope {
+                launch { state.dim.animateTo(if (dark) XL_BACKDROP_DIM_ALPHA else 0f,
+                    tween(fade, easing = LinearEasing)) }
+                launch { state.gradientAlpha.animateTo(if (dark) 0f else 1f,
+                    tween(fade, easing = LinearEasing)) }
+            }
+            withTimeoutOrNull(2_000L) { snapshotFlow { state.transitionFinished() }.first { it } }
+            if (boundaryId != null) {
+                snapshotFlow { scene.transition?.let { it.id != boundaryId || it.rowsSettled } ?: true }.first { it }
+                if (boundary?.downwardExit == true) snapshotFlow {
+                    scene.transition?.id != boundaryId || scene.exitMetadataAlpha >= 1f
+                }.first { it }
+                scene.complete(boundaryId)
+            }
+            if (state.token == token) {
+                state.directEntry = false
+                state.directExit = false
+                state.continuousReveal = false
+                if (!dark && latestResolved == target.preview) state.owned = false
+            }
+            return@LaunchedEffect
+        }
         state.directEntry = false
         state.continuousReveal = false
         if (!enabled) {
@@ -1922,7 +1976,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                     enabled && move != null && !move.deferOrdinaryReveal -> incomingOffset ?: 0f
                     else -> 0f
                 }
-                alpha = if (enabled && scene.continuousVerticalNavigation) {
+                val baseAlpha = if (enabled && scene.continuousVerticalNavigation) {
                     // Read the live owner in the layer, not the captured slot.
                     // A stale composition from an interrupted landing cannot
                     // borrow the next row's reveal alpha.
@@ -1933,6 +1987,14 @@ internal fun ModernXlAwareHeroTitleBlock(
                 else if (enabled && move?.deferOrdinaryReveal == true && !outgoing) {
                     if (move.rowsSettled) 1f else 0f
                 } else if (outgoing) move?.initialMetadataAlpha ?: 0f else if (incomingOffset == null) 0f else 1f
+                // Outgoing metadata travels with its old row. The incoming
+                // block cannot appear until the latest vertical release has
+                // been accepted; a stale slot must not inherit its alpha.
+                alpha = if (enabled && !scene.continuousVerticalNavigation &&
+                    fast == null && !outgoing) {
+                    if (scene.selection?.rowKey != active.rowKey || epoch != scene.metadataEpoch)
+                        0f else baseAlpha * scene.verticalMetadataAlpha
+                } else baseAlpha
                 paintedLayer[0] = translationY
                 paintedLayer[1] = alpha
                 val edge = if (!outgoing && move?.downwardExit == true) scene.outgoingXlBottom(list.layoutInfo) else null
