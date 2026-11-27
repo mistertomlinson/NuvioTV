@@ -5227,10 +5227,15 @@ private fun EnhancedModernHomeRowsListBoundary(
         val epoch = xlScene.verticalMetadataEpoch
         // Finish the existing metadata translation without restarting its
         // content or changing the ordinary scrolling animation.
-        if (xlScene.ordinaryVerticalHoldOffset != 0f) {
-            androidx.compose.animation.core.animate(xlScene.ordinaryVerticalHoldOffset, 0f,
-                animationSpec = androidx.compose.animation.core.tween(180)) { value, _ ->
-                xlScene.advanceOrdinaryHoldOffset(epoch, value)
+        val initialOffset = xlScene.ordinaryVerticalHoldOffset
+        val initialAlpha = xlScene.ordinaryVerticalHoldAlpha
+        if (initialOffset != 0f || initialAlpha < 1f) {
+            // Resume from the exact painted frame, not alpha zero or a
+            // fully opaque snap. Retapping retains the latest progress.
+            androidx.compose.animation.core.animate(0f, 1f,
+                animationSpec = androidx.compose.animation.core.tween(180)) { fraction, _ ->
+                xlScene.advanceOrdinaryHoldOffset(epoch, initialOffset * (1f - fraction))
+                xlScene.advanceOrdinaryHoldAlpha(epoch, initialAlpha + (1f - initialAlpha) * fraction)
             }
             delay((XL_CONTINUOUS_NAV_INTERVAL_MS - 180L).coerceAtLeast(0L))
         } else delay(XL_CONTINUOUS_NAV_INTERVAL_MS)
@@ -6181,19 +6186,19 @@ private fun EnhancedModernHomeRowsListBoundary(
                     val sourceRow = currentCarouselRows.getOrNull(sourceIndex)
                     val nextRow = currentCarouselRows.getOrNull(sourceIndex + if (isUp) -1 else 1)
                     // An ordinary continuation is not an XL burst, even if
-                    // the incoming ordinary hero is still sliding into place.
+                    // its incoming metadata is still sliding or fading in.
                     val ordinaryPair = native.repeatCount == 0 &&
                         sourceRow?.isXl == false && nextRow?.isXl == false &&
                         !currentXlScene.continuousVerticalNavigation
-                    val retainedUpwardExit = ordinaryPair &&
-                        currentXlScene.retainUpwardExitForOrdinaryNavigation(verticalRowListState.layoutInfo)
+                    val retainedXlExit = ordinaryPair &&
+                        currentXlScene.retainXlExitForOrdinaryNavigation(verticalRowListState.layoutInfo)
                     // Ordinary rows retain the fixed hero band and edge fade.
                     // Only a mixed/XL navigation session collapses its gaps.
                     val ordinaryOnly = native.repeatCount == 0 &&
                         sourceRow?.isXl == false && nextRow?.isXl == false &&
                         !currentXlScene.continuousVerticalNavigation &&
                         !currentXlScene.deferredDownwardExit &&
-                        (currentXlScene.transition == null || retainedUpwardExit)
+                        (currentXlScene.transition == null || retainedXlExit)
                     val collapsing = !ordinaryOnly &&
                         currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)
                     val anchor = if (collapsing) compactScrollAnchor() else null
