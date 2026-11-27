@@ -464,6 +464,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private val rapidPresentation = XlNavigationPresentation()
     val retainedBurstPresentation: XlRetainedPresentation?
         get() = rapidPresentation.outgoing
+    val retainedBurstIdentity: XlRetainedPresentation?
+        get() = rapidPresentation.identity
 
     fun captureBurstOutgoingMask(mask: Pair<Float, Float>?) {
         if (mask == null) {
@@ -2059,7 +2061,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 xlSceneOutgoingMetadataVisible(scene, list.layoutInfo, ordinaryTopPx, viewportHeight, density)
         }
     }
-    val retained = scene.retainedBurstPresentation.takeIf { enabled && scene.navigationPresentationFrozen }
+    val retained = scene.retainedBurstIdentity.takeIf { enabled && scene.navigationPresentationFrozen }
     val snapshot = when {
         retained != null -> retained.metadata
         enabled && scene.navigationPresentationFrozen -> if (scene.rapidLandingMetadata)
