@@ -5091,7 +5091,7 @@ private fun EnhancedModernHomeRowsListBoundary(
 
     // Capture the painted body position before collapsing historical gaps.
     // Keep that exact row in place across the one structural remeasure.
-    fun compactScrollAnchor(): Pair<Int, Int>? {
+    fun compactScrollAnchor(): Triple<Int, Int, Map<String, Float>>? {
         val info = verticalRowListState.layoutInfo
         if (info.totalItemsCount != currentCarouselRows.size) return null
         val scene = currentXlScene
@@ -5099,13 +5099,36 @@ private fun EnhancedModernHomeRowsListBoundary(
             val row = currentCarouselRows.getOrNull(item.index) ?: return@mapNotNull null
             val top = item.offset + info.beforeContentPadding + scene.gapPx(row.key) +
                 scene.landscapePreXlDrawOffsetPx(item.index, currentCarouselRows) +
-                scene.fixedFollowerOffsetForIndex(item.index) + scene.previewReturnOffsetForIndex(item.index)
+                scene.fixedFollowerOffsetForIndex(item.index) + scene.previewReturnOffsetForIndex(item.index) +
+                scene.continuousLandingOffsetPx(row.key)
             val height = item.size - scene.gapPx(row.key)
             if (top + height <= 0f || top >= info.viewportSize.height) null
             else item.index to top
         }
         val anchor = visible.minByOrNull { kotlin.math.abs(it.second) } ?: return null
-        return anchor.first to (info.beforeContentPadding - anchor.second).roundToInt()
+        val anchorItem = info.visibleItemsInfo.firstOrNull { it.index == anchor.first } ?: return null
+        val offsets = visible.associate { (index, paintedTop) ->
+            val item = info.visibleItemsInfo.first { it.index == index }
+            val removed = if (index >= anchor.first)
+                (anchor.first until index).sumOf { scene.gapPx(currentCarouselRows[it].key) }
+            else -(index until anchor.first).sumOf { scene.gapPx(currentCarouselRows[it].key) }
+            val compactTop = anchor.second + item.offset - anchorItem.offset - removed
+            currentCarouselRows[index].key to (paintedTop - compactTop)
+        }.filterValues { kotlin.math.abs(it) > 0.5f }
+        return Triple(anchor.first, (info.beforeContentPadding - anchor.second).roundToInt(), offsets)
+    }
+
+    fun applyCompactHandoff(anchor: Triple<Int, Int, Map<String, Float>>) {
+        currentXlScene.seedCompactHandoff(anchor.third)
+        verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
+    }
+
+    fun captureRapidPresentation() {
+        val scene = currentXlScene
+        val top = scene.ordinaryTop.value * scene.density
+        val mask = xlSceneMetadataMask(scene, verticalRowListState.layoutInfo, true, top, scene.density)
+            ?: if (scene.rapidLandingMetadata && scene.rapidLandingMetadataAlpha > 0f) 0f to top else null
+        if (mask != null) scene.captureBurstOutgoingMask(mask)
     }
 
     fun lastAnchorRemaining(): Float {
@@ -5148,7 +5171,8 @@ private fun EnhancedModernHomeRowsListBoundary(
         val previousBottom = scene.posterAnchorPx(selected) - scene.headerPx(selected.rowKey) -
             with(doubleUpDensity) { 24.dp.toPx() }
         return xlLandingPaintPlan(rows.map { it.key }, physicalGaps, selected.rowIndex,
-            compressed, !selected.isXl, previousBottom, with(doubleUpDensity) { 48.dp.toPx() })
+            compressed, !selected.isXl && rows.getOrNull(selected.rowIndex - 1)?.isXl == true,
+            previousBottom, with(doubleUpDensity) { 48.dp.toPx() })
     }
     val liveLandingPlan by rememberUpdatedState<(XlSceneSelection) -> XlLandingPaintPlan>({ rapidLandingPlan(it) })
     val liveDistance by rememberUpdatedState<(XlSceneSelection) -> Float?>({ compactDistanceTo(it) })
@@ -5177,7 +5201,7 @@ private fun EnhancedModernHomeRowsListBoundary(
             val anchor = if (xlScene.verticalKeyHeld) compactScrollAnchor() else null
             xlScene.resolveDeferredDownwardExit(verticalRowListState.layoutInfo, currentCarouselRows)
             if (xlScene.continuousGapsCollapsed) {
-                if (anchor != null) verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
+                if (anchor != null) applyCompactHandoff(anchor)
                 // A physical Down held beyond the separation window continues
                 // the already-started travel while Android waits to emit repeats.
                 xlScene.selection?.let { continuousScroll.retarget(it, inherited) }
@@ -5334,8 +5358,9 @@ private fun EnhancedModernHomeRowsListBoundary(
                     if (scrolling) {
                         if (currentXlSceneEnabled) {
                             val anchor = if (!currentXlScene.continuousGapsCollapsed) compactScrollAnchor() else null
+                            captureRapidPresentation()
                             currentXlScene.startHeldVerticalScroll()
-                            if (anchor != null) verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
+                            if (anchor != null) applyCompactHandoff(anchor)
                         } else {
                             xlScene.clearBoundaryFocusIntent()
                             xlScene.cancelVerticalMotion()
@@ -6152,15 +6177,12 @@ private fun EnhancedModernHomeRowsListBoundary(
                     val collapsing = !ordinaryOnly &&
                         currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)
                     val anchor = if (collapsing) compactScrollAnchor() else null
-                    if (collapsing && !isUp && native.repeatCount == 0) {
-                        currentXlScene.captureBurstOutgoingMask(xlSceneMetadataMask(currentXlScene,
-                            verticalRowListState.layoutInfo, true, currentXlScene.ordinaryTop.value * currentXlScene.density,
-                            currentXlScene.density))
-                    }
+                    if (!ordinaryOnly && (collapsing || currentXlScene.continuousVerticalNavigation))
+                        captureRapidPresentation()
                     currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime,
                         native.repeatCount > 0, ordinaryOnly = ordinaryOnly)
                     if (anchor != null && currentXlScene.continuousGapsCollapsed)
-                        verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
+                        applyCompactHandoff(anchor)
                     if (native.repeatCount == 0 && currentXlScene.continuousVerticalNavigation) {
                         // In a burst, row ordering (not the temporarily painted
                         // geometry of focus nodes) defines the next destination.
