@@ -722,4 +722,34 @@ class XlSceneStateTest {
         assertNull(scene.retainedBurstOutgoingMask())
     }
 
+    @Test fun `a logical boundary and an unmeasured target cannot count as a completed landing`() {
+        assertFalse(xlLandingAligned(null))
+        assertFalse(xlLandingAligned(Float.NEGATIVE_INFINITY))
+        assertFalse(xlLandingAligned(Float.POSITIVE_INFINITY))
+        assertFalse(xlLandingAligned(Float.NaN))
+        assertFalse(xlLandingAligned(-213f))
+        assertFalse(xlLandingAligned(213f))
+        assertFalse(xlLandingAligned(1.01f))
+        assertTrue(xlLandingAligned(-1f))
+        assertTrue(xlLandingAligned(0f))
+        assertTrue(xlLandingAligned(1f))
+    }
+
+    @Test fun `an obsolete first Up timeout cannot release a newer backdrop hold`() {
+        val original = selection("XL", 3, true)
+        val scene = XlSceneState(original)
+        scene.recordBackdrop(original.preview)
+        val first = scene.armDoubleUpBackdrop()
+        assertTrue(scene.backdropPresentationFrozen)
+        scene.focus(selection("C", 2), layout())
+        scene.recordBackdrop(scene.selection?.preview)
+        assertEquals(original.preview, scene.navigationFrozenBackdrop)
+        val second = scene.armDoubleUpBackdrop()
+        scene.releaseDoubleUpBackdrop(first)
+        assertTrue(scene.backdropPresentationFrozen)
+        scene.releaseDoubleUpBackdrop(second)
+        assertFalse(scene.backdropPresentationFrozen)
+        assertNull(scene.navigationFrozenBackdrop)
+    }
+
 }
