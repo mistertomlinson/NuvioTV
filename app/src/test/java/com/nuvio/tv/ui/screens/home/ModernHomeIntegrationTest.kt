@@ -646,4 +646,47 @@ class ModernHomeIntegrationTest {
                 hasTestTag("ordinary-metadata-${keys[2]}"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
     }
 
+    @Test fun interruptedDownwardMetadataFadeContinuesAcrossOrdinaryRows() {
+        val rows = scenarioRows(5)
+        val keys = rows.map(::catalogRowKey)
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true, enrichmentReadyRowKeys = keys.toSet(),
+            xlCatalogKeys = setOf(keys[0]), fullWidthIconRowEnabled = true,
+            aggregateStreamingPlatformsEnabled = true, showAllCatalogsOnHome = true,
+            doubleUpPlatformShortcutEnabled = false, posterLabelsEnabled = false))
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        var partial = 0f
+        for (frame in 0 until 120) {
+            advance(16)
+            val alpha = scene.exitMetadataAlpha * scene.verticalMetadataGateFor(keys[1])
+            if (scene.transition?.downwardExit == true && alpha > 0.05f && alpha < 0.95f) {
+                partial = alpha
+                break
+            }
+        }
+        assertTrue("Exercise an actual partial downward metadata reveal", partial > 0f)
+        assertEquals(keys[1], scene.selection?.rowKey)
+        val first = checkNotNull(scene.selection).preview
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0)
+        assertEquals(keys[2], scene.selection?.rowKey)
+        assertFalse("Visible ordinary metadata must not enter the burst suppression path",
+            scene.continuousVerticalNavigation)
+        assertEquals(first.title, scene.ordinaryVerticalHold?.title)
+        var previousAlpha = scene.ordinaryVerticalHoldAlpha
+        assertTrue("The retained block begins with nonzero opacity", previousAlpha > 0f)
+        repeat(20) {
+            advance(16)
+            assertEquals(first.title, scene.ordinaryVerticalHold?.title)
+            assertTrue("The interrupted reveal must never fade backwards",
+                scene.ordinaryVerticalHoldAlpha >= previousAlpha)
+            previousAlpha = scene.ordinaryVerticalHoldAlpha
+            assertNotNull(xlSceneMetadataMask(scene, list.layoutInfo, true,
+                scene.ordinaryTop.value * scene.density, scene.density))
+        }
+        advance(1800)
+        assertEquals(keys[2], scene.selection?.rowKey)
+        assertNull(scene.ordinaryVerticalHold)
+        assertFalse(list.isScrollInProgress)
+    }
+
 }
