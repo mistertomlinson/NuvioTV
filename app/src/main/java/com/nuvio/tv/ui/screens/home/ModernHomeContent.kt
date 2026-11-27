@@ -2831,7 +2831,9 @@ fun ModernHomeContent(
         }
         val xlBackdrop = rememberXlBackdropPresentation(xlScene, hasXlRows, resolvedHero, isCarouselFocused,
             pageStartsWithXl = carouselRows.firstOrNull()?.isXl == true)
-        val visualHero = if (hasXlRows && xlScene.backdropPresentationFrozen) (if (xlBackdrop.owned) xlBackdrop.preview else xlScene.navigationFrozenBackdrop) ?: xlBackdrop.preview ?: resolvedHero
+        val visualHero = if (hasXlRows && xlScene.ordinaryVerticalHold != null &&
+            xlScene.selection?.isXl == false && xlScene.transition == null) xlScene.ordinaryVerticalHold
+            else if (hasXlRows && xlScene.backdropPresentationFrozen) (if (xlBackdrop.owned) xlBackdrop.preview else xlScene.navigationFrozenBackdrop) ?: xlBackdrop.preview ?: resolvedHero
             else if (xlBackdrop.owned) xlBackdrop.preview
             else xlScene.transition?.outgoingBackdrop ?: resolvedHero
         androidx.compose.runtime.SideEffect { xlScene.recordBackdrop(visualHero) }
@@ -5174,6 +5176,19 @@ private fun EnhancedModernHomeRowsListBoundary(
         }
     }
 
+    // Keep the same ordinary metadata/backdrop throughout the physical
+    // slide, then release it once, after the last tap and scroll settlement.
+    LaunchedEffect(xlScene, xlSceneEnabled, xlScene.verticalMetadataEpoch,
+        xlScene.verticalKeyHeld, xlScene.ordinaryVerticalHold != null) {
+        if (!xlSceneEnabled || xlScene.ordinaryVerticalHold == null ||
+            xlScene.verticalKeyHeld) return@LaunchedEffect
+        val epoch = xlScene.verticalMetadataEpoch
+        delay(XL_CONTINUOUS_NAV_INTERVAL_MS)
+        repeat(2) { withFrameNanos { } }
+        snapshotFlow { !verticalRowListState.isScrollInProgress }.first { it }
+        xlScene.releaseOrdinaryVerticalHero(epoch)
+    }
+
     // Non-burst XL boundary motion keeps its existing spring and immediate
     // movement. Its incoming metadata uses the same 400ms release policy
     // as the compact scroll owner; a later physical key invalidates it.
@@ -6113,23 +6128,22 @@ private fun EnhancedModernHomeRowsListBoundary(
                         ?: currentCarouselRows.indexOfFirst { it.key == focusHolder.activeRowKey }
                     val sourceRow = currentCarouselRows.getOrNull(sourceIndex)
                     val nextRow = currentCarouselRows.getOrNull(sourceIndex + if (isUp) -1 else 1)
-                    // Ordinary catalog-to-catalog moves also need the animated
-                    // predecessor clearance. Do not route CW or isolated XL
-                    // boundary springs through a new motion implementation.
-                    val ordinaryClearanceMove = native.repeatCount == 0 &&
+                    // Ordinary rows retain the fixed hero band and edge fade.
+                    // Only a mixed/XL navigation session collapses its gaps.
+                    val ordinaryOnly = native.repeatCount == 0 &&
                         sourceRow?.isXl == false && nextRow?.isXl == false &&
-                        sourceRow.key != "continue_watching" && nextRow.key != "continue_watching"
-                    val collapsing = currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0) ||
-                        (ordinaryClearanceMove && !currentXlScene.continuousGapsCollapsed)
+                        !currentXlScene.continuousVerticalNavigation &&
+                        !currentXlScene.deferredDownwardExit && currentXlScene.transition == null
+                    val collapsing = !ordinaryOnly &&
+                        currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)
                     val anchor = if (collapsing) compactScrollAnchor() else null
                     if (collapsing && !isUp && native.repeatCount == 0) {
                         currentXlScene.captureBurstOutgoingMask(xlSceneMetadataMask(currentXlScene,
                             verticalRowListState.layoutInfo, true, currentXlScene.ordinaryTop.value * currentXlScene.density,
                             currentXlScene.density))
                     }
-                    currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime, native.repeatCount > 0)
-                    if (ordinaryClearanceMove && !currentXlScene.continuousVerticalNavigation)
-                        currentXlScene.beginContinuousNavigation()
+                    currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime,
+                        native.repeatCount > 0, ordinaryOnly = ordinaryOnly)
                     if (anchor != null && currentXlScene.continuousGapsCollapsed)
                         verticalRowListState.requestScrollToItem(anchor.first, anchor.second)
                     if (native.repeatCount == 0 && currentXlScene.continuousVerticalNavigation) {
