@@ -243,4 +243,12 @@ class XlBackdropDissolveTest {
         assertEquals(android.graphics.Color.BLUE, pixel())
     }
 
+    @Test fun internalDissolveGradientCannotBeStackedWithTheExternalGradient() {
+        for (alpha in listOf(0f, 0.25f, 0.5f, 0.75f, 1f)) {
+            assertEquals(0f, xlExternalBackdropGradientAlpha(alpha, true, false), 0f)
+            assertEquals(alpha, xlExternalBackdropGradientAlpha(alpha, false, false), 0f)
+            assertEquals(alpha, xlExternalBackdropGradientAlpha(alpha, true, true), 0f)
+        }
+    }
+
 }
