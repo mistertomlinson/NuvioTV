@@ -608,4 +608,42 @@ class ModernHomeIntegrationTest {
         }
     }
 
+    @Test fun interruptedUpFromXlKeepsOrdinaryMetadataThenClearsItOnTheNextXl() {
+        val rows = scenarioRows(5)
+        val keys = rows.map(::catalogRowKey)
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true, enrichmentReadyRowKeys = keys.toSet(),
+            xlCatalogKeys = setOf(keys[0], keys[3]), fullWidthIconRowEnabled = true,
+            aggregateStreamingPlatformsEnabled = true, showAllCatalogsOnHome = true,
+            doubleUpPlatformShortcutEnabled = false, posterLabelsEnabled = false))
+        repeat(3) { press(KeyEvent.KEYCODE_DPAD_DOWN); advance(1800) }
+        assertEquals(keys[3], scene.selection?.rowKey)
+        val start = SystemClock.uptimeMillis()
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start)
+        advance(160)
+        assertEquals(keys[2], scene.selection?.rowKey)
+        assertTrue("Exercise the unfinished upward exit", scene.transition?.upwardExit == true)
+        val first = checkNotNull(scene.selection).preview
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start + 180)
+        advance(64)
+        assertEquals(keys[1], scene.selection?.rowKey)
+        assertFalse("Ordinary continuation cannot suppress the hero as an XL burst", scene.continuousVerticalNavigation)
+        assertEquals(first.title, scene.ordinaryVerticalHold?.title)
+        assertEquals(1f, scene.verticalMetadataAlpha, 0f)
+        assertNotNull(xlSceneMetadataMask(scene, list.layoutInfo, true,
+            scene.ordinaryTop.value * scene.density, scene.density))
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start + 280)
+        assertEquals(keys[0], scene.selection?.rowKey)
+        advance(2200)
+        assertFalse(scene.continuousVerticalNavigation)
+        assertFalse(list.isScrollInProgress)
+        assertNull(scene.ordinaryVerticalHold)
+        assertNull(scene.retainedBurstPresentation)
+        assertNull("XL must not retain an ordinary poster clip", xlSceneMetadataMask(scene,
+            list.layoutInfo, true, scene.ordinaryTop.value * scene.density, scene.density))
+        assertTrue("No ordinary metadata node may survive the final XL landing",
+            compose.onAllNodes(hasTestTag("ordinary-metadata-${keys[1]}") or
+                hasTestTag("ordinary-metadata-${keys[2]}"), useUnmergedTree = true).fetchSemanticsNodes().isEmpty())
+    }
+
 }
