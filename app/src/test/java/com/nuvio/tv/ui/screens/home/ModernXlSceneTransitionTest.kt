@@ -1629,6 +1629,16 @@ class ModernXlSceneTransitionTest {
         val original = backdrop.preview
         val token = backdrop.token
         val destination = checkNotNull(rows[0].sceneSelection(0, 0))
+        val intermediate = checkNotNull(rows[1].sceneSelection(0, 1))
+        compose.runOnIdle {
+            scene.armDoubleUpBackdrop()
+            scene.focus(intermediate, list.layoutInfo, rows = rows)
+            resolved.value = intermediate.preview
+        }
+        advance(64)
+        assertTrue(scene.backdropPresentationFrozen)
+        assertEquals("The first tap must not request the intermediate ordinary backdrop", token, backdrop.token)
+        assertEquals(original, backdrop.preview)
         compose.runOnIdle { scene.beginFastReturn(destination, list.layoutInfo, rows) }
         advance(64)
         assertTrue(scene.backdropPresentationFrozen)
