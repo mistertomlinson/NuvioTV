@@ -304,8 +304,29 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     // Only the final held-scroll XL destination can reveal before the
     // geometry settles. Metadata and poster focus suppression remain intact.
     private var earlyContinuousBackdrop by mutableStateOf<Pair<String, String>?>(null)
+    private var doubleUpBackdropArmed by mutableStateOf(false)
+    private var doubleUpBackdropEpoch = 0
+
+    // The first physical Up must not start an intermediate image request
+    // while a second Up could still turn this into a platform shortcut.
+    fun armDoubleUpBackdrop(): Int {
+        if (!backdropPresentationFrozen)
+            navigationFrozenBackdrop = paintedBackdrop ?: selection?.preview
+        doubleUpBackdropArmed = true
+        return ++doubleUpBackdropEpoch
+    }
+
+    fun doubleUpBackdropArmEpoch(): Int = doubleUpBackdropEpoch
+
+    fun releaseDoubleUpBackdrop(epoch: Int = doubleUpBackdropEpoch) {
+        if (epoch != doubleUpBackdropEpoch || !doubleUpBackdropArmed) return
+        doubleUpBackdropArmed = false
+        if (fastReturn == null && !navigationPresentationFrozen)
+            navigationFrozenBackdrop = null
+    }
+
     val backdropPresentationFrozen: Boolean
-        get() = fastReturn != null || (navigationPresentationFrozen && !(continuousHeldScroll && !verticalKeyHeld &&
+        get() = doubleUpBackdropArmed || fastReturn != null || (navigationPresentationFrozen && !(continuousHeldScroll && !verticalKeyHeld &&
             earlyContinuousBackdrop != null &&
             earlyContinuousBackdrop == selection?.let { it.rowKey to it.itemKey }))
 
@@ -461,6 +482,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             stationaryMetadata = null
             paintedMetadata = null
             paintedAlpha = 0f
+            // Invalidate an outgoing draw callback from the interrupted
+            // landing; it cannot claim the new navigation's metadata.
+            metadataEpoch++
             exitMetadataAlpha = 0f
             compactRowRested = false
             expandedXlRows.clear()
@@ -658,7 +682,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             val key = selection?.let { it.rowKey to it.itemKey }
             if (earlyContinuousBackdrop != key || key == null) pendingContinuousBackdrop = key
             earlyContinuousBackdrop = null
-            navigationFrozenBackdrop = null
+            if (!doubleUpBackdropArmed) navigationFrozenBackdrop = null
             exitMetadataAlpha = 1f
             metadataEpoch++
             stationaryMetadata = selection?.takeUnless { it.isXl }?.let {
@@ -901,9 +925,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun beginFastReturn(target: XlSceneSelection, layout: LazyListLayoutInfo, rows: List<HeroCarouselRow> = emptyList()) {
         pendingFastReturnXlBackdropKey = null
-        val retainedBackdrop = paintedBackdrop ?: selection?.preview
+        val retainedBackdrop = navigationFrozenBackdrop ?: paintedBackdrop ?: selection?.preview
         clearDeferredExit()
         finishContinuousNavigation()
+        releaseDoubleUpBackdrop()
         pendingContinuousBackdrop = null
         navigationFrozenBackdrop = retainedBackdrop
         captureBurstOutgoingMask(null)
