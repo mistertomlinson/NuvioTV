@@ -1626,7 +1626,9 @@ internal fun rememberXlBackdropPresentation(
             state.blurred == dark && !artworkKey.isNullOrBlank() &&
             firstNonBlank(state.preview?.backdrop, state.preview?.imageUrl) == artworkKey
         if (enabled && matchingCommittedImage &&
-            (state.directEntry || state.directExit || state.continuousReveal)) {
+            (state.directEntry || state.directExit || state.continuousReveal ||
+                (dark && (boundaryId != null || scene.hasContinuousBackdropReveal(target) ||
+                    scene.pendingFastReturnXlBackdropKey == target.rowKey)))) {
             scene.consumeContinuousBackdropReveal(target)
             if (dark) scene.consumeFastReturnXlBackdropReveal(target.rowKey)
             val fade = state.imageFadeMillis
