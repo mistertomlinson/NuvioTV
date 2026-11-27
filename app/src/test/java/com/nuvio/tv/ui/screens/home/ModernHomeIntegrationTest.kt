@@ -466,8 +466,16 @@ class ModernHomeIntegrationTest {
         assertTrue(scene.deferredDownwardExit)
         assertEquals(0f, scene.gapPx(follower) + scene.fixedFollowerTranslationPx, 1f)
         assertTrue(checkNotNull(scene.verticalMotion).coupledExit)
-        advance(256)
-        assertTrue(scene.continuousVerticalNavigation)
+        // At 256ms the new 300ms separation gate must still hold the
+        // shared leg. Allow its frame-dispatched timer to resolve before
+        // asserting the held session, without sending the first repeat.
+        advance(208)
+        assertTrue("The held key remains coupled before the 300ms gate", scene.deferredDownwardExit)
+        assertEquals(0f, scene.gapPx(follower) + scene.fixedFollowerTranslationPx, 1f)
+        advance(112)
+        assertTrue("A held key enters continuous navigation after the gate, before any repeat",
+            scene.continuousVerticalNavigation)
+        assertTrue(scene.continuousGapsCollapsed)
         assertEquals(0, scene.gapPx(follower))
         repeat(30) { i ->
             heldEvent(KeyEvent.ACTION_DOWN, i + 1, 400L + 64L * i)
