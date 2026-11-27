@@ -594,7 +594,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
      * expires; metadata itself stays hidden until that window is over.
      */
     fun advanceRapidLanding(target: XlSceneSelection, remaining: Float, dt: Float,
-        plan: (XlSceneSelection) -> XlLandingPaintPlan): Boolean {
+        plan: (XlSceneSelection) -> XlLandingPaintPlan,
+        releaseAlreadyDebounced: Boolean = false): Boolean {
         if (!continuousVerticalNavigation || !continuousGapsCollapsed ||
             (continuousHeldScroll && verticalKeyHeld)) return false
         val selected = selection
@@ -612,7 +613,11 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             retargetLandingPaint(emptyMap())
         }
         if (verticalKeyHeld) rapidLandingReleasedSeconds = 0f
-        else rapidLandingReleasedSeconds += dt
+        else {
+            rapidLandingReleasedSeconds += dt
+            if (releaseAlreadyDebounced)
+                rapidLandingReleasedSeconds = maxOf(rapidLandingReleasedSeconds, XL_CONTINUOUS_NAV_INTERVAL_MS / 1000f)
+        }
         if (!verticalKeyHeld && rapidLandingReleasedSeconds >= 0.07f &&
             kotlin.math.abs(remaining) <= 180f * density && rapidLandingPlan == null) {
             val prepared = plan(target)
