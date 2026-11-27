@@ -556,7 +556,7 @@ class ModernHomeIntegrationTest {
         assertEquals(first, scene.selection?.rowKey)
     }
 
-    @Test fun isolatedOrdinaryRowLandingAnimatesPredecessorClearanceBeforeMetadata() {
+    @Test fun ordinaryRowsKeepTheStationaryHeroAndMaskUntilSettledInBothDirections() {
         val rows = scenarioRows(6)
         val keys = rows.map(::catalogRowKey)
         mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
@@ -567,25 +567,30 @@ class ModernHomeIntegrationTest {
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         advance(1600)
         assertEquals(keys[1], scene.selection?.rowKey)
-        press(KeyEvent.KEYCODE_DPAD_DOWN)
-        assertTrue("An isolated ordinary move uses the clearance owner", scene.continuousVerticalNavigation)
-        var sawClearance = false
-        var sawReveal = false
-        repeat(120) { frame ->
-            advance(16)
-            if (scene.continuousVerticalNavigation && scene.continuousLandingOffsetPx(keys[1]) < -1f)
-                sawClearance = true
-            if (scene.rapidLandingMetadata) {
-                assertTrue("Metadata must wait for the release debounce", frame >= 23)
-                assertTrue("Predecessor must slide away before metadata appears", sawClearance)
-                sawReveal = true
+        for ((direction, destination) in listOf(KeyEvent.KEYCODE_DPAD_DOWN to keys[2],
+            KeyEvent.KEYCODE_DPAD_UP to keys[1])) {
+            val oldPreview = checkNotNull(scene.selection).preview
+            press(direction)
+            assertFalse("Ordinary movement must not start compact XL navigation", scene.continuousVerticalNavigation)
+            assertEquals(oldPreview.title, scene.ordinaryVerticalHold?.title)
+            var sawMotion = false
+            repeat(20) {
+                advance(16)
+                if (list.isScrollInProgress) sawMotion = true
+                assertFalse(scene.continuousVerticalNavigation)
+                assertTrue("The stationary mask must stay in place",
+                    xlSceneMetadataMask(scene, list.layoutInfo, true, scene.ordinaryTop.value * scene.density,
+                        scene.density) != null)
+                assertEquals("Old hero stays visible throughout travel", oldPreview.title, scene.ordinaryVerticalHold?.title)
+                assertEquals(0f, scene.continuousLandingOffsetPx(keys[1]), 0f)
+                assertEquals(0f, scene.continuousLandingOffsetPx(keys[2]), 0f)
             }
+            assertTrue("Exercise actual list motion", sawMotion)
+            advance(1200)
+            assertEquals(destination, scene.selection?.rowKey)
+            assertNull(scene.ordinaryVerticalHold)
+            assertFalse(list.isScrollInProgress)
         }
-        assertTrue(sawClearance)
-        assertTrue(sawReveal)
-        assertEquals(keys[2], scene.selection?.rowKey)
-        assertFalse(scene.continuousVerticalNavigation)
-        assertFalse(list.isScrollInProgress)
     }
 
 }
