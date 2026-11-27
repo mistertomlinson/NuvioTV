@@ -5194,7 +5194,14 @@ private fun EnhancedModernHomeRowsListBoundary(
             return@LaunchedEffect
         }
         val index = currentCarouselRows.indexOfFirst { it.key == selected.rowKey }
-        if (index !in 0 until verticalRowListState.layoutInfo.totalItemsCount) return@LaunchedEffect
+        if (index < 0) return@LaunchedEffect
+        val landingEpoch = xlScene.continuousInputEpoch
+        // A compact remeasure can temporarily expose the old item count.
+        snapshotFlow { verticalRowListState.layoutInfo.totalItemsCount > index }.first { it }
+        fun stillOwnsLanding(): Boolean = xlScene.continuousVerticalNavigation &&
+            xlScene.continuousInputEpoch == landingEpoch &&
+            xlScene.selection?.rowKey == selected.rowKey &&
+            xlScene.selection?.itemKey == selected.itemKey && !xlScene.verticalKeyHeld
 
         // Logical focus at a boundary is not physical alignment. Require the
         // measured target anchor both before and after restoring its spacers.
@@ -5224,6 +5231,7 @@ private fun EnhancedModernHomeRowsListBoundary(
             }
         }
         awaitAligned("compact")
+        if (!stillOwnsLanding()) return@LaunchedEffect
         val info = verticalRowListState.layoutInfo
         if (!xlScene.rapidLandingReady) {
         xlScene.clearContinuousLandingPaint()
@@ -5258,14 +5266,14 @@ private fun EnhancedModernHomeRowsListBoundary(
             throw cancelled
         }
         }
+        if (!stillOwnsLanding()) return@LaunchedEffect
         xlScene.prepareContinuousLanding(currentCarouselRows)
         val restoredOffset = info.beforeContentPadding - xlScene.posterAnchorPx(selected) +
             xlScene.headerPx(selected.rowKey) + xlScene.gapPx(selected.rowKey)
         verticalRowListState.requestScrollToItem(index, restoredOffset)
         repeat(2) { withFrameNanos { } }
         awaitAligned("restored")
-        if (xlScene.selection?.rowKey == selected.rowKey &&
-            !xlScene.verticalKeyHeld && xlLandingAligned(compactDistanceTo(selected))) {
+        if (stillOwnsLanding() && xlLandingAligned(compactDistanceTo(selected))) {
             xlScene.finishContinuousNavigation()
         }
     }
