@@ -785,4 +785,25 @@ class XlSceneStateTest {
         assertEquals(0f, scene.verticalMetadataGateFor("XL"), 0f)
     }
 
+    @Test fun `aligned upward XL exit becomes ordinary stationary metadata even before the backdrop finishes`() {
+        val scene = XlSceneState(selection("XL", 2, true))
+        val ordinary = selection("A", 1)
+        scene.noteVerticalPress(-1, 1000L, false)
+        scene.focus(ordinary, layout(), focusConfirmed = false)
+        scene.noteVerticalRelease()
+        assertTrue(checkNotNull(scene.transition).upwardExit)
+        assertEquals("Prepared upward metadata is not faded in", 1f, scene.verticalMetadataAlpha, 0f)
+        val anchor = scene.posterAnchorPx(ordinary) - scene.headerPx(ordinary.rowKey) - scene.gapPx(ordinary.rowKey)
+        val landed = positionedLayout(ordinary.rowKey to anchor)
+        assertFalse(scene.promoteAlignedUpwardExit(landed, scrolling = true))
+        assertTrue(scene.promoteAlignedUpwardExit(landed, scrolling = false))
+        assertNull(scene.transition)
+        scene.noteVerticalPress(-1, 1320L, false, ordinaryOnly = true)
+        scene.focus(selection("Earlier", 0), landed)
+        assertFalse(scene.continuousVerticalNavigation)
+        assertEquals(ordinary.preview, scene.ordinaryVerticalHold)
+        assertEquals(1f, scene.verticalMetadataAlpha, 0f)
+        assertNotNull(xlSceneMetadataMask(scene, landed, true, scene.ordinaryTop.value, 1f))
+    }
+
 }
