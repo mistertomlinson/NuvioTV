@@ -1657,4 +1657,34 @@ class ModernXlSceneTransitionTest {
         assertEquals(0f, backdrop.dim.value, 0.001f)
     }
 
+    @Test fun mixedEntryTintContinuesThroughSelectionFreezeWithoutASecondToken() {
+        content(start = 1)
+        frameReady.value = false
+        val oldToken = backdrop.token
+        val destination = checkNotNull(rows[2].sceneSelection(0, 2))
+        compose.runOnUiThread {
+            scene.beginContinuousNavigation()
+            scene.focus(destination, list.layoutInfo, rows = rows)
+            scene.prepareContinuousLanding(rows)
+            scene.finishContinuousNavigation()
+        }
+        advance(96)
+        assertEquals(oldToken + 1, backdrop.token)
+        frameReady.value = true
+        advance(112)
+        val partial = backdrop.dim.value
+        assertTrue("Exercise a partially visible tint", partial in 0.001f..(XL_BACKDROP_DIM_ALPHA - 0.001f))
+        var epoch = 0
+        compose.runOnIdle { epoch = scene.armDoubleUpBackdrop() }
+        advance(80)
+        assertTrue("Selection freeze cannot pause an already committed tint", backdrop.dim.value > partial)
+        assertEquals(oldToken + 1, backdrop.token)
+        advance(300)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+        compose.runOnIdle { scene.releaseDoubleUpBackdrop(epoch) }
+        advance(320)
+        assertEquals("Unfreezing the same image must not commit a second token", oldToken + 1, backdrop.token)
+        assertEquals(XL_BACKDROP_DIM_ALPHA, backdrop.dim.value, 0.001f)
+    }
+
 }
