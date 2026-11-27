@@ -3425,14 +3425,23 @@ fun ModernHomeContent(
         val ghostOffset = remember { androidx.compose.animation.core.Animatable(0f) }
         val ghostParallax = remember { androidx.compose.animation.core.Animatable(0f) }
         val presentedBackdropBlurred = rememberXlPlatformBackdropBlurred(xlBackdrop, xlPlatformBackdrop, ghostVisible)
-        val presentedGradientAlpha = rememberXlPlatformGradientAlpha(xlBackdrop, xlPlatformBackdrop, ghostVisible)
+        val rawPresentedGradientAlpha = rememberXlPlatformGradientAlpha(xlBackdrop, xlPlatformBackdrop, ghostVisible)
+        // The XL dissolve renders the sharp and blurred gradients INSIDE
+        // their respective image composites. Never stack the external
+        // ordinary gradient on those same pixels during a mixed fade.
+        val presentedGradientAlpha = remember(rawPresentedGradientAlpha, xlBackdrop, ghostVisible) {
+            derivedStateOf {
+                xlExternalBackdropGradientAlpha(rawPresentedGradientAlpha.value,
+                    xlBackdrop.blurred || xlBackdrop.directExit, ghostVisible)
+            }
+        }
 
         // Cinematic mode: trailers off OR target is expanded card → full-screen backdrop + detail-style gradient
         val baseCinematicHeroMode = !uiState.focusedPosterBackdropTrailerEnabled ||
             uiState.focusedPosterBackdropTrailerPlaybackTarget == FocusedPosterTrailerPlaybackTarget.EXPANDED_CARD
         val cinematicHeroMode = presentedBackdropBlurred.value || xlBackdrop.directExit || baseCinematicHeroMode
-        val retainingOrdinaryGradient by remember(presentedBackdropBlurred, presentedGradientAlpha) {
-            derivedStateOf { presentedBackdropBlurred.value && presentedGradientAlpha.value > 0f }
+        val retainingOrdinaryGradient by remember(presentedBackdropBlurred, rawPresentedGradientAlpha) {
+            derivedStateOf { presentedBackdropBlurred.value && rawPresentedGradientAlpha.value > 0f }
         }
         val gradientCinematicMode = if (retainingOrdinaryGradient) baseCinematicHeroMode else cinematicHeroMode
 
