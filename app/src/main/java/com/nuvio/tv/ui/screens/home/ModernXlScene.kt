@@ -412,23 +412,31 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         private set
     var ordinaryVerticalHoldOffset by mutableFloatStateOf(0f)
         private set
+    var ordinaryVerticalHoldAlpha by mutableFloatStateOf(1f)
+        private set
     var ordinaryVerticalHoldReadyEpoch by mutableIntStateOf(-1)
         private set
 
-    // If another ordinary row is selected before an upward XL exit has
-    // settled, promote the already prepared block, NOT an XL burst. The
-    // existing scroll spring can be redirected while the metadata finishes
-    // its original slide into the stationary hero band.
-    fun retainUpwardExitForOrdinaryNavigation(layout: LazyListLayoutInfo): Boolean {
+    // Once ordinary metadata is entering, transfer its painted presentation
+    // to ordinary navigation instead of suppressing it as an XL burst.
+    // Upward exits preserve their slide; downward exits preserve their fade.
+    fun retainXlExitForOrdinaryNavigation(layout: LazyListLayoutInfo): Boolean {
         val move = transition ?: return false
         val selected = selection ?: return false
-        if (!move.upwardExit || selected.rowKey != move.to.rowKey ||
+        if ((!move.upwardExit && !move.downwardExit) || selected.rowKey != move.to.rowKey ||
             continuousVerticalNavigation || deferredDownwardExit || fastReturn != null) return false
         if (ordinaryVerticalHold == null) {
             val actual = paintedMetadata?.takeIf { it.rowKey == selected.rowKey && paintedAlpha > 0f }
+            val visibleAlpha = if (actual != null) paintedAlpha else if (move.downwardExit)
+                exitMetadataAlpha * verticalMetadataGateFor(selected.rowKey) else 1f
+            // Before a downward reveal starts, a rapid pass still uses compact
+            // navigation. Once any part is visible, never restart its opacity.
+            if (move.downwardExit && visibleAlpha <= 0f) return false
             ordinaryVerticalHold = actual?.preview ?: selected.preview
             ordinaryVerticalHoldOffset = if (actual != null) paintedTranslation
+                else if (move.downwardExit) 0f
                 else incomingTranslation(layout, ordinaryTop.value * density, density) ?: 0f
+            ordinaryVerticalHoldAlpha = visibleAlpha.coerceIn(0f, 1f)
             ordinaryVerticalHoldReadyEpoch = -1
         }
         return true
@@ -437,6 +445,12 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun advanceOrdinaryHoldOffset(epoch: Int, offset: Float) {
         if (epoch == verticalMetadataEpoch && ordinaryVerticalHold != null)
             ordinaryVerticalHoldOffset = offset
+    }
+
+    // Keep the already visible opacity monotonic across subsequent keys.
+    fun advanceOrdinaryHoldAlpha(epoch: Int, alpha: Float) {
+        if (epoch == verticalMetadataEpoch && ordinaryVerticalHold != null)
+            ordinaryVerticalHoldAlpha = maxOf(ordinaryVerticalHoldAlpha, alpha.coerceIn(0f, 1f))
     }
 
     fun markOrdinaryHoldSettled(epoch: Int) {
@@ -479,6 +493,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         if (epoch == verticalMetadataEpoch) {
             ordinaryVerticalHold = null
             ordinaryVerticalHoldOffset = 0f
+            ordinaryVerticalHoldAlpha = 1f
             ordinaryVerticalHoldReadyEpoch = -1
         }
     }
@@ -528,7 +543,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         rapidPresentation.capture(XlRetainedPresentation(metadata,
             if (held != null || landing != null) metadataEpoch else paintedEpoch,
             if (held != null) ordinaryVerticalHoldOffset else if (landing != null) 0f else paintedTranslation,
-            if (held != null) 1f else if (landing != null) rapidLandingMetadataAlpha else paintedAlpha,
+            if (held != null) ordinaryVerticalHoldAlpha else if (landing != null) rapidLandingMetadataAlpha else paintedAlpha,
             if (held != null || landing != null) 0f else paintedClipTop, mask))
     }
 
@@ -1241,7 +1256,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         // normal stationary presentation. Never drag the first incoming logo
         // down with an unrelated row on a rapid second Up.
         if (ordinaryVerticalHold != null && previous?.isXl == false && !next.isXl &&
-            (previousMove == null || previousMove.upwardExit)) {
+            (previousMove == null || previousMove.upwardExit || previousMove.downwardExit)) {
             // Retain the exact same ordinary block and its offset, even
             // when the old XL spring was canceled midway through its slide.
             transition = null
@@ -2210,7 +2225,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 alpha = if (liveRetained != null || retained != null) baseAlpha else if (enabled && !scene.continuousVerticalNavigation &&
                     fast == null && !outgoing) {
                     if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false)
-                        1f
+                        scene.ordinaryVerticalHoldAlpha
                     else if (scene.selection?.rowKey != active.rowKey || epoch != scene.metadataEpoch)
                         0f else if (move?.upwardExit == true) baseAlpha
                         else baseAlpha * scene.verticalMetadataGateFor(active.rowKey)
