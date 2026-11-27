@@ -850,4 +850,80 @@ class XlSceneStateTest {
         assertNotNull(xlSceneMetadataMask(scene, landed, true, scene.ordinaryTop.value, 1f))
     }
 
+    @Test fun `interrupted upward exit preserves the first ordinary block until the latest resolved destination`() {
+        val scene = XlSceneState(selection("XL", 3, true))
+        val first = selection("A", 2)
+        val second = selection("B", 1)
+        val last = selection("C", 0)
+        scene.noteVerticalPress(-1, 1000L, false)
+        scene.focus(first, layout(), focusConfirmed = false)
+        scene.noteVerticalRelease()
+        assertTrue(checkNotNull(scene.transition).upwardExit)
+        scene.recordMetadata(XlMetadataSnapshot(first.rowKey, first.preview), translation = -84f)
+        assertTrue(scene.retainUpwardExitForOrdinaryNavigation(layout()))
+        scene.noteVerticalPress(-1, 1180L, false, ordinaryOnly = true)
+        scene.focus(second, layout())
+        scene.noteVerticalRelease()
+        assertFalse(scene.continuousVerticalNavigation)
+        assertNull(scene.transition)
+        assertEquals(first.preview, scene.ordinaryVerticalHold)
+        assertEquals(-84f, scene.ordinaryVerticalHoldOffset, 0f)
+        assertEquals(-84f to 176f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        val earlierEpoch = scene.verticalMetadataEpoch
+        scene.advanceOrdinaryHoldOffset(earlierEpoch, -24f)
+        scene.noteVerticalPress(-1, 1320L, false, ordinaryOnly = true)
+        scene.focus(last, layout())
+        scene.noteVerticalRelease()
+        assertEquals(-24f, scene.ordinaryVerticalHoldOffset, 0f)
+        scene.markOrdinaryHoldSettled(earlierEpoch)
+        scene.commitOrdinaryHoldIfResolved(last.preview)
+        assertEquals("Obsolete settlement cannot release the retained block", first.preview, scene.ordinaryVerticalHold)
+        val epoch = scene.verticalMetadataEpoch
+        scene.advanceOrdinaryHoldOffset(epoch, 0f)
+        scene.markOrdinaryHoldSettled(epoch)
+        scene.commitOrdinaryHoldIfResolved(second.preview)
+        assertEquals("An intermediate resolved hero cannot replace the retained block", first.preview, scene.ordinaryVerticalHold)
+        scene.commitOrdinaryHoldIfResolved(last.preview)
+        assertNull(scene.ordinaryVerticalHold)
+        assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+    }
+
+    @Test fun `rapid continuation into XL retires the ordinary mask and metadata before settling`() {
+        val scene = XlSceneState(selection("BottomXL", 3, true)).apply {
+            screenHeight = 540.dp
+            density = 1f
+        }
+        val first = selection("A", 2)
+        val second = selection("B", 1)
+        val xl = selection("TopXL", 0, true)
+        scene.noteVerticalPress(-1, 1000L, false)
+        scene.focus(first, layout(), focusConfirmed = false)
+        scene.noteVerticalRelease()
+        scene.recordMetadata(XlMetadataSnapshot(first.rowKey, first.preview), translation = -48f)
+        assertTrue(scene.retainUpwardExitForOrdinaryNavigation(layout()))
+        scene.noteVerticalPress(-1, 1180L, false, ordinaryOnly = true)
+        scene.focus(second, layout())
+        scene.noteVerticalRelease()
+        scene.captureBurstOutgoingMask(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        scene.noteVerticalPress(-1, 1320L, false)
+        scene.focus(xl, layout())
+        scene.noteVerticalRelease()
+        assertNull(scene.ordinaryVerticalHold)
+        assertEquals(first.preview, scene.retainedBurstPresentation?.metadata?.preview)
+        assertEquals(-48f, scene.retainedBurstPresentation!!.translation, 0f)
+        scene.advanceBurstOutgoingMask(-320f)
+        val plan = XlLandingPaintPlan(emptyMap(), 0f)
+        repeat(10) { scene.advanceRapidLanding(xl, -80f, 0.016f) { plan } }
+        assertNull("Retire the block during XL approach, without waiting for metadata debounce",
+            scene.retainedBurstPresentation)
+        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        repeat(40) { scene.advanceRapidLanding(xl, 0f, 0.016f) { plan } }
+        assertTrue(scene.rapidLandingReady)
+        assertFalse(scene.rapidLandingMetadata)
+        scene.prepareContinuousLanding(emptyList())
+        scene.finishContinuousNavigation()
+        assertNull(scene.retainedBurstPresentation)
+        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+    }
+
 }
