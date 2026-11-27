@@ -6128,6 +6128,12 @@ private fun EnhancedModernHomeRowsListBoundary(
                         ?: currentCarouselRows.indexOfFirst { it.key == focusHolder.activeRowKey }
                     val sourceRow = currentCarouselRows.getOrNull(sourceIndex)
                     val nextRow = currentCarouselRows.getOrNull(sourceIndex + if (isUp) -1 else 1)
+                    // A completed upward XL exit must not be kept in XL
+                    // navigation merely because its backdrop is still blending.
+                    if (sourceRow?.isXl == false && nextRow?.isXl == false &&
+                        !currentXlScene.continuousVerticalNavigation)
+                        currentXlScene.promoteAlignedUpwardExit(verticalRowListState.layoutInfo,
+                            verticalRowListState.isScrollInProgress)
                     // Ordinary rows retain the fixed hero band and edge fade.
                     // Only a mixed/XL navigation session collapses its gaps.
                     val ordinaryOnly = native.repeatCount == 0 &&
