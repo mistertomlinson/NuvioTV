@@ -590,7 +590,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         private set
     private var rapidLandingEpoch = -1
     private var rapidLandingReleasedSeconds = 0f
-    private var rapidLandingPlan: XlLandingPaintPlan? = null
+    private var rapidLandingPlan by mutableStateOf<XlLandingPaintPlan?>(null)
     private var rapidLandingRowKey: String? = null
     private var rapidLandingItemKey: String? = null
     private var rapidLandingBlendSeconds = 0f
