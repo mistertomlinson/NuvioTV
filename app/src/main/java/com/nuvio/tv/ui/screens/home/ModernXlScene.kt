@@ -389,6 +389,16 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         private set
     var verticalMetadataAlpha by mutableFloatStateOf(1f)
         private set
+    private var verticalMetadataOutgoingRow by mutableStateOf<String?>(null)
+    private var verticalMetadataOutgoingGate by mutableFloatStateOf(0f)
+
+    // A physical key precedes the focus callback. Until that callback
+    // commits its destination, retain the old visible block so an XL
+    // return can capture its real outgoing metadata and clearance.
+    fun verticalMetadataGateFor(rowKey: String): Float =
+        if (rowKey == verticalMetadataOutgoingRow && selection?.rowKey == rowKey)
+            maxOf(verticalMetadataOutgoingGate, verticalMetadataAlpha)
+        else verticalMetadataAlpha
 
     fun advanceVerticalMetadataAlpha(epoch: Int, alpha: Float) {
         if (epoch == verticalMetadataEpoch && !verticalKeyHeld)
@@ -449,6 +459,9 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean) {
         verticalKeyHeld = true
         verticalInputIntent = true
+        val outgoingRow = selection?.rowKey
+        verticalMetadataOutgoingGate = outgoingRow?.let { verticalMetadataGateFor(it) } ?: 0f
+        verticalMetadataOutgoingRow = outgoingRow
         verticalMetadataEpoch++
         verticalMetadataAlpha = 0f
         if (sign < 0 || repeated) captureBurstOutgoingMask(null)
@@ -710,6 +723,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (!doubleUpBackdropArmed) navigationFrozenBackdrop = null
             exitMetadataAlpha = 1f
             verticalMetadataAlpha = 1f
+            verticalMetadataOutgoingRow = null
+            verticalMetadataOutgoingGate = 0f
             metadataEpoch++
             stationaryMetadata = selection?.takeUnless { it.isXl }?.let {
                 XlMetadataSnapshot(it.rowKey, it.preview)
@@ -1088,6 +1103,10 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             openEarlierXlGaps(next, rows)
         }
         selection = next
+        if (previous?.rowKey != next.rowKey) {
+            verticalMetadataOutgoingRow = null
+            verticalMetadataOutgoingGate = 0f
+        }
         if (previous?.rowKey == next.rowKey) {
             if (focusConfirmed) confirmFocus(next.rowKey, layout, rows)
             return
@@ -2004,7 +2023,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 alpha = if (enabled && !scene.continuousVerticalNavigation &&
                     fast == null && !outgoing) {
                     if (scene.selection?.rowKey != active.rowKey || epoch != scene.metadataEpoch)
-                        0f else baseAlpha * scene.verticalMetadataAlpha
+                        0f else baseAlpha * scene.verticalMetadataGateFor(active.rowKey)
                 } else baseAlpha
                 paintedLayer[0] = translationY
                 paintedLayer[1] = alpha
