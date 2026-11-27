@@ -193,8 +193,11 @@ class ModernHomeIntegrationTest {
             val finalTop = checkNotNull(tops.last())
             val firstVisible = (peak until tops.size).first { (tops[it] ?: 1000f) < 540f }
             val rested = (firstVisible until tops.size).first { kotlin.math.abs((tops[it] ?: 1000f) - finalTop) < 1f }
+            // Preserve the old visible-travel requirement (two thirds of
+            // the dedicated tween), scaled to the intentional faster return.
+            val minimumVisibleMs = XL_PREVIEW_RETURN_MS * 2 / 3
             assertTrue("Visible preview travel must not be consumed below the screen: ${(rested - firstVisible) * 16}ms",
-                (rested - firstVisible) * 16 >= 240)
+                (rested - firstVisible) * 16 >= minimumVisibleMs)
         }
     }
     @Test fun plainCompactExit() = verifyExit(false, false)
