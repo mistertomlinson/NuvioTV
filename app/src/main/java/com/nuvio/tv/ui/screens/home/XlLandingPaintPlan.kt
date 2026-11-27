@@ -66,16 +66,33 @@ internal data class XlRetainedPresentation(
  * painted frame. An intermediate destination cannot replace that frame.
  */
 internal class XlNavigationPresentation {
-    var outgoing by androidx.compose.runtime.mutableStateOf<XlRetainedPresentation?>(null)
+    var identity by androidx.compose.runtime.mutableStateOf<XlRetainedPresentation?>(null)
         private set
+    private var travel by androidx.compose.runtime.mutableFloatStateOf(0f)
+    val outgoing: XlRetainedPresentation?
+        get() = identity?.let { frame ->
+            frame.copy(translation = frame.translation - travel,
+                mask = (frame.mask.first - travel) to (frame.mask.second - travel))
+        }
 
     fun capture(frame: XlRetainedPresentation?) {
-        if (outgoing == null) outgoing = frame
+        if (identity == null && frame != null) {
+            travel = 0f
+            identity = frame
+        }
     }
 
     fun advance(consumedPx: Float, viewportPx: Float, featherPx: Float) {
-        if (consumedPx != 0f) outgoing = outgoing?.moved(consumedPx, viewportPx, featherPx)
+        val frame = identity ?: return
+        if (consumedPx == 0f) return
+        val next = travel + consumedPx
+        if (frame.mask.second - next + featherPx <= 0f || frame.mask.first - next >= viewportPx)
+            clear()
+        else travel = next
     }
 
-    fun clear() { outgoing = null }
+    fun clear() {
+        identity = null
+        travel = 0f
+    }
 }
