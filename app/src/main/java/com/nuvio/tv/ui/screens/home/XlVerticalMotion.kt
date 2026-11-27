@@ -26,6 +26,7 @@ import kotlin.math.abs
 import kotlin.math.roundToInt
 
 internal const val XL_SPRING_TIME_SCALE = 1.10f
+internal const val XL_PREVIEW_RETURN_MS = 260
 
 // Keep a meaningful amount of the shared leg moving beyond the 250ms
 // input gate; the separation leg starts from zero velocity. No independent
@@ -363,7 +364,7 @@ internal fun AnimateXlPreviewReturn(scene: XlSceneState, list: LazyListState) {
             val currentTop = baseTop()?.plus((scene.headroomValues[preview.rowKey]?.value ?: 0f) * scene.density)
                 ?: (scene.screenHeight.value + 8f) * scene.density
             val start = currentTop.coerceAtMost((scene.screenHeight.value + 8f) * scene.density)
-            androidx.compose.animation.core.animate(start, finalTop, animationSpec = tween(360)) { top, _ ->
+            androidx.compose.animation.core.animate(start, finalTop, animationSpec = tween(XL_PREVIEW_RETURN_MS)) { top, _ ->
                 if (scene.previewReturn?.id != preview.id) throw CancellationException("Preview destination changed")
                 baseTop()?.let { base ->
                     scene.previewReturnPaintOffsetPx = (top - base).coerceAtLeast(0f) - scene.gapPx(preview.rowKey)
