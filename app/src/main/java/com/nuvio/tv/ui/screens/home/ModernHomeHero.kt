@@ -112,6 +112,11 @@ internal data class ModernHeroBackdropFrame(val url: String?, val scale: Float,
     var compositedColors: FloatArray? = null
 }
 
+// A prepared dissolve frame contains its own gradient. The platform
+// ghost retains its independently captured presentation during a page flip.
+internal fun xlExternalBackdropGradientAlpha(alpha: Float, dissolveOwnsGradient: Boolean,
+    ghostVisible: Boolean): Float = if (dissolveOwnsGradient && !ghostVisible) 0f else alpha
+
 internal fun modernHeroBackdropFrame(url: String?, scale: Float, posterFallback: Boolean, blurred: Boolean) =
     ModernHeroBackdropFrame(url, if (blurred) 1f else scale, !blurred && posterFallback, blurred)
 
@@ -195,6 +200,11 @@ internal fun ModernHeroMediaLayer(
 
     Box(modifier = modifier.clipToBounds()) {
         val usingXlDissolve = targetBackdropFrame.blurred || dissolveFromXl
+        LaunchedEffect(usingXlDissolve, targetBackdropFrame) {
+            XlNavigationTrace.event("BACKDROP_RENDERER_MODE") {
+                "dissolve=$usingXlDissolve image=${targetBackdropFrame.url?.hashCode()} blurred=${targetBackdropFrame.blurred} cinematic=$cinematicMode"
+            }
+        }
         val image: @Composable (ModernHeroBackdropFrame, () -> Unit) -> Unit = { frame, ready ->
             LaunchedEffect(frame.url) { if (frame.url.isNullOrBlank()) ready() }
             if (usingXlDissolve && !frame.blurred) Box(Modifier.fillMaxSize().background(backdropGradientColor ?: Color.Black))
