@@ -110,6 +110,8 @@ internal fun rememberHomePosterMask(scene: XlSceneState, list: LazyListState, en
                     // occupies its first 32dp, before the 40dp poster anchor.
                     !enabled -> 0f to 0f
                     scene.navigationPresentationFrozen -> scene.continuousPresentationMask(ordinaryTop.toPx())
+                    scene.ordinaryVerticalHold != null && scene.selection?.isXl == false ->
+                        scene.ordinaryVerticalHoldOffset to (scene.ordinaryVerticalHoldOffset + ordinaryTop.toPx())
                     scene.transition == null && scene.fastReturn == null ->
                         if (scene.selection?.isXl == true) null else 0f to ordinaryTop.toPx()
                     else -> list.layoutInfo.let { info ->
