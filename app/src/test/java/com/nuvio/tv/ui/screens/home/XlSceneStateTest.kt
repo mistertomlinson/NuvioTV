@@ -860,7 +860,7 @@ class XlSceneStateTest {
         scene.noteVerticalRelease()
         assertTrue(checkNotNull(scene.transition).upwardExit)
         scene.recordMetadata(XlMetadataSnapshot(first.rowKey, first.preview), translation = -84f)
-        assertTrue(scene.retainUpwardExitForOrdinaryNavigation(layout()))
+        assertTrue(scene.retainXlExitForOrdinaryNavigation(layout()))
         scene.noteVerticalPress(-1, 1180L, false, ordinaryOnly = true)
         scene.focus(second, layout())
         scene.noteVerticalRelease()
@@ -900,7 +900,7 @@ class XlSceneStateTest {
         scene.focus(first, layout(), focusConfirmed = false)
         scene.noteVerticalRelease()
         scene.recordMetadata(XlMetadataSnapshot(first.rowKey, first.preview), translation = -48f)
-        assertTrue(scene.retainUpwardExitForOrdinaryNavigation(layout()))
+        assertTrue(scene.retainXlExitForOrdinaryNavigation(layout()))
         scene.noteVerticalPress(-1, 1180L, false, ordinaryOnly = true)
         scene.focus(second, layout())
         scene.noteVerticalRelease()
@@ -924,6 +924,49 @@ class XlSceneStateTest {
         scene.finishContinuousNavigation()
         assertNull(scene.retainedBurstPresentation)
         assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+    }
+
+    @Test fun `partly faded downward exit remains visible through later ordinary presses`() {
+        val scene = XlSceneState(selection("XL", 0, true))
+        val first = selection("A", 1)
+        val second = selection("B", 2)
+        val last = selection("C", 3)
+        scene.noteVerticalPress(1, 1000L, false)
+        scene.focus(first, layout(), focusConfirmed = false)
+        scene.noteVerticalRelease()
+        assertTrue(checkNotNull(scene.transition).downwardExit)
+        assertFalse("An invisible intermediate downward destination may be skipped",
+            scene.retainXlExitForOrdinaryNavigation(layout()))
+        scene.exitMetadataAlpha = 0.5f
+        scene.advanceVerticalMetadataAlpha(scene.verticalMetadataEpoch, 0.6f)
+        scene.recordMetadata(XlMetadataSnapshot(first.rowKey, first.preview), alpha = 0.3f)
+        assertTrue(scene.retainXlExitForOrdinaryNavigation(layout()))
+        assertEquals(0.3f, scene.ordinaryVerticalHoldAlpha, 0f)
+        scene.noteVerticalPress(1, 1180L, false, ordinaryOnly = true)
+        scene.focus(second, layout())
+        scene.noteVerticalRelease()
+        assertFalse(scene.continuousVerticalNavigation)
+        assertNull(scene.transition)
+        assertEquals(first.preview, scene.ordinaryVerticalHold)
+        assertEquals(0.3f, scene.ordinaryVerticalHoldAlpha, 0f)
+        assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        val previousEpoch = scene.verticalMetadataEpoch
+        scene.advanceOrdinaryHoldAlpha(previousEpoch, 0.55f)
+        scene.noteVerticalPress(1, 1320L, false, ordinaryOnly = true)
+        scene.focus(last, layout())
+        scene.noteVerticalRelease()
+        assertEquals(0.55f, scene.ordinaryVerticalHoldAlpha, 0f)
+        scene.advanceOrdinaryHoldAlpha(previousEpoch, 1f)
+        assertEquals("A canceled reveal cannot overwrite the current frame", 0.55f, scene.ordinaryVerticalHoldAlpha, 0f)
+        val epoch = scene.verticalMetadataEpoch
+        scene.advanceOrdinaryHoldAlpha(epoch, 0f)
+        assertEquals("An existing visible block never fades back to zero", 0.55f, scene.ordinaryVerticalHoldAlpha, 0f)
+        scene.advanceOrdinaryHoldAlpha(epoch, 1f)
+        scene.markOrdinaryHoldSettled(epoch)
+        scene.commitOrdinaryHoldIfResolved(second.preview)
+        assertEquals(first.preview, scene.ordinaryVerticalHold)
+        scene.commitOrdinaryHoldIfResolved(last.preview)
+        assertNull(scene.ordinaryVerticalHold)
     }
 
 }
