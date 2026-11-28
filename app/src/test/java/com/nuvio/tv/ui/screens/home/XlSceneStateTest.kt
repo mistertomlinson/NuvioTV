@@ -1040,4 +1040,42 @@ class XlSceneStateTest {
         assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
     }
 
+    @Test fun `missing title peek follows its painted coordinate before lazy item placement`() {
+        val viewport = 540f
+        // A title travels up with the paint-translated row while its raw
+        // measured start is below the viewport. No heading is invented
+        // before it physically enters, or after the real item takes over.
+        assertNull(xlMissingTitlePeekTop(620f, -60f, viewport))
+        assertEquals(536f, xlMissingTitlePeekTop(596f, -60f, viewport)!!, 0f)
+        assertEquals(520f, xlMissingTitlePeekTop(580f, -60f, viewport)!!, 0f)
+        assertEquals(504f, xlMissingTitlePeekTop(564f, -60f, viewport)!!, 0f)
+        assertEquals(480f, xlMissingTitlePeekTop(540f, -60f, viewport)!!, 0f)
+        assertNull(xlMissingTitlePeekTop(539f, -60f, viewport))
+        assertNull(xlMissingTitlePeekTop(560f, -240f, viewport))
+    }
+
+    @Test fun `only hidden downward XL interruptions retain portrait slide-away intent`() {
+        val xl = selection("XL", 0, true)
+        val first = selection("A", 1)
+        val second = selection("B", 2)
+        val scene = XlSceneState(xl)
+        scene.noteVerticalPress(1, 1000L, false)
+        scene.focus(first, layout(), focusConfirmed = false)
+        scene.noteVerticalRelease()
+        assertFalse(scene.interruptedHiddenXlExit)
+        scene.noteVerticalPress(1, 1450L, false, forceCompact = true)
+        scene.focus(second, layout())
+        scene.noteVerticalRelease()
+        assertTrue(scene.interruptedHiddenXlExit)
+        scene.noteVerticalPress(-1, 1550L, false)
+        scene.focus(first, layout())
+        assertFalse("Reversal must not inherit the old downward clearance plan",
+            scene.interruptedHiddenXlExit)
+        val ordinary = XlSceneState(first)
+        ordinary.noteVerticalPress(1, 1000L, false, ordinaryOnly = true)
+        ordinary.focus(second, layout())
+        assertFalse(ordinary.interruptedHiddenXlExit)
+        assertFalse(ordinary.continuousVerticalNavigation)
+    }
+
 }
