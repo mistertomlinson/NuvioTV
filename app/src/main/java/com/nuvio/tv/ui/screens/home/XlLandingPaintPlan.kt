@@ -50,8 +50,18 @@ internal data class XlRetainedPresentation(
     val translation: Float,
     val alpha: Float,
     val clipTop: Float,
-    val mask: Pair<Float, Float>
+    val mask: Pair<Float, Float>,
+    val originRowIndex: Int = -1
 ) {
+    // Use the XL's PAINTED bounds, not logical focus or accumulated scroll
+    // distance. The same correction moves both metadata and its feather.
+    fun outsideXl(xlTop: Float, xlBottom: Float, xlAbove: Boolean,
+        viewportPx: Float, featherPx: Float): XlRetainedPresentation? {
+        val shift = if (xlAbove) (xlBottom - mask.first).coerceAtLeast(0f)
+            else (xlTop - featherPx - mask.second).coerceAtMost(0f)
+        return moved(-shift, viewportPx, featherPx)
+    }
+
     fun moved(consumedPx: Float, viewportPx: Float, featherPx: Float): XlRetainedPresentation? {
         val top = mask.first - consumedPx
         val bottom = mask.second - consumedPx
