@@ -5134,6 +5134,9 @@ private fun EnhancedModernHomeRowsListBoundary(
 
     fun captureRapidPresentation() {
         val scene = currentXlScene
+        // A not-yet-revealed downward destination has no outgoing hero
+        // to carry. Its reserved ordinary band must not mask an exiting row.
+        if (scene.hasUnrevealedDownwardExit()) return
         val top = scene.ordinaryTop.value * scene.density
         val mask = xlSceneMetadataMask(scene, verticalRowListState.layoutInfo, true, top, scene.density)
             ?: if (scene.rapidLandingMetadata && scene.rapidLandingMetadataAlpha > 0f) 0f to top else null
@@ -6199,13 +6202,23 @@ private fun EnhancedModernHomeRowsListBoundary(
                         !currentXlScene.continuousVerticalNavigation &&
                         !currentXlScene.deferredDownwardExit &&
                         (currentXlScene.transition == null || retainedXlExit)
+                    // A medium-speed interruption may arrive after the
+                    // 400ms key interval but BEFORE the first XL exit has
+                    // actually revealed its ordinary hero. Keep that travel
+                    // in the compact owner instead of restoring a fixed mask.
+                    val forceCompact = !ordinaryOnly &&
+                        (currentXlScene.hasUnrevealedDownwardExit() ||
+                            (nextRow?.isXl == true && (currentXlScene.ordinaryVerticalHold != null ||
+                                currentXlScene.transition?.let {
+                                    it.downwardExit && (!it.rowsSettled || currentXlScene.exitMetadataAlpha < 1f)
+                                } == true)))
                     val collapsing = !ordinaryOnly &&
-                        currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0)
+                        currentXlScene.willCollapseOnVerticalPress(native.eventTime, native.repeatCount > 0, forceCompact)
                     val anchor = if (collapsing) compactScrollAnchor() else null
                     if (!ordinaryOnly && (collapsing || currentXlScene.continuousVerticalNavigation))
                         captureRapidPresentation()
                     currentXlScene.noteVerticalPress(if (isUp) -1 else 1, native.eventTime,
-                        native.repeatCount > 0, ordinaryOnly = ordinaryOnly)
+                        native.repeatCount > 0, ordinaryOnly = ordinaryOnly, forceCompact = forceCompact)
                     if (anchor != null && currentXlScene.continuousGapsCollapsed)
                         applyCompactHandoff(anchor)
                     if (native.repeatCount == 0 && currentXlScene.continuousVerticalNavigation) {
