@@ -568,12 +568,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun retainedPresentationForLayout(layout: LazyListLayoutInfo?): XlRetainedPresentation? {
         val frame = retainedBurstPresentation ?: return null
         val target = selection?.takeIf { it.isXl } ?: return frame
-        val item = layout?.visibleItemsInfo?.firstOrNull { it.key == target.rowKey } ?: return frame
+        val info = layout ?: return frame
+        val item = info.visibleItemsInfo.firstOrNull { it.key == target.rowKey } ?: return frame
         if (frame.originRowIndex < 0 || frame.originRowIndex == target.rowIndex) return frame
         val lift = xlContentLift.value * density
         val translated = continuousLandingOffsetPx(target.rowKey) - lift
-        val top = item.offset + layout.beforeContentPadding + gapPx(target.rowKey) + translated
-        val bottom = item.offset + layout.beforeContentPadding + item.size + translated +
+        val top = item.offset + info.beforeContentPadding + gapPx(target.rowKey) + translated
+        val bottom = item.offset + info.beforeContentPadding + item.size + translated +
             (summaryTrailingGapReductions[target.rowKey]?.value ?: 0f) * density
         return frame.outsideXl(top, bottom, target.rowIndex < frame.originRowIndex,
             screenHeight.value * density, 32f * density)
@@ -2232,7 +2233,9 @@ internal fun ModernXlAwareHeroTitleBlock(
             modifier = if (!isActive) Modifier else Modifier.testTag("ordinary-metadata-${active.rowKey}").graphicsLayer {
                 val incomingOffset = if (enabled && move != null && !outgoing && !move.deferOrdinaryReveal && !move.downwardExit && scene.stationaryMetadata == null)
                     scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) else 0f
-                val liveRetained = scene.retainedPresentationForLayout(list.layoutInfo)?.takeIf {
+                val liveRetained = scene.retainedPresentationForLayout(
+                    if (scene.retainedBurstIdentity != null && scene.selection?.isXl == true) list.layoutInfo else null
+                )?.takeIf {
                     enabled && scene.navigationPresentationFrozen && it.metadata == active && it.epoch == epoch
                 }
                 translationY = when {
