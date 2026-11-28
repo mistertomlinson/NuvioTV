@@ -109,7 +109,8 @@ internal fun rememberHomePosterMask(scene: XlSceneState, list: LazyListState, en
                     // The viewport retains its original geometry. The feather
                     // occupies its first 32dp, before the 40dp poster anchor.
                     !enabled -> 0f to 0f
-                    scene.navigationPresentationFrozen -> scene.continuousPresentationMask(ordinaryTop.toPx())
+                    scene.navigationPresentationFrozen -> scene.continuousPresentationMask(ordinaryTop.toPx(),
+                        if (scene.selection?.isXl == true && scene.retainedBurstIdentity != null) list.layoutInfo else null)
                     scene.ordinaryVerticalHold != null && scene.selection?.isXl == false ->
                         scene.ordinaryVerticalHoldOffset to (scene.ordinaryVerticalHoldOffset + ordinaryTop.toPx())
                     scene.transition == null && scene.fastReturn == null ->
