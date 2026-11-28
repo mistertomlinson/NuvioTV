@@ -5182,8 +5182,12 @@ private fun EnhancedModernHomeRowsListBoundary(
         }
         val previousBottom = scene.posterAnchorPx(selected) - scene.headerPx(selected.rowKey) -
             with(doubleUpDensity) { 24.dp.toPx() }
+        val predecessor = rows.getOrNull(selected.rowIndex - 1)
+        val slideAway = scene.interruptedHiddenXlExit && predecessor?.let {
+            !it.isXl && !it.landscapePosters && it.key != "continue_watching"
+        } == true
         return xlLandingPaintPlan(rows.map { it.key }, physicalGaps, selected.rowIndex,
-            compressed, !selected.isXl && rows.getOrNull(selected.rowIndex - 1)?.isXl == true,
+            compressed, !selected.isXl && (predecessor?.isXl == true || slideAway),
             previousBottom, with(doubleUpDensity) { 48.dp.toPx() })
     }
     val liveLandingPlan by rememberUpdatedState<(XlSceneSelection) -> XlLandingPaintPlan>({ rapidLandingPlan(it) })
@@ -5367,6 +5371,18 @@ private fun EnhancedModernHomeRowsListBoundary(
                 val key = event.nativeKeyEvent
                 if (key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN || key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_UP) {
                     XlNavigationTrace.key(key.action, key.keyCode, key.repeatCount, key.eventTime, key.downTime, activeRowKey)
+                }
+                // No destination means no new navigation intent. In
+                // particular, never collapse a settled bottom XL's prefix
+                // merely because Down was tapped again or held at the edge.
+                // An already-moving landing keeps its current owner.
+                if (currentXlSceneEnabled && key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
+                    currentXlScene.selection?.let { selected ->
+                        selected.rowIndex == currentCarouselRows.lastIndex &&
+                            currentCarouselRows.getOrNull(selected.rowIndex)?.key == selected.rowKey
+                    } == true && !isFastScrollingRef.value) {
+                    if (key.action == AndroidKeyEvent.ACTION_UP) currentXlScene.noteVerticalRelease()
+                    return@onPreviewKeyEvent true
                 }
                 false
             }
