@@ -106,3 +106,12 @@ internal class XlNavigationPresentation {
         travel = 0f
     }
 }
+
+
+/** A heading can paint inside the viewport while its lazy item's raw
+ *  geometry is still below it. The fallback owns only that title strip. */
+internal fun xlMissingTitlePeekTop(rawTop: Float, translation: Float, viewport: Float): Float? {
+    if (!rawTop.isFinite() || !translation.isFinite() || viewport <= 0f) return null
+    val top = rawTop + translation
+    return top.takeIf { rawTop >= viewport && it < viewport && it >= viewport * 0.75f }
+}
