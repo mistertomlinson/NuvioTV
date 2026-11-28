@@ -146,9 +146,9 @@ class XlSceneStateTest {
         scene.focus(selection("C", 3), layout())
         assertTrue(scene.transition?.compactExit == true)
         assertEquals(true, scene.expandedXlRows["XL"])
-        // No XL item remains in this layout; normal poster exclusion can
-        // resume while the prepared metadata is still waiting to fade.
-        assertEquals(0f to 260f, xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        // Recycling the XL item alone is not a completed row landing.
+        // The ordinary mask must not appear while the follower still moves.
+        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
         assertEquals(0f, scene.exitMetadataAlpha, 0f)
         assertFalse(checkNotNull(scene.transition).deferOrdinaryReveal)
         val exit = checkNotNull(scene.transition).id
@@ -743,11 +743,15 @@ class XlSceneStateTest {
         scene.beginContinuousNavigation()
         val plan = XlLandingPaintPlan(emptyMap(), 0f)
         repeat(10) { scene.advanceRapidLanding(target, 80f, 0.016f) { plan } }
+        assertNull("Tentative geometry cannot reveal a mask", scene.continuousPresentationMask(260f))
+        repeat(18) { scene.advanceRapidLanding(target, 80f, 0.016f) { plan } }
+        assertNull("A released but moving row cannot reveal a mask", scene.continuousPresentationMask(260f))
+        repeat(4) { scene.advanceRapidLanding(target, 0f, 0.016f) { plan } }
         val partial = checkNotNull(scene.continuousPresentationMask(260f))
         assertTrue(partial.second in 0.01f..259.99f)
         assertFalse(scene.rapidLandingMetadata)
         assertEquals(0f, scene.continuousLandingOffsetPx("A"), 0f)
-        repeat(32) { scene.advanceRapidLanding(target, 0f, 0.016f) { plan } }
+        repeat(20) { scene.advanceRapidLanding(target, 0f, 0.016f) { plan } }
         assertEquals(0f to 260f, scene.continuousPresentationMask(260f))
         assertTrue(scene.rapidLandingReady)
         assertEquals(1f, scene.rapidLandingMetadataAlpha, 0f)
@@ -967,6 +971,73 @@ class XlSceneStateTest {
         assertEquals(first.preview, scene.ordinaryVerticalHold)
         scene.commitOrdinaryHoldIfResolved(last.preview)
         assertNull(scene.ordinaryVerticalHold)
+    }
+
+    @Test fun `medium speed second down keeps an unfinished hidden XL exit compact`() {
+        val scene = XlSceneState(selection("XL", 0, true))
+        val first = selection("A", 1)
+        val next = selection("B", 2)
+        scene.noteVerticalPress(1, 1000L, false)
+        scene.focus(first, positionedLayout("XL" to 54, "A" to 500), focusConfirmed = false)
+        scene.noteVerticalRelease()
+        assertTrue(scene.hasUnrevealedDownwardExit())
+        val force = scene.hasUnrevealedDownwardExit()
+        assertTrue(scene.willCollapseOnVerticalPress(1450L, false, forceCompact = force))
+        scene.noteVerticalPress(1, 1450L, false, forceCompact = force)
+        scene.focus(next, layout())
+        scene.noteVerticalRelease()
+        assertTrue(scene.continuousVerticalNavigation)
+        assertNull(scene.retainedBurstPresentation)
+        val plan = XlLandingPaintPlan(emptyMap(), 0f)
+        repeat(18) {
+            scene.advanceRapidLanding(next, 100f, 0.016f) { plan }
+            assertNull("No edge fade over the departing regular row",
+                xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+        }
+        assertFalse(scene.rapidLandingMetadata)
+    }
+
+    @Test fun `retained ordinary hero and feather move outside the painted XL on either approach`() {
+        val ordinary = selection("A", 2)
+        val frame = XlRetainedPresentation(XlMetadataSnapshot("A", ordinary.preview),
+            1, 0f, 0.6f, 0f, 0f to 260f, originRowIndex = 2)
+        val below = checkNotNull(frame.outsideXl(80f, 410f, true, 540f, 32f))
+        assertEquals(410f to 670f, below.mask)
+        assertEquals(410f, below.translation, 0f)
+        assertEquals(frame.alpha, below.alpha, 0f)
+        assertNull(frame.outsideXl(120f, 540f, true, 540f, 32f))
+        val above = checkNotNull(frame.outsideXl(210f, 490f, false, 540f, 32f))
+        assertEquals(-82f to 178f, above.mask)
+        assertEquals(-82f, above.translation, 0f)
+        assertTrue(above.mask.second + 32f <= 210f)
+    }
+
+    @Test fun `reversing a tentative ordinary landing into XL cannot leave its edge mask behind`() {
+        val first = selection("A", 1)
+        val second = selection("B", 2)
+        val xl = selection("XL", 0, true)
+        val scene = XlSceneState(second)
+        scene.beginContinuousNavigation()
+        val plan = XlLandingPaintPlan(emptyMap(), 0f)
+        repeat(18) { scene.advanceRapidLanding(second, 50f, 0.016f) { plan } }
+        assertNull(scene.continuousPresentationMask(260f))
+        scene.noteVerticalPress(-1, 1450L, false)
+        scene.focus(first, layout())
+        scene.noteVerticalRelease()
+        repeat(4) { scene.advanceRapidLanding(first, -100f, 0.016f) { plan } }
+        scene.noteVerticalPress(-1, 1560L, false)
+        scene.focus(xl, layout())
+        scene.noteVerticalRelease()
+        repeat(45) {
+            scene.advanceRapidLanding(xl, 0f, 0.016f) { plan }
+            assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
+            assertFalse(scene.rapidLandingMetadata)
+        }
+        assertTrue(scene.rapidLandingReady)
+        scene.prepareContinuousLanding(emptyList())
+        scene.finishContinuousNavigation()
+        assertNull(scene.retainedBurstPresentation)
+        assertNull(xlSceneMetadataMask(scene, layout(), true, 260f, 1f))
     }
 
 }
