@@ -8,6 +8,11 @@ package com.nuvio.tv.ui.screens.home
 import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.compose.animation.Crossfade
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.animation.core.animateDpAsState
@@ -5354,6 +5359,50 @@ private fun EnhancedModernHomeRowsListBoundary(
         }
     }
 
+    // The full-height XL canvas can paint a following heading inside
+    // the screen even while its measured lazy item is below the viewport.
+    // Draw only that missing heading from the same physical row geometry;
+    // the real item takes over at the identical coordinate when placed.
+    // No extra poster rows are composed or retained for this title peek.
+    val peekTextMeasurer = rememberTextMeasurer()
+    val peekTitleStyle = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold)
+    val peekTitleColor = NuvioColors.TextPrimary
+    val peekTitleModifier = if (xlSceneEnabled) Modifier.drawWithContent {
+        drawContent()
+        val scene = currentXlScene
+        val selected = scene.selection ?: return@drawWithContent
+        val rows = currentCarouselRows
+        val portrait = rows.getOrNull(selected.rowIndex) ?: return@drawWithContent
+        if (portrait.key != selected.rowKey || portrait.isXl || portrait.landscapePosters ||
+            portrait.key == "continue_watching" || scene.fastReturn != null) return@drawWithContent
+        val nextIndex = selected.rowIndex + 1
+        val next = rows.getOrNull(nextIndex) ?: return@drawWithContent
+        val info = verticalRowListState.layoutInfo
+        if (info.totalItemsCount != rows.size || info.visibleItemsInfo.any { it.key == next.key })
+            return@drawWithContent
+        val owner = info.visibleItemsInfo.firstOrNull { it.key == portrait.key } ?: return@drawWithContent
+        val precedingXlIndex = (nextIndex - 1 downTo 0).firstOrNull { rows[it].isXl } ?: -1
+        val follower = if (precedingXlIndex >= 0) xlFixedOrdinarySuffixTranslationPx(
+            scene.verticalMotion, nextIndex, precedingXlIndex, scene.fixedFollowerTranslationPx
+        ) else 0f
+        val translation = scene.landscapePreXlDrawOffsetPx(nextIndex, rows) +
+            scene.previewReturnOffsetForIndex(nextIndex) + follower +
+            scene.continuousLandingOffsetPx(next.key) -
+            (if (next.isXl) XL_CONTENT_LIFT_DP.dp.toPx() else 0f)
+        val rawTop = owner.offset + owner.size + info.beforeContentPadding +
+            24.dp.roundToPx() + scene.gapPx(next.key)
+        val top = xlMissingTitlePeekTop(rawTop.toFloat(), translation, size.height) ?: return@drawWithContent
+        val left = 52.dp.toPx()
+        val textLayout = peekTextMeasurer.measure(next.title, style = peekTitleStyle,
+            constraints = Constraints(maxWidth = (size.width - left).toInt().coerceAtLeast(0)))
+        clipRect {
+            drawText(textLayout, color = peekTitleColor, topLeft = Offset(left, top))
+        }
+        XlNavigationTrace.event("TITLE_PEEK_FALLBACK") {
+            "row=${next.key} rawTop=$rawTop paintedTop=$top translation=$translation"
+        }
+    } else Modifier
+
     CompositionLocalProvider(
         LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
     ) {
@@ -5363,6 +5412,7 @@ private fun EnhancedModernHomeRowsListBoundary(
             .fillMaxWidth()
             .height(rowsViewportHeight)
             .xlSceneRowsViewport(xlScene, verticalRowListState, xlSceneEnabled, ordinaryRowTop)
+            .then(peekTitleModifier)
             .padding(bottom = catalogBottomPadding)
             .focusRequester(contentFocusRequester)
             .focusRestorer { focusRestorerRequester }
