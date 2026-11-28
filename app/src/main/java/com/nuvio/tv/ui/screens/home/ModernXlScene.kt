@@ -605,6 +605,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean, ordinaryOnly: Boolean = false,
         forceCompact: Boolean = false) {
         val hiddenExit = !ordinaryOnly && sign > 0 && hasUnrevealedDownwardExit()
+        val alreadyRevealed = rapidLandingMetadataAlpha > 0f || ordinaryVerticalHold != null
         verticalKeyHeld = true
         verticalInputIntent = true
         val outgoingRow = selection?.rowKey
@@ -627,7 +628,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
         if (!ordinaryOnly && (forceCompact || repeated || rapid || continuousVerticalNavigation)) beginContinuousNavigation()
-        if (sign < 0 || ordinaryOnly) interruptedHiddenXlExit = false
+        if (sign < 0 || ordinaryOnly || alreadyRevealed) interruptedHiddenXlExit = false
         else if (hiddenExit && continuousVerticalNavigation) interruptedHiddenXlExit = true
     }
 
@@ -1259,6 +1260,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (focusConfirmed) deferredExitConfirmed = true
         }
         if (continuousVerticalNavigation) {
+            if (next.isXl) interruptedHiddenXlExit = false
             selection = next
             if (focusConfirmed) confirmedRowKey = next.rowKey
             return
