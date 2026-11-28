@@ -515,9 +515,20 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         return true
     }
 
-    fun willCollapseOnVerticalPress(eventTime: Long, repeated: Boolean): Boolean =
-        !continuousGapsCollapsed && (continuousVerticalNavigation || repeated ||
+    fun willCollapseOnVerticalPress(eventTime: Long, repeated: Boolean, forceCompact: Boolean = false): Boolean =
+        !continuousGapsCollapsed && (forceCompact || continuousVerticalNavigation || repeated ||
             lastVerticalPressTime != Long.MIN_VALUE && eventTime - lastVerticalPressTime in 0L..XL_CONTINUOUS_NAV_INTERVAL_MS)
+
+    // An unfinished hidden downward exit is still part of the same travel,
+    // even if a medium-paced second key arrives outside the tap timer.
+    fun hasUnrevealedDownwardExit(): Boolean {
+        val move = transition ?: return false
+        val selected = selection ?: return false
+        return move.downwardExit && selected.rowKey == move.to.rowKey &&
+            ordinaryVerticalHold == null &&
+            (paintedMetadata?.rowKey != selected.rowKey || paintedAlpha <= 0f) &&
+            exitMetadataAlpha * verticalMetadataGateFor(selected.rowKey) <= 0f
+    }
 
     // Capture the real painted block and its mask together before taking
     // over a spring. The frame remains valid in both scroll directions.
@@ -544,7 +555,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             if (held != null || landing != null) metadataEpoch else paintedEpoch,
             if (held != null) ordinaryVerticalHoldOffset else if (landing != null) 0f else paintedTranslation,
             if (held != null) ordinaryVerticalHoldAlpha else if (landing != null) rapidLandingMetadataAlpha else paintedAlpha,
-            if (held != null || landing != null) 0f else paintedClipTop, mask))
+            if (held != null || landing != null) 0f else paintedClipTop, mask,
+            originRowIndex = selection?.rowIndex ?: -1))
     }
 
     fun advanceBurstOutgoingMask(consumed: Float) {
@@ -553,11 +565,28 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
 
     fun retainedBurstOutgoingMask(): Pair<Float, Float>? = retainedBurstPresentation?.mask
 
-    fun continuousPresentationMask(ordinaryTopPx: Float): Pair<Float, Float>? {
-        retainedBurstOutgoingMask()?.let { return it }
+    fun retainedPresentationForLayout(layout: LazyListLayoutInfo?): XlRetainedPresentation? {
+        val frame = retainedBurstPresentation ?: return null
+        val target = selection?.takeIf { it.isXl } ?: return frame
+        val item = layout?.visibleItemsInfo?.firstOrNull { it.key == target.rowKey } ?: return frame
+        if (frame.originRowIndex < 0 || frame.originRowIndex == target.rowIndex) return frame
+        val lift = xlContentLift.value * density
+        val translated = continuousLandingOffsetPx(target.rowKey) - lift
+        val top = item.offset + layout.beforeContentPadding + gapPx(target.rowKey) + translated
+        val bottom = item.offset + layout.beforeContentPadding + item.size + translated +
+            (summaryTrailingGapReductions[target.rowKey]?.value ?: 0f) * density
+        return frame.outsideXl(top, bottom, target.rowIndex < frame.originRowIndex,
+            screenHeight.value * density, 32f * density)
+    }
+
+    fun continuousPresentationMask(ordinaryTopPx: Float, layout: LazyListLayoutInfo? = null): Pair<Float, Float>? {
+        if (retainedBurstIdentity != null) return retainedPresentationForLayout(layout)?.mask
         val plan = rapidLandingPlan ?: return null
-        if (selection?.isXl != false || plan.virtualClearancePx > 0f) return null
-        val bottom = ordinaryTopPx * continuousLandingProgress
+        if (selection?.isXl != false || plan.virtualClearancePx > 0f ||
+            rapidLandingEpoch != continuousInputEpoch) return null
+        // The geometry can prepare early, but the mask is presentation:
+        // do not paint it for a merely tentative ordinary destination.
+        val bottom = ordinaryTopPx * rapidLandingMaskProgress
         return if (bottom > 0f) 0f to bottom else null
     }
 
@@ -567,7 +596,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         advanceBurstOutgoingMask(sign * screenHeight.value * density * dt / 0.20f)
     }
 
-    fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean, ordinaryOnly: Boolean = false) {
+    fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean, ordinaryOnly: Boolean = false,
+        forceCompact: Boolean = false) {
         verticalKeyHeld = true
         verticalInputIntent = true
         val outgoingRow = selection?.rowKey
@@ -589,7 +619,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         val rapid = close
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
-        if (!ordinaryOnly && (repeated || rapid || continuousVerticalNavigation)) beginContinuousNavigation()
+        if (!ordinaryOnly && (forceCompact || repeated || rapid || continuousVerticalNavigation)) beginContinuousNavigation()
     }
 
     fun beginContinuousNavigation() {
@@ -608,6 +638,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             // interpolates the existing row translations on its next frame.
             rapidLandingMetadata = false
             rapidLandingMetadataAlpha = 0f
+            rapidLandingMaskProgress = 0f
             rapidLandingReady = false
             metadataEpoch++
             return
@@ -658,6 +689,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
     private var rapidLandingRowKey: String? = null
     private var rapidLandingItemKey: String? = null
     private var rapidLandingBlendSeconds = 0f
+    private var rapidLandingMaskProgress by mutableFloatStateOf(0f)
     var rapidLandingReady = false
         private set
 
@@ -697,6 +729,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         rapidLandingReady = false
         rapidLandingMetadata = false
         rapidLandingMetadataAlpha = 0f
+        rapidLandingMaskProgress = 0f
     }
 
     fun seedCompactHandoff(offsets: Map<String, Float>) {
@@ -753,6 +786,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             rapidLandingReady = false
             rapidLandingMetadata = false
             rapidLandingMetadataAlpha = 0f
+            rapidLandingMaskProgress = 0f
             retargetLandingPaint(emptyMap())
         }
         if (verticalKeyHeld) rapidLandingReleasedSeconds = 0f
@@ -787,8 +821,13 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
             retainedBurstPresentation == null
         val aligned = kotlin.math.abs(remaining) <= 1f
         if (accepted && prepared && aligned && !target.isXl) {
-            rapidLandingMetadata = true
-            rapidLandingMetadataAlpha = (rapidLandingMetadataAlpha + dt / 0.12f).coerceAtMost(1f)
+            val needsMask = rapidLandingPlan?.virtualClearancePx == 0f
+            rapidLandingMaskProgress = if (needsMask)
+                (rapidLandingMaskProgress + dt / 0.12f).coerceAtMost(1f) else 1f
+            if (rapidLandingMaskProgress >= 1f) {
+                rapidLandingMetadata = true
+                rapidLandingMetadataAlpha = (rapidLandingMetadataAlpha + dt / 0.12f).coerceAtMost(1f)
+            }
         }
         rapidLandingReady = accepted && prepared && aligned && (target.isXl || rapidLandingMetadataAlpha >= 1f)
         return !rapidLandingReady
@@ -1539,7 +1578,7 @@ internal fun xlSceneOutgoingMetadataVisible(scene: XlSceneState, layout: LazyLis
 internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo, enabled: Boolean,
     ordinaryTopPx: Float, density: Float, viewportHeightPx: Float = Float.POSITIVE_INFINITY): Pair<Float, Float>? {
     if (!enabled) return null
-    if (scene.navigationPresentationFrozen) return scene.continuousPresentationMask(ordinaryTopPx)
+    if (scene.navigationPresentationFrozen) return scene.continuousPresentationMask(ordinaryTopPx, layout)
     if (scene.ordinaryVerticalHold != null && scene.selection?.isXl == false) {
         val offset = scene.ordinaryVerticalHoldOffset
         return offset to (offset + ordinaryTopPx)
@@ -1555,7 +1594,7 @@ internal fun xlSceneMetadataMask(scene: XlSceneState, layout: LazyListLayoutInfo
     val offset = when {
         xlSceneOutgoingMetadataVisible(scene, layout, ordinaryTopPx, viewportHeightPx, density, reserveSpace = true) -> scene.outgoingTranslation(layout)
         scene.selection?.isXl == true -> return null
-        move?.downwardExit == true -> if (scene.compactRowRested || (scene.outgoingXlBottom(layout) ?: 0f) <= 0f) 0f else return null
+        move?.downwardExit == true -> if (scene.compactRowRested && (scene.outgoingXlBottom(layout) ?: 0f) <= 0f) 0f else return null
         move?.deferOrdinaryReveal == true -> if (move.rowsSettled) 0f else return null
         move != null -> scene.incomingTranslation(layout, ordinaryTopPx, density) ?: return null
         else -> 0f
@@ -2193,7 +2232,7 @@ internal fun ModernXlAwareHeroTitleBlock(
             modifier = if (!isActive) Modifier else Modifier.testTag("ordinary-metadata-${active.rowKey}").graphicsLayer {
                 val incomingOffset = if (enabled && move != null && !outgoing && !move.deferOrdinaryReveal && !move.downwardExit && scene.stationaryMetadata == null)
                     scene.incomingTranslation(list.layoutInfo, ordinaryTopPx, density) else 0f
-                val liveRetained = scene.retainedBurstPresentation?.takeIf {
+                val liveRetained = scene.retainedPresentationForLayout(list.layoutInfo)?.takeIf {
                     enabled && scene.navigationPresentationFrozen && it.metadata == active && it.epoch == epoch
                 }
                 translationY = when {
@@ -2249,7 +2288,7 @@ internal fun ModernXlAwareHeroTitleBlock(
                 val offset = paintedLayer[0]
                 val edge = if (move?.downwardExit == true) scene.outgoingXlBottom(list.layoutInfo) else null
                 val top = when {
-                    retained != null -> scene.retainedBurstPresentation?.takeIf { it.epoch == epoch }?.clipTop ?: retained.clipTop
+                    retained != null -> scene.retainedPresentationForLayout(list.layoutInfo)?.takeIf { it.epoch == epoch }?.clipTop ?: retained.clipTop
                     fast != null -> fast.clipTop
                     enabled && outgoing -> move?.outgoingMetadataClipTop ?: 0f
                     enabled && edge != null -> (edge - metadataLayoutTop[0] - offset).coerceAtLeast(0f)
