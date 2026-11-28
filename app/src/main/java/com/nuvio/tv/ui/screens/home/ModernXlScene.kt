@@ -597,8 +597,14 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         advanceBurstOutgoingMask(sign * screenHeight.value * density * dt / 0.20f)
     }
 
+    // Only a downward continuation of an XL exit whose ordinary metadata
+    // never appeared may use the slide-away recovery.
+    var interruptedHiddenXlExit by mutableStateOf(false)
+        private set
+
     fun noteVerticalPress(sign: Int, eventTime: Long, repeated: Boolean, ordinaryOnly: Boolean = false,
         forceCompact: Boolean = false) {
+        val hiddenExit = !ordinaryOnly && sign > 0 && hasUnrevealedDownwardExit()
         verticalKeyHeld = true
         verticalInputIntent = true
         val outgoingRow = selection?.rowKey
@@ -621,6 +627,8 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
         lastVerticalPressTime = eventTime
         lastVerticalPressSign = sign
         if (!ordinaryOnly && (forceCompact || repeated || rapid || continuousVerticalNavigation)) beginContinuousNavigation()
+        if (sign < 0 || ordinaryOnly) interruptedHiddenXlExit = false
+        else if (hiddenExit && continuousVerticalNavigation) interruptedHiddenXlExit = true
     }
 
     fun beginContinuousNavigation() {
@@ -908,6 +916,7 @@ internal class XlSceneState(initial: XlSceneSelection? = null, rows: List<HeroCa
                 XlMetadataSnapshot(it.rowKey, it.preview)
             }
         }
+        interruptedHiddenXlExit = false
         lastVerticalPressTime = Long.MIN_VALUE
         verticalInputIntent = false
         lastVerticalPressSign = 0
