@@ -9,7 +9,6 @@ import com.nuvio.tv.ui.util.dpadVerticalFastScroll
 import androidx.compose.animation.Crossfade
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Constraints
@@ -5403,6 +5402,10 @@ private fun EnhancedModernHomeRowsListBoundary(
         }
     } else Modifier
 
+    // Keep the release paired with the redundant key we consumed. The
+    // original key that reached the final row must still release normally.
+    val ignoredBottomDownTime = remember { longArrayOf(Long.MIN_VALUE) }
+
     CompositionLocalProvider(
         LocalBringIntoViewSpec provides verticalRowBringIntoViewSpec
     ) {
@@ -5426,13 +5429,20 @@ private fun EnhancedModernHomeRowsListBoundary(
                 // particular, never collapse a settled bottom XL's prefix
                 // merely because Down was tapped again or held at the edge.
                 // An already-moving landing keeps its current owner.
-                if (currentXlSceneEnabled && key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN &&
-                    currentXlScene.selection?.let { selected ->
-                        selected.rowIndex == currentCarouselRows.lastIndex &&
-                            currentCarouselRows.getOrNull(selected.rowIndex)?.key == selected.rowKey
-                    } == true && !isFastScrollingRef.value) {
-                    if (key.action == AndroidKeyEvent.ACTION_UP) currentXlScene.noteVerticalRelease()
-                    return@onPreviewKeyEvent true
+                if (key.keyCode == AndroidKeyEvent.KEYCODE_DPAD_DOWN) {
+                    if (key.downTime == ignoredBottomDownTime[0]) {
+                        if (key.action == AndroidKeyEvent.ACTION_UP) ignoredBottomDownTime[0] = Long.MIN_VALUE
+                        return@onPreviewKeyEvent true
+                    }
+                    if (currentXlSceneEnabled && key.action == AndroidKeyEvent.ACTION_DOWN &&
+                        key.repeatCount == 0 && !isFastScrollingRef.value &&
+                        currentXlScene.selection?.let { selected ->
+                            selected.rowIndex == currentCarouselRows.lastIndex &&
+                                currentCarouselRows.getOrNull(selected.rowIndex)?.key == selected.rowKey
+                        } == true) {
+                        ignoredBottomDownTime[0] = key.downTime
+                        return@onPreviewKeyEvent true
+                    }
                 }
                 false
             }
