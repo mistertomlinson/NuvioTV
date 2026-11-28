@@ -418,27 +418,29 @@ class ModernHomeIntegrationTest {
             assertEquals(0, scene.gapPx(follower))
             assertNull(scene.verticalMotion)
         }
-        var observedPartialMask = false
+        var observedClearance = false
         var observedReveal = false
         val ordinaryTop = scene.ordinaryTop.value * scene.density
+        assertTrue("Only an interrupted hidden exit arms portrait slide-away", scene.interruptedHiddenXlExit)
         repeat(144) {
             advance(16)
             val mask = xlSceneMetadataMask(scene, list.layoutInfo, true, ordinaryTop, scene.density)
-            if (scene.continuousVerticalNavigation && mask != null &&
-                mask.first == 0f && mask.second > 0f && mask.second < ordinaryTop)
-                observedPartialMask = true
+            if (scene.continuousVerticalNavigation) {
+                assertNull("Never sweep an edge mask across the exiting portrait", mask)
+                if (scene.continuousLandingOffsetPx(follower) < -1f) observedClearance = true
+            }
             if (scene.rapidLandingMetadata) {
                 observedReveal = true
-                assertEquals("The ordinary predecessor uses the normal edge mask, not a virtual XL gap",
-                    0f, scene.continuousLandingOffsetPx(follower), 0.01f)
+                assertTrue("The portrait clears the metadata region before reveal",
+                    scene.continuousLandingOffsetPx(follower) < -1f)
                 assertEquals("The focused row must not be translated by metadata clearance",
                     0f, scene.continuousLandingOffsetPx(catalogRowKey(rows[2])), 0.01f)
-                assertEquals("The mask must be restored before the new metadata appears",
-                    0f to ordinaryTop, mask)
             }
         }
-        assertTrue("Actual Home must animate the returning edge mask", observedPartialMask)
-        assertTrue("Actual Home must reveal only the final metadata after the mask is restored", observedReveal)
+        assertTrue("Actual Home must animate the departing portrait", observedClearance)
+        assertTrue("Actual Home must reveal only the final metadata after the portrait clears", observedReveal)
+        assertFalse(scene.interruptedHiddenXlExit)
+        assertEquals(0f to ordinaryTop, xlSceneMetadataMask(scene, list.layoutInfo, true, ordinaryTop, scene.density))
         assertFalse("The burst must release its metadata suppression after landing", scene.continuousVerticalNavigation)
         val selected = checkNotNull(scene.selection)
         assertEquals("Two Down presses must land two rows lower", catalogRowKey(rows[2]), selected.rowKey)
@@ -731,6 +733,36 @@ class ModernHomeIntegrationTest {
         val distance = (owner.offset + list.layoutInfo.beforeContentPadding + scene.gapPx(selected.rowKey) +
             scene.headerPx(selected.rowKey) - scene.posterAnchorPx(selected)).toFloat()
         assertTrue("Returning XL must land at its physical anchor", xlLandingAligned(distance))
+    }
+
+    @Test fun repeatedDownAtSettledBottomXlDoesNotRestartOrMoveThePrecedingRow() {
+        val rows = scenarioRows(4)
+        val keys = rows.map(::catalogRowKey)
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true, enrichmentReadyRowKeys = keys.toSet(),
+            xlCatalogKeys = setOf(keys.last()), fullWidthIconRowEnabled = true,
+            aggregateStreamingPlatformsEnabled = true, showAllCatalogsOnHome = true,
+            doubleUpPlatformShortcutEnabled = false, posterLabelsEnabled = false))
+        repeat(3) { press(KeyEvent.KEYCODE_DPAD_DOWN); advance(1800) }
+        assertEquals(keys.last(), scene.selection?.rowKey)
+        val before = list.layoutInfo.visibleItemsInfo.associate { it.key to (it.offset to it.size) }
+        val gaps = scene.headroomValues.toMap()
+        val prefix = scene.landscapePreXlCompression.toMap()
+        val epoch = scene.continuousInputEpoch
+        val start = SystemClock.uptimeMillis()
+        repeat(5) { tap ->
+            press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = start + tap * 110L)
+            repeat(6) {
+                advance(16)
+                assertFalse("Redundant Down cannot start a burst", scene.continuousVerticalNavigation)
+                assertFalse(list.isScrollInProgress)
+                assertNull(scene.verticalMotion)
+                assertEquals(epoch, scene.continuousInputEpoch)
+                assertEquals(gaps, scene.headroomValues.toMap())
+                assertEquals(prefix, scene.landscapePreXlCompression.toMap())
+                assertEquals(before, list.layoutInfo.visibleItemsInfo.associate { it.key to (it.offset to it.size) })
+            }
+        }
     }
 
 }
