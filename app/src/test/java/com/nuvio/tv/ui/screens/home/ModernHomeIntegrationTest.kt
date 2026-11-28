@@ -689,4 +689,48 @@ class ModernHomeIntegrationTest {
         assertFalse(list.isScrollInProgress)
     }
 
+    @Test fun mediumSpeedHiddenExitThenReversalDoesNotExposeAnOrdinaryMaskOverXl() {
+        val rows = scenarioRows(5)
+        val keys = rows.map(::catalogRowKey)
+        mountScenario(HomeUiState(catalogRows = rows, isLoading = false, catalogsReady = true,
+            skeletonReady = true, layoutPreferencesReady = true, enrichmentReadyRowKeys = keys.toSet(),
+            xlCatalogKeys = setOf(keys[0]), fullWidthIconRowEnabled = true,
+            aggregateStreamingPlatformsEnabled = true, showAllCatalogsOnHome = true,
+            doubleUpPlatformShortcutEnabled = false, posterLabelsEnabled = false))
+        val start = SystemClock.uptimeMillis()
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = start)
+        advance(320)
+        assertEquals(keys[1], scene.selection?.rowKey)
+        assertTrue("Interrupt the exit before ordinary metadata appears", scene.hasUnrevealedDownwardExit())
+        // The key interval exceeds the nominal burst threshold while the
+        // frame clock still owns the first XL exit.
+        press(KeyEvent.KEYCODE_DPAD_DOWN, gapMs = 0, eventTime = start + 450)
+        assertEquals(keys[2], scene.selection?.rowKey)
+        assertTrue(scene.continuousVerticalNavigation)
+        val top = scene.ordinaryTop.value * scene.density
+        repeat(5) {
+            advance(16)
+            assertNull("No tentative edge fade over the first ordinary row",
+                xlSceneMetadataMask(scene, list.layoutInfo, true, top, scene.density))
+        }
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start + 550)
+        advance(80)
+        press(KeyEvent.KEYCODE_DPAD_UP, gapMs = 0, eventTime = start + 650)
+        assertEquals(keys[0], scene.selection?.rowKey)
+        repeat(130) {
+            advance(16)
+            assertNull("No ordinary mask may survive this XL reversal",
+                xlSceneMetadataMask(scene, list.layoutInfo, true, top, scene.density))
+            assertFalse(scene.rapidLandingMetadata)
+        }
+        assertFalse(scene.continuousVerticalNavigation)
+        assertFalse(list.isScrollInProgress)
+        assertNull(scene.retainedBurstPresentation)
+        val owner = list.layoutInfo.visibleItemsInfo.first { it.key == keys[0] }
+        val selected = checkNotNull(scene.selection)
+        val distance = (owner.offset + list.layoutInfo.beforeContentPadding + scene.gapPx(selected.rowKey) +
+            scene.headerPx(selected.rowKey) - scene.posterAnchorPx(selected)).toFloat()
+        assertTrue("Returning XL must land at its physical anchor", xlLandingAligned(distance))
+    }
+
 }
